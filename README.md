@@ -42,8 +42,59 @@ milestone.
 
 ## Quick start
 
-(Coming as part of v0 development — see the
-[tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1).)
+At Phase A the container is a single-shot smoke test: it invokes
+`claude -p "Say hello in one short sentence."` and prints the response to
+the docker logs. Real analyzer behavior lands in later phases (see the
+[tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)).
+
+### Run the published image (server-style)
+
+```bash
+docker compose pull
+docker compose up
+```
+
+The image at `docker.io/robotsix/cai:latest` is published from this repo on
+every push to `main` (see [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)).
+
+### Build and run from source (local dev)
+
+```bash
+git clone git@github.com:damien-robotsix/robotsix-cai.git
+cd robotsix-cai
+docker compose build
+docker compose up
+```
+
+### Authentication — pick one
+
+`claude -p` accepts either an API key in the environment **or** a mounted
+OAuth credentials file from the host. Pick whichever is more convenient.
+
+**Option A — API key in `.env`:**
+
+```bash
+cp .env.example .env
+echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
+docker compose up
+```
+
+**Option B — mounted OAuth credentials (preferred for self-hosted):**
+
+If you've already run `claude login` interactively on the host, the file
+`~/.claude/.credentials.json` exists and `docker-compose.yml` can mount it
+into the container read-only. Open `docker-compose.yml` and uncomment the
+`volumes:` block. With this mode, no `ANTHROPIC_API_KEY` is needed and no
+static secret is held in the container's environment.
+
+### Expected output
+
+```
+Hello! How can I help you today?
+```
+
+(Or similar — the exact response varies. Any non-empty Claude response in
+the logs means the runtime envelope is working.)
 
 ## License
 
