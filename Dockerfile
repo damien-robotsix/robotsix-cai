@@ -11,6 +11,12 @@ FROM python:3.12-slim
 # Bumping this should be a deliberate, reviewed change.
 ARG CLAUDE_CODE_VERSION=2.1.96
 
+# Pin supercronic (the in-container cron supervisor; Phase D onward).
+# SHA256 is computed once against v0.2.44's linux-amd64 binary; bumping
+# the version requires computing a new hash.
+ARG SUPERCRONIC_VERSION=0.2.44
+ARG SUPERCRONIC_SHA256=6feff7d5eba16a89cf229b7eb644cfae2f03a32c62ca320f17654659315275b6
+
 # Install Node.js (Bookworm slim ships Node 18, which satisfies claude-code's
 # >=18 requirement) plus npm, then install claude-code globally. Also
 # installs the `gh` CLI from GitHub's official apt repository — the analyzer
@@ -35,10 +41,22 @@ RUN apt-get update \
     && claude --version \
     && gh --version
 
+# Install supercronic — a cron-compatible scheduler built for containers.
+# It runs as PID 1 via entrypoint.sh, forwards child stdout/stderr to its
+# own stdout (so docker logs sees everything), and handles SIGTERM
+# gracefully (lets in-flight tasks finish before exiting).
+RUN wget -nv -O /usr/local/bin/supercronic \
+        "https://github.com/aptible/supercronic/releases/download/v${SUPERCRONIC_VERSION}/supercronic-linux-amd64" \
+    && echo "${SUPERCRONIC_SHA256}  /usr/local/bin/supercronic" | sha256sum -c - \
+    && chmod +x /usr/local/bin/supercronic \
+    && supercronic -version
+
 WORKDIR /app
 COPY cai.py /app/cai.py
 COPY parse.py /app/parse.py
 COPY publish.py /app/publish.py
 COPY prompts /app/prompts
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-CMD ["python", "/app/cai.py"]
+CMD ["/app/entrypoint.sh"]

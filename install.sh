@@ -95,6 +95,11 @@ case "$AUTH_CHOICE" in
 services:
   cai:
     image: robotsix/cai:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      # Crontab expression for the analyzer task. Any valid 5-field
+      # cron line works — see https://crontab.guru/. Default: hourly.
+      CAI_ANALYZER_SCHEDULE: "0 * * * *"
     volumes:
       - \${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
       - cai_transcripts:/root/.claude/projects
@@ -121,8 +126,13 @@ YAML
 services:
   cai:
     image: robotsix/cai:${IMAGE_TAG}
+    restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # Crontab expression for the analyzer task. Any valid 5-field
+      # cron line works — see https://crontab.guru/. Default: hourly.
+      CAI_ANALYZER_SCHEDULE: "0 * * * *"
     volumes:
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh
@@ -185,11 +195,18 @@ if [[ "$TTY" == "/dev/tty" ]]; then
   echo
   echo "Next steps:"
   echo "  cd $INSTALL_DIR"
-  echo "  docker compose up"
+  echo "  docker compose up -d                    # start the scheduler"
+  echo "  docker compose logs -f cai              # watch the first cycle"
+  echo
+  echo "Override the schedule by editing docker-compose.yml's"
+  echo "CAI_ANALYZER_SCHEDULE env var (any valid cron expression)."
+  echo
+  echo "Trigger an ad-hoc analyzer run without waiting for the tick:"
+  echo "  docker compose exec cai python /app/cai.py analyze"
 else
   echo "[!] No controlling TTY — skipping the interactive login."
   echo "    Finish authentication yourself before the first run:"
   echo "      cd $INSTALL_DIR"
   echo "      docker compose run --rm cai gh auth login"
-  echo "      docker compose up"
+  echo "      docker compose up -d"
 fi

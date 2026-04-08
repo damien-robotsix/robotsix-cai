@@ -42,16 +42,31 @@ milestone.
 
 ## Quick start
 
-Each `docker compose up` now runs three things in order:
+The container is now long-lived. It runs as a **scheduler**
+([supercronic](https://github.com/aptible/supercronic) as PID 1) that
+fires scheduled tasks on a configurable cron, and `cai.py` is a
+subcommand dispatcher so future tasks can slot in alongside the
+analyzer without touching the scheduling layer.
 
-1. **Auth check** — `gh auth status` must succeed; the installer runs
-   `gh auth login` once and persists credentials in a Docker volume.
-2. **Smoke test** — a trivial `claude -p "say hello"` call that also
-   seeds a transcript for the analyzer to read on the next run.
-3. **Analyzer + publish** — parses prior transcripts with `parse.py`,
-   asks `claude -p` to produce structured findings against the
-   `prompts/backend-auto-improve.md` prompt, and publishes the
-   findings as GitHub issues via `gh` (deduped by fingerprint).
+On `docker compose up -d` the container does this:
+
+1. **Template the crontab** from env vars. Today there's one task:
+   `CAI_ANALYZER_SCHEDULE` (default `0 * * * *`, i.e. hourly).
+2. **Initial pass** — run `cai.py init` (smoke-test `claude -p` only
+   if the transcript volume is empty, to seed the loop) and
+   `cai.py analyze` once synchronously so logs show an immediate
+   result instead of waiting for the first cron tick.
+3. **Hand off to supercronic**, which then runs `cai.py analyze` on
+   the schedule until the container stops.
+
+Each `cai.py analyze` run:
+
+- verifies `gh auth status` succeeds (hard fail with a pointer to the
+  installer's login step if not)
+- parses prior transcripts with `parse.py`
+- asks `claude -p` to produce structured findings against the
+  `prompts/backend-auto-improve.md` prompt
+- publishes findings as GitHub issues via `gh` (deduped by fingerprint)
 
 See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
 for what lands in later phases.
@@ -99,13 +114,33 @@ After the installer finishes:
 
 ```bash
 cd robotsix-cai
-docker compose up
+docker compose up -d           # start the scheduler
+docker compose logs -f cai     # watch the first cycle
 ```
 
-Expected output per run: the smoke-test greeting, a structured findings
-report from the analyzer (or `No findings.`), and — if anything is
-actionable — new issues filed in this repository with labels
-`auto-improve`, `auto-improve:raised`, and `category:<kind>`.
+Expected output: the templated crontab, the initial `cai.py init` (a
+greeting on the very first run, otherwise skipped), the initial
+`cai.py analyze`, then supercronic standing by for the next cron tick.
+
+### Changing the schedule
+
+Edit the `CAI_ANALYZER_SCHEDULE` environment variable in the generated
+`docker-compose.yml` (any valid 5-field cron expression, or `@hourly`,
+`@daily`, etc.) and restart the service:
+
+```bash
+docker compose up -d
+```
+
+### Triggering a run ad-hoc
+
+You don't have to wait for the next cron tick — any subcommand can be
+invoked directly against the running container, which is what
+GitHub Actions or a host cron job would use to kick off a task:
+
+```bash
+docker compose exec cai python /app/cai.py analyze
+```
 
 ### One-shot smoke test (no install)
 
