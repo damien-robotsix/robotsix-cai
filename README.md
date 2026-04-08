@@ -152,9 +152,13 @@ any files at all, one `docker run` is enough.
 
 ```bash
 docker run --rm \
-  -v ~/.claude/.credentials.json:/root/.claude/.credentials.json:ro \
+  -v ~/.claude/.credentials.json:/root/.claude/.credentials.json \
   robotsix/cai:latest
 ```
+
+(The mount is read-write on purpose — claude-code refreshes the OAuth
+access token in place when it expires. A `:ro` mount blocks the
+refresh and 401s after the token's lifetime is up.)
 
 **With an API key:**
 
