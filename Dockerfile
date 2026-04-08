@@ -24,5 +24,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY cai.py /app/cai.py
+COPY parse.py /app/parse.py
+COPY prompts /app/prompts
 
 CMD ["python", "/app/cai.py"]
