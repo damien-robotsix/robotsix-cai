@@ -7,6 +7,12 @@
 
 FROM python:3.12-slim
 
+# Slim images don't ship xdg-open / x-www-browser, so `gh auth login
+# --web` emits a scary "Failed opening a web browser" error even
+# though the device flow is working fine. Point BROWSER at `echo` so
+# gh "opens" the URL by just printing it — same information, no noise.
+ENV BROWSER=echo
+
 # Pin the claude-code version so the self-improvement loop is reproducible.
 # Bumping this should be a deliberate, reviewed change.
 ARG CLAUDE_CODE_VERSION=2.1.96
