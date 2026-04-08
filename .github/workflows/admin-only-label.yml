@@ -1,0 +1,44 @@
+name: Admin-only auto-improve:requested label
+
+# Restricts the `auto-improve:requested` label to repo admins. When a
+# non-admin applies it, this workflow removes it and posts a comment
+# explaining why. Without this guard, anyone with read access could
+# queue arbitrary issues into the cai fix subagent.
+#
+# Triggers only on the `labeled` event for issues, so it's a no-op for
+# all other label changes.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+
+jobs:
+  enforce:
+    if: github.event.label.name == 'auto-improve:requested'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check sender's permission
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PERM=$(gh api \
+            "repos/${{ github.repository }}/collaborators/${{ github.event.sender.login }}/permission" \
+            --jq '.permission')
+          echo "perm=$PERM" >> "$GITHUB_OUTPUT"
+          echo "Sender ${{ github.event.sender.login }} has permission: $PERM"
+
+      - name: Remove label and notify if not admin
+        if: steps.check.outputs.perm != 'admin'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X DELETE \
+            "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/labels/auto-improve:requested"
+
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "@${{ github.event.sender.login }} only repo admins can apply the \`auto-improve:requested\` label — it queues the issue into the autonomous fix subagent. The label has been removed."

@@ -97,10 +97,12 @@ services:
     image: robotsix/cai:${IMAGE_TAG}
     restart: unless-stopped
     environment:
-      # Crontab expression for the analyzer task. Any valid 5-field
-      # cron line works — see https://crontab.guru/. Default: daily
-      # at midnight UTC.
-      CAI_ANALYZER_SCHEDULE: "0 0 * * *"
+      # Crontab expressions for the three scheduled tasks (any valid
+      # 5-field cron line — see https://crontab.guru/). Defaults
+      # stagger them so they never overlap.
+      CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
+      CAI_FIX_SCHEDULE: "15 * * * *"        # hourly :15 (cheap if no work)
+      CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly :45 (no LLM)
     volumes:
       # Mount is read-write so claude-code can refresh the OAuth
       # access token when it expires. claude-code writes the refreshed
@@ -135,10 +137,12 @@ services:
     env_file:
       - .env
     environment:
-      # Crontab expression for the analyzer task. Any valid 5-field
-      # cron line works — see https://crontab.guru/. Default: daily
-      # at midnight UTC.
-      CAI_ANALYZER_SCHEDULE: "0 0 * * *"
+      # Crontab expressions for the three scheduled tasks (any valid
+      # 5-field cron line — see https://crontab.guru/). Defaults
+      # stagger them so they never overlap.
+      CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
+      CAI_FIX_SCHEDULE: "15 * * * *"        # hourly :15 (cheap if no work)
+      CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly :45 (no LLM)
     volumes:
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh
