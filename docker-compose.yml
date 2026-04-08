@@ -17,8 +17,17 @@ services:
   cai:
     image: robotsix/cai:latest
     build: .
+    # Long-lived service — supercronic runs the analyzer on a schedule
+    # inside the container. Restart on crash + host reboot, but don't
+    # restart a container the user stopped deliberately.
+    restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # Crontab expression for the analyzer task. Any valid 5-field
+      # cron line works — see https://crontab.guru/ — supercronic also
+      # supports @hourly, @daily, etc. Default: midnight UTC every day.
+      CAI_ANALYZER_SCHEDULE: "0 0 * * *"
     volumes:
       # Persistent claude-code session transcripts. claude-code writes
       # session JSONL into ~/.claude/projects/<sanitized-cwd>/<sid>.jsonl

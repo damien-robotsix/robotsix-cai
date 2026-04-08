@@ -1,28 +1,33 @@
-"""Phase C.2 entry point — smoke test, self-analyzer, publish findings.
+"""Phase D entry point — subcommand dispatcher.
 
-Each `docker compose up` does three things, in order:
+Subcommands:
 
-1. **Auth check.** Verifies `gh auth status` succeeds. The installer
-   runs `gh auth login` once and persists credentials in a Docker
-   volume; if that's been skipped or wiped, we fail fast with a clear
-   pointer back to the install step.
+    python cai.py init      Smoke-test claude -p only if the transcript
+                            volume has no prior sessions. Used to seed
+                            the self-improvement loop on a fresh
+                            install; a no-op once transcripts exist.
 
-2. **Smoke test.** A trivial "say hello" prompt. Proves the runtime
-   envelope (Python, Node, claude-code, container auth) is healthy
-   and — importantly — produces a fresh JSONL transcript under
-   `/root/.claude/projects/-app/`. That transcript becomes input for
-   the analyzer on the *next* run, which seeds Lane 1's recursive
-   self-improvement loop.
+    python cai.py analyze   Parse prior transcripts with parse.py, pipe
+                            the combined analyzer prompt through
+                            claude -p, and publish findings via
+                            publish.py. Safe to call repeatedly — this
+                            is what supercronic invokes on its cron
+                            tick.
 
-3. **Analyzer + publish.** Runs `parse.py` against the transcript
-   directory, combines the parsed summary with the prompt at
-   `prompts/backend-auto-improve.md`, pipes it through `claude -p` to
-   produce structured findings, then pipes those findings into
-   `publish.py` to create GitHub issues (deduped by fingerprint).
+The container runs `entrypoint.sh`, which executes `init` and `analyze`
+once synchronously at startup (so `docker compose up -d` produces
+immediate logs), then hands off to supercronic. Future task types
+(daily report, workflow-triggered actions, etc.) add themselves as
+additional subcommands here and additional lines in the crontab.
+
+The gh auth check is intentionally done once per subcommand invocation.
+Each cron tick is a fresh process, and we want a clear error message in
+docker logs if credentials ever disappear from the cai_gh_config volume.
 
 No third-party Python dependencies — only stdlib.
 """
 
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -59,23 +64,35 @@ def check_gh_auth() -> int:
     return 0
 
 
-def run_smoke_test() -> int:
-    """Run the trivial 'say hello' prompt; let output flow to logs."""
-    print("[cai] running smoke test", flush=True)
+def _transcript_dir_is_empty() -> bool:
+    if not TRANSCRIPT_DIR.exists():
+        return True
+    return not any(TRANSCRIPT_DIR.glob("*.jsonl"))
+
+
+def cmd_init() -> int:
+    """Seed the loop with a smoke test, only if nothing exists yet."""
+    if not _transcript_dir_is_empty():
+        print("[cai init] transcripts already present; skipping smoke test", flush=True)
+        return 0
+
+    print("[cai init] no prior transcripts; running smoke test to seed loop", flush=True)
     result = subprocess.run(
         ["claude", "-p", SMOKE_PROMPT],
         check=False,
     )
+    if result.returncode != 0:
+        print(f"[cai init] smoke test failed (exit {result.returncode})", flush=True)
     return result.returncode
 
 
-def run_analyzer_and_publish() -> int:
+def cmd_analyze() -> int:
     """Parse prior transcripts, ask claude to analyze, publish findings."""
-    print("[cai] running self-analyzer", flush=True)
+    print("[cai analyze] running self-analyzer", flush=True)
 
     if not TRANSCRIPT_DIR.exists():
         print(
-            f"[cai] no transcript dir at {TRANSCRIPT_DIR}; nothing to analyze",
+            f"[cai analyze] no transcript dir at {TRANSCRIPT_DIR}; nothing to analyze",
             flush=True,
         )
         return 0
@@ -88,7 +105,7 @@ def run_analyzer_and_publish() -> int:
     )
     if parsed.returncode != 0:
         print(
-            f"[cai] parse.py failed (exit {parsed.returncode}):\n{parsed.stderr}",
+            f"[cai analyze] parse.py failed (exit {parsed.returncode}):\n{parsed.stderr}",
             flush=True,
         )
         return parsed.returncode
@@ -116,13 +133,13 @@ def run_analyzer_and_publish() -> int:
     print(analyzer.stdout, flush=True)
     if analyzer.returncode != 0:
         print(
-            f"[cai] analyzer claude -p failed (exit {analyzer.returncode}):\n"
+            f"[cai analyze] claude -p failed (exit {analyzer.returncode}):\n"
             f"{analyzer.stderr}",
             flush=True,
         )
         return analyzer.returncode
 
-    print("[cai] publishing findings to GitHub", flush=True)
+    print("[cai analyze] publishing findings", flush=True)
     published = subprocess.run(
         ["python", str(PUBLISH_SCRIPT)],
         input=analyzer.stdout,
@@ -132,17 +149,24 @@ def run_analyzer_and_publish() -> int:
     return published.returncode
 
 
+# Map subcommand name -> callable. Future phases add entries here and a
+# matching crontab line in entrypoint.sh.
+COMMANDS = {
+    "init": cmd_init,
+    "analyze": cmd_analyze,
+}
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(prog="cai")
+    parser.add_argument("command", choices=sorted(COMMANDS.keys()))
+    args = parser.parse_args()
+
     auth_rc = check_gh_auth()
     if auth_rc != 0:
         return auth_rc
 
-    smoke_rc = run_smoke_test()
-    if smoke_rc != 0:
-        print(f"[cai] smoke test failed (exit {smoke_rc})", flush=True)
-        return smoke_rc
-
-    return run_analyzer_and_publish()
+    return COMMANDS[args.command]()
 
 
 if __name__ == "__main__":
