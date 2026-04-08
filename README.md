@@ -51,7 +51,8 @@ analyzer without touching the scheduling layer.
 On `docker compose up -d` the container does this:
 
 1. **Template the crontab** from env vars. Today there's one task:
-   `CAI_ANALYZER_SCHEDULE` (default `0 * * * *`, i.e. hourly).
+   `CAI_ANALYZER_SCHEDULE` (default `0 0 * * *`, i.e. daily at
+   midnight UTC).
 2. **Initial pass** — run `cai.py init` (smoke-test `claude -p` only
    if the transcript volume is empty, to seed the loop) and
    `cai.py analyze` once synchronously so logs show an immediate

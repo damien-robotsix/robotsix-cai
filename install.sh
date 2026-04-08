@@ -98,8 +98,9 @@ services:
     restart: unless-stopped
     environment:
       # Crontab expression for the analyzer task. Any valid 5-field
-      # cron line works — see https://crontab.guru/. Default: hourly.
-      CAI_ANALYZER_SCHEDULE: "0 * * * *"
+      # cron line works — see https://crontab.guru/. Default: daily
+      # at midnight UTC.
+      CAI_ANALYZER_SCHEDULE: "0 0 * * *"
     volumes:
       - \${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
       - cai_transcripts:/root/.claude/projects
@@ -131,8 +132,9 @@ services:
       - .env
     environment:
       # Crontab expression for the analyzer task. Any valid 5-field
-      # cron line works — see https://crontab.guru/. Default: hourly.
-      CAI_ANALYZER_SCHEDULE: "0 * * * *"
+      # cron line works — see https://crontab.guru/. Default: daily
+      # at midnight UTC.
+      CAI_ANALYZER_SCHEDULE: "0 0 * * *"
     volumes:
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh
