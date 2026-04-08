@@ -37,10 +37,84 @@ later milestone.
 
 ## Quick start
 
-See the
-[README on GitHub](https://github.com/damien-robotsix/robotsix-cai#readme)
-for the current setup instructions. As v0 stabilizes, those will move
-into a dedicated section here.
+At Phase A the container is a single-shot smoke test: it invokes
+`claude -p "Say hello in one short sentence."` and prints the response
+to the docker logs. Real analyzer behavior lands in later phases.
+
+### Smoke test on a fresh server (one `docker run`, no clone)
+
+The fastest way to verify the published image works on your server.
+The image is published to Docker Hub on every push to `main`, so a
+single `docker run` is enough — no repo clone, no `docker-compose.yml`.
+
+**With an API key:**
+
+```bash
+docker run --rm \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  robotsix/cai:latest
+```
+
+**With OAuth credentials from the host** (preferred — no static secret
+in the container env). Requires `claude login` to have been run on the
+server, OR `~/.claude/.credentials.json` copied over from another
+machine where you've already logged in:
+
+```bash
+docker run --rm \
+  -v ~/.claude/.credentials.json:/root/.claude/.credentials.json:ro \
+  robotsix/cai:latest
+```
+
+Expected output:
+
+```
+Hello! How can I help you today?
+```
+
+(Or similar — the exact response varies.) If you see a non-empty
+greeting and the container exits with code 0, the published image,
+your Docker setup, and your auth all work end-to-end.
+
+### Persistent setup with `docker-compose`
+
+For repeatable runs and the eventual long-running daemon mode, use the
+published `docker-compose.yml` from the repo:
+
+```bash
+git clone https://github.com/damien-robotsix/robotsix-cai.git
+cd robotsix-cai
+docker compose pull
+```
+
+Then pick one auth mode:
+
+**Option A — API key in `.env`:**
+
+```bash
+cp .env.example .env
+echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
+docker compose up
+```
+
+**Option B — mounted OAuth credentials:**
+
+Open `docker-compose.yml` and uncomment the `volumes:` block. Then:
+
+```bash
+docker compose up
+```
+
+### Build from source (local dev)
+
+```bash
+git clone https://github.com/damien-robotsix/robotsix-cai.git
+cd robotsix-cai
+docker compose build
+docker compose up
+```
+
+Same auth-mode picks as the persistent setup.
 
 ## License
 
