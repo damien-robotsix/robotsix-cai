@@ -42,10 +42,19 @@ milestone.
 
 ## Quick start
 
-At Phase A the container is a single-shot smoke test: it invokes
-`claude -p "Say hello in one short sentence."` and prints the response to
-the docker logs. Real analyzer behavior lands in later phases (see the
-[tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)).
+Each `docker compose up` now runs three things in order:
+
+1. **Auth check** — `gh auth status` must succeed; the installer runs
+   `gh auth login` once and persists credentials in a Docker volume.
+2. **Smoke test** — a trivial `claude -p "say hello"` call that also
+   seeds a transcript for the analyzer to read on the next run.
+3. **Analyzer + publish** — parses prior transcripts with `parse.py`,
+   asks `claude -p` to produce structured findings against the
+   `prompts/backend-auto-improve.md` prompt, and publishes the
+   findings as GitHub issues via `gh` (deduped by fingerprint).
+
+See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
+for what lands in later phases.
 
 ### Quick install (recommended)
 
@@ -79,16 +88,24 @@ Optional environment variables you can set before running the script:
 - `IMAGE_TAG`   — Docker image tag to pin (default: `latest`; you can
   pin a `sha-<short>` for reproducibility)
 
-After the installer finishes, follow the printed next steps:
+The installer then pulls the image and runs `gh auth login` inside the
+container — pick **GitHub.com → HTTPS → Authenticate via web browser**
+when prompted. gh prints a one-time code and a URL; paste the code into
+the URL from any browser (handy on a headless server). The resulting
+credentials are saved in a Docker volume named `cai_gh_config`, so
+subsequent runs don't need to re-authenticate.
+
+After the installer finishes:
 
 ```bash
 cd robotsix-cai
-docker compose pull
 docker compose up
 ```
 
-Expected output: a single greeting line (`Hello! How can I help you
-today?` or similar) and the container exits with code 0.
+Expected output per run: the smoke-test greeting, a structured findings
+report from the analyzer (or `No findings.`), and — if anything is
+actionable — new issues filed in this repository with labels
+`auto-improve`, `auto-improve:raised`, and `category:<kind>`.
 
 ### One-shot smoke test (no install)
 
@@ -130,26 +147,30 @@ the `volumes:` block.
 
 ## Persistent data
 
-The container persists Claude Code's session transcripts in a Docker
-named volume called **`cai_transcripts`**, mounted at
-`/root/.claude/projects` inside the container. claude-code writes one
-JSONL file per session under
-`/root/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`, and the
-volume keeps that data across container restarts so future analyzer
-runs can read it.
+The container uses two Docker named volumes:
 
-Inspect the volume from outside the container:
+- **`cai_transcripts`** (mounted at `/root/.claude/projects`) —
+  claude-code writes one JSONL file per session under
+  `/root/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`; the
+  volume keeps that data across restarts so future analyzer runs can
+  read it.
+- **`cai_gh_config`** (mounted at `/root/.config/gh`) — the `gh` CLI's
+  credential store. Populated once by the installer's
+  `gh auth login` step and reused on every subsequent run.
+
+Inspect a volume from outside the container:
 
 ```bash
 docker volume inspect cai_transcripts
 docker run --rm -v cai_transcripts:/data alpine ls -R /data
 ```
 
-Wipe the volume (deletes all stored transcripts):
+Wipe everything (deletes transcripts and gh credentials — you'll need
+to re-authenticate afterwards):
 
 ```bash
 docker compose down --volumes        # if you used compose
-docker volume rm cai_transcripts     # standalone
+docker volume rm cai_transcripts cai_gh_config   # standalone
 ```
 
 ## License

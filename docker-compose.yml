@@ -25,6 +25,11 @@ services:
       # inside the container; this named volume keeps that data across
       # container restarts so future analyzer runs can read it.
       - cai_transcripts:/root/.claude/projects
+      # Persistent gh CLI configuration. The installer runs
+      # `docker compose run --rm cai gh auth login` once and the
+      # resulting credentials land here, so subsequent `docker compose
+      # up` runs don't need to re-authenticate.
+      - cai_gh_config:/root/.config/gh
       # Uncomment to use OAuth credentials from the host instead of an
       # API key. Requires `claude login` to have been run on the host so
       # the credentials file already exists. When this is in use,
@@ -35,3 +40,5 @@ services:
 volumes:
   cai_transcripts:
     name: cai_transcripts
+  cai_gh_config:
+    name: cai_gh_config

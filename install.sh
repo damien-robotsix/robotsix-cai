@@ -98,10 +98,13 @@ services:
     volumes:
       - \${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
       - cai_transcripts:/root/.claude/projects
+      - cai_gh_config:/root/.config/gh
 
 volumes:
   cai_transcripts:
     name: cai_transcripts
+  cai_gh_config:
+    name: cai_gh_config
 YAML
     echo
     echo "[OK] Wrote $INSTALL_DIR/docker-compose.yml (credentials-mount mode)"
@@ -122,10 +125,13 @@ services:
       - .env
     volumes:
       - cai_transcripts:/root/.claude/projects
+      - cai_gh_config:/root/.config/gh
 
 volumes:
   cai_transcripts:
     name: cai_transcripts
+  cai_gh_config:
+    name: cai_gh_config
 YAML
     cat > .env <<ENV
 ANTHROPIC_API_KEY=${API_KEY}
@@ -142,7 +148,48 @@ ENV
 esac
 
 echo
-echo "Next steps:"
-echo "  cd $INSTALL_DIR"
-echo "  docker compose pull"
-echo "  docker compose up"
+echo "Pulling the cai image..."
+echo
+if ! docker compose pull; then
+  echo
+  echo "[!] 'docker compose pull' failed. If you're developing locally, you"
+  echo "    can build from source instead: 'docker compose build'"
+  exit 1
+fi
+
+echo
+echo "Authenticating gh inside the container (interactive)."
+echo "Credentials persist in a Docker volume named 'cai_gh_config' so"
+echo "subsequent 'docker compose up' runs don't need to re-authenticate."
+echo
+echo "When prompted, pick:"
+echo "  * 'GitHub.com'"
+echo "  * 'HTTPS'"
+echo "  * Authenticate via web browser (easiest on a headless server —"
+echo "    gh prints a one-time code and a URL to open)"
+echo
+
+# 'docker compose run' needs a real TTY for the interactive prompts.
+# The piped form of the installer (wget -qO- | bash) consumes stdin, so
+# we redirect stdin from /dev/tty when we have one. Without a TTY, we
+# fall back to printing the command and letting the user run it.
+if [[ "$TTY" == "/dev/tty" ]]; then
+  if ! docker compose run --rm cai gh auth login < /dev/tty; then
+    echo
+    echo "[!] gh auth login did not complete. Rerun it yourself:"
+    echo "      cd $INSTALL_DIR && docker compose run --rm cai gh auth login"
+    exit 1
+  fi
+  echo
+  echo "[OK] gh is authenticated. Credentials persisted in cai_gh_config."
+  echo
+  echo "Next steps:"
+  echo "  cd $INSTALL_DIR"
+  echo "  docker compose up"
+else
+  echo "[!] No controlling TTY — skipping the interactive login."
+  echo "    Finish authentication yourself before the first run:"
+  echo "      cd $INSTALL_DIR"
+  echo "      docker compose run --rm cai gh auth login"
+  echo "      docker compose up"
+fi
