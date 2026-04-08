@@ -47,54 +47,85 @@ At Phase A the container is a single-shot smoke test: it invokes
 the docker logs. Real analyzer behavior lands in later phases (see the
 [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)).
 
-### Run the published image (server-style)
+### Quick install (recommended)
+
+The installer is a small bash script that asks a couple of questions and
+writes a minimal `docker-compose.yml` configured for your auth setup. No
+repo clone, no manual editing of compose files.
 
 ```bash
+wget https://raw.githubusercontent.com/damien-robotsix/robotsix-cai/main/install.sh
+less install.sh    # review before running
+bash install.sh
+```
+
+You can also pipe it (skips the review step):
+
+```bash
+wget -qO- https://raw.githubusercontent.com/damien-robotsix/robotsix-cai/main/install.sh | bash
+```
+
+The installer asks for the **auth mode**:
+
+1. **Mount OAuth credentials** from `${HOME}/.claude/.credentials.json` —
+   recommended if you've run `claude login` on this host. No static
+   secret is stored in the container env.
+2. **Anthropic API key** — paste an `sk-ant-...` key when prompted; it's
+   written to a `.env` file (chmod 600).
+
+Optional environment variables you can set before running the script:
+
+- `INSTALL_DIR` — directory to install into (default: `./robotsix-cai`)
+- `IMAGE_TAG`   — Docker image tag to pin (default: `latest`; you can
+  pin a `sha-<short>` for reproducibility)
+
+After the installer finishes, follow the printed next steps:
+
+```bash
+cd robotsix-cai
 docker compose pull
 docker compose up
 ```
 
-The image at `docker.io/robotsix/cai:latest` is published from this repo on
-every push to `main` (see [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)).
+Expected output: a single greeting line (`Hello! How can I help you
+today?` or similar) and the container exits with code 0.
 
-### Build and run from source (local dev)
+### One-shot smoke test (no install)
+
+If you just want to verify the published image works without writing
+any files at all, one `docker run` is enough.
+
+**With OAuth credentials from the host:**
 
 ```bash
-git clone git@github.com:damien-robotsix/robotsix-cai.git
+docker run --rm \
+  -v ~/.claude/.credentials.json:/root/.claude/.credentials.json:ro \
+  robotsix/cai:latest
+```
+
+**With an API key:**
+
+```bash
+docker run --rm \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  robotsix/cai:latest
+```
+
+The image at `docker.io/robotsix/cai:latest` is published from this repo
+on every push to `main` (see
+[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)).
+
+### Build from source (local dev)
+
+```bash
+git clone https://github.com/damien-robotsix/robotsix-cai.git
 cd robotsix-cai
 docker compose build
 docker compose up
 ```
 
-### Authentication — pick one
-
-`claude -p` accepts either an API key in the environment **or** a mounted
-OAuth credentials file from the host. Pick whichever is more convenient.
-
-**Option A — API key in `.env`:**
-
-```bash
-cp .env.example .env
-echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
-docker compose up
-```
-
-**Option B — mounted OAuth credentials (preferred for self-hosted):**
-
-If you've already run `claude login` interactively on the host, the file
-`~/.claude/.credentials.json` exists and `docker-compose.yml` can mount it
-into the container read-only. Open `docker-compose.yml` and uncomment the
-`volumes:` block. With this mode, no `ANTHROPIC_API_KEY` is needed and no
-static secret is held in the container's environment.
-
-### Expected output
-
-```
-Hello! How can I help you today?
-```
-
-(Or similar — the exact response varies. Any non-empty Claude response in
-the logs means the runtime envelope is working.)
+The repo's `docker-compose.yml` defaults to API-key auth via `.env`. To
+use mounted OAuth credentials instead, uncomment the `volumes:` block.
 
 ## License
 
