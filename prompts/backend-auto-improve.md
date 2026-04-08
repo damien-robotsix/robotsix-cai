@@ -1,3 +1,4 @@
+<!-- phase E verification marker -->
 # Backend Auto-Improve
 
 You are the analyzer for `robotsix-cai`'s self-improvement loop. Your
