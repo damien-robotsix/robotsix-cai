@@ -1,0 +1,28 @@
+# Phase A — runs the first-runnable-container locally or on the server.
+#
+# Two ways to use this file:
+#
+#   * Local development: `docker compose build && docker compose up`
+#     builds the image from the Dockerfile in this directory.
+#
+#   * Self-hosted server: `docker compose pull && docker compose up -d`
+#     pulls the published image from Docker Hub (robotsix/cai:latest).
+#
+# Two auth modes (pick one — see README for details):
+#
+#   * .env file with ANTHROPIC_API_KEY (default below)
+#   * Mounted ~/.claude/.credentials.json from the host (uncomment below)
+
+services:
+  cai:
+    image: robotsix/cai:latest
+    build: .
+    env_file:
+      - .env
+    # Uncomment the volumes block to use OAuth credentials from the host
+    # instead of an API key. Requires `claude login` to have been run on
+    # the host so the credentials file already exists. When this is in
+    # use, ANTHROPIC_API_KEY in .env is unnecessary.
+    #
+    # volumes:
+    #   - ${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
