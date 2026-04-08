@@ -125,7 +125,32 @@ docker compose up
 ```
 
 The repo's `docker-compose.yml` defaults to API-key auth via `.env`. To
-use mounted OAuth credentials instead, uncomment the `volumes:` block.
+use mounted OAuth credentials instead, uncomment the relevant entry in
+the `volumes:` block.
+
+## Persistent data
+
+The container persists Claude Code's session transcripts in a Docker
+named volume called **`cai_transcripts`**, mounted at
+`/root/.claude/projects` inside the container. claude-code writes one
+JSONL file per session under
+`/root/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`, and the
+volume keeps that data across container restarts so future analyzer
+runs can read it.
+
+Inspect the volume from outside the container:
+
+```bash
+docker volume inspect cai_transcripts
+docker run --rm -v cai_transcripts:/data alpine ls -R /data
+```
+
+Wipe the volume (deletes all stored transcripts):
+
+```bash
+docker compose down --volumes        # if you used compose
+docker volume rm cai_transcripts     # standalone
+```
 
 ## License
 

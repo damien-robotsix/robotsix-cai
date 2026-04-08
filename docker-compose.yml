@@ -19,10 +19,19 @@ services:
     build: .
     env_file:
       - .env
-    # Uncomment the volumes block to use OAuth credentials from the host
-    # instead of an API key. Requires `claude login` to have been run on
-    # the host so the credentials file already exists. When this is in
-    # use, ANTHROPIC_API_KEY in .env is unnecessary.
-    #
-    # volumes:
-    #   - ${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
+    volumes:
+      # Persistent claude-code session transcripts. claude-code writes
+      # session JSONL into ~/.claude/projects/<sanitized-cwd>/<sid>.jsonl
+      # inside the container; this named volume keeps that data across
+      # container restarts so future analyzer runs can read it.
+      - cai_transcripts:/root/.claude/projects
+      # Uncomment to use OAuth credentials from the host instead of an
+      # API key. Requires `claude login` to have been run on the host so
+      # the credentials file already exists. When this is in use,
+      # ANTHROPIC_API_KEY in .env is unnecessary.
+      #
+      # - ${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
+
+volumes:
+  cai_transcripts:
+    name: cai_transcripts

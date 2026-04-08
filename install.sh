@@ -97,6 +97,11 @@ services:
     image: robotsix/cai:${IMAGE_TAG}
     volumes:
       - \${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
+      - cai_transcripts:/root/.claude/projects
+
+volumes:
+  cai_transcripts:
+    name: cai_transcripts
 YAML
     echo
     echo "[OK] Wrote $INSTALL_DIR/docker-compose.yml (credentials-mount mode)"
@@ -115,6 +120,12 @@ services:
     image: robotsix/cai:${IMAGE_TAG}
     env_file:
       - .env
+    volumes:
+      - cai_transcripts:/root/.claude/projects
+
+volumes:
+  cai_transcripts:
+    name: cai_transcripts
 YAML
     cat > .env <<ENV
 ANTHROPIC_API_KEY=${API_KEY}
