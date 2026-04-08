@@ -102,7 +102,11 @@ services:
       # at midnight UTC.
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"
     volumes:
-      - \${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
+      # Mount is read-write so claude-code can refresh the OAuth
+      # access token when it expires. claude-code writes the refreshed
+      # token back to this file; without :rw, subsequent API calls
+      # would 401 once the token lifetime is up.
+      - \${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh
 
