@@ -47,6 +47,10 @@ VALID_CATEGORIES = {
 LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Finding freshly raised; not yet triaged"),
+    ("auto-improve:requested", "1d76db", "Human-requested fix (admin-only label)"),
+    ("auto-improve:in-progress", "fbca04", "fix subagent is actively working on this issue"),
+    ("auto-improve:pr-open", "5319e7", "fix subagent opened a PR"),
+    ("auto-improve:merged", "0e8a16", "PR was merged; awaiting verify"),
     ("category:reliability", "d73a4a", "Errors, failures, flaky behavior"),
     ("category:cost_reduction", "fbca04", "Token waste, unnecessary tool calls"),
     ("category:prompt_quality", "0075ca", "Unclear or missing prompt guidance"),

@@ -42,32 +42,71 @@ milestone.
 
 ## Quick start
 
-The container is now long-lived. It runs as a **scheduler**
+The container is long-lived. It runs as a **scheduler**
 ([supercronic](https://github.com/aptible/supercronic) as PID 1) that
-fires scheduled tasks on a configurable cron, and `cai.py` is a
-subcommand dispatcher so future tasks can slot in alongside the
-analyzer without touching the scheduling layer.
+fires three independent tasks on configurable cron schedules.
+`cai.py` is a subcommand dispatcher so each task is its own
+subprocess with no shared state.
 
-On `docker compose up -d` the container does this:
+| Subcommand | Default schedule | What it does |
+|---|---|---|
+| `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
+| `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, lets a subagent edit the repo with full tool permissions, opens a PR — see lifecycle below |
+| `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state |
 
-1. **Template the crontab** from env vars. Today there's one task:
-   `CAI_ANALYZER_SCHEDULE` (default `0 0 * * *`, i.e. daily at
-   midnight UTC).
-2. **Initial pass** — run `cai.py init` (smoke-test `claude -p` only
-   if the transcript volume is empty, to seed the loop) and
-   `cai.py analyze` once synchronously so logs show an immediate
-   result instead of waiting for the first cron tick.
-3. **Hand off to supercronic**, which then runs `cai.py analyze` on
-   the schedule until the container stops.
+On `docker compose up -d` the entrypoint templates the crontab from
+the three env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
+`CAI_VERIFY_SCHEDULE`), runs each subcommand once synchronously so
+logs show immediate results, then execs supercronic.
 
-Each `cai.py analyze` run:
+### Issue lifecycle
 
-- verifies `gh auth status` succeeds (hard fail with a pointer to the
-  installer's login step if not)
-- parses prior transcripts with `parse.py`
-- asks `claude -p` to produce structured findings against the
-  `prompts/backend-auto-improve.md` prompt
-- publishes findings as GitHub issues via `gh` (deduped by fingerprint)
+The fix subagent transitions issues through a label-based state
+machine. The lock label (`:in-progress`) is set as the **first** gh
+action so two concurrent `fix` runs can't pick the same issue.
+
+```
+                              raised  ◄──┐
+                                │       │ (PR closed
+                                │ fix    │  unmerged,
+                                ▼        │  rolled back)
+                          in-progress    │
+                                │        │
+                                │ PR opened
+                                ▼        │
+                            pr-open ─────┘
+                                │
+                                │ verify (PR merged)
+                                ▼
+                             merged
+```
+
+`auto-improve:requested` is a separate entry point: a human applies
+it to an arbitrary issue to opt it into the fix queue. The label is
+restricted to repo admins by `.github/workflows/admin-only-label.yml`
+— a non-admin who applies it gets the label removed and a comment
+explaining why.
+
+### Triggering tasks ad-hoc
+
+Each subcommand also runs as a one-shot CLI command against the
+running container. This is what GitHub Actions, host cron jobs, or
+just-trying-things-out from the terminal would use:
+
+```bash
+docker compose exec cai python /app/cai.py analyze
+docker compose exec cai python /app/cai.py fix              # oldest eligible
+docker compose exec cai python /app/cai.py fix --issue 12   # specific issue
+docker compose exec cai python /app/cai.py verify
+```
+
+A short alias makes this trivial:
+
+```bash
+alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /app/cai.py'
+cai fix --issue 12
+cai verify
+```
 
 See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
 for what lands in later phases.
