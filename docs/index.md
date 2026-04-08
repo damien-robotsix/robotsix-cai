@@ -37,10 +37,82 @@ later milestone.
 
 ## Quick start
 
-See the
-[README on GitHub](https://github.com/damien-robotsix/robotsix-cai#readme)
-for the current setup instructions. As v0 stabilizes, those will move
-into a dedicated section here.
+At Phase A the container is a single-shot smoke test: it invokes
+`claude -p "Say hello in one short sentence."` and prints the response
+to the docker logs. Real analyzer behavior lands in later phases.
+
+### Quick install (recommended)
+
+The installer is a small bash script that asks a couple of questions
+and writes a minimal `docker-compose.yml` configured for your auth
+setup. No repo clone, no manual editing of compose files.
+
+```bash
+wget https://raw.githubusercontent.com/damien-robotsix/robotsix-cai/main/install.sh
+less install.sh    # review before running
+bash install.sh
+```
+
+You can also pipe it (skips the review step):
+
+```bash
+wget -qO- https://raw.githubusercontent.com/damien-robotsix/robotsix-cai/main/install.sh | bash
+```
+
+The installer asks for the **auth mode**:
+
+1. **Mount OAuth credentials** from `${HOME}/.claude/.credentials.json`
+   — recommended if you've run `claude login` on this host. No static
+   secret is stored in the container env.
+2. **Anthropic API key** — paste an `sk-ant-...` key when prompted;
+   it's written to a `.env` file (chmod 600).
+
+Optional environment variables you can set before running the script:
+
+- `INSTALL_DIR` — directory to install into (default: `./robotsix-cai`)
+- `IMAGE_TAG`   — Docker image tag to pin (default: `latest`; you can
+  pin a `sha-<short>` for reproducibility)
+
+After the installer finishes, follow the printed next steps:
+
+```bash
+cd robotsix-cai
+docker compose pull
+docker compose up
+```
+
+Expected output: a single greeting line (`Hello! How can I help you
+today?` or similar) and the container exits with code 0.
+
+### One-shot smoke test (no install)
+
+If you just want to verify the published image works without writing
+any files at all, one `docker run` is enough.
+
+**With OAuth credentials from the host:**
+
+```bash
+docker run --rm \
+  -v ~/.claude/.credentials.json:/root/.claude/.credentials.json:ro \
+  robotsix/cai:latest
+```
+
+**With an API key:**
+
+```bash
+docker run --rm \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  robotsix/cai:latest
+```
+
+### Build from source (local dev)
+
+```bash
+git clone https://github.com/damien-robotsix/robotsix-cai.git
+cd robotsix-cai
+docker compose build
+docker compose up
+```
 
 ## License
 
