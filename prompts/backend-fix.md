@@ -57,6 +57,9 @@ The full source tree is here, including `cai.py`, `parse.py`,
    and line numbers BEFORE opening them with Read. Do NOT sequentially
    Read files to search for content. Reserve Read calls for files
    whose paths and relevance are already known.
+13. **Batch independent Grep calls.** When you need to run multiple
+   independent Grep searches, issue them all in a single parallel
+   tool-call block rather than sequentially.
 
 ## When to make NO changes (and exit cleanly)
 
