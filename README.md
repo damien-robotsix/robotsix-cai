@@ -56,12 +56,13 @@ subprocess with no shared state.
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` issues, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet, report-only) |
 | `cai.py review-pr` | `20 * * * *` (hourly :20) | Pre-merge consistency review of open PRs — posts ripple-effect findings as PR comments so the revise subagent can act on them |
+| `cai.py merge` | `35 * * * *` (hourly :35) | Confidence-gated auto-merge — evaluates each bot PR against its linked issue, posts a verdict, and merges when confidence meets the threshold |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
 the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
-`CAI_REVIEW_PR_SCHEDULE`, `CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`,
-`CAI_AUDIT_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
+`CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`, `CAI_REVISE_SCHEDULE`,
+`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
 subcommand once synchronously so logs show immediate results, then execs
 supercronic.
 
@@ -172,6 +173,45 @@ This replaces the post-merge consistency review originally proposed in
 issue #45. Pre-merge review catches ripple effects before they land in
 `main`, avoiding the extra round-trip of a follow-up fix PR.
 
+### Confidence-gated auto-merge
+
+The `merge` subcommand (default: hourly at `:35`) closes the
+autonomous loop end-to-end by auto-merging bot PRs that clearly
+implement their linked issue. For each open `:pr-open` PR on an
+`auto-improve/<N>-*` branch, it:
+
+1. Applies safety filters (bot branch, `:pr-open` label, no
+   unaddressed comments, no conflicts, no failed CI, not already
+   evaluated at the current SHA)
+2. Fetches the linked issue body, PR diff, and PR comments
+3. Pipes them through `claude -p --model claude-opus-4-6` with a
+   conservative merge-review prompt
+4. Parses the model's verdict: `high`, `medium`, or `low` confidence
+5. If the verdict meets the threshold, merges via
+   `gh pr merge --merge --delete-branch`
+6. Otherwise, labels the issue `auto-improve:merge-blocked` and
+   posts the verdict reasoning as a PR comment
+
+**Confidence levels:**
+
+| Level | Meaning |
+|---|---|
+| `high` | PR correctly implements every remediation step, changes are minimal, no bugs or scope creep. Safe to merge without human review. |
+| `medium` | PR mostly implements the issue but has minor concerns. Better with human review. |
+| `low` | Significant issues — wrong approach, missing functionality, or potential bugs. Should not be merged. |
+
+**Threshold** (`CAI_MERGE_CONFIDENCE_THRESHOLD` env var):
+
+| Value | Behavior |
+|---|---|
+| `high` (default) | Only `high` verdicts trigger auto-merge |
+| `medium` | Both `high` and `medium` verdicts trigger auto-merge |
+| `disabled` | Never auto-merge; still posts verdict comments |
+
+The threshold defaults to `high` — only the most clear-cut PRs merge
+automatically. Relax to `medium` by editing the env var once trust
+builds.
+
 `auto-improve:requested` is a separate entry point: a human applies
 it to an arbitrary issue to opt it into the fix queue. The label is
 restricted to repo admins by `.github/workflows/admin-only-label.yml`
@@ -193,6 +233,7 @@ docker compose exec cai python /app/cai.py revise
 docker compose exec cai python /app/cai.py verify
 docker compose exec cai python /app/cai.py audit
 docker compose exec cai python /app/cai.py confirm
+docker compose exec cai python /app/cai.py merge
 ```
 
 A short alias makes this trivial:
@@ -205,6 +246,7 @@ cai revise
 cai verify
 cai audit
 cai confirm
+cai merge
 ```
 
 See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
@@ -383,6 +425,10 @@ the same global window settings.
   to read (most recent first by mtime). Default: `20`. Set to `0` to
   disable the count limit. Both knobs apply together — a file must be
   within the time window AND in the top N most recent to be included.
+- **`CAI_MERGE_CONFIDENCE_THRESHOLD`** — confidence level required for
+  auto-merge. One of `high` (default), `medium`, or `disabled`. See
+  the [Confidence-gated auto-merge](#confidence-gated-auto-merge)
+  section for details.
 
 **Troubleshooting: `cannot run ssh` errors.** If `cai.py fix` fails
 with `error: cannot run ssh: No such file or directory`, your
@@ -405,7 +451,7 @@ docker run --rm -v cai_transcripts:/data alpine ls -R /data
 
 A **run log** is written to `./logs/cai.log` (bind-mounted from
 `/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
-`fix`, `review-pr`, `revise`, `verify`, `audit`, and `confirm` invocation appends one key=value line so you can
+`fix`, `review-pr`, `revise`, `verify`, `audit`, `confirm`, and `merge` invocation appends one key=value line so you can
 watch cycle activity from the host without `docker exec`:
 
 ```bash

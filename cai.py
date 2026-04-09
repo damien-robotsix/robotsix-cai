@@ -52,8 +52,13 @@ Subcommands:
                             post findings as PR comments. Skips PRs
                             already reviewed at their current HEAD SHA.
 
+    python cai.py merge     Confidence-gated auto-merge for bot PRs.
+                            Evaluates each :pr-open PR against its
+                            linked issue, posts a verdict comment, and
+                            merges when confidence meets the threshold.
+
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`fix`, `revise`, `verify`, `audit`, `confirm`, and `review-pr` once synchronously at
+`fix`, `revise`, `verify`, `audit`, `confirm`, `review-pr`, and `merge` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
@@ -65,6 +70,7 @@ No third-party Python dependencies — only stdlib.
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -96,6 +102,7 @@ AUDIT_PROMPT = Path("/app/prompts/backend-audit.md")
 CONFIRM_PROMPT = Path("/app/prompts/backend-confirm.md")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
 REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
+MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
@@ -106,6 +113,7 @@ LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_REVISING = "auto-improve:revising"
+LABEL_MERGE_BLOCKED = "auto-improve:merge-blocked"
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +693,7 @@ _BOT_COMMENT_MARKERS = (
     "## Revise subagent:",
     "## Revision summary",
     "## cai pre-merge review",
+    "## cai merge verdict",
 )
 
 
@@ -1789,6 +1798,333 @@ def cmd_review_pr(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Merge — confidence-gated auto-merge for bot PRs
+# ---------------------------------------------------------------------------
+
+_MERGE_COMMENT_HEADING = "## cai merge verdict"
+
+# Confidence threshold: only verdicts at or above this level trigger a merge.
+# "high" = only high merges, "medium" = high + medium merge, "disabled" = never merge.
+_MERGE_THRESHOLD = os.environ.get("CAI_MERGE_CONFIDENCE_THRESHOLD", "high").lower()
+
+_CONFIDENCE_RANKS = {"high": 3, "medium": 2, "low": 1}
+
+
+def _parse_merge_verdict(text: str) -> dict | None:
+    """Extract confidence, action, and reasoning from the agent's output."""
+    conf_m = re.search(r"\*\*Confidence:\*\*\s*(high|medium|low)", text, re.IGNORECASE)
+    act_m = re.search(r"\*\*Action:\*\*\s*(merge|hold|reject)", text, re.IGNORECASE)
+    reason_m = re.search(r"\*\*Reasoning:\*\*\s*(.+)", text, re.IGNORECASE)
+    if not conf_m or not act_m:
+        return None
+    return {
+        "confidence": conf_m.group(1).lower(),
+        "action": act_m.group(1).lower(),
+        "reasoning": reason_m.group(1).strip() if reason_m else "(no reasoning provided)",
+    }
+
+
+def cmd_merge(args) -> int:
+    """Confidence-gated auto-merge for bot PRs."""
+    print("[cai merge] checking open PRs for auto-merge", flush=True)
+    t0 = time.monotonic()
+
+    if _MERGE_THRESHOLD == "disabled":
+        print("[cai merge] CAI_MERGE_CONFIDENCE_THRESHOLD=disabled; skipping", flush=True)
+        log_run("merge", repo=REPO, result="disabled", exit=0)
+        return 0
+
+    if _MERGE_THRESHOLD not in ("high", "medium"):
+        print(
+            f"[cai merge] unknown threshold '{_MERGE_THRESHOLD}'; defaulting to 'high'",
+            flush=True,
+        )
+
+    threshold_rank = _CONFIDENCE_RANKS.get(_MERGE_THRESHOLD, _CONFIDENCE_RANKS["high"])
+
+    # Fetch open PRs.
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--base", "main",
+            "--json", "number,title,headRefName,headRefOid,comments,mergeable",
+            "--limit", "50",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai merge] gh pr list failed:\n{e.stderr}", file=sys.stderr)
+        log_run("merge", repo=REPO, result="pr_list_failed", exit=1)
+        return 1
+
+    if not prs:
+        print("[cai merge] no open PRs; nothing to do", flush=True)
+        log_run("merge", repo=REPO, result="no_open_prs", exit=0)
+        return 0
+
+    evaluated = 0
+    merged = 0
+    held = 0
+
+    for pr in prs:
+        pr_number = pr["number"]
+        head_sha = pr["headRefOid"]
+        branch = pr.get("headRefName", "")
+        title = pr["title"]
+
+        # Safety filter 1: only bot PRs.
+        m = re.match(r"^auto-improve/(\d+)-", branch)
+        if not m:
+            continue
+        issue_number = int(m.group(1))
+
+        # Safety filter 4: unmergeable PRs (conflicts).
+        mergeable = pr.get("mergeable", "")
+        if mergeable == "CONFLICTING":
+            print(
+                f"[cai merge] PR #{pr_number}: unmergeable (conflicts); skipping",
+                flush=True,
+            )
+            continue
+
+        # Safety filter 2: linked issue must be in :pr-open state.
+        try:
+            issue = _gh_json([
+                "issue", "view", str(issue_number),
+                "--repo", REPO,
+                "--json", "labels,state",
+            ])
+        except subprocess.CalledProcessError:
+            print(
+                f"[cai merge] PR #{pr_number}: could not fetch issue #{issue_number}; skipping",
+                flush=True,
+            )
+            continue
+
+        issue_labels = [l["name"] for l in issue.get("labels", [])]
+        if LABEL_PR_OPEN not in issue_labels:
+            continue
+        if LABEL_MERGE_BLOCKED in issue_labels:
+            continue
+
+        # Safety filter 3: unaddressed review comments → let revise handle.
+        all_comments = list(pr.get("comments", []))
+        try:
+            all_comments.extend(_fetch_review_comments(pr_number))
+        except Exception:
+            pass
+        human_comments = [c for c in all_comments if not _is_bot_comment(c)]
+        # Check if any human comment is newer than HEAD (unaddressed).
+        has_unaddressed = False
+        for c in human_comments:
+            created = c.get("createdAt", "")
+            # gh returns ISO 8601 timestamps; string compare works for chronological order.
+            if created > head_sha:
+                # Can't reliably compare timestamp to SHA; use the commit timestamp instead.
+                pass
+        # Simpler approach: if there are human comments that aren't bot comments,
+        # check the PR's commit list. For now, we rely on the revise subcommand's
+        # own logic — if revise hasn't cleared the comments yet, we skip.
+        # Actually, mirror the revise target selection logic: any non-bot comment
+        # with createdAt after the last commit means unaddressed.
+        # We need the push date. Fetch from git log of the branch.
+        # For simplicity, fetch the commit date of HEAD via the API.
+        try:
+            commits = _gh_json([
+                "pr", "view", str(pr_number),
+                "--repo", REPO,
+                "--json", "commits",
+            ])
+            commit_list = commits.get("commits", [])
+            if commit_list:
+                last_commit_date = commit_list[-1].get("committedDate", "")
+            else:
+                last_commit_date = ""
+        except (subprocess.CalledProcessError, KeyError):
+            last_commit_date = ""
+
+        if last_commit_date:
+            for c in human_comments:
+                created = c.get("createdAt", "")
+                if created > last_commit_date:
+                    has_unaddressed = True
+                    break
+
+        if has_unaddressed:
+            print(
+                f"[cai merge] PR #{pr_number}: has unaddressed review comments; skipping",
+                flush=True,
+            )
+            continue
+
+        # Safety filter 5: failed CI checks.
+        try:
+            pr_detail = _gh_json([
+                "pr", "view", str(pr_number),
+                "--repo", REPO,
+                "--json", "statusCheckRollup",
+            ])
+            for check in pr_detail.get("statusCheckRollup", []):
+                conclusion = (check.get("conclusion") or "").upper()
+                status = (check.get("status") or "").upper()
+                if conclusion == "FAILURE" or status == "FAILURE":
+                    print(
+                        f"[cai merge] PR #{pr_number}: has failed CI checks; skipping",
+                        flush=True,
+                    )
+                    has_unaddressed = True  # reuse flag to skip
+                    break
+        except (subprocess.CalledProcessError, json.JSONDecodeError, TypeError):
+            pass  # no CI checks is fine
+
+        if has_unaddressed:
+            continue
+
+        # Safety filter 6: already evaluated at this SHA.
+        already_evaluated = False
+        for comment in pr.get("comments", []):
+            body = (comment.get("body") or "")
+            if body.startswith(f"{_MERGE_COMMENT_HEADING} \u2014 {head_sha}"):
+                already_evaluated = True
+                break
+        if already_evaluated:
+            print(
+                f"[cai merge] PR #{pr_number}: already evaluated at {head_sha[:8]}; skipping",
+                flush=True,
+            )
+            continue
+
+        # All filters passed — evaluate with the model.
+        print(f"[cai merge] evaluating PR #{pr_number}: {title}", flush=True)
+
+        # Fetch issue body.
+        try:
+            issue_full = _gh_json([
+                "issue", "view", str(issue_number),
+                "--repo", REPO,
+                "--json", "number,title,body",
+            ])
+        except subprocess.CalledProcessError:
+            issue_full = {"number": issue_number, "title": "(unknown)", "body": ""}
+
+        # Fetch PR diff.
+        diff_result = _run(
+            ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
+            capture_output=True,
+        )
+        if diff_result.returncode != 0:
+            print(
+                f"[cai merge] could not fetch diff for PR #{pr_number}; skipping",
+                file=sys.stderr,
+            )
+            continue
+        pr_diff = diff_result.stdout
+
+        # Gather PR comments for context.
+        comment_texts = []
+        for c in all_comments:
+            body = (c.get("body") or "").strip()
+            if body:
+                comment_texts.append(body)
+        comments_section = "\n\n---\n\n".join(comment_texts) if comment_texts else "(no comments)"
+
+        # Build the prompt.
+        prompt_text = MERGE_PROMPT.read_text()
+        full_prompt = (
+            f"{prompt_text}\n\n"
+            f"## Linked issue\n\n"
+            f"### #{issue_full.get('number', issue_number)} \u2014 {issue_full.get('title', '')}\n\n"
+            f"{issue_full.get('body') or '(no body)'}\n\n"
+            f"## PR diff\n\n"
+            f"```diff\n{pr_diff}\n```\n\n"
+            f"## PR comments\n\n"
+            f"{comments_section}\n"
+        )
+
+        # Run the model (read-only, no tools).
+        agent = _run(
+            ["claude", "-p", "--model", "claude-opus-4-6"],
+            input=full_prompt,
+            capture_output=True,
+        )
+        if agent.returncode != 0:
+            print(
+                f"[cai merge] model failed for PR #{pr_number} "
+                f"(exit {agent.returncode}):\n{agent.stderr}",
+                file=sys.stderr,
+            )
+            continue
+
+        agent_output = (agent.stdout or "").strip()
+        verdict = _parse_merge_verdict(agent_output)
+
+        if not verdict:
+            print(
+                f"[cai merge] PR #{pr_number}: could not parse verdict; skipping",
+                flush=True,
+            )
+            continue
+
+        confidence = verdict["confidence"]
+        action = verdict["action"]
+        reasoning = verdict["reasoning"]
+        evaluated += 1
+
+        # Post the verdict as a PR comment.
+        comment_body = (
+            f"{_MERGE_COMMENT_HEADING} \u2014 {head_sha}\n\n"
+            f"{agent_output}\n\n"
+            f"---\n"
+            f"_Auto-merge review by `cai merge`. "
+            f"Threshold: `{_MERGE_THRESHOLD}`, verdict: `{confidence}`._"
+        )
+        _run(
+            ["gh", "pr", "comment", str(pr_number),
+             "--repo", REPO, "--body", comment_body],
+            capture_output=True,
+        )
+
+        # Decide whether to merge.
+        verdict_rank = _CONFIDENCE_RANKS.get(confidence, 0)
+        if verdict_rank >= threshold_rank:
+            print(
+                f"[cai merge] PR #{pr_number}: verdict={confidence} >= threshold={_MERGE_THRESHOLD}; merging",
+                flush=True,
+            )
+            merge_result = _run(
+                ["gh", "pr", "merge", str(pr_number),
+                 "--repo", REPO, "--merge", "--delete-branch"],
+                capture_output=True,
+            )
+            if merge_result.returncode == 0:
+                print(f"[cai merge] PR #{pr_number}: merged successfully", flush=True)
+                merged += 1
+            else:
+                print(
+                    f"[cai merge] PR #{pr_number}: merge failed:\n{merge_result.stderr}",
+                    file=sys.stderr,
+                )
+                held += 1
+        else:
+            print(
+                f"[cai merge] PR #{pr_number}: verdict={confidence} < threshold={_MERGE_THRESHOLD}; holding",
+                flush=True,
+            )
+            # Set merge-blocked label on the issue.
+            _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
+            held += 1
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    print(
+        f"[cai merge] prs_evaluated={evaluated} merged={merged} held={held}",
+        flush=True,
+    )
+    log_run("merge", repo=REPO, prs_evaluated=evaluated, merged=merged,
+            held=held, duration=dur, exit=0)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -1810,6 +2146,7 @@ def main() -> int:
     sub.add_parser("audit", help="Run the queue/PR consistency audit")
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
+    sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
 
     args = parser.parse_args()
 
@@ -1826,6 +2163,7 @@ def main() -> int:
         "audit": cmd_audit,
         "confirm": cmd_confirm,
         "review-pr": cmd_review_pr,
+        "merge": cmd_merge,
     }
     return handlers[args.command](args)
 

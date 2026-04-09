@@ -11,10 +11,11 @@
 #      - verify:    walk pr-open issues and update labels per PR state
 #      - audit:     periodic queue/PR consistency checks
 #      - confirm:   verify merged fixes are actually solved
+#      - merge:     confidence-gated auto-merge for bot PRs
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #
-# 2. Do one synchronous pass of init / analyze / fix / review-pr / revise / verify / audit so
+# 2. Do one synchronous pass of init / analyze / fix / review-pr / revise / merge / verify / audit so
 #    `docker compose up -d` produces useful logs immediately rather
 #    than waiting for the first cron tick.
 #
@@ -31,6 +32,7 @@ CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
 CAI_REVISE_SCHEDULE="${CAI_REVISE_SCHEDULE:-30 * * * *}"
 CAI_CONFIRM_SCHEDULE="${CAI_CONFIRM_SCHEDULE:-0 2 * * *}"
 CAI_REVIEW_PR_SCHEDULE="${CAI_REVIEW_PR_SCHEDULE:-20 * * * *}"
+CAI_MERGE_SCHEDULE="${CAI_MERGE_SCHEDULE:-35 * * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -44,6 +46,7 @@ $CAI_VERIFY_SCHEDULE python /app/cai.py verify
 $CAI_AUDIT_SCHEDULE python /app/cai.py audit
 $CAI_CONFIRM_SCHEDULE python /app/cai.py confirm
 $CAI_REVIEW_PR_SCHEDULE python /app/cai.py review-pr
+$CAI_MERGE_SCHEDULE python /app/cai.py merge
 CRONTAB
 
 echo "[entrypoint] crontab:"
@@ -78,6 +81,9 @@ python /app/cai.py review-pr || echo "[entrypoint] review-pr exited non-zero; co
 
 echo "[entrypoint] running initial cai.py revise"
 python /app/cai.py revise || echo "[entrypoint] revise exited non-zero; continuing"
+
+echo "[entrypoint] running initial cai.py merge"
+python /app/cai.py merge || echo "[entrypoint] merge exited non-zero; continuing"
 
 echo "[entrypoint] running initial cai.py audit"
 python /app/cai.py audit || echo "[entrypoint] audit exited non-zero; continuing"
