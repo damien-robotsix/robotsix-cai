@@ -25,6 +25,29 @@ reason purely about GitHub-side state and the run log.
 | Analyzer producing findings but no fix PRs landing in the same window | `loop_stuck` |
 | Multiple rules in `prompts/backend-fix.md` that contradict each other | `prompt_contradiction` |
 
+### Log-level patterns
+
+Scan the log tail for lines that indicate a step exited cleanly but
+did not actually succeed. Flag these as `silent_failure`.
+
+| Pattern | Meaning |
+|---|---|
+| `[publish] skipping finding with invalid category` | Findings dropped by validation; usually a prompt/parser mismatch |
+| `[publish] no findings parsed` immediately after a `[cai analyze]` or `[cai audit]` line that produced visible `### Finding:` blocks | Count mismatch — analyzer produced output but publish saw none |
+| `[publish] created=0 skipped=0 failed=0` after `parsed N finding(s)` where N > 0 | All findings silently lost |
+| `[fix] result=push_failed exit=1` (≥2 occurrences in window) | Recurring git push problem |
+| `[fix] result=clone_failed exit=1` (≥2 occurrences in window) | Recurring gh/git auth problem |
+| `[fix] result=no_eligible_issues` repeating ≥7 times in a row while open `:raised`/`:requested` issues exist | Bot is skipping issues it should be picking |
+| `[cai analyze] claude -p failed (exit N)` | API errors (rate limit, auth, network) |
+| `[cai analyze] parse.py failed (exit N)` | Parser crash |
+| `level=error msg="..."` lines from supercronic itself | Scheduler errors |
+
+Use **context** when reasoning about these patterns — a single
+`clone_failed` after a known watchtower restart is normal, but two in
+a row signals broken auth. A single `no findings parsed` may be a
+quiet run, but the same line right after analyzer output containing
+`### Finding:` blocks is a real failure.
+
 **Note:** stale `:in-progress` rollback is handled deterministically
 before you run — you will NOT see stale `:in-progress` issues. If a
 rollback happened, it will appear in the log tail as an
@@ -39,6 +62,7 @@ rollback happened, it will appear in the log tail as an
 | `loop_stuck` | Findings raised but no fixes landing |
 | `prompt_contradiction` | Conflicting rules in prompt files |
 | `topic_duplicate` | Two open issues about the same underlying pattern |
+| `silent_failure` | Step exited 0 but log shows it did not succeed |
 
 ## Output format
 
@@ -47,7 +71,7 @@ For each anomaly, output a markdown block:
 ```markdown
 ### Finding: <short imperative title>
 
-- **Category:** <one of the 5 categories above>
+- **Category:** <one of the 6 categories above>
 - **Key:** <stable-slug-for-deduplication>
 - **Confidence:** low | medium | high
 - **Evidence:**
@@ -65,7 +89,7 @@ No findings.
 
 - Every finding must be grounded in the data you received — no
   speculation about issues you can't see.
-- Stick to the 5 categories above; do not invent new ones.
+- Stick to the 6 categories above; do not invent new ones.
 - Keep titles short and imperative.
 - These findings are **report-only** — they go to humans for triage.
   Do not suggest automated fixes beyond what the deterministic

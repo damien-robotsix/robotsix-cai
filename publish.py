@@ -48,6 +48,7 @@ AUDIT_CATEGORIES = {
     "loop_stuck",
     "prompt_contradiction",
     "topic_duplicate",
+    "silent_failure",
 }
 
 # Labels we ensure exist before creating issues. The first two are the
@@ -75,6 +76,7 @@ AUDIT_LABELS = [
     ("category:loop_stuck", "fbca04", "Findings raised but no fixes landing"),
     ("category:prompt_contradiction", "0075ca", "Conflicting rules in prompt files"),
     ("category:topic_duplicate", "5319e7", "Two open issues about the same pattern"),
+    ("category:silent_failure", "b60205", "Step exited 0 but log shows it did not succeed"),
 ]
 
 
