@@ -52,6 +52,24 @@ services:
       # :ro mount would block refresh and 401 after the token expires.
       #
       # - ${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json
+    # Required if Watchtower is enabled (uncommented below):
+    # labels:
+    #   - "com.centurylinklabs.watchtower.enable=true"
+
+  # Optional: Watchtower auto-update sidecar. Uncomment this service AND
+  # add the label above to the `cai` service to enable automatic
+  # updates when a new image is published to docker.io/robotsix/cai.
+  # See README for the mid-fix-restart caveat.
+  #
+  # watchtower:
+  #   image: containrrr/watchtower
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   command:
+  #     - --label-enable
+  #     - --interval=1800
+  #     - --cleanup
 
 volumes:
   cai_transcripts:
