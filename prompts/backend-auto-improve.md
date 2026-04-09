@@ -84,9 +84,14 @@ No findings.
 
 Before raising any new finding, check the "Currently open
 auto-improve issues" list at the end of the prompt. If your proposed
-finding overlaps with an existing open issue — by topic, not just by
-fingerprint — do NOT output it. Only raise findings that are
-genuinely new and not yet captured in the open queue.
+finding overlaps with **any** listed issue — by topic, not just by
+fingerprint — do NOT output it. This includes issues labelled
+`merged`: a merged fix may still appear in the analyzed transcripts
+because historical sessions predate the fix. An issue is only
+considered fully resolved once it is **closed**, not when its PR
+merges. Until then, treat the topic as still in flight and do not
+re-raise it. Only raise findings whose pattern has no related open
+issue at all.
 
 Only output a finding when:
 
