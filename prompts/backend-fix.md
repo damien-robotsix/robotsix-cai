@@ -28,38 +28,32 @@ The full source tree is here, including `cai.py`, `parse.py`,
 3. **Do not run `git`, `gh`, or anything that touches the remote.**
    The wrapper will commit, push, and open the PR after you exit.
    Just leave your changes uncommitted in the working tree.
-4. **Do not use the Bash tool.** You are running under the
-   `acceptEdits` permission mode, which only auto-accepts Read,
-   Edit, Write, Grep, and Glob. Bash calls will fail in this
-   non-interactive context. Use the dedicated tools instead: Read
-   to inspect files, Grep to search content, Glob to find files by
-   pattern, and Edit/Write to make changes.
-5. **Do not add tests, docstrings, or type annotations** unless the
+4. **Do not add tests, docstrings, or type annotations** unless the
    issue specifically asks for them.
-6. **Do not delete or substantially rewrite existing files** unless
+5. **Do not delete or substantially rewrite existing files** unless
    the issue is explicitly about deletion or rewrite.
-7. **Stay inside the repo.** Don't modify files outside the working
+6. **Stay inside the repo.** Don't modify files outside the working
    directory.
-8. **Don't modify `.github/workflows/` files** unless the issue is
+7. **Don't modify `.github/workflows/` files** unless the issue is
    specifically about them. Workflow changes are sensitive — if in
    doubt, exit without changes.
-9. **Fail fast on repeated errors.** If a tool call fails twice with
+8. **Fail fast on repeated errors.** If a tool call fails twice with
    the same or similar error, stop retrying and move on. Diagnose
    the root cause or report the failure instead of looping. Do not
    make more than two attempts at the same failing operation.
-10. **Re-read after Edit failures.** After 2 consecutive Edit failures
+9. **Re-read after Edit failures.** After 2 consecutive Edit failures
    on the same file (e.g. `old_string` not found), re-read the file
    to refresh your view of its contents before retrying. Your cached
    view of the file may be stale — another edit may have changed
    line content or indentation.
-11. **Batch edits to the same file.** When making multiple changes to
+10. **Batch edits to the same file.** When making multiple changes to
    the same file, combine them into as few Edit calls as possible by
    using larger `old_string` spans. Avoid single-line edits when a
    multi-line replacement achieves the same result in one call.
-12. **Batch independent Read calls.** When you need to read multiple
+11. **Batch independent Read calls.** When you need to read multiple
    files and the reads are independent, issue all Read calls in a
    single turn rather than reading files one at a time sequentially.
-13. **Grep before Read.** Before reading multiple files to locate a
+12. **Grep before Read.** Before reading multiple files to locate a
    string or pattern, use Grep to narrow the search first. Reserve
    consecutive Read calls for files whose paths are already known.
 
