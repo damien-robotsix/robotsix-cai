@@ -47,11 +47,16 @@ The full source tree is here, including `cai.py`, `parse.py`,
    the same or similar error, stop retrying and move on. Diagnose
    the root cause or report the failure instead of looping. Do not
    make more than two attempts at the same failing operation.
-10. **Batch edits to the same file.** When making multiple changes to
+10. **Re-read after Edit failures.** After 2 consecutive Edit failures
+   on the same file (e.g. `old_string` not found), re-read the file
+   to refresh your view of its contents before retrying. Your cached
+   view of the file may be stale — another edit may have changed
+   line content or indentation.
+11. **Batch edits to the same file.** When making multiple changes to
    the same file, combine them into as few Edit calls as possible by
    using larger `old_string` spans. Avoid single-line edits when a
    multi-line replacement achieves the same result in one call.
-11. **Batch independent Read calls.** When you need to read multiple
+12. **Batch independent Read calls.** When you need to read multiple
    files and the reads are independent, issue all Read calls in a
    single turn rather than reading files one at a time sequentially.
 
