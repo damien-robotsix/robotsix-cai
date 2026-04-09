@@ -427,7 +427,7 @@ def _git(work_dir: Path, *args: str, check: bool = True) -> subprocess.Completed
 
 def cmd_fix(args) -> int:
     """Run the fix subagent against one eligible issue."""
-    if args.issue is not None:
+    if getattr(args, "issue", None) is not None:
         try:
             issue = _gh_json([
                 "issue", "view", str(args.issue),
@@ -2125,6 +2125,45 @@ def cmd_merge(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Cycle (full pipeline without analyze)
+# ---------------------------------------------------------------------------
+
+def cmd_cycle(args) -> int:
+    """Run fix → revise → review-pr → merge → verify → confirm in order."""
+    print("[cai cycle] starting full cycle (no analyze)", flush=True)
+    t0 = time.monotonic()
+
+    steps = [
+        ("fix", cmd_fix),
+        ("revise", cmd_revise),
+        ("review-pr", cmd_review_pr),
+        ("merge", cmd_merge),
+        ("verify", cmd_verify),
+        ("confirm", cmd_confirm),
+    ]
+
+    results = {}
+    failed = False
+    for name, handler in steps:
+        print(f"\n[cai cycle] === running step: {name} ===", flush=True)
+        try:
+            rc = handler(args)
+        except Exception as exc:
+            print(f"[cai cycle] step {name} raised {exc!r}", file=sys.stderr, flush=True)
+            rc = 1
+        results[name] = rc
+        if rc != 0:
+            print(f"[cai cycle] step {name} returned {rc}; continuing", flush=True)
+            failed = True
+
+    dur = f"{time.monotonic() - t0:.1f}s"
+    summary = " ".join(f"{k}={v}" for k, v in results.items())
+    print(f"\n[cai cycle] done in {dur} — {summary}", flush=True)
+    log_run("cycle", repo=REPO, results=summary, duration=dur, exit=1 if failed else 0)
+    return 1 if failed else 0
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -2147,6 +2186,7 @@ def main() -> int:
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
+    sub.add_parser("cycle", help="Full cycle: fix, revise, review-pr, merge, verify, confirm")
 
     args = parser.parse_args()
 
@@ -2164,6 +2204,7 @@ def main() -> int:
         "confirm": cmd_confirm,
         "review-pr": cmd_review_pr,
         "merge": cmd_merge,
+        "cycle": cmd_cycle,
     }
     return handlers[args.command](args)
 
