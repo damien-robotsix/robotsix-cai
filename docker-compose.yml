@@ -24,7 +24,7 @@ services:
     env_file:
       - .env
     environment:
-      # Crontab expressions for the three scheduled tasks. Any valid
+      # Crontab expressions for the four scheduled tasks. Any valid
       # 5-field cron line works — see https://crontab.guru/ —
       # supercronic also supports @hourly, @daily, etc.
       #
@@ -32,6 +32,7 @@ services:
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily at 00:00 UTC (LLM call)
       CAI_FIX_SCHEDULE: "15 * * * *"        # hourly at :15 (cheap if no work)
       CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly at :45 (mechanical, no LLM)
+      CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only)
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
     volumes:
       # Persistent claude-code session transcripts. claude-code writes
