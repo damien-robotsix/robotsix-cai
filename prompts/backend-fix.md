@@ -61,6 +61,11 @@ Grep, and Glob instead.
    as few Edit calls as possible by using larger `old_string` spans.
    Avoid single-line edits when a multi-line replacement achieves
    the same result in one call.
+6. **Minimize Write calls.** Before creating multiple new files,
+   consider whether the content could fit in a single file or fewer
+   files. When several files are genuinely needed, plan the full set
+   first, then issue all independent Write calls in one turn rather
+   than creating them one at a time.
 
 ## When to make NO changes (and exit cleanly)
 
