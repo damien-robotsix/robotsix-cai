@@ -66,6 +66,12 @@ Grep, and Glob instead.
    files. When several files are genuinely needed, plan the full set
    first, then issue all independent Write calls in one turn rather
    than creating them one at a time.
+7. **Batch Grep calls.** When searching for multiple patterns or
+   across multiple paths, combine them into a single Grep call using
+   regex alternation (`pat1|pat2`) or issue independent Grep calls
+   in parallel rather than sequentially. Use Glob first to narrow
+   the file set, then Grep the results, instead of running
+   exploratory Grep calls one at a time.
 
 ## When to make NO changes (and exit cleanly)
 
