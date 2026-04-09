@@ -28,13 +28,19 @@ The full source tree is here, including `cai.py`, `parse.py`,
 3. **Do not run `git`, `gh`, or anything that touches the remote.**
    The wrapper will commit, push, and open the PR after you exit.
    Just leave your changes uncommitted in the working tree.
-4. **Do not add tests, docstrings, or type annotations** unless the
+4. **Do not use the Bash tool.** You are running under the
+   `acceptEdits` permission mode, which only auto-accepts Read,
+   Edit, Write, Grep, and Glob. Bash calls will fail in this
+   non-interactive context. Use the dedicated tools instead: Read
+   to inspect files, Grep to search content, Glob to find files by
+   pattern, and Edit/Write to make changes.
+5. **Do not add tests, docstrings, or type annotations** unless the
    issue specifically asks for them.
-5. **Do not delete or substantially rewrite existing files** unless
+6. **Do not delete or substantially rewrite existing files** unless
    the issue is explicitly about deletion or rewrite.
-6. **Stay inside the repo.** Don't modify files outside the working
+7. **Stay inside the repo.** Don't modify files outside the working
    directory.
-7. **Don't modify `.github/workflows/` files** unless the issue is
+8. **Don't modify `.github/workflows/` files** unless the issue is
    specifically about them. Workflow changes are sensitive — if in
    doubt, exit without changes.
 
