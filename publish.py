@@ -49,6 +49,7 @@ AUDIT_CATEGORIES = {
     "prompt_contradiction",
     "topic_duplicate",
     "silent_failure",
+    "forgotten_backlog",
 }
 
 # Labels we ensure exist before creating issues. The first two are the
@@ -80,6 +81,7 @@ AUDIT_LABELS = [
     ("category:prompt_contradiction", "0075ca", "Conflicting rules in prompt files"),
     ("category:topic_duplicate", "5319e7", "Two open issues about the same pattern"),
     ("category:silent_failure", "b60205", "Step exited 0 but log shows it did not succeed"),
+    ("category:forgotten_backlog", "c2e0c6", "Tracking-only issue with no state label idle >30 days"),
 ]
 
 

@@ -14,6 +14,29 @@ reason purely about GitHub-side state and the run log.
    with state, merge status, linked issue references
 3. **Log tail** — last ~200 lines of `logs/cai.log`
 
+## Lifecycle states — tracking vs active
+
+Issues labelled `auto-improve` (with **no** state suffix such as
+`:raised`, `:requested`, `:in-progress`, etc.) are **tracking-only
+backlog items**. They represent feature ideas or improvements that a
+human has not yet promoted to active work. This is intentional — the
+user deliberately keeps them in the backlog until they decide the
+issue is ready to ship.
+
+**Key rule:** Do NOT raise `stale_lifecycle` or `loop_stuck` findings
+for tracking-only issues just because they are old or unprocessed.
+They are not stuck — they are parked on purpose.
+
+If a tracking-only issue is older than 30 days and has had zero human
+activity (no comments, no label changes) since creation, you MAY raise
+a soft `forgotten_backlog` finding with **low** confidence as a gentle
+reminder. This is distinct from `stale_lifecycle`, which applies only
+to issues that have entered an active state.
+
+Active states (`:raised`, `:requested`, `:in-progress`, `:pr-open`,
+`:merged`, `:no-action`, `:revising`) should continue to be checked
+normally against all the rules below.
+
 ## What to check
 
 | Check | Category |
@@ -24,6 +47,7 @@ reason purely about GitHub-side state and the run log.
 | `:raised` issue older than 7 days that the bot keeps skipping | `stale_lifecycle` |
 | Analyzer producing findings but no fix PRs landing in the same window | `loop_stuck` |
 | Multiple rules in `prompts/backend-fix.md` that contradict each other | `prompt_contradiction` |
+| Tracking-only issue (no state label) older than 30 days with no human activity | `forgotten_backlog` |
 
 ### Log-level patterns
 
@@ -63,6 +87,7 @@ rollback happened, it will appear in the log tail as an
 | `prompt_contradiction` | Conflicting rules in prompt files |
 | `topic_duplicate` | Two open issues about the same underlying pattern |
 | `silent_failure` | Step exited 0 but log shows it did not succeed |
+| `forgotten_backlog` | Tracking-only issue (no state label) older than 30 days with no human activity |
 
 ## Output format
 
@@ -89,7 +114,7 @@ No findings.
 
 - Every finding must be grounded in the data you received — no
   speculation about issues you can't see.
-- Stick to the 6 categories above; do not invent new ones.
+- Stick to the 7 categories above; do not invent new ones.
 - Keep titles short and imperative.
 - These findings are **report-only** — they go to humans for triage.
   Do not suggest automated fixes beyond what the deterministic
