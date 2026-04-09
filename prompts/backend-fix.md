@@ -57,6 +57,11 @@ The full source tree is here, including `cai.py`, `parse.py`,
    and line numbers BEFORE opening them with Read. Do NOT sequentially
    Read files to search for content. Reserve Read calls for files
    whose paths and relevance are already known.
+13. **Verify inferred paths with Glob.** When a file path is
+   constructed or inferred (e.g. from issue text, error messages, or
+   convention) rather than hard-coded, confirm it exists with Glob
+   before passing it to Read. If a Read fails, do not retry the same
+   path — use Glob to find the correct filename first.
 
 ## When to make NO changes (and exit cleanly)
 

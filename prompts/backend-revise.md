@@ -40,6 +40,12 @@ working on top of the previous fix attempt.
 9. **Empty diff is OK.** If no comments are actionable, explain why
    in your stdout output and exit cleanly. The wrapper will post
    your reasoning as a PR comment.
+10. **Verify inferred paths with Glob.** When a file path is
+   constructed or inferred (e.g. from review comments, error
+   messages, or convention) rather than hard-coded, confirm it exists
+   with Glob before passing it to Read. If a Read fails, do not
+   retry the same path — use Glob to find the correct filename
+   first.
 
 ## Context provided below
 
