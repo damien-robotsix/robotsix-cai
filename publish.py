@@ -157,13 +157,22 @@ def parse_findings(text: str, valid_categories: set[str] | None = None) -> list[
 
 
 def _extract_field(block: str, name: str) -> str:
-    """Pull a single-line `- **Name:** value` field out of a block."""
+    """Pull a single-line `- **Name:** value` field out of a block.
+
+    Strips surrounding whitespace and backticks from the value — the
+    model sometimes wraps short identifier-like values (categories,
+    keys, confidence levels) in backticks for code formatting, which
+    would otherwise break exact-string validation against the
+    `VALID_CATEGORIES` / `AUDIT_CATEGORIES` sets.
+    """
     match = re.search(
         rf"^- \*\*{re.escape(name)}:\*\*\s*(.+)$",
         block,
         flags=re.MULTILINE,
     )
-    return match.group(1).strip() if match else ""
+    if not match:
+        return ""
+    return match.group(1).strip().strip("`").strip()
 
 
 def _extract_multiline_field(block: str, name: str) -> str:
