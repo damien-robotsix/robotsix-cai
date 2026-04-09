@@ -249,10 +249,10 @@ echo
 # we redirect stdin from /dev/tty when we have one. Without a TTY, we
 # fall back to printing the command and letting the user run it.
 if [[ "$TTY" == "/dev/tty" ]]; then
-  if ! docker compose run --rm cai gh auth login < /dev/tty; then
+  if ! docker compose run --rm cai gh auth login --git-protocol https < /dev/tty; then
     echo
     echo "[!] gh auth login did not complete. Rerun it yourself:"
-    echo "      cd $INSTALL_DIR && docker compose run --rm cai gh auth login"
+    echo "      cd $INSTALL_DIR && docker compose run --rm cai gh auth login --git-protocol https"
     exit 1
   fi
   echo
@@ -272,6 +272,6 @@ else
   echo "[!] No controlling TTY — skipping the interactive login."
   echo "    Finish authentication yourself before the first run:"
   echo "      cd $INSTALL_DIR"
-  echo "      docker compose run --rm cai gh auth login"
+  echo "      docker compose run --rm cai gh auth login --git-protocol https"
   echo "      docker compose up -d"
 fi

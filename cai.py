@@ -484,11 +484,11 @@ def cmd_fix(args) -> int:
 
         # 2. Clone.
         clone = _run(
-            ["gh", "repo", "clone", REPO, str(work_dir), "--", "--depth", "1"],
+            ["git", "clone", "--depth", "1", f"https://github.com/{REPO}.git", str(work_dir)],
             capture_output=True,
         )
         if clone.returncode != 0:
-            print(f"[cai fix] gh repo clone failed:\n{clone.stderr}", file=sys.stderr)
+            print(f"[cai fix] git clone failed:\n{clone.stderr}", file=sys.stderr)
             rollback()
             log_run("fix", repo=REPO, issue=issue_number, result="clone_failed", exit=1)
             return 1

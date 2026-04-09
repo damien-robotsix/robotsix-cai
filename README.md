@@ -354,6 +354,18 @@ the same global window settings.
   disable the count limit. Both knobs apply together — a file must be
   within the time window AND in the top N most recent to be included.
 
+**Troubleshooting: `cannot run ssh` errors.** If `cai.py fix` fails
+with `error: cannot run ssh: No such file or directory`, your
+`cai_gh_config` volume has `git_protocol` set to `ssh` (the container
+has no SSH client). Fix it without reinstalling:
+
+```bash
+docker compose exec cai gh config set git_protocol https
+```
+
+New installs set HTTPS automatically via `--git-protocol https` in the
+`gh auth login` step.
+
 Inspect a volume from outside the container:
 
 ```bash
