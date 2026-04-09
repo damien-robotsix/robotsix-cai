@@ -49,10 +49,15 @@ Grep, and Glob instead.
    and line numbers before opening them with Read. Do not
    sequentially Read files to search for content — reserve Read for
    files whose paths and relevance are already known.
-3. **Batch independent Read calls.** When you need to read multiple
+3. **Verify paths with Glob before Read.** When a file path is
+   constructed or inferred (not hard-coded), confirm the file exists
+   using Glob before attempting to Read it. If a Read fails, do not
+   retry the same path — use Glob to find the correct filename
+   first.
+4. **Batch independent Read calls.** When you need to read multiple
    files and the reads are independent, issue all Read calls in a
    single turn rather than one at a time.
-4. **Batch edits to the same file.** Combine multiple changes into
+5. **Batch edits to the same file.** Combine multiple changes into
    as few Edit calls as possible by using larger `old_string` spans.
    Avoid single-line edits when a multi-line replacement achieves
    the same result in one call.
