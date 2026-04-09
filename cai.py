@@ -688,11 +688,20 @@ def cmd_fix(args) -> int:
 # deployment pattern: the container uses the human operator's gh token,
 # so the bot's "identity" is the same as the user's. Content-based
 # marker matching is the robust alternative.
+#
+# IMPORTANT: only "no-action" / "summary" bot comments belong here.
+# Comments that contain ACTIONABLE content for the revise subagent
+# (most notably review-pr findings) must NOT be in this list — they
+# need to flow through to the unaddressed set so revise can act on
+# them. The "## cai pre-merge review (clean)" form is filtered (no
+# findings → nothing for revise to do). The plain "## cai pre-merge
+# review" form is NOT filtered because it carries `### Finding:`
+# blocks that revise should address.
 _BOT_COMMENT_MARKERS = (
     "## Fix subagent:",
     "## Revise subagent:",
     "## Revision summary",
-    "## cai pre-merge review",
+    "## cai pre-merge review (clean)",
     "## cai merge verdict",
 )
 
@@ -1618,7 +1627,22 @@ def cmd_confirm(args) -> int:
 # review-pr
 # ---------------------------------------------------------------------------
 
-_REVIEW_COMMENT_HEADING = "## cai pre-merge review"
+# review-pr posts two comment variants depending on whether the
+# review found ripple effects:
+#
+#   * `_REVIEW_COMMENT_HEADING_FINDINGS` — actionable, contains
+#     `### Finding:` blocks. NOT in `_BOT_COMMENT_MARKERS` so the
+#     revise subagent picks them up and addresses them.
+#
+#   * `_REVIEW_COMMENT_HEADING_CLEAN` — informational only, says
+#     "no ripple effects found". IS in `_BOT_COMMENT_MARKERS` so the
+#     revise subagent skips it (no actionable content).
+#
+# Both forms include the head SHA at the end of the heading line so
+# the SHA-idempotency check can recognize either as "already
+# reviewed at this commit".
+_REVIEW_COMMENT_HEADING_FINDINGS = "## cai pre-merge review"
+_REVIEW_COMMENT_HEADING_CLEAN = "## cai pre-merge review (clean)"
 
 
 def cmd_review_pr(args) -> int:
@@ -1653,11 +1677,18 @@ def cmd_review_pr(args) -> int:
         head_sha = pr["headRefOid"]
         title = pr["title"]
 
-        # Check if we already posted a review for this SHA.
+        # Check if we already posted a review for this SHA. Match
+        # either heading variant (findings or clean) — both include
+        # the head SHA after the em-dash, so a substring check on
+        # `head_sha` against the comment's first line is enough.
         already_reviewed = False
         for comment in pr.get("comments", []):
             body = (comment.get("body") or "")
-            if body.startswith(f"{_REVIEW_COMMENT_HEADING} \u2014 {head_sha}"):
+            first_line = body.split("\n", 1)[0]
+            if (
+                first_line.startswith(_REVIEW_COMMENT_HEADING_FINDINGS)
+                and head_sha in first_line
+            ):
                 already_reviewed = True
                 break
         if already_reviewed:
@@ -1749,8 +1780,11 @@ def cmd_review_pr(args) -> int:
             )
 
             if has_findings:
+                # Findings comments use the actionable heading form
+                # so the revise subagent picks them up on its next
+                # tick (`_BOT_COMMENT_MARKERS` does NOT match this).
                 comment_body = (
-                    f"{_REVIEW_COMMENT_HEADING} \u2014 {head_sha}\n\n"
+                    f"{_REVIEW_COMMENT_HEADING_FINDINGS} \u2014 {head_sha}\n\n"
                     f"{agent_output}\n\n"
                     f"---\n"
                     f"_Pre-merge consistency review by `cai review-pr`. "
@@ -1758,8 +1792,11 @@ def cmd_review_pr(args) -> int:
                     f"apply, then push a new commit to trigger a re-review._"
                 )
             else:
+                # Clean comments use the (clean) heading variant so
+                # `_BOT_COMMENT_MARKERS` filters them out — no need
+                # for revise to act on a "no findings" report.
                 comment_body = (
-                    f"{_REVIEW_COMMENT_HEADING} \u2014 {head_sha}\n\n"
+                    f"{_REVIEW_COMMENT_HEADING_CLEAN} \u2014 {head_sha}\n\n"
                     f"No ripple effects found.\n\n"
                     f"---\n"
                     f"_Pre-merge consistency review by `cai review-pr`._"
