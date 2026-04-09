@@ -43,6 +43,7 @@ services:
       # resulting credentials land here, so subsequent `docker compose
       # up` runs don't need to re-authenticate.
       - cai_gh_config:/root/.config/gh
+      - ./logs:/var/log/cai
       # Uncomment to use OAuth credentials from the host instead of an
       # API key. Requires `claude login` to have been run on the host so
       # the credentials file already exists. When this is in use,
