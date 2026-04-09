@@ -1487,7 +1487,7 @@ def cmd_confirm(args) -> int:
             "issue", "list", "--repo", REPO,
             "--label", LABEL_MERGED,
             "--state", "open",
-            "--json", "number,title,body,labels,updatedAt",
+            "--json", "number,title,body,labels",
             "--limit", "100",
         ]) or []
     except subprocess.CalledProcessError as e:
@@ -1590,51 +1590,31 @@ def cmd_confirm(args) -> int:
             print(f"[cai confirm] #{issue_num}: unsolved — left as :merged", flush=True)
             unsolved += 1
         elif status == "inconclusive":
-            print(f"[cai confirm] #{issue_num}: inconclusive — no action", flush=True)
+            # Post reasoning to the issue so humans can see why, but
+            # avoid duplicate comments if the same reasoning was already
+            # posted in the most recent comment.
+            body = f"Confirm check: inconclusive — {reasoning}"
+            try:
+                comments = _gh_json([
+                    "issue", "view", str(issue_num),
+                    "--repo", REPO,
+                    "--json", "comments",
+                ]) or {}
+                last_body = ""
+                clist = comments.get("comments") or []
+                if clist:
+                    last_body = (clist[-1].get("body") or "").strip()
+            except subprocess.CalledProcessError:
+                last_body = ""
+            if last_body != body.strip():
+                _run(
+                    ["gh", "issue", "comment", str(issue_num),
+                     "--repo", REPO,
+                     "--body", body],
+                    capture_output=True,
+                )
+            print(f"[cai confirm] #{issue_num}: inconclusive — {reasoning}", flush=True)
             inconclusive += 1
-
-    # 6. Auto-close stale inconclusive issues.
-    #    Issues that stay :merged and inconclusive for > 14 days are
-    #    assumed solved — the pattern hasn't resurfaced.
-    _STALE_MERGED_DAYS = 14
-    now = datetime.now(timezone.utc)
-    verdict_nums = {v[0] for v in verdicts}
-    for mi in merged_issues:
-        num = mi["number"]
-        # Only handle issues that were inconclusive or had no verdict
-        was_inconclusive = any(
-            v[0] == num and v[1] == "inconclusive" for v in verdicts
-        )
-        had_no_verdict = num not in verdict_nums
-        if not (was_inconclusive or had_no_verdict):
-            continue
-        updated = mi.get("updatedAt", "")
-        if not updated:
-            continue
-        try:
-            updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-        except (ValueError, AttributeError):
-            continue
-        age_days = (now - updated_dt).total_seconds() / 86400
-        if age_days > _STALE_MERGED_DAYS:
-            _set_labels(num, add=[LABEL_SOLVED], remove=[LABEL_MERGED])
-            _run(
-                ["gh", "issue", "close", str(num),
-                 "--repo", REPO,
-                 "--comment",
-                 f"Auto-closed: issue remained :merged with inconclusive "
-                 f"verdicts for {int(age_days)} days. Assuming solved."],
-                capture_output=True,
-            )
-            print(
-                f"[cai confirm] #{num}: stale inconclusive "
-                f"({int(age_days)}d) — auto-closed as solved",
-                flush=True,
-            )
-            # Adjust counters
-            if was_inconclusive:
-                inconclusive -= 1
-            solved += 1
 
     dur = f"{int(time.monotonic() - t0)}s"
     print(
