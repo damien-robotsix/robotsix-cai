@@ -53,10 +53,11 @@ subprocess with no shared state.
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, lets a subagent edit the repo with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state |
+| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` issues, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet, report-only) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
-the three env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
-`CAI_VERIFY_SCHEDULE`), runs each subcommand once synchronously so
+the four env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
+`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`), runs each subcommand once synchronously so
 logs show immediate results, then execs supercronic.
 
 ### Issue lifecycle
@@ -81,6 +82,28 @@ action so two concurrent `fix` runs can't pick the same issue.
                              merged
 ```
 
+### Audit findings
+
+The `audit` subcommand uses a **separate label namespace** (`audit:*`)
+to distinguish its findings from analyzer findings (`auto-improve:*`).
+Audit findings are report-only — they flag inconsistencies in the
+issue/PR lifecycle for human triage and are **not** picked up by
+`cai.py fix`.
+
+| Label | Meaning |
+|---|---|
+| `audit:raised` | Freshly raised audit finding |
+| `audit:solved` | Addressed (manually closed or auto-resolved on next audit) |
+
+Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
+`prompt_contradiction`, `topic_duplicate`.
+
+The one exception to "report-only" is stale `:in-progress` rollback:
+if an issue has been `:in-progress` for more than 6 hours with no
+recent fix activity in the log, the audit subcommand automatically
+rolls it back to `:raised` and creates an audit finding noting the
+rollback.
+
 `auto-improve:requested` is a separate entry point: a human applies
 it to an arbitrary issue to opt it into the fix queue. The label is
 restricted to repo admins by `.github/workflows/admin-only-label.yml`
@@ -98,6 +121,7 @@ docker compose exec cai python /app/cai.py analyze
 docker compose exec cai python /app/cai.py fix              # oldest eligible
 docker compose exec cai python /app/cai.py fix --issue 12   # specific issue
 docker compose exec cai python /app/cai.py verify
+docker compose exec cai python /app/cai.py audit
 ```
 
 A short alias makes this trivial:
@@ -106,6 +130,7 @@ A short alias makes this trivial:
 alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /app/cai.py'
 cai fix --issue 12
 cai verify
+cai audit
 ```
 
 See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
@@ -289,7 +314,7 @@ docker run --rm -v cai_transcripts:/data alpine ls -R /data
 
 A **run log** is written to `./logs/cai.log` (bind-mounted from
 `/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
-`fix`, and `verify` invocation appends one key=value line so you can
+`fix`, `verify`, and `audit` invocation appends one key=value line so you can
 watch cycle activity from the host without `docker exec`:
 
 ```bash

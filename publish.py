@@ -21,6 +21,7 @@ Usage::
     # subprocess.run(["python", "/app/publish.py"], input=analyzer_stdout, ...)
 """
 
+import argparse
 import re
 import subprocess
 import sys
@@ -41,6 +42,14 @@ VALID_CATEGORIES = {
     "workflow_efficiency",
 }
 
+AUDIT_CATEGORIES = {
+    "stale_lifecycle",
+    "lock_corruption",
+    "loop_stuck",
+    "prompt_contradiction",
+    "topic_duplicate",
+}
+
 # Labels we ensure exist before creating issues. The first two are the
 # state labels; the rest are the category labels. Idempotent — `gh label
 # create` returns non-zero if the label already exists, which we ignore.
@@ -57,6 +66,17 @@ LABELS = [
     ("category:workflow_efficiency", "5319e7", "Unnecessary workflow steps or config"),
 ]
 
+AUDIT_LABELS = [
+    ("audit", "c5def5", "Queue/PR consistency audit finding"),
+    ("audit:raised", "0e8a16", "Audit finding freshly raised; needs human triage"),
+    ("audit:solved", "6f42c1", "Audit finding addressed"),
+    ("category:stale_lifecycle", "d93f0b", "Issue stuck in a state longer than expected"),
+    ("category:lock_corruption", "e11d48", "Mutually exclusive labels or dangling references"),
+    ("category:loop_stuck", "fbca04", "Findings raised but no fixes landing"),
+    ("category:prompt_contradiction", "0075ca", "Conflicting rules in prompt files"),
+    ("category:topic_duplicate", "5319e7", "Two open issues about the same pattern"),
+]
+
 
 @dataclass
 class Finding:
@@ -68,7 +88,7 @@ class Finding:
     remediation: str
 
 
-def parse_findings(text: str) -> list[Finding]:
+def parse_findings(text: str, valid_categories: set[str] | None = None) -> list[Finding]:
     """Split analyzer output into Finding blocks.
 
     The prompt format is::
@@ -87,6 +107,8 @@ def parse_findings(text: str) -> list[Finding]:
     and then pull fields with regexes. Unknown fields are ignored;
     missing required fields cause the block to be skipped.
     """
+    if valid_categories is None:
+        valid_categories = VALID_CATEGORIES
     findings: list[Finding] = []
 
     # Split on the Finding header, keeping the header text itself.
@@ -113,7 +135,7 @@ def parse_findings(text: str) -> list[Finding]:
             )
             continue
 
-        if category not in VALID_CATEGORIES:
+        if category not in valid_categories:
             print(
                 f"[publish] skipping finding with invalid category {category!r}",
                 file=sys.stderr,
@@ -163,9 +185,10 @@ def _extract_multiline_field(block: str, name: str) -> str:
     return match.group(1).strip()
 
 
-def ensure_labels() -> None:
+def ensure_labels(namespace: str = "auto-improve") -> None:
     """Create the cai label set if it doesn't exist. Idempotent."""
-    for name, color, description in LABELS:
+    label_set = AUDIT_LABELS if namespace == "audit" else LABELS
+    for name, color, description in label_set:
         subprocess.run(
             [
                 "gh", "label", "create", name,
@@ -205,8 +228,14 @@ def issue_exists(key: str) -> bool:
     return bool(result.stdout.strip() and result.stdout.strip() != "[]")
 
 
-def create_issue(f: Finding) -> int:
+def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     """Create one issue. Returns gh's exit code."""
+    if namespace == "audit":
+        source_note = "cai audit agent"
+        source_file = "prompts/backend-audit.md"
+    else:
+        source_note = "cai self-analyzer"
+        source_file = "prompts/backend-auto-improve.md"
     body = (
         f"<!-- fingerprint: {f.key} -->\n"
         f"**Category:** `{f.category}`  \n"
@@ -221,14 +250,21 @@ def create_issue(f: Finding) -> int:
         f"{f.remediation}\n"
         f"\n"
         f"---\n"
-        f"_Raised automatically by the cai self-analyzer. "
-        f"See `prompts/backend-auto-improve.md`._\n"
+        f"_Raised automatically by the {source_note}. "
+        f"See `{source_file}`._\n"
     )
-    labels = ",".join([
-        "auto-improve",
-        "auto-improve:raised",
-        f"category:{f.category}",
-    ])
+    if namespace == "audit":
+        labels = ",".join([
+            "audit",
+            "audit:raised",
+            f"category:{f.category}",
+        ])
+    else:
+        labels = ",".join([
+            "auto-improve",
+            "auto-improve:raised",
+            f"category:{f.category}",
+        ])
     result = subprocess.run(
         [
             "gh", "issue", "create",
@@ -243,18 +279,28 @@ def create_issue(f: Finding) -> int:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
+    parser.add_argument(
+        "--namespace", default="auto-improve",
+        choices=["auto-improve", "audit"],
+        help="Label namespace to use (default: auto-improve)",
+    )
+    args = parser.parse_args()
+    namespace = args.namespace
+    valid_cats = AUDIT_CATEGORIES if namespace == "audit" else VALID_CATEGORIES
+
     text = sys.stdin.read()
     if not text.strip():
         print("[publish] empty input; nothing to do")
         return 0
 
-    findings = parse_findings(text)
+    findings = parse_findings(text, valid_categories=valid_cats)
     if not findings:
         print("[publish] no findings parsed; nothing to do")
         return 0
 
     print(f"[publish] parsed {len(findings)} finding(s)")
-    ensure_labels()
+    ensure_labels(namespace)
 
     created = 0
     skipped = 0
@@ -264,7 +310,7 @@ def main() -> int:
             print(f"[publish] skip (already exists): {f.key}")
             skipped += 1
             continue
-        rc = create_issue(f)
+        rc = create_issue(f, namespace)
         if rc == 0:
             print(f"[publish] created: {f.key}")
             created += 1

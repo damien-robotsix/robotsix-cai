@@ -3,14 +3,15 @@
 # robotsix-cai container entrypoint
 # ---------------------------------
 #
-# 1. Template the crontab from env vars. Three independent tasks:
+# 1. Template the crontab from env vars. Four independent tasks:
 #      - analyze: parse own transcripts, raise findings as issues
 #      - fix:     pick an eligible issue and let the subagent fix it
 #      - verify:  walk pr-open issues and update labels per PR state
+#      - audit:   periodic queue/PR consistency checks
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #
-# 2. Do one synchronous pass of init / analyze / fix / verify so
+# 2. Do one synchronous pass of init / analyze / fix / verify / audit so
 #    `docker compose up -d` produces useful logs immediately rather
 #    than waiting for the first cron tick.
 #
@@ -23,6 +24,7 @@ set -euo pipefail
 CAI_ANALYZER_SCHEDULE="${CAI_ANALYZER_SCHEDULE:-0 0 * * *}"
 CAI_FIX_SCHEDULE="${CAI_FIX_SCHEDULE:-15 * * * *}"
 CAI_VERIFY_SCHEDULE="${CAI_VERIFY_SCHEDULE:-45 * * * *}"
+CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -32,6 +34,7 @@ cat > "$CRONTAB_PATH" <<CRONTAB
 $CAI_ANALYZER_SCHEDULE python /app/cai.py analyze
 $CAI_FIX_SCHEDULE python /app/cai.py fix
 $CAI_VERIFY_SCHEDULE python /app/cai.py verify
+$CAI_AUDIT_SCHEDULE python /app/cai.py audit
 CRONTAB
 
 echo "[entrypoint] crontab:"
@@ -60,6 +63,9 @@ python /app/cai.py verify || echo "[entrypoint] verify exited non-zero; continui
 
 echo "[entrypoint] running initial cai.py fix"
 python /app/cai.py fix || echo "[entrypoint] fix exited non-zero; continuing"
+
+echo "[entrypoint] running initial cai.py audit"
+python /app/cai.py audit || echo "[entrypoint] audit exited non-zero; continuing"
 
 echo "[entrypoint] handing off to supercronic"
 exec supercronic "$CRONTAB_PATH"
