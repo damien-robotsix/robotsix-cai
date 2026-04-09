@@ -25,6 +25,7 @@ CAI_ANALYZER_SCHEDULE="${CAI_ANALYZER_SCHEDULE:-0 0 * * *}"
 CAI_FIX_SCHEDULE="${CAI_FIX_SCHEDULE:-15 * * * *}"
 CAI_VERIFY_SCHEDULE="${CAI_VERIFY_SCHEDULE:-45 * * * *}"
 CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
+CAI_CONFIRM_SCHEDULE="${CAI_CONFIRM_SCHEDULE:-0 2 * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -35,6 +36,7 @@ $CAI_ANALYZER_SCHEDULE python /app/cai.py analyze
 $CAI_FIX_SCHEDULE python /app/cai.py fix
 $CAI_VERIFY_SCHEDULE python /app/cai.py verify
 $CAI_AUDIT_SCHEDULE python /app/cai.py audit
+$CAI_CONFIRM_SCHEDULE python /app/cai.py confirm
 CRONTAB
 
 echo "[entrypoint] crontab:"
@@ -66,6 +68,9 @@ python /app/cai.py fix || echo "[entrypoint] fix exited non-zero; continuing"
 
 echo "[entrypoint] running initial cai.py audit"
 python /app/cai.py audit || echo "[entrypoint] audit exited non-zero; continuing"
+
+echo "[entrypoint] running initial cai.py confirm"
+python /app/cai.py confirm || echo "[entrypoint] confirm exited non-zero; continuing"
 
 echo "[entrypoint] handing off to supercronic"
 exec supercronic "$CRONTAB_PATH"

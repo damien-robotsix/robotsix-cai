@@ -61,6 +61,7 @@ LABELS = [
     ("auto-improve:in-progress", "fbca04", "fix subagent is actively working on this issue"),
     ("auto-improve:pr-open", "5319e7", "fix subagent opened a PR"),
     ("auto-improve:merged", "0e8a16", "PR was merged; awaiting verify"),
+    ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
     ("category:reliability", "d73a4a", "Errors, failures, flaky behavior"),
     ("category:cost_reduction", "fbca04", "Token waste, unnecessary tool calls"),
     ("category:prompt_quality", "0075ca", "Unclear or missing prompt guidance"),

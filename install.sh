@@ -145,6 +145,7 @@ services:
       CAI_FIX_SCHEDULE: "15 * * * *"        # hourly :15 (cheap if no work)
       CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly :45 (no LLM)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only)
+      CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily 02:00 UTC (verify merged fixes)
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
     volumes:
       # Mount is read-write so claude-code can refresh the OAuth
@@ -189,6 +190,7 @@ services:
       CAI_FIX_SCHEDULE: "15 * * * *"        # hourly :15 (cheap if no work)
       CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly :45 (no LLM)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only)
+      CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily 02:00 UTC (verify merged fixes)
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
     volumes:
       - cai_transcripts:/root/.claude/projects

@@ -54,11 +54,13 @@ subprocess with no shared state.
 | `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, lets a subagent edit the repo with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` issues, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet, report-only) |
+| `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
-the four env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
-`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`), runs each subcommand once synchronously so
-logs show immediate results, then execs supercronic.
+the five env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
+`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
+subcommand once synchronously so logs show immediate results, then execs
+supercronic.
 
 ### Issue lifecycle
 
@@ -80,6 +82,10 @@ action so two concurrent `fix` runs can't pick the same issue.
                                 │ verify (PR merged)
                                 ▼
                              merged
+                                │
+                                │ confirm (pattern absent)
+                                ▼
+                          solved (closed)
 ```
 
 ### Audit findings
@@ -122,6 +128,7 @@ docker compose exec cai python /app/cai.py fix              # oldest eligible
 docker compose exec cai python /app/cai.py fix --issue 12   # specific issue
 docker compose exec cai python /app/cai.py verify
 docker compose exec cai python /app/cai.py audit
+docker compose exec cai python /app/cai.py confirm
 ```
 
 A short alias makes this trivial:
@@ -131,6 +138,7 @@ alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /
 cai fix --issue 12
 cai verify
 cai audit
+cai confirm
 ```
 
 See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
@@ -299,7 +307,8 @@ The container uses two Docker named volumes:
 The transcript parser (`parse.py`) only considers sessions whose JSONL
 file was modified within a configurable window. This prevents stale
 historical data from polluting the analyzer's signal after a fix has
-landed.
+landed. All subcommands that call `parse.py` (analyze, confirm) use
+the same global window settings.
 
 - **`CAI_TRANSCRIPT_WINDOW_DAYS`** — number of days of transcript
   history to include in the analysis. Default: `7`. Set to `0` to
@@ -314,7 +323,7 @@ docker run --rm -v cai_transcripts:/data alpine ls -R /data
 
 A **run log** is written to `./logs/cai.log` (bind-mounted from
 `/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
-`fix`, `verify`, and `audit` invocation appends one key=value line so you can
+`fix`, `verify`, `audit`, and `confirm` invocation appends one key=value line so you can
 watch cycle activity from the host without `docker exec`:
 
 ```bash
