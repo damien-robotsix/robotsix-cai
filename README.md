@@ -143,6 +143,14 @@ automatically pulls + restarts cai when a new image is published.
 Default is **no** (manual updates). If you answer yes, the generated
 `docker-compose.yml` includes a `watchtower` service alongside `cai`.
 
+The image used is
+[`nickfedor/watchtower`](https://hub.docker.com/r/nickfedor/watchtower)
+(pinned to a specific version), an actively-maintained community fork.
+The original `containrrr/watchtower` is no longer being updated and
+its `:latest` tag ships an embedded Docker client too old for modern
+Docker daemons (≥ API 1.44), causing watchtower to crash-loop with
+`client version 1.25 is too old`.
+
 **Mid-fix restart caveat:** if Watchtower restarts cai while a fix
 subagent is running, the in-flight fix is killed and the issue may be
 left stuck in `auto-improve:in-progress`. Manual relabelling back to
