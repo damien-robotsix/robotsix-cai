@@ -797,7 +797,7 @@ def _select_revise_targets() -> list[dict]:
             pr_detail = _gh_json([
                 "pr", "view", str(pr["number"]),
                 "--repo", REPO,
-                "--json", "commits",
+                "--json", "commits,mergeable,mergeStateStatus",
             ])
             commits = pr_detail.get("commits", [])
             if commits:
@@ -838,7 +838,11 @@ def _select_revise_targets() -> list[dict]:
                 continue
             unaddressed.append(c)
 
-        if not unaddressed:
+        # Determine if the PR needs a rebase (unmergeable).
+        needs_rebase = pr_detail.get("mergeable") == "CONFLICTING" or \
+            pr_detail.get("mergeStateStatus") == "DIRTY"
+
+        if not unaddressed and not needs_rebase:
             continue
 
         targets.append({
@@ -846,6 +850,7 @@ def _select_revise_targets() -> list[dict]:
             "issue_number": issue_number,
             "branch": branch,
             "comments": unaddressed,
+            "needs_rebase": needs_rebase,
         })
 
     return targets
@@ -915,6 +920,75 @@ def cmd_revise(args) -> int:
             name, email = _gh_user_identity()
             _git(work_dir, "config", "user.name", name)
             _git(work_dir, "config", "user.email", email)
+
+            # 3b. Rebase onto current main if the PR is unmergeable.
+            if target.get("needs_rebase"):
+                print(
+                    f"[cai revise] PR #{pr_number} is unmergeable, "
+                    "attempting rebase onto main",
+                    flush=True,
+                )
+                _git(work_dir, "fetch", "origin", "main")
+                rebase = _git(
+                    work_dir, "rebase", "origin/main", check=False,
+                )
+                if rebase.returncode != 0:
+                    # Rebase failed — find conflicting files, abort, comment.
+                    conflict_status = _git(
+                        work_dir, "diff", "--name-only", "--diff-filter=U",
+                        check=False,
+                    )
+                    conflict_files = conflict_status.stdout.strip() or "(unknown)"
+                    _git(work_dir, "rebase", "--abort", check=False)
+                    comment_body = (
+                        "## Revise subagent: rebase failed\n\n"
+                        "Could not auto-rebase against current main "
+                        "due to conflicts in:\n```\n"
+                        f"{conflict_files}\n```\n"
+                        "Please rebase manually."
+                    )
+                    _run(
+                        ["gh", "pr", "comment", str(pr_number),
+                         "--repo", REPO, "--body", comment_body],
+                        capture_output=True,
+                    )
+                    print(
+                        f"[cai revise] rebase failed for PR #{pr_number}; "
+                        "posted comment",
+                        flush=True,
+                    )
+                    _set_labels(issue_number, remove=[LABEL_REVISING])
+                    log_run("revise", repo=REPO, pr=pr_number,
+                            result="rebase_failed", exit=0)
+                    continue
+
+                # Rebase succeeded — force-push.
+                push = _run(
+                    ["git", "-C", str(work_dir), "push",
+                     "--force-with-lease", "origin", branch],
+                    capture_output=True,
+                )
+                if push.returncode != 0:
+                    print(
+                        f"[cai revise] rebase push failed:\n{push.stderr}",
+                        file=sys.stderr,
+                    )
+                    _set_labels(issue_number, remove=[LABEL_REVISING])
+                    log_run("revise", repo=REPO, pr=pr_number,
+                            result="rebase_push_failed", exit=1)
+                    continue
+
+                print(
+                    f"[cai revise] rebased PR #{pr_number} onto main",
+                    flush=True,
+                )
+                log_run("revise", repo=REPO, pr=pr_number,
+                        result="rebased", exit=0)
+
+                # If there are no comments to address, we're done with this PR.
+                if not comments:
+                    _set_labels(issue_number, remove=[LABEL_REVISING])
+                    continue
 
             # 4. Fetch original issue body.
             try:

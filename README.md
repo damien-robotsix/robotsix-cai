@@ -52,7 +52,7 @@ subprocess with no shared state.
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, lets a subagent edit the repo with full tool permissions, opens a PR — see lifecycle below |
-| `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push |
+| `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` issues, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet, report-only) |
 | `cai.py review-pr` | `20 * * * *` (hourly :20) | Pre-merge consistency review of open PRs — posts ripple-effect findings as PR comments so the revise subagent can act on them |
@@ -125,7 +125,10 @@ rollback.
 When the bot opens a PR, you can leave a comment asking for changes
 instead of closing it. The `revise` subcommand (default: hourly at
 `:30`) picks up any PR comment posted **after the most recent commit**
-on the branch and feeds it to the revise subagent.
+on the branch and feeds it to the revise subagent. It also
+auto-rebases unmergeable PRs onto current main before processing
+comments; if the rebase has conflicts it posts a comment for human
+triage instead.
 
 How it works:
 
