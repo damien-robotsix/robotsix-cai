@@ -35,6 +35,7 @@ services:
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only)
       CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily at 02:00 UTC (verify merged fixes)
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
+      CAI_TRANSCRIPT_MAX_FILES: "100"       # read at most N recent transcript files
     volumes:
       # Persistent claude-code session transcripts. claude-code writes
       # session JSONL into ~/.claude/projects/<sanitized-cwd>/<sid>.jsonl

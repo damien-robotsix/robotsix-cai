@@ -313,6 +313,10 @@ the same global window settings.
 - **`CAI_TRANSCRIPT_WINDOW_DAYS`** — number of days of transcript
   history to include in the analysis. Default: `7`. Set to `0` to
   include all sessions (useful for debugging or initial seeding).
+- **`CAI_TRANSCRIPT_MAX_FILES`** — maximum number of transcript files
+  to read (most recent first by mtime). Default: `100`. Set to `0` to
+  disable the count limit. Both knobs apply together — a file must be
+  within the time window AND in the top N most recent to be included.
 
 Inspect a volume from outside the container:
 

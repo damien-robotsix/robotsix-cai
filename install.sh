@@ -147,6 +147,7 @@ services:
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only)
       CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily 02:00 UTC (verify merged fixes)
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
+      CAI_TRANSCRIPT_MAX_FILES: "100"       # read at most N recent transcript files
     volumes:
       # Mount is read-write so claude-code can refresh the OAuth
       # access token when it expires. claude-code writes the refreshed
@@ -192,6 +193,7 @@ services:
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only)
       CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily 02:00 UTC (verify merged fixes)
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
+      CAI_TRANSCRIPT_MAX_FILES: "100"       # read at most N recent transcript files
     volumes:
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh

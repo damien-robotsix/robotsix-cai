@@ -200,15 +200,35 @@ def _get_cutoff_time() -> float:
     return time.time() - (window_days * 86400)
 
 
+def _get_max_files() -> int:
+    """Return the maximum number of transcript files to read, or 0 to disable."""
+    raw = os.environ.get("CAI_TRANSCRIPT_MAX_FILES", "100")
+    try:
+        max_files = int(raw)
+    except ValueError:
+        max_files = 100
+    if max_files < 0:
+        max_files = 100
+    return max_files
+
+
 def collect_jsonl_lines(source: str) -> list[str]:
     """Collect all JSONL lines from a file, directory, or stdin sentinel."""
     p = pathlib.Path(source)
     cutoff = _get_cutoff_time()
+    max_files = _get_max_files()
     if p.is_dir():
-        lines: list[str] = []
-        for jf in sorted(p.rglob("*.jsonl")):
-            if cutoff and jf.stat().st_mtime < cutoff:
+        candidates = []
+        for jf in p.rglob("*.jsonl"):
+            st = jf.stat()
+            if cutoff and st.st_mtime < cutoff:
                 continue
+            candidates.append((st.st_mtime, jf))
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        if max_files:
+            candidates = candidates[:max_files]
+        lines: list[str] = []
+        for _mtime, jf in candidates:
             lines.extend(jf.read_text(errors="replace").splitlines())
         return lines
     if p.is_file():
