@@ -75,18 +75,25 @@ action so two concurrent `fix` runs can't pick the same issue.
                                 ▼        │  rolled back)
                           in-progress    │
                                 │        │
-                                │ PR opened
-                                ▼        │
-                            pr-open ─────┘
-                                │
-                                │ verify (PR merged)
-                                ▼
-                             merged
-                                │
-                                │ confirm (pattern absent)
-                                ▼
-                          solved (closed)
+                        ┌───────┴───────┐│
+                        │               ││
+                  empty diff      PR opened
+                        │               ▼│
+                        ▼        pr-open ─┘
+                   no-action        │
+                                    │ verify (PR merged)
+                                    ▼
+                                 merged
+                                    │
+                                    │ confirm (pattern absent)
+                                    ▼
+                              solved (closed)
 ```
+
+`:no-action` means the fix subagent reviewed the issue and decided no
+code change was needed. The agent's reasoning is posted as a comment
+on the issue. A human can either close the issue (agreeing with the
+bot) or re-label to `:raised` to retry.
 
 ### Audit findings
 

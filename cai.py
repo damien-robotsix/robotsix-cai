@@ -92,6 +92,7 @@ LABEL_IN_PROGRESS = "auto-improve:in-progress"
 LABEL_PR_OPEN = "auto-improve:pr-open"
 LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
+LABEL_NO_ACTION = "auto-improve:no-action"
 
 
 # ---------------------------------------------------------------------------
@@ -522,17 +523,39 @@ def cmd_fix(args) -> int:
                     result="subagent_failed", exit=agent.returncode)
             return agent.returncode
 
-        # 6. Inspect the working tree. Empty diff = clean exit.
+        # 6. Inspect the working tree. Empty diff = deliberate no-action.
         status = _git(work_dir, "status", "--porcelain", check=False)
         if not status.stdout.strip():
+            reasoning = (agent.stdout or "").strip()[:2000]
             print(
                 f"[cai fix] subagent produced no changes for #{issue_number}; "
-                "rolling back to :raised",
+                "marking auto-improve:no-action",
                 flush=True,
             )
-            rollback()
+            # Post the agent's reasoning as a comment on the issue
+            comment_body = (
+                f"## Fix subagent: no action needed\n\n"
+                f"{reasoning}\n\n"
+                f"---\n"
+                f"_Set by `cai fix` after the subagent reviewed and decided "
+                f"no code change was needed. Re-label to "
+                f"`auto-improve:raised` to retry, or close if you agree._"
+            )
+            _run(
+                ["gh", "issue", "comment", str(issue_number),
+                 "--repo", REPO,
+                 "--body", comment_body],
+                capture_output=True,
+            )
+            # Transition: in-progress -> no-action (NOT back to :raised)
+            _set_labels(
+                issue_number,
+                add=[LABEL_NO_ACTION],
+                remove=[LABEL_IN_PROGRESS],
+            )
+            locked = False
             log_run("fix", repo=REPO, issue=issue_number,
-                    result="empty_diff_rolled_back", exit=0)
+                    result="no_action_needed", exit=0)
             return 0
 
         # Count changed files for the log line.
