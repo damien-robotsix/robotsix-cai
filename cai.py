@@ -47,9 +47,18 @@ Subcommands:
                             with `:solved`; patterns that persist stay
                             as `:merged`.
 
+    python cai.py post-merge-review
+                            Find PRs merged into main in the last 90
+                            minutes. For each, run an Opus-driven
+                            semantic review looking for ripple effects
+                            (redundant code, stale docs, dead config,
+                            etc.). Findings are published as
+                            `consistency:raised` issues.
+
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`fix`, `revise`, `verify`, `audit`, and `confirm` once synchronously at startup, then
-hands off to supercronic. Each cron tick is a fresh process.
+`fix`, `revise`, `verify`, `audit`, `confirm`, and `post-merge-review`
+once synchronously at startup, then hands off to supercronic. Each cron
+tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
 clear error message in docker logs if credentials ever disappear from
@@ -65,7 +74,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -90,6 +99,7 @@ FIX_PROMPT = Path("/app/prompts/backend-fix.md")
 AUDIT_PROMPT = Path("/app/prompts/backend-audit.md")
 CONFIRM_PROMPT = Path("/app/prompts/backend-confirm.md")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
+POST_MERGE_REVIEW_PROMPT = Path("/app/prompts/backend-post-merge-review.md")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
@@ -100,6 +110,7 @@ LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_REVISING = "auto-improve:revising"
+LABEL_CONSISTENCY_RAISED = "consistency:raised"
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +362,7 @@ def _select_fix_target():
     `:in-progress` or `:pr-open`.
     """
     candidates: dict[int, dict] = {}
-    for label in (LABEL_RAISED, LABEL_REQUESTED):
+    for label in (LABEL_RAISED, LABEL_REQUESTED, LABEL_CONSISTENCY_RAISED):
         try:
             issues = _gh_json([
                 "issue", "list",
@@ -1431,6 +1442,144 @@ def cmd_confirm(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# post-merge-review
+# ---------------------------------------------------------------------------
+
+
+def cmd_post_merge_review(args) -> int:
+    """Review recently merged PRs for ripple effects and raise consistency findings."""
+    print("[cai post-merge-review] starting", flush=True)
+    t0 = time.monotonic()
+
+    # Step 1: Find PRs merged into main in the last 90 minutes.
+    since = datetime.now(timezone.utc)
+    # 90-minute window to overlap with the hourly schedule.
+    since = since - timedelta(minutes=90)
+    since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        merged_prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--base", "main",
+            "--state", "merged",
+            "--search", f"merged:>{since_str}",
+            "--json", "number,title,body,mergedAt",
+            "--limit", "5",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai post-merge-review] gh pr list failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("post-merge-review", repo=REPO, duration=dur, exit=1)
+        return 1
+
+    if not merged_prs:
+        print("[cai post-merge-review] no recently merged PRs; nothing to do", flush=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("post-merge-review", repo=REPO, prs_reviewed=0, findings=0,
+                duration=dur, exit=0)
+        return 0
+
+    print(f"[cai post-merge-review] found {len(merged_prs)} merged PR(s)", flush=True)
+
+    # Step 2: Clone the repo at current main.
+    _run(["gh", "auth", "setup-git"], capture_output=True)
+    work_dir = Path("/tmp/cai-post-merge-review")
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+    clone = _run(
+        ["git", "clone", "--depth", "1", f"https://github.com/{REPO}.git", str(work_dir)],
+        capture_output=True,
+    )
+    if clone.returncode != 0:
+        print(f"[cai post-merge-review] git clone failed:\n{clone.stderr}", file=sys.stderr)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("post-merge-review", repo=REPO, duration=dur, exit=1)
+        return 1
+
+    total_findings = 0
+    all_output = []
+
+    # Step 3: For each merged PR, get the diff and run the review agent.
+    for pr in merged_prs:
+        pr_number = pr["number"]
+        pr_title = pr["title"]
+        print(f"[cai post-merge-review] reviewing PR #{pr_number}: {pr_title}", flush=True)
+
+        # Get the diff.
+        diff_result = _run(
+            ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
+            capture_output=True,
+        )
+        if diff_result.returncode != 0:
+            print(
+                f"[cai post-merge-review] gh pr diff #{pr_number} failed:\n{diff_result.stderr}",
+                file=sys.stderr,
+            )
+            continue
+
+        pr_diff = diff_result.stdout
+
+        # Build the prompt context.
+        prompt_text = POST_MERGE_REVIEW_PROMPT.read_text()
+
+        pr_context = (
+            f"\n\n## Merged PR context\n\n"
+            f"### PR #{pr_number} — {pr_title}\n\n"
+        )
+        if pr.get("body"):
+            pr_context += f"**PR body:**\n\n{pr['body']}\n\n"
+        pr_context += f"**Diff:**\n\n```diff\n{pr_diff}\n```\n"
+
+        full_prompt = prompt_text + pr_context
+
+        # Run the review agent (Opus, read-only tools).
+        review = _run(
+            ["claude", "-p", "--model", "claude-opus-4-6",
+             "--allowedTools", "Read,Grep,Glob"],
+            input=full_prompt,
+            cwd=str(work_dir),
+            capture_output=True,
+        )
+        if review.stdout:
+            print(review.stdout, flush=True)
+        if review.returncode != 0:
+            print(
+                f"[cai post-merge-review] claude -p failed for PR #{pr_number} "
+                f"(exit {review.returncode}):\n{review.stderr}",
+                file=sys.stderr,
+            )
+            continue
+
+        if review.stdout and "No findings" not in review.stdout:
+            all_output.append(review.stdout)
+
+    # Step 4: Publish combined findings via publish.py with consistency namespace.
+    if all_output:
+        combined = "\n\n".join(all_output)
+        print("[cai post-merge-review] publishing findings", flush=True)
+        published = _run(
+            ["python", str(PUBLISH_SCRIPT), "--namespace", "consistency"],
+            input=combined,
+        )
+        # Count findings from the combined output.
+        total_findings = combined.count("### Finding:")
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("post-merge-review", repo=REPO, prs_reviewed=len(merged_prs),
+                findings=total_findings, duration=dur, exit=published.returncode)
+        return published.returncode
+    else:
+        print("[cai post-merge-review] no findings across all PRs", flush=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("post-merge-review", repo=REPO, prs_reviewed=len(merged_prs),
+                findings=0, duration=dur, exit=0)
+        return 0
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -1451,6 +1600,7 @@ def main() -> int:
     sub.add_parser("verify", help="Update labels based on PR merge state")
     sub.add_parser("audit", help="Run the queue/PR consistency audit")
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
+    sub.add_parser("post-merge-review", help="Review recently merged PRs for ripple effects")
 
     args = parser.parse_args()
 
@@ -1466,6 +1616,7 @@ def main() -> int:
         "verify": cmd_verify,
         "audit": cmd_audit,
         "confirm": cmd_confirm,
+        "post-merge-review": cmd_post_merge_review,
     }
     return handlers[args.command](args)
 

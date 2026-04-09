@@ -52,6 +52,15 @@ AUDIT_CATEGORIES = {
     "forgotten_backlog",
 }
 
+CONSISTENCY_CATEGORIES = {
+    "redundant_code",
+    "stale_docs",
+    "dead_config",
+    "contradictory_rules",
+    "cross_cutting_ref",
+    "missing_co_change",
+}
+
 # Labels we ensure exist before creating issues. The first two are the
 # state labels; the rest are the category labels. Idempotent — `gh label
 # create` returns non-zero if the label already exists, which we ignore.
@@ -82,6 +91,20 @@ AUDIT_LABELS = [
     ("category:topic_duplicate", "5319e7", "Two open issues about the same pattern"),
     ("category:silent_failure", "b60205", "Step exited 0 but log shows it did not succeed"),
     ("category:forgotten_backlog", "c2e0c6", "Tracking-only issue with no state label idle >30 days"),
+]
+
+CONSISTENCY_LABELS = [
+    ("consistency", "bfdadc", "Post-merge semantic consistency finding"),
+    ("consistency:raised", "0e8a16", "Consistency finding freshly raised"),
+    ("consistency:in-progress", "fbca04", "Fix subagent is actively working on this issue"),
+    ("consistency:pr-open", "5319e7", "Fix subagent opened a PR"),
+    ("consistency:merged", "0e8a16", "PR was merged; awaiting verify"),
+    ("category:redundant_code", "d93f0b", "Code made redundant by a recent merge"),
+    ("category:stale_docs", "0075ca", "Documentation that no longer matches the code"),
+    ("category:dead_config", "fbca04", "Configuration that no longer applies"),
+    ("category:contradictory_rules", "e11d48", "Conflicting rules across files"),
+    ("category:cross_cutting_ref", "5319e7", "References to renamed/removed code"),
+    ("category:missing_co_change", "c2e0c6", "Related files that should have been updated"),
 ]
 
 
@@ -203,7 +226,12 @@ def _extract_multiline_field(block: str, name: str) -> str:
 
 def ensure_labels(namespace: str = "auto-improve") -> None:
     """Create the cai label set if it doesn't exist. Idempotent."""
-    label_set = AUDIT_LABELS if namespace == "audit" else LABELS
+    if namespace == "audit":
+        label_set = AUDIT_LABELS
+    elif namespace == "consistency":
+        label_set = CONSISTENCY_LABELS
+    else:
+        label_set = LABELS
     for name, color, description in label_set:
         subprocess.run(
             [
@@ -249,6 +277,9 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     if namespace == "audit":
         source_note = "cai audit agent"
         source_file = "prompts/backend-audit.md"
+    elif namespace == "consistency":
+        source_note = "cai post-merge-review agent"
+        source_file = "prompts/backend-post-merge-review.md"
     else:
         source_note = "cai self-analyzer"
         source_file = "prompts/backend-auto-improve.md"
@@ -275,6 +306,12 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
             "audit:raised",
             f"category:{f.category}",
         ])
+    elif namespace == "consistency":
+        labels = ",".join([
+            "consistency",
+            "consistency:raised",
+            f"category:{f.category}",
+        ])
     else:
         labels = ",".join([
             "auto-improve",
@@ -298,12 +335,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
     parser.add_argument(
         "--namespace", default="auto-improve",
-        choices=["auto-improve", "audit"],
+        choices=["auto-improve", "audit", "consistency"],
         help="Label namespace to use (default: auto-improve)",
     )
     args = parser.parse_args()
     namespace = args.namespace
-    valid_cats = AUDIT_CATEGORIES if namespace == "audit" else VALID_CATEGORIES
+    if namespace == "audit":
+        valid_cats = AUDIT_CATEGORIES
+    elif namespace == "consistency":
+        valid_cats = CONSISTENCY_CATEGORIES
+    else:
+        valid_cats = VALID_CATEGORIES
 
     text = sys.stdin.read()
     if not text.strip():

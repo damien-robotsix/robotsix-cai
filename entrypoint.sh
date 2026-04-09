@@ -3,12 +3,14 @@
 # robotsix-cai container entrypoint
 # ---------------------------------
 #
-# 1. Template the crontab from env vars. Five independent tasks:
-#      - analyze: parse own transcripts, raise findings as issues
-#      - fix:     pick an eligible issue and let the subagent fix it
-#      - revise:  iterate on open PRs based on review comments
-#      - verify:  walk pr-open issues and update labels per PR state
-#      - audit:   periodic queue/PR consistency checks
+# 1. Template the crontab from env vars. Independent tasks:
+#      - analyze:            parse own transcripts, raise findings as issues
+#      - fix:                pick an eligible issue and let the subagent fix it
+#      - revise:             iterate on open PRs based on review comments
+#      - verify:             walk pr-open issues and update labels per PR state
+#      - audit:              periodic queue/PR consistency checks
+#      - confirm:            verify merged fixes are actually solved
+#      - post-merge-review:  review merged PRs for ripple effects
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #
@@ -28,6 +30,7 @@ CAI_VERIFY_SCHEDULE="${CAI_VERIFY_SCHEDULE:-45 * * * *}"
 CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
 CAI_REVISE_SCHEDULE="${CAI_REVISE_SCHEDULE:-30 * * * *}"
 CAI_CONFIRM_SCHEDULE="${CAI_CONFIRM_SCHEDULE:-0 2 * * *}"
+CAI_POST_MERGE_REVIEW_SCHEDULE="${CAI_POST_MERGE_REVIEW_SCHEDULE:-50 * * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -40,6 +43,7 @@ $CAI_REVISE_SCHEDULE python /app/cai.py revise
 $CAI_VERIFY_SCHEDULE python /app/cai.py verify
 $CAI_AUDIT_SCHEDULE python /app/cai.py audit
 $CAI_CONFIRM_SCHEDULE python /app/cai.py confirm
+$CAI_POST_MERGE_REVIEW_SCHEDULE python /app/cai.py post-merge-review
 CRONTAB
 
 echo "[entrypoint] crontab:"
@@ -77,6 +81,9 @@ python /app/cai.py audit || echo "[entrypoint] audit exited non-zero; continuing
 
 echo "[entrypoint] running initial cai.py confirm"
 python /app/cai.py confirm || echo "[entrypoint] confirm exited non-zero; continuing"
+
+echo "[entrypoint] running initial cai.py post-merge-review"
+python /app/cai.py post-merge-review || echo "[entrypoint] post-merge-review exited non-zero; continuing"
 
 echo "[entrypoint] handing off to supercronic"
 exec supercronic "$CRONTAB_PATH"

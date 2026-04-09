@@ -147,6 +147,7 @@ services:
       CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly :45 (no LLM)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only)
       CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily 02:00 UTC (verify merged fixes)
+      CAI_POST_MERGE_REVIEW_SCHEDULE: "50 * * * *"  # hourly :50 (review merged PRs)
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "20"        # read at most N recent transcript files
     volumes:
@@ -194,6 +195,7 @@ services:
       CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly :45 (no LLM)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only)
       CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily 02:00 UTC (verify merged fixes)
+      CAI_POST_MERGE_REVIEW_SCHEDULE: "50 * * * *"  # hourly :50 (review merged PRs)
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "20"        # read at most N recent transcript files
     volumes:

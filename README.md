@@ -56,11 +56,12 @@ subprocess with no shared state.
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` issues, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet, report-only) |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
+| `cai.py post-merge-review` | `50 * * * *` (hourly :50) | Reviews PRs merged into main in the last 90 minutes for ripple effects (redundant code, stale docs, dead config, etc.) and publishes `consistency:raised` issues (Opus) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
-the six env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
+the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
 `CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
-`CAI_CONFIRM_SCHEDULE`), runs each
+`CAI_CONFIRM_SCHEDULE`, `CAI_POST_MERGE_REVIEW_SCHEDULE`), runs each
 subcommand once synchronously so logs show immediate results, then execs
 supercronic.
 
@@ -113,6 +114,29 @@ issue/PR lifecycle for human triage and are **not** picked up by
 Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 `prompt_contradiction`, `topic_duplicate`, `silent_failure`.
 
+### Consistency findings
+
+The `post-merge-review` subcommand uses a **separate label namespace**
+(`consistency:*`) to distinguish its findings from analyzer findings
+(`auto-improve:*`) and audit findings (`audit:*`). Unlike audit
+findings, consistency findings **are** picked up by `cai.py fix` —
+they appear alongside `auto-improve:raised` and
+`auto-improve:requested` issues in the fix queue.
+
+| Label | Meaning |
+|---|---|
+| `consistency:raised` | Freshly raised consistency finding |
+| `consistency:in-progress` | Fix subagent is working on it |
+| `consistency:pr-open` | Fix subagent opened a PR |
+| `consistency:merged` | PR was merged |
+
+Consistency categories: `redundant_code`, `stale_docs`, `dead_config`,
+`contradictory_rules`, `cross_cutting_ref`, `missing_co_change`.
+
+Where the analyzer looks at **transcripts** to find patterns in how
+the bot behaves at runtime, the post-merge-review looks at **code**
+after a merge to catch ripple effects the original PR didn't address.
+
 The one exception to "report-only" is stale `:in-progress` rollback:
 if an issue has been `:in-progress` for more than 6 hours with no
 recent fix activity in the log, the audit subcommand automatically
@@ -164,6 +188,7 @@ docker compose exec cai python /app/cai.py revise
 docker compose exec cai python /app/cai.py verify
 docker compose exec cai python /app/cai.py audit
 docker compose exec cai python /app/cai.py confirm
+docker compose exec cai python /app/cai.py post-merge-review
 ```
 
 A short alias makes this trivial:
@@ -175,6 +200,7 @@ cai revise
 cai verify
 cai audit
 cai confirm
+cai post-merge-review
 ```
 
 See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
@@ -375,8 +401,9 @@ docker run --rm -v cai_transcripts:/data alpine ls -R /data
 
 A **run log** is written to `./logs/cai.log` (bind-mounted from
 `/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
-`fix`, `revise`, `verify`, `audit`, and `confirm` invocation appends one key=value line so you can
-watch cycle activity from the host without `docker exec`:
+`fix`, `revise`, `verify`, `audit`, `confirm`, and `post-merge-review`
+invocation appends one key=value line so you can watch cycle activity
+from the host without `docker exec`:
 
 ```bash
 tail -f ~/robotsix-cai/logs/cai.log
