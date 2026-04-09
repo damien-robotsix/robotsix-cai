@@ -88,9 +88,13 @@ action so two concurrent `fix` runs can't pick the same issue.
                                     ▼
                                  merged
                                     │
-                                    │ confirm (pattern absent)
-                                    ▼
-                              solved (closed)
+                        ┌───────────┴───────────┐
+                        │                       │
+                  confirm (pattern       confirm (inconclusive
+                   absent)                / unsolved)
+                        ▼                       ▼
+                  solved (closed)       stays :merged
+                                     (reasoning posted)
 ```
 
 `:no-action` means the fix subagent reviewed the issue and decided no
