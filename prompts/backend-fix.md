@@ -43,6 +43,10 @@ The full source tree is here, including `cai.py`, `parse.py`,
 8. **Don't modify `.github/workflows/` files** unless the issue is
    specifically about them. Workflow changes are sensitive — if in
    doubt, exit without changes.
+9. **Fail fast on repeated errors.** If a tool call fails twice with
+   the same or similar error, stop retrying and move on. Diagnose
+   the root cause or report the failure instead of looping. Do not
+   make more than two attempts at the same failing operation.
 
 ## When to make NO changes (and exit cleanly)
 
