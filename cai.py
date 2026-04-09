@@ -647,12 +647,80 @@ def cmd_fix(args) -> int:
 # ---------------------------------------------------------------------------
 
 
+# Heading markers used by cmd_fix and cmd_revise when they post
+# comments to PRs/issues. The revise subcommand uses these to filter
+# out bot-generated comments from the "unaddressed" set, which would
+# otherwise cause self-loops (the bot acting on its own output).
+#
+# Login-based self-filtering doesn't work reliably in cai's common
+# deployment pattern: the container uses the human operator's gh token,
+# so the bot's "identity" is the same as the user's. Content-based
+# marker matching is the robust alternative.
+_BOT_COMMENT_MARKERS = (
+    "## Fix subagent:",
+    "## Revise subagent:",
+    "## Revision summary",
+)
+
+
+def _is_bot_comment(comment: dict) -> bool:
+    """Return True if a comment body looks like it was posted by a cai subagent."""
+    body = (comment.get("body") or "").lstrip()
+    return any(body.startswith(m) for m in _BOT_COMMENT_MARKERS)
+
+
+def _fetch_review_comments(pr_number: int) -> list[dict]:
+    """Fetch line-by-line review comments for a PR, normalized to issue-comment shape.
+
+    `gh pr view --json comments` only returns issue-level comments. Line-
+    by-line review comments (left on specific lines in the diff) live on
+    a separate REST endpoint. This helper fetches them via `gh api` and
+    reshapes each one to match the issue-comment format used by the rest
+    of the revise logic: `{author: {login}, createdAt, body}`.
+
+    The body is prefixed with a `(line comment on path:line)` marker so
+    the subagent knows where the comment is anchored in the diff.
+    """
+    try:
+        result = _run(
+            ["gh", "api", f"repos/{REPO}/pulls/{pr_number}/comments"],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            return []
+        raw = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    normalized = []
+    for c in raw:
+        author_login = c.get("user", {}).get("login", "")
+        created_at = c.get("created_at", "")
+        body = c.get("body", "")
+        path = c.get("path", "")
+        line_num = c.get("line") or c.get("original_line")
+        if path and line_num:
+            body = f"(line comment on `{path}:{line_num}`)\n\n{body}"
+        elif path:
+            body = f"(line comment on `{path}`)\n\n{body}"
+        normalized.append({
+            "author": {"login": author_login},
+            "createdAt": created_at,
+            "body": body,
+        })
+    return normalized
+
+
 def _select_revise_targets() -> list[dict]:
     """Return PRs needing revision (unaddressed comments since last commit).
 
     Eligible = branch matches auto-improve/<N>-* AND linked issue has
     label auto-improve:pr-open. Returns a list of dicts with keys:
     pr_number, issue_number, branch, comments (the unaddressed ones).
+
+    Reads BOTH issue-level comments (via `gh pr list --json comments`)
+    and line-by-line review comments (via `gh api .../pulls/N/comments`)
+    so reviewers can leave either kind of feedback.
     """
     try:
         prs = _gh_json([
@@ -665,13 +733,6 @@ def _select_revise_targets() -> list[dict]:
     except subprocess.CalledProcessError as e:
         print(f"[cai revise] gh pr list failed:\n{e.stderr}", file=sys.stderr)
         return []
-
-    # Resolve the bot's own login so we can filter out self-comments.
-    try:
-        bot_user = _gh_json(["api", "user"])
-        bot_login = bot_user["login"]
-    except Exception:
-        bot_login = None
 
     targets = []
     for pr in prs:
@@ -732,8 +793,12 @@ def _select_revise_targets() -> list[dict]:
         except ValueError:
             continue
 
-        # Filter comments: createdAt > commit timestamp.
-        comments = pr.get("comments", [])
+        # Merge issue-level and line-by-line review comments.
+        issue_comments = pr.get("comments", [])
+        line_comments = _fetch_review_comments(pr["number"])
+        comments = issue_comments + line_comments
+
+        # Filter: createdAt > commit timestamp AND not bot-generated.
         unaddressed = []
         for c in comments:
             try:
@@ -742,17 +807,13 @@ def _select_revise_targets() -> list[dict]:
                 ).replace(tzinfo=timezone.utc)
             except (ValueError, KeyError):
                 continue
-            if c_ts > commit_ts:
-                unaddressed.append(c)
+            if c_ts <= commit_ts:
+                continue
+            if _is_bot_comment(c):
+                continue
+            unaddressed.append(c)
 
         if not unaddressed:
-            continue
-
-        # Skip if all unaddressed comments are from the bot itself.
-        if bot_login and all(
-            c.get("author", {}).get("login") == bot_login
-            for c in unaddressed
-        ):
             continue
 
         targets.append({

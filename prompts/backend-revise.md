@@ -50,7 +50,11 @@ The prompt that follows contains three sections:
 2. **Current PR diff** -- what has already been changed. This is
    your starting point.
 3. **Unaddressed review comments** -- the comments you need to
-   address. Each includes the author and the comment body.
+   address. Each includes the author and the comment body. Some
+   comments may be line-by-line review comments anchored to a
+   specific file and line; these are prefixed with a
+   `(line comment on path:line)` marker so you know where they were
+   left in the diff.
 
 Focus exclusively on section 3. Use sections 1 and 2 only for
 context when you need to understand what the reviewer is referring
