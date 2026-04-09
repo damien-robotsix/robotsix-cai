@@ -89,6 +89,28 @@ When the issue clearly identifies:
 …then make exactly that change. Read the file(s), verify the
 remediation matches the current code, edit precisely, and stop.
 
+## Final output
+
+When you are done — whether you made changes or not — **end your
+response** with a fenced block in exactly this format:
+
+~~~
+## PR Summary
+
+### What this fixes
+<one or two sentences describing the problem from the issue>
+
+### What was changed
+<bullet list of concrete changes: which files were edited and what
+was done in each>
+~~~
+
+The wrapper extracts this block and uses it as the pull request
+description. Be specific and concise — name the files, functions,
+or constants you touched. If you made no changes, still produce the
+block but write "No changes made." under both headings with a brief
+explanation.
+
 ## The issue
 
 The full body of the issue you are working on (including its
