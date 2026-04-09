@@ -137,6 +137,32 @@ The installer asks for the **auth mode**:
 2. **Anthropic API key** — paste an `sk-ant-...` key when prompted; it's
    written to a `.env` file (chmod 600).
 
+The installer also asks whether to enable **Watchtower** — a small
+sidecar container that polls Docker Hub every 30 minutes and
+automatically pulls + restarts cai when a new image is published.
+Default is **no** (manual updates). If you answer yes, the generated
+`docker-compose.yml` includes a `watchtower` service alongside `cai`.
+
+**Mid-fix restart caveat:** if Watchtower restarts cai while a fix
+subagent is running, the in-flight fix is killed and the issue may be
+left stuck in `auto-improve:in-progress`. Manual relabelling back to
+`:raised` is needed until the audit feature (tracked separately) lands
+to handle automatic recovery.
+
+To change the polling interval, edit the `--interval` value (in
+seconds) in the `watchtower` service's `command:` block and run
+`docker compose up -d`.
+
+To **enable Watchtower on an existing install**: re-run `install.sh`
+and answer yes, or manually edit your `docker-compose.yml` — add the
+`watchtower` service and the `com.centurylinklabs.watchtower.enable=true`
+label on the `cai` service (see the repo's `docker-compose.yml` for the
+commented-out template).
+
+To **disable Watchtower**: comment out (or remove) the `watchtower`
+service and the `cai` label in your `docker-compose.yml`, then run
+`docker compose up -d`.
+
 Optional environment variables you can set before running the script:
 
 - `INSTALL_DIR` — directory to install into (default: `./robotsix-cai`)

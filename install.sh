@@ -78,6 +78,47 @@ echo
 
 prompt AUTH_CHOICE "Choice" "1"
 
+echo
+echo "Enable Watchtower for automatic updates?"
+echo
+echo "Watchtower is a small sidecar container that polls Docker Hub"
+echo "every 30 minutes and automatically pulls + restarts cai when a"
+echo "new image is published. Recommended for hands-off operation."
+echo
+echo "WARNING: if cai is mid-fix when watchtower restarts it, the"
+echo "in-flight fix will be killed and the issue may be left stuck"
+echo "in auto-improve:in-progress. Manual relabel may be needed"
+echo "until the audit feature (tracked separately) lands."
+echo
+prompt ENABLE_WATCHTOWER "Enable Watchtower? [y/N]" "n"
+
+case "$ENABLE_WATCHTOWER" in
+  y|Y|yes|Yes|YES)
+    WATCHTOWER_SERVICE=$(cat <<'WATCHTOWER'
+
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - --label-enable
+      - --interval=1800
+      - --cleanup
+WATCHTOWER
+)
+    CAI_LABEL_BLOCK=$(cat <<'LABEL'
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+LABEL
+)
+    ;;
+  *)
+    WATCHTOWER_SERVICE=""
+    CAI_LABEL_BLOCK=""
+    ;;
+esac
+
 case "$AUTH_CHOICE" in
   1)
     CRED_PATH="${HOME}/.claude/.credentials.json"
@@ -112,6 +153,7 @@ services:
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh
       - ./logs:/var/log/cai
+${CAI_LABEL_BLOCK}${WATCHTOWER_SERVICE}
 
 volumes:
   cai_transcripts:
@@ -148,6 +190,7 @@ services:
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh
       - ./logs:/var/log/cai
+${CAI_LABEL_BLOCK}${WATCHTOWER_SERVICE}
 
 volumes:
   cai_transcripts:
