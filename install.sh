@@ -97,7 +97,7 @@ case "$ENABLE_WATCHTOWER" in
     WATCHTOWER_SERVICE=$(cat <<'WATCHTOWER'
 
   watchtower:
-    image: containrrr/watchtower
+    image: nickfedor/watchtower:1.16.1
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
