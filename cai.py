@@ -485,7 +485,8 @@ def cmd_fix(args) -> int:
         # claude-code refuses it when running as root inside the container,
         # and `acceptEdits` is sufficient for code-editing fixes.
         agent = _run(
-            ["claude", "-p", "--permission-mode", "acceptEdits"],
+            ["claude", "-p", "--permission-mode", "acceptEdits",
+             "--disallowedTools", "Bash"],
             input=prompt,
             cwd=str(work_dir),
             capture_output=True,
