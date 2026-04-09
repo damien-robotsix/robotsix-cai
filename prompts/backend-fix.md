@@ -53,9 +53,12 @@ The full source tree is here, including `cai.py`, `parse.py`,
    view of the file may be stale — another edit may have changed
    line content or indentation.
 11. **Batch edits to the same file.** When making multiple changes to
-   the same file, combine them into as few Edit calls as possible by
-   using larger `old_string` spans. Avoid single-line edits when a
-   multi-line replacement achieves the same result in one call.
+   the same file, combine them into a single Edit call covering the
+   full changed region. Avoid single-line edits when a multi-line
+   replacement achieves the same result in one call. When editing
+   multiple files, interleave Read and Edit per file (read file A,
+   edit file A, read file B, edit file B) rather than queuing all
+   Edits together.
 12. **Batch independent Read calls.** When you need to read multiple
    files and the reads are independent, issue all Read calls in a
    single turn rather than reading files one at a time sequentially.
