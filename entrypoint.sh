@@ -3,16 +3,18 @@
 # robotsix-cai container entrypoint
 # ---------------------------------
 #
-# 1. Template the crontab from env vars. Five independent tasks:
-#      - analyze: parse own transcripts, raise findings as issues
-#      - fix:     pick an eligible issue and let the subagent fix it
-#      - revise:  iterate on open PRs based on review comments
-#      - verify:  walk pr-open issues and update labels per PR state
-#      - audit:   periodic queue/PR consistency checks
+# 1. Template the crontab from env vars. Independent tasks:
+#      - analyze:   parse own transcripts, raise findings as issues
+#      - fix:       pick an eligible issue and let the subagent fix it
+#      - review-pr: pre-merge consistency review of open PRs
+#      - revise:    iterate on open PRs based on review comments
+#      - verify:    walk pr-open issues and update labels per PR state
+#      - audit:     periodic queue/PR consistency checks
+#      - confirm:   verify merged fixes are actually solved
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #
-# 2. Do one synchronous pass of init / analyze / fix / revise / verify / audit so
+# 2. Do one synchronous pass of init / analyze / fix / review-pr / revise / verify / audit so
 #    `docker compose up -d` produces useful logs immediately rather
 #    than waiting for the first cron tick.
 #
@@ -28,6 +30,7 @@ CAI_VERIFY_SCHEDULE="${CAI_VERIFY_SCHEDULE:-45 * * * *}"
 CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
 CAI_REVISE_SCHEDULE="${CAI_REVISE_SCHEDULE:-30 * * * *}"
 CAI_CONFIRM_SCHEDULE="${CAI_CONFIRM_SCHEDULE:-0 2 * * *}"
+CAI_REVIEW_PR_SCHEDULE="${CAI_REVIEW_PR_SCHEDULE:-20 * * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -40,6 +43,7 @@ $CAI_REVISE_SCHEDULE python /app/cai.py revise
 $CAI_VERIFY_SCHEDULE python /app/cai.py verify
 $CAI_AUDIT_SCHEDULE python /app/cai.py audit
 $CAI_CONFIRM_SCHEDULE python /app/cai.py confirm
+$CAI_REVIEW_PR_SCHEDULE python /app/cai.py review-pr
 CRONTAB
 
 echo "[entrypoint] crontab:"
@@ -68,6 +72,9 @@ python /app/cai.py verify || echo "[entrypoint] verify exited non-zero; continui
 
 echo "[entrypoint] running initial cai.py fix"
 python /app/cai.py fix || echo "[entrypoint] fix exited non-zero; continuing"
+
+echo "[entrypoint] running initial cai.py review-pr"
+python /app/cai.py review-pr || echo "[entrypoint] review-pr exited non-zero; continuing"
 
 echo "[entrypoint] running initial cai.py revise"
 python /app/cai.py revise || echo "[entrypoint] revise exited non-zero; continuing"

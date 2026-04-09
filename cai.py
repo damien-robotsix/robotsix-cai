@@ -47,9 +47,14 @@ Subcommands:
                             with `:solved`; patterns that persist stay
                             as `:merged`.
 
+    python cai.py review-pr Walk open PRs against main, run a
+                            consistency review for ripple effects, and
+                            post findings as PR comments. Skips PRs
+                            already reviewed at their current HEAD SHA.
+
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`fix`, `revise`, `verify`, `audit`, and `confirm` once synchronously at startup, then
-hands off to supercronic. Each cron tick is a fresh process.
+`fix`, `revise`, `verify`, `audit`, `confirm`, and `review-pr` once synchronously at
+startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
 clear error message in docker logs if credentials ever disappear from
@@ -90,6 +95,7 @@ FIX_PROMPT = Path("/app/prompts/backend-fix.md")
 AUDIT_PROMPT = Path("/app/prompts/backend-audit.md")
 CONFIRM_PROMPT = Path("/app/prompts/backend-confirm.md")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
+REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
@@ -663,6 +669,7 @@ _BOT_COMMENT_MARKERS = (
     "## Fix subagent:",
     "## Revise subagent:",
     "## Revision summary",
+    "## cai pre-merge review",
 )
 
 
@@ -1510,6 +1517,184 @@ def cmd_confirm(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# review-pr
+# ---------------------------------------------------------------------------
+
+_REVIEW_COMMENT_HEADING = "## cai pre-merge review"
+
+
+def cmd_review_pr(args) -> int:
+    """Review open PRs for ripple effects and post findings as PR comments."""
+    print("[cai review-pr] checking open PRs against main", flush=True)
+    t0 = time.monotonic()
+
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--base", "main",
+            "--json", "number,title,author,headRefOid,comments",
+            "--limit", "50",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai review-pr] gh pr list failed:\n{e.stderr}", file=sys.stderr)
+        log_run("review_pr", repo=REPO, result="pr_list_failed", exit=1)
+        return 1
+
+    if not prs:
+        print("[cai review-pr] no open PRs; nothing to do", flush=True)
+        log_run("review_pr", repo=REPO, result="no_open_prs", exit=0)
+        return 0
+
+    reviewed = 0
+    skipped = 0
+
+    for pr in prs:
+        pr_number = pr["number"]
+        head_sha = pr["headRefOid"]
+        title = pr["title"]
+
+        # Check if we already posted a review for this SHA.
+        already_reviewed = False
+        for comment in pr.get("comments", []):
+            body = (comment.get("body") or "")
+            if body.startswith(f"{_REVIEW_COMMENT_HEADING} \u2014 {head_sha}"):
+                already_reviewed = True
+                break
+        if already_reviewed:
+            print(
+                f"[cai review-pr] PR #{pr_number}: already reviewed at {head_sha[:8]}; skipping",
+                flush=True,
+            )
+            skipped += 1
+            continue
+
+        print(f"[cai review-pr] reviewing PR #{pr_number}: {title}", flush=True)
+
+        # Get the diff.
+        diff_result = _run(
+            ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
+            capture_output=True,
+        )
+        if diff_result.returncode != 0:
+            print(
+                f"[cai review-pr] could not fetch diff for PR #{pr_number}:\n"
+                f"{diff_result.stderr}",
+                file=sys.stderr,
+            )
+            continue
+        pr_diff = diff_result.stdout
+
+        # Clone the repo for the agent to walk.
+        work_dir = Path(f"/tmp/cai-review-{pr_number}")
+        try:
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+
+            clone = _run(
+                ["git", "clone", "--depth", "1",
+                 f"https://github.com/{REPO}.git", str(work_dir)],
+                capture_output=True,
+            )
+            if clone.returncode != 0:
+                print(
+                    f"[cai review-pr] clone failed for PR #{pr_number}:\n{clone.stderr}",
+                    file=sys.stderr,
+                )
+                continue
+
+            # Build the prompt.
+            prompt_text = REVIEW_PR_PROMPT.read_text()
+            author_login = pr.get("author", {}).get("login", "unknown")
+            full_prompt = (
+                f"{prompt_text}\n\n"
+                f"## PR metadata\n\n"
+                f"- **Number:** #{pr_number}\n"
+                f"- **Title:** {title}\n"
+                f"- **Author:** @{author_login}\n"
+                f"- **Base:** main\n"
+                f"- **HEAD SHA:** {head_sha}\n\n"
+                f"## PR diff\n\n"
+                f"```diff\n{pr_diff}\n```\n"
+            )
+
+            # Run the review agent (read-only tools only).
+            agent = _run(
+                ["claude", "-p", "--permission-mode", "acceptEdits",
+                 "--allowedTools", "Read", "Grep", "Glob"],
+                input=full_prompt,
+                cwd=str(work_dir),
+                capture_output=True,
+            )
+            if agent.stdout:
+                print(agent.stdout, flush=True)
+            if agent.returncode != 0:
+                print(
+                    f"[cai review-pr] agent failed for PR #{pr_number} "
+                    f"(exit {agent.returncode}):\n{agent.stderr}",
+                    file=sys.stderr,
+                )
+                continue
+
+            agent_output = (agent.stdout or "").strip()
+
+            # Determine if there are findings.
+            has_findings = (
+                "### Finding:" in agent_output
+                and "No ripple effects found" not in agent_output
+            )
+
+            if has_findings:
+                comment_body = (
+                    f"{_REVIEW_COMMENT_HEADING} \u2014 {head_sha}\n\n"
+                    f"{agent_output}\n\n"
+                    f"---\n"
+                    f"_Pre-merge consistency review by `cai review-pr`. "
+                    f"Address the findings above or explain why they don't "
+                    f"apply, then push a new commit to trigger a re-review._"
+                )
+            else:
+                comment_body = (
+                    f"{_REVIEW_COMMENT_HEADING} \u2014 {head_sha}\n\n"
+                    f"No ripple effects found.\n\n"
+                    f"---\n"
+                    f"_Pre-merge consistency review by `cai review-pr`._"
+                )
+
+            _run(
+                ["gh", "pr", "comment", str(pr_number),
+                 "--repo", REPO, "--body", comment_body],
+                capture_output=True,
+            )
+
+            finding_word = "with findings" if has_findings else "clean"
+            print(
+                f"[cai review-pr] posted review on PR #{pr_number} ({finding_word})",
+                flush=True,
+            )
+            reviewed += 1
+
+        except Exception as e:
+            print(
+                f"[cai review-pr] unexpected failure for PR #{pr_number}: {e!r}",
+                file=sys.stderr,
+            )
+        finally:
+            if work_dir.exists():
+                shutil.rmtree(work_dir, ignore_errors=True)
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    print(
+        f"[cai review-pr] reviewed={reviewed} skipped={skipped}",
+        flush=True,
+    )
+    log_run("review_pr", repo=REPO, reviewed=reviewed, skipped=skipped,
+            duration=dur, exit=0)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -1530,6 +1715,7 @@ def main() -> int:
     sub.add_parser("verify", help="Update labels based on PR merge state")
     sub.add_parser("audit", help="Run the queue/PR consistency audit")
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
+    sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
 
     args = parser.parse_args()
 
@@ -1545,6 +1731,7 @@ def main() -> int:
         "verify": cmd_verify,
         "audit": cmd_audit,
         "confirm": cmd_confirm,
+        "review-pr": cmd_review_pr,
     }
     return handlers[args.command](args)
 

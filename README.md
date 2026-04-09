@@ -55,12 +55,13 @@ subprocess with no shared state.
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` issues, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet, report-only) |
+| `cai.py review-pr` | `20 * * * *` (hourly :20) | Pre-merge consistency review of open PRs — posts ripple-effect findings as PR comments so the revise subagent can act on them |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
-the six env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
-`CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
-`CAI_CONFIRM_SCHEDULE`), runs each
+the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
+`CAI_REVIEW_PR_SCHEDULE`, `CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`,
+`CAI_AUDIT_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
 subcommand once synchronously so logs show immediate results, then execs
 supercronic.
 
@@ -150,6 +151,24 @@ identity as the operator.
 If the bot can't address a comment (unclear or out of scope), it
 posts a reply explaining why and exits without changes.
 
+### Pre-merge consistency review
+
+The `review-pr` subcommand (default: hourly at `:20`) walks all open
+PRs against `main` and checks each one for **ripple effects** —
+changes that are internally consistent but create inconsistencies with
+the rest of the codebase (stale docs, dead config, missed cross-cutting
+references, etc.).
+
+Findings are posted as a single PR comment starting with
+`## cai pre-merge review — <sha>`. The SHA prevents re-reviewing PRs
+that haven't changed. Because findings are PR comments, the `revise`
+subagent picks them up on the next tick and can address them
+automatically — no separate issue is created.
+
+This replaces the post-merge consistency review originally proposed in
+issue #45. Pre-merge review catches ripple effects before they land in
+`main`, avoiding the extra round-trip of a follow-up fix PR.
+
 `auto-improve:requested` is a separate entry point: a human applies
 it to an arbitrary issue to opt it into the fix queue. The label is
 restricted to repo admins by `.github/workflows/admin-only-label.yml`
@@ -166,6 +185,7 @@ just-trying-things-out from the terminal would use:
 docker compose exec cai python /app/cai.py analyze
 docker compose exec cai python /app/cai.py fix              # oldest eligible
 docker compose exec cai python /app/cai.py fix --issue 12   # specific issue
+docker compose exec cai python /app/cai.py review-pr
 docker compose exec cai python /app/cai.py revise
 docker compose exec cai python /app/cai.py verify
 docker compose exec cai python /app/cai.py audit
@@ -177,6 +197,7 @@ A short alias makes this trivial:
 ```bash
 alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /app/cai.py'
 cai fix --issue 12
+cai review-pr
 cai revise
 cai verify
 cai audit
@@ -381,7 +402,7 @@ docker run --rm -v cai_transcripts:/data alpine ls -R /data
 
 A **run log** is written to `./logs/cai.log` (bind-mounted from
 `/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
-`fix`, `revise`, `verify`, `audit`, and `confirm` invocation appends one key=value line so you can
+`fix`, `review-pr`, `revise`, `verify`, `audit`, and `confirm` invocation appends one key=value line so you can
 watch cycle activity from the host without `docker exec`:
 
 ```bash
