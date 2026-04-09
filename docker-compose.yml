@@ -32,6 +32,7 @@ services:
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily at 00:00 UTC (LLM call)
       CAI_FIX_SCHEDULE: "15 * * * *"        # hourly at :15 (cheap if no work)
       CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly at :45 (mechanical, no LLM)
+      CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
     volumes:
       # Persistent claude-code session transcripts. claude-code writes
       # session JSONL into ~/.claude/projects/<sanitized-cwd>/<sid>.jsonl

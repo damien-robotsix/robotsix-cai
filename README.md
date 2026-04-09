@@ -271,6 +271,15 @@ The container uses two Docker named volumes:
   credential store. Populated once by the installer's
   `gh auth login` step and reused on every subsequent run.
 
+The transcript parser (`parse.py`) only considers sessions whose JSONL
+file was modified within a configurable window. This prevents stale
+historical data from polluting the analyzer's signal after a fix has
+landed.
+
+- **`CAI_TRANSCRIPT_WINDOW_DAYS`** — number of days of transcript
+  history to include in the analysis. Default: `7`. Set to `0` to
+  include all sessions (useful for debugging or initial seeding).
+
 Inspect a volume from outside the container:
 
 ```bash

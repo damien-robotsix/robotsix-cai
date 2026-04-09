@@ -27,8 +27,10 @@ Usage::
 """
 
 import json
+import os
 import pathlib
 import sys
+import time
 from collections import Counter
 
 
@@ -186,15 +188,32 @@ def extract_tool_calls(lines: list[str]) -> dict:
     }
 
 
+def _get_cutoff_time() -> float:
+    """Return the mtime cutoff as a Unix timestamp, or 0 to disable."""
+    raw = os.environ.get("CAI_TRANSCRIPT_WINDOW_DAYS", "7")
+    try:
+        window_days = int(raw)
+    except ValueError:
+        window_days = 7
+    if window_days <= 0:
+        return 0.0
+    return time.time() - (window_days * 86400)
+
+
 def collect_jsonl_lines(source: str) -> list[str]:
     """Collect all JSONL lines from a file, directory, or stdin sentinel."""
     p = pathlib.Path(source)
+    cutoff = _get_cutoff_time()
     if p.is_dir():
         lines: list[str] = []
         for jf in sorted(p.rglob("*.jsonl")):
+            if cutoff and jf.stat().st_mtime < cutoff:
+                continue
             lines.extend(jf.read_text(errors="replace").splitlines())
         return lines
     if p.is_file():
+        if cutoff and p.stat().st_mtime < cutoff:
+            return []
         return p.read_text(errors="replace").splitlines()
     return []
 
