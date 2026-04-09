@@ -82,6 +82,12 @@ No findings.
 
 ## Filter
 
+Before raising any new finding, check the "Currently open
+auto-improve issues" list at the end of the prompt. If your proposed
+finding overlaps with an existing open issue — by topic, not just by
+fingerprint — do NOT output it. Only raise findings that are
+genuinely new and not yet captured in the open queue.
+
 Only output a finding when:
 
 - You see at least 2 observations of the same pattern, **OR**

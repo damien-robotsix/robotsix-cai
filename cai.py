@@ -210,12 +210,59 @@ def cmd_analyze(args) -> int:
 
     prompt_text = ANALYZER_PROMPT.read_text()
 
+    # Fetch currently open auto-improve issues so the analyzer can
+    # avoid raising duplicates (semantic dedup, not just fingerprint).
+    _STATE_PRIORITY = {
+        LABEL_IN_PROGRESS: 0,
+        LABEL_PR_OPEN: 1,
+        LABEL_RAISED: 2,
+        LABEL_MERGED: 3,
+        LABEL_REQUESTED: 4,
+    }
+
+    def _issue_state_label(issue):
+        label_names = [lbl["name"] for lbl in issue.get("labels", [])]
+        best = None
+        for name in label_names:
+            if name in _STATE_PRIORITY:
+                if best is None or _STATE_PRIORITY[name] < _STATE_PRIORITY[best]:
+                    best = name
+        if best is None:
+            return "other"
+        # Strip the 'auto-improve:' prefix for readability.
+        return best.split(":", 1)[1] if ":" in best else best
+
+    try:
+        existing_issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", "auto-improve",
+            "--state", "open",
+            "--json", "number,title,labels",
+            "--limit", "30",
+        ]) or []
+    except subprocess.CalledProcessError:
+        existing_issues = []
+
+    issues_block = ""
+    if existing_issues:
+        lines = []
+        for ei in existing_issues:
+            state = _issue_state_label(ei)
+            lines.append(f"- #{ei['number']} [{state}] {ei['title']}")
+        issues_block = (
+            "\n\n## Currently open auto-improve issues\n\n"
+            + "\n".join(lines)
+            + "\n"
+        )
+
     full_prompt = (
         f"{prompt_text}\n\n"
         "## Parsed signals\n\n"
         "```json\n"
         f"{parsed_signals}\n"
         "```\n"
+        f"{issues_block}"
     )
 
     analyzer = _run(
