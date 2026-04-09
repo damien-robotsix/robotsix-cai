@@ -244,6 +244,15 @@ docker volume inspect cai_transcripts
 docker run --rm -v cai_transcripts:/data alpine ls -R /data
 ```
 
+A **run log** is written to `./logs/cai.log` (bind-mounted from
+`/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
+`fix`, and `verify` invocation appends one key=value line so you can
+watch cycle activity from the host without `docker exec`:
+
+```bash
+tail -f ~/robotsix-cai/logs/cai.log
+```
+
 Wipe everything (deletes transcripts and gh credentials — you'll need
 to re-authenticate afterwards):
 

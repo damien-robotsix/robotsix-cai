@@ -59,7 +59,7 @@ echo "Install directory: $INSTALL_DIR"
 echo "Image:             robotsix/cai:$IMAGE_TAG"
 echo
 
-mkdir -p "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR/logs"
 cd "$INSTALL_DIR"
 
 if [[ -e docker-compose.yml ]]; then
@@ -111,6 +111,7 @@ services:
       - \${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh
+      - ./logs:/var/log/cai
 
 volumes:
   cai_transcripts:
@@ -146,6 +147,7 @@ services:
     volumes:
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh
+      - ./logs:/var/log/cai
 
 volumes:
   cai_transcripts:

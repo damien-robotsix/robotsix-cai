@@ -44,6 +44,8 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -72,6 +74,29 @@ LABEL_REQUESTED = "auto-improve:requested"
 LABEL_IN_PROGRESS = "auto-improve:in-progress"
 LABEL_PR_OPEN = "auto-improve:pr-open"
 LABEL_MERGED = "auto-improve:merged"
+
+
+# ---------------------------------------------------------------------------
+# Run log
+# ---------------------------------------------------------------------------
+
+LOG_PATH = Path("/var/log/cai/cai.log")
+
+
+def log_run(category: str, **fields) -> None:
+    """Append one key=value line to the persistent run log. Never raises."""
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        parts = [f"{ts} [{category}]"]
+        for k, v in fields.items():
+            parts.append(f"{k}={v}")
+        line = " ".join(parts) + "\n"
+        with LOG_PATH.open("a") as f:
+            f.write(line)
+            f.flush()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -125,13 +150,16 @@ def cmd_init(args) -> int:
     """Seed the loop with a smoke test, only if nothing exists yet."""
     if not _transcript_dir_is_empty():
         print("[cai init] transcripts already present; skipping smoke test", flush=True)
+        log_run("init", ran_smoke_test=False, exit=0)
         return 0
 
     print("[cai init] no prior transcripts; running smoke test to seed loop", flush=True)
     result = _run(["claude", "-p", SMOKE_PROMPT])
-    if result.returncode != 0:
-        print(f"[cai init] smoke test failed (exit {result.returncode})", flush=True)
-    return result.returncode
+    rc = result.returncode
+    if rc != 0:
+        print(f"[cai init] smoke test failed (exit {rc})", flush=True)
+    log_run("init", ran_smoke_test=True, exit=rc)
+    return rc
 
 
 # ---------------------------------------------------------------------------
@@ -141,12 +169,15 @@ def cmd_init(args) -> int:
 def cmd_analyze(args) -> int:
     """Parse prior transcripts, ask claude to analyze, publish findings."""
     print("[cai analyze] running self-analyzer", flush=True)
+    t0 = time.monotonic()
 
     if not TRANSCRIPT_DIR.exists():
         print(
             f"[cai analyze] no transcript dir at {TRANSCRIPT_DIR}; nothing to analyze",
             flush=True,
         )
+        log_run("analyze", repo=REPO, sessions=0, tool_calls=0,
+                in_tokens=0, out_tokens=0, duration="0s", exit=0)
         return 0
 
     parsed = _run(
@@ -158,9 +189,25 @@ def cmd_analyze(args) -> int:
             f"[cai analyze] parse.py failed (exit {parsed.returncode}):\n{parsed.stderr}",
             flush=True,
         )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("analyze", repo=REPO, duration=dur, exit=parsed.returncode)
         return parsed.returncode
 
     parsed_signals = parsed.stdout.strip()
+
+    # Extract stats from parse.py's JSON output.
+    try:
+        signals = json.loads(parsed_signals)
+    except (json.JSONDecodeError, ValueError):
+        signals = {}
+    tool_calls = signals.get("tool_call_count", 0)
+    token_usage = signals.get("token_usage", {})
+    in_tokens = token_usage.get("input_tokens", 0)
+    out_tokens = token_usage.get("output_tokens", 0)
+
+    # Count sessions by counting .jsonl files under the transcript dir.
+    session_count = sum(1 for _ in TRANSCRIPT_DIR.rglob("*.jsonl"))
+
     prompt_text = ANALYZER_PROMPT.read_text()
 
     full_prompt = (
@@ -183,6 +230,10 @@ def cmd_analyze(args) -> int:
             f"{analyzer.stderr}",
             flush=True,
         )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("analyze", repo=REPO, sessions=session_count,
+                tool_calls=tool_calls, in_tokens=in_tokens,
+                out_tokens=out_tokens, duration=dur, exit=analyzer.returncode)
         return analyzer.returncode
 
     print("[cai analyze] publishing findings", flush=True)
@@ -190,6 +241,10 @@ def cmd_analyze(args) -> int:
         ["python", str(PUBLISH_SCRIPT)],
         input=analyzer.stdout,
     )
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("analyze", repo=REPO, sessions=session_count,
+            tool_calls=tool_calls, in_tokens=in_tokens,
+            out_tokens=out_tokens, duration=dur, exit=published.returncode)
     return published.returncode
 
 
@@ -294,9 +349,11 @@ def cmd_fix(args) -> int:
             ])
         except subprocess.CalledProcessError as e:
             print(f"[cai fix] gh issue view #{args.issue} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("fix", repo=REPO, issue=args.issue, result="issue_lookup_failed", exit=1)
             return 1
         if issue.get("state", "").upper() != "OPEN":
             print(f"[cai fix] issue #{args.issue} is not open; nothing to do", flush=True)
+            log_run("fix", repo=REPO, issue=args.issue, result="not_open", exit=0)
             return 0
         label_names = {lbl["name"] for lbl in issue.get("labels", [])}
         if LABEL_IN_PROGRESS in label_names or LABEL_PR_OPEN in label_names:
@@ -305,11 +362,13 @@ def cmd_fix(args) -> int:
                 f"({LABEL_IN_PROGRESS} or {LABEL_PR_OPEN} present); skipping",
                 flush=True,
             )
+            log_run("fix", repo=REPO, issue=args.issue, result="already_locked", exit=0)
             return 0
     else:
         issue = _select_fix_target()
         if issue is None:
             print("[cai fix] no eligible issues; nothing to do", flush=True)
+            log_run("fix", repo=REPO, result="no_eligible_issues", exit=0)
             return 0
 
     issue_number = issue["number"]
@@ -323,6 +382,7 @@ def cmd_fix(args) -> int:
         remove=[LABEL_RAISED, LABEL_REQUESTED],
     ):
         print(f"[cai fix] could not lock #{issue_number}", file=sys.stderr)
+        log_run("fix", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
         return 1
     print(f"[cai fix] locked #{issue_number} (label {LABEL_IN_PROGRESS})", flush=True)
 
@@ -357,6 +417,7 @@ def cmd_fix(args) -> int:
         if clone.returncode != 0:
             print(f"[cai fix] gh repo clone failed:\n{clone.stderr}", file=sys.stderr)
             rollback()
+            log_run("fix", repo=REPO, issue=issue_number, result="clone_failed", exit=1)
             return 1
 
         # 3. Configure git identity from the gh token's owner.
@@ -391,6 +452,8 @@ def cmd_fix(args) -> int:
                 file=sys.stderr,
             )
             rollback()
+            log_run("fix", repo=REPO, issue=issue_number,
+                    result="subagent_failed", exit=agent.returncode)
             return agent.returncode
 
         # 6. Inspect the working tree. Empty diff = clean exit.
@@ -402,7 +465,12 @@ def cmd_fix(args) -> int:
                 flush=True,
             )
             rollback()
+            log_run("fix", repo=REPO, issue=issue_number,
+                    result="empty_diff_rolled_back", exit=0)
             return 0
+
+        # Count changed files for the log line.
+        diff_files = len(status.stdout.strip().splitlines())
 
         # 7. Commit.
         _git(work_dir, "add", "-A")
@@ -421,6 +489,8 @@ def cmd_fix(args) -> int:
         if push.returncode != 0:
             print(f"[cai fix] git push failed:\n{push.stderr}", file=sys.stderr)
             rollback()
+            log_run("fix", repo=REPO, issue=issue_number,
+                    result="push_failed", exit=1)
             return 1
 
         # 9. Open the PR.
@@ -444,8 +514,15 @@ def cmd_fix(args) -> int:
         if pr.returncode != 0:
             print(f"[cai fix] gh pr create failed:\n{pr.stderr}", file=sys.stderr)
             rollback()
+            log_run("fix", repo=REPO, issue=issue_number,
+                    result="pr_create_failed", exit=1)
             return 1
-        print(f"[cai fix] opened PR: {pr.stdout.strip()}", flush=True)
+
+        pr_url = pr.stdout.strip()
+        print(f"[cai fix] opened PR: {pr_url}", flush=True)
+
+        # Extract PR number from the URL (last path segment).
+        pr_number = pr_url.rstrip("/").rsplit("/", 1)[-1]
 
         # 10. Transition label :in-progress -> :pr-open.
         _set_labels(
@@ -454,11 +531,15 @@ def cmd_fix(args) -> int:
             remove=[LABEL_IN_PROGRESS],
         )
         locked = False
+        log_run("fix", repo=REPO, issue=issue_number, branch=branch,
+                pr=pr_number, diff_files=diff_files, exit=0)
         return 0
 
     except Exception as e:
         print(f"[cai fix] unexpected failure: {e!r}", file=sys.stderr)
         rollback()
+        log_run("fix", repo=REPO, issue=issue_number,
+                result=f"unexpected_error", exit=1)
         return 1
     finally:
         if work_dir.exists():
@@ -507,10 +588,12 @@ def cmd_verify(args) -> int:
         ]) or []
     except subprocess.CalledProcessError as e:
         print(f"[cai verify] gh issue list failed:\n{e.stderr}", file=sys.stderr)
+        log_run("verify", repo=REPO, checked=0, transitioned=0, exit=1)
         return 1
 
     if not issues:
         print("[cai verify] no pr-open issues; nothing to do", flush=True)
+        log_run("verify", repo=REPO, checked=0, transitioned=0, exit=0)
         return 0
 
     transitioned = 0
@@ -536,6 +619,7 @@ def cmd_verify(args) -> int:
             print(f"[cai verify] #{num}: PR #{pr['number']} still {state}", flush=True)
 
     print(f"[cai verify] done ({transitioned} transitioned)", flush=True)
+    log_run("verify", repo=REPO, checked=len(issues), transitioned=transitioned, exit=0)
     return 0
 
 
