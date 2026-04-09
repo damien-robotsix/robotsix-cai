@@ -26,13 +26,24 @@ For **each** merged issue, output exactly one verdict block:
 
 ## Decision rules
 
-- **solved** — The pattern described in the issue's evidence section is
-  absent from the parsed signals. The fix worked.
+- **solved** — The parsed signals are non-empty and the pattern
+  described in the issue's evidence section is not present. The
+  absence of the pattern in recent signals is positive evidence the
+  fix worked. Use this verdict whenever there are signals but the
+  specific pattern is not found.
 - **unsolved** — The pattern described in the issue's evidence section
-  is still present in the parsed signals. The fix did not eliminate it.
-- **inconclusive** — The parsed signals are empty or insufficient to
-  determine whether the pattern is present or absent (e.g., no recent
-  sessions, no relevant tool calls in the window).
+  is clearly still present in the parsed signals.
+- **inconclusive** — The parsed signals are completely empty (zero
+  sessions, no data at all). If there are any parsed signals, you
+  MUST choose either solved or unsolved — never inconclusive.
+
+## Important: do not overuse inconclusive
+
+The most common mistake is defaulting to "inconclusive" when the
+pattern is simply absent from the signals. Absence of the pattern in
+a non-empty signal set means the fix worked — that is **solved**, not
+"inconclusive." Reserve "inconclusive" strictly for an empty signal
+set with no sessions at all.
 
 ## Hard rules
 
