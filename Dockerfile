@@ -58,7 +58,7 @@ RUN wget -nv -O /usr/local/bin/supercronic \
     && supercronic -version
 
 WORKDIR /app
-COPY cai.py /app/cai.py
+COPY cai*.py /app/
 COPY parse.py /app/parse.py
 COPY publish.py /app/publish.py
 COPY prompts /app/prompts
