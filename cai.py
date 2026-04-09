@@ -1941,8 +1941,14 @@ def cmd_merge(args) -> int:
         issue_labels = [l["name"] for l in issue.get("labels", [])]
         if LABEL_PR_OPEN not in issue_labels:
             continue
-        if LABEL_MERGE_BLOCKED in issue_labels:
-            continue
+        # NOTE: do NOT skip on `auto-improve:merge-blocked`. The label
+        # is informational only — it records "the last evaluation
+        # decided not to merge". Re-evaluation gating is purely
+        # SHA-based (see safety filter 6 below): if the PR's HEAD SHA
+        # has a prior merge-verdict comment, we skip; otherwise we
+        # re-evaluate. That way, when revise pushes a new commit (new
+        # SHA), the bot naturally re-evaluates without requiring a
+        # human to manually clear the label.
 
         # Safety filter 3: unaddressed review comments → let revise handle.
         all_comments = list(pr.get("comments", []))
