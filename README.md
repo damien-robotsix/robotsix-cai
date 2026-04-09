@@ -96,7 +96,7 @@ issue/PR lifecycle for human triage and are **not** picked up by
 | `audit:solved` | Addressed (manually closed or auto-resolved on next audit) |
 
 Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
-`prompt_contradiction`, `topic_duplicate`.
+`prompt_contradiction`, `topic_duplicate`, `silent_failure`.
 
 The one exception to "report-only" is stale `:in-progress` rollback:
 if an issue has been `:in-progress` for more than 6 hours with no
