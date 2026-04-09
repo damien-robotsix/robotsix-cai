@@ -1619,10 +1619,15 @@ def cmd_review_pr(args) -> int:
                 f"```diff\n{pr_diff}\n```\n"
             )
 
-            # Run the review agent (read-only tools only).
+            # Run the review agent (read-only tools only). The
+            # `--allowedTools` flag must receive a single comma- (or
+            # space-) separated string. Passing the tools as separate
+            # positional args would cause claude-code's parser to set
+            # only `Read` as the allowed tool and treat `Grep`/`Glob`
+            # as positional arguments to the prompt.
             agent = _run(
                 ["claude", "-p", "--permission-mode", "acceptEdits",
-                 "--allowedTools", "Read", "Grep", "Glob"],
+                 "--allowedTools", "Read,Grep,Glob"],
                 input=full_prompt,
                 cwd=str(work_dir),
                 capture_output=True,
