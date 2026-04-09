@@ -51,6 +51,9 @@ The full source tree is here, including `cai.py`, `parse.py`,
    the same file, combine them into as few Edit calls as possible by
    using larger `old_string` spans. Avoid single-line edits when a
    multi-line replacement achieves the same result in one call.
+11. **Batch independent Read calls.** When you need to read multiple
+   files and the reads are independent, issue all Read calls in a
+   single turn rather than reading files one at a time sequentially.
 
 ## When to make NO changes (and exit cleanly)
 
