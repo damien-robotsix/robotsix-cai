@@ -52,13 +52,15 @@ subprocess with no shared state.
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, lets a subagent edit the repo with full tool permissions, opens a PR — see lifecycle below |
+| `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` issues, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet, report-only) |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
-the five env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
-`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
+the six env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
+`CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
+`CAI_CONFIRM_SCHEDULE`), runs each
 subcommand once synchronously so logs show immediate results, then execs
 supercronic.
 
@@ -117,6 +119,31 @@ recent fix activity in the log, the audit subcommand automatically
 rolls it back to `:raised` and creates an audit finding noting the
 rollback.
 
+### Comment-driven PR iteration
+
+When the bot opens a PR, you can leave a comment asking for changes
+instead of closing it. The `revise` subcommand (default: hourly at
+`:30`) picks up any PR comment posted **after the most recent commit**
+on the branch and feeds it to the revise subagent.
+
+How it works:
+
+1. Leave a normal issue-level comment on the PR (e.g. "also handle
+   the empty-input case")
+2. On the next revise tick, the bot detects the comment, checks out
+   the existing branch, and runs the revise subagent
+3. The subagent makes the smallest change that addresses the comment
+   and force-pushes (`--force-with-lease`) to the same branch
+4. The PR updates in place — no new PR is created
+
+The rule is simple: any comment with `createdAt` after the branch's
+most recent commit is treated as unaddressed. Once the bot pushes a
+new commit, all prior comments are considered addressed. Comments
+from the bot itself are filtered out to avoid self-loops.
+
+If the bot can't address a comment (unclear or out of scope), it
+posts a reply explaining why and exits without changes.
+
 `auto-improve:requested` is a separate entry point: a human applies
 it to an arbitrary issue to opt it into the fix queue. The label is
 restricted to repo admins by `.github/workflows/admin-only-label.yml`
@@ -133,6 +160,7 @@ just-trying-things-out from the terminal would use:
 docker compose exec cai python /app/cai.py analyze
 docker compose exec cai python /app/cai.py fix              # oldest eligible
 docker compose exec cai python /app/cai.py fix --issue 12   # specific issue
+docker compose exec cai python /app/cai.py revise
 docker compose exec cai python /app/cai.py verify
 docker compose exec cai python /app/cai.py audit
 docker compose exec cai python /app/cai.py confirm
@@ -143,6 +171,7 @@ A short alias makes this trivial:
 ```bash
 alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /app/cai.py'
 cai fix --issue 12
+cai revise
 cai verify
 cai audit
 cai confirm
@@ -334,7 +363,7 @@ docker run --rm -v cai_transcripts:/data alpine ls -R /data
 
 A **run log** is written to `./logs/cai.log` (bind-mounted from
 `/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
-`fix`, `verify`, `audit`, and `confirm` invocation appends one key=value line so you can
+`fix`, `revise`, `verify`, `audit`, and `confirm` invocation appends one key=value line so you can
 watch cycle activity from the host without `docker exec`:
 
 ```bash

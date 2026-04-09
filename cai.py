@@ -36,6 +36,11 @@ Subcommands:
                             published as `audit:raised` issues in a
                             separate label namespace.
 
+    python cai.py revise    Watch `:pr-open` PRs for new comments and
+                            let the fix subagent iterate on the same
+                            branch. Force-pushes revisions with
+                            `--force-with-lease`.
+
     python cai.py confirm   Re-analyze the recent transcript window and
                             verify whether `:merged` issues are actually
                             solved. Patterns that disappeared get closed
@@ -43,7 +48,7 @@ Subcommands:
                             as `:merged`.
 
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`fix`, `verify`, `audit`, and `confirm` once synchronously at startup, then
+`fix`, `revise`, `verify`, `audit`, and `confirm` once synchronously at startup, then
 hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
@@ -84,6 +89,7 @@ ANALYZER_PROMPT = Path("/app/prompts/backend-auto-improve.md")
 FIX_PROMPT = Path("/app/prompts/backend-fix.md")
 AUDIT_PROMPT = Path("/app/prompts/backend-audit.md")
 CONFIRM_PROMPT = Path("/app/prompts/backend-confirm.md")
+REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
@@ -93,6 +99,7 @@ LABEL_PR_OPEN = "auto-improve:pr-open"
 LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
+LABEL_REVISING = "auto-improve:revising"
 
 
 # ---------------------------------------------------------------------------
@@ -636,6 +643,324 @@ def cmd_fix(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# revise
+# ---------------------------------------------------------------------------
+
+
+def _select_revise_targets() -> list[dict]:
+    """Return PRs needing revision (unaddressed comments since last commit).
+
+    Eligible = branch matches auto-improve/<N>-* AND linked issue has
+    label auto-improve:pr-open. Returns a list of dicts with keys:
+    pr_number, issue_number, branch, comments (the unaddressed ones).
+    """
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--json", "number,headRefName,comments",
+            "--limit", "50",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai revise] gh pr list failed:\n{e.stderr}", file=sys.stderr)
+        return []
+
+    # Resolve the bot's own login so we can filter out self-comments.
+    try:
+        bot_user = _gh_json(["api", "user"])
+        bot_login = bot_user["login"]
+    except Exception:
+        bot_login = None
+
+    targets = []
+    for pr in prs:
+        branch = pr.get("headRefName", "")
+        m = re.match(r"^auto-improve/(\d+)-", branch)
+        if not m:
+            continue
+        issue_number = int(m.group(1))
+
+        # Check that the linked issue has :pr-open label.
+        try:
+            issue = _gh_json([
+                "issue", "view", str(issue_number),
+                "--repo", REPO,
+                "--json", "labels,state",
+            ])
+        except subprocess.CalledProcessError:
+            continue
+        if not issue or issue.get("state", "").upper() != "OPEN":
+            continue
+        label_names = {lbl["name"] for lbl in issue.get("labels", [])}
+        if LABEL_PR_OPEN not in label_names:
+            continue
+
+        # Find the most recent commit timestamp on the branch.
+        try:
+            commit_info = _gh_json([
+                "api", f"repos/{REPO}/commits",
+                "--jq", ".[0].commit.committer.date",
+                "-q", "sha=" + branch,
+            ])
+        except Exception:
+            commit_info = None
+
+        # Use gh pr view to get the last commit date more reliably.
+        try:
+            pr_detail = _gh_json([
+                "pr", "view", str(pr["number"]),
+                "--repo", REPO,
+                "--json", "commits",
+            ])
+            commits = pr_detail.get("commits", [])
+            if commits:
+                last_commit_date = commits[-1].get("committedDate", "")
+            else:
+                last_commit_date = ""
+        except Exception:
+            last_commit_date = ""
+
+        if not last_commit_date:
+            continue
+
+        # Parse commit timestamp.
+        try:
+            commit_ts = datetime.strptime(
+                last_commit_date, "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+
+        # Filter comments: createdAt > commit timestamp.
+        comments = pr.get("comments", [])
+        unaddressed = []
+        for c in comments:
+            try:
+                c_ts = datetime.strptime(
+                    c["createdAt"], "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
+            except (ValueError, KeyError):
+                continue
+            if c_ts > commit_ts:
+                unaddressed.append(c)
+
+        if not unaddressed:
+            continue
+
+        # Skip if all unaddressed comments are from the bot itself.
+        if bot_login and all(
+            c.get("author", {}).get("login") == bot_login
+            for c in unaddressed
+        ):
+            continue
+
+        targets.append({
+            "pr_number": pr["number"],
+            "issue_number": issue_number,
+            "branch": branch,
+            "comments": unaddressed,
+        })
+
+    return targets
+
+
+def cmd_revise(args) -> int:
+    """Iterate on open PRs based on review comments."""
+    print("[cai revise] checking for PRs with unaddressed comments", flush=True)
+
+    targets = _select_revise_targets()
+    if not targets:
+        print("[cai revise] no PRs need revision; nothing to do", flush=True)
+        log_run("revise", repo=REPO, result="no_targets", exit=0)
+        return 0
+
+    print(f"[cai revise] found {len(targets)} PR(s) to revise", flush=True)
+
+    for target in targets:
+        pr_number = target["pr_number"]
+        issue_number = target["issue_number"]
+        branch = target["branch"]
+        comments = target["comments"]
+
+        print(
+            f"[cai revise] revising PR #{pr_number} (issue #{issue_number}, "
+            f"{len(comments)} unaddressed comment(s))",
+            flush=True,
+        )
+
+        # 1. Lock — add :revising label.
+        if not _set_labels(issue_number, add=[LABEL_REVISING]):
+            print(
+                f"[cai revise] could not lock #{issue_number}",
+                file=sys.stderr,
+            )
+            log_run("revise", repo=REPO, pr=pr_number,
+                    result="lock_failed", exit=1)
+            continue
+
+        _run(["gh", "auth", "setup-git"], capture_output=True)
+
+        work_dir = Path(f"/tmp/cai-revise-{issue_number}")
+
+        try:
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+
+            # 2. Clone and check out the existing branch.
+            clone = _run(
+                ["gh", "repo", "clone", REPO, str(work_dir)],
+                capture_output=True,
+            )
+            if clone.returncode != 0:
+                print(
+                    f"[cai revise] clone failed:\n{clone.stderr}",
+                    file=sys.stderr,
+                )
+                _set_labels(issue_number, remove=[LABEL_REVISING])
+                log_run("revise", repo=REPO, pr=pr_number,
+                        result="clone_failed", exit=1)
+                continue
+
+            _git(work_dir, "fetch", "origin", branch)
+            _git(work_dir, "checkout", branch)
+
+            # 3. Configure git identity.
+            name, email = _gh_user_identity()
+            _git(work_dir, "config", "user.name", name)
+            _git(work_dir, "config", "user.email", email)
+
+            # 4. Fetch original issue body.
+            try:
+                issue_data = _gh_json([
+                    "issue", "view", str(issue_number),
+                    "--repo", REPO,
+                    "--json", "number,title,body",
+                ])
+            except subprocess.CalledProcessError:
+                issue_data = {"number": issue_number, "title": "(unknown)", "body": ""}
+
+            # Get current PR diff.
+            diff_result = _run(
+                ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
+                capture_output=True,
+            )
+            pr_diff = diff_result.stdout if diff_result.returncode == 0 else "(could not fetch diff)"
+
+            # 5. Build the revise prompt.
+            prompt_text = REVISE_PROMPT.read_text()
+            comments_section = "## Unaddressed review comments\n\n"
+            for c in comments:
+                author = c.get("author", {}).get("login", "unknown")
+                body = c.get("body", "")
+                created = c.get("createdAt", "")
+                comments_section += (
+                    f"### Comment by @{author} ({created})\n\n"
+                    f"{body}\n\n"
+                )
+
+            full_prompt = (
+                f"{prompt_text}\n\n"
+                f"## Original issue\n\n"
+                f"### #{issue_data['number']} — {issue_data.get('title', '')}\n\n"
+                f"{issue_data.get('body') or '(no body)'}\n\n"
+                f"## Current PR diff\n\n"
+                f"```diff\n{pr_diff}\n```\n\n"
+                f"{comments_section}"
+            )
+
+            # 6. Run the revise subagent.
+            print(f"[cai revise] running revise subagent in {work_dir}", flush=True)
+            agent = _run(
+                ["claude", "-p", "--permission-mode", "acceptEdits",
+                 "--disallowedTools", "Bash"],
+                input=full_prompt,
+                cwd=str(work_dir),
+                capture_output=True,
+            )
+            if agent.stdout:
+                print(agent.stdout, flush=True)
+            if agent.returncode != 0:
+                print(
+                    f"[cai revise] subagent failed (exit {agent.returncode}):\n"
+                    f"{agent.stderr}",
+                    file=sys.stderr,
+                )
+                _set_labels(issue_number, remove=[LABEL_REVISING])
+                log_run("revise", repo=REPO, pr=pr_number,
+                        comments_addressed=0, exit=agent.returncode)
+                continue
+
+            # 7. Inspect the working tree.
+            status = _git(work_dir, "status", "--porcelain", check=False)
+            if not status.stdout.strip():
+                # Empty diff — post a comment explaining.
+                reasoning = (agent.stdout or "").strip()[:2000]
+                comment_body = (
+                    f"## Revise subagent: no additional changes\n\n"
+                    f"{reasoning}\n\n"
+                    f"---\n"
+                    f"_The revise subagent reviewed the comments but did not "
+                    f"find actionable changes to make._"
+                )
+                _run(
+                    ["gh", "pr", "comment", str(pr_number),
+                     "--repo", REPO, "--body", comment_body],
+                    capture_output=True,
+                )
+                _set_labels(issue_number, remove=[LABEL_REVISING])
+                print(
+                    f"[cai revise] no changes for PR #{pr_number}; "
+                    "posted comment",
+                    flush=True,
+                )
+                log_run("revise", repo=REPO, pr=pr_number,
+                        comments_addressed=0, exit=0)
+                continue
+
+            # 8. Commit and force-push.
+            _git(work_dir, "add", "-A")
+            commit_msg = (
+                f"auto-improve: revise per review comments\n\n"
+                f"Refs damien-robotsix/robotsix-cai#{issue_number}"
+            )
+            _git(work_dir, "commit", "-m", commit_msg)
+
+            push = _run(
+                ["git", "-C", str(work_dir), "push", "--force-with-lease",
+                 "origin", branch],
+                capture_output=True,
+            )
+            if push.returncode != 0:
+                print(
+                    f"[cai revise] git push failed:\n{push.stderr}",
+                    file=sys.stderr,
+                )
+                _set_labels(issue_number, remove=[LABEL_REVISING])
+                log_run("revise", repo=REPO, pr=pr_number,
+                        result="push_failed", exit=1)
+                continue
+
+            print(f"[cai revise] force-pushed revision to {branch}", flush=True)
+
+            # 9. Remove lock label.
+            _set_labels(issue_number, remove=[LABEL_REVISING])
+            log_run("revise", repo=REPO, pr=pr_number,
+                    comments_addressed=len(comments), exit=0)
+
+        except Exception as e:
+            print(f"[cai revise] unexpected failure: {e!r}", file=sys.stderr)
+            _set_labels(issue_number, remove=[LABEL_REVISING])
+            log_run("revise", repo=REPO, pr=pr_number,
+                    result="unexpected_error", exit=1)
+        finally:
+            if work_dir.exists():
+                shutil.rmtree(work_dir, ignore_errors=True)
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # verify
 # ---------------------------------------------------------------------------
 
@@ -720,25 +1045,35 @@ _STALE_IN_PROGRESS_HOURS = 6
 
 
 def _rollback_stale_in_progress() -> list[dict]:
-    """Deterministic rollback: :in-progress issues with no recent fix activity.
+    """Deterministic rollback: :in-progress or :revising issues with no recent activity.
 
     Returns the list of issues that were rolled back.
     """
-    try:
-        issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_IN_PROGRESS,
-            "--state", "open",
-            "--json", "number,title,updatedAt,createdAt",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(f"[cai audit] gh issue list (in-progress) failed:\n{e.stderr}", file=sys.stderr)
+    all_issues = []
+    for lock_label in (LABEL_IN_PROGRESS, LABEL_REVISING):
+        try:
+            issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", lock_label,
+                "--state", "open",
+                "--json", "number,title,updatedAt,createdAt,labels",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(
+                f"[cai audit] gh issue list ({lock_label}) failed:\n{e.stderr}",
+                file=sys.stderr,
+            )
+            continue
+        for issue in issues:
+            issue["_lock_label"] = lock_label
+            all_issues.append(issue)
+
+    if not all_issues:
         return []
 
-    if not issues:
-        return []
+    issues = all_issues
 
     # Read the log tail to find the most recent [fix] line per issue.
     fix_timestamps: dict[int, float] = {}
@@ -748,7 +1083,7 @@ def _rollback_stale_in_progress() -> list[dict]:
         except Exception:
             lines = []
         for line in lines:
-            if "[fix]" not in line:
+            if "[fix]" not in line and "[revise]" not in line:
                 continue
             # Extract issue number from "issue=<N>"
             m = re.search(r"issue=(\d+)", line)
@@ -786,22 +1121,29 @@ def _rollback_stale_in_progress() -> list[dict]:
             age = now - updated
 
         if age > threshold:
-            ok = _set_labels(
-                issue_num,
-                add=[LABEL_RAISED],
-                remove=[LABEL_IN_PROGRESS],
-            )
+            lock_label = issue.get("_lock_label", LABEL_IN_PROGRESS)
+            if lock_label == LABEL_REVISING:
+                # Revising lock: just remove the lock, leave :pr-open.
+                ok = _set_labels(issue_num, remove=[LABEL_REVISING])
+            else:
+                # In-progress lock: roll back to :raised.
+                ok = _set_labels(
+                    issue_num,
+                    add=[LABEL_RAISED],
+                    remove=[LABEL_IN_PROGRESS],
+                )
             if ok:
                 rolled_back.append(issue)
                 log_run(
                     "audit",
-                    action="stale_in_progress_rollback",
+                    action="stale_lock_rollback",
                     issue=issue_num,
+                    lock_label=lock_label,
                     stale_hours=f"{age / 3600:.1f}",
                 )
                 print(
                     f"[cai audit] rolled back #{issue_num} "
-                    f"(:in-progress → :raised, stale {age / 3600:.1f}h)",
+                    f"(removed {lock_label}, stale {age / 3600:.1f}h)",
                     flush=True,
                 )
 
@@ -1105,6 +1447,7 @@ def main() -> int:
         help="Target a specific issue number instead of picking the oldest",
     )
 
+    sub.add_parser("revise", help="Iterate on open PRs based on review comments")
     sub.add_parser("verify", help="Update labels based on PR merge state")
     sub.add_parser("audit", help="Run the queue/PR consistency audit")
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
@@ -1119,6 +1462,7 @@ def main() -> int:
         "init": cmd_init,
         "analyze": cmd_analyze,
         "fix": cmd_fix,
+        "revise": cmd_revise,
         "verify": cmd_verify,
         "audit": cmd_audit,
         "confirm": cmd_confirm,
