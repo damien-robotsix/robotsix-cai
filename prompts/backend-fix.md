@@ -59,6 +59,9 @@ The full source tree is here, including `cai.py`, `parse.py`,
 12. **Batch independent Read calls.** When you need to read multiple
    files and the reads are independent, issue all Read calls in a
    single turn rather than reading files one at a time sequentially.
+13. **Grep before Read.** Before reading multiple files to locate a
+   string or pattern, use Grep to narrow the search first. Reserve
+   consecutive Read calls for files whose paths are already known.
 
 ## When to make NO changes (and exit cleanly)
 
