@@ -14,7 +14,8 @@ You are running inside a fresh clone of `damien-robotsix/robotsix-cai`.
 The full source tree is here, including `cai.py`, `parse.py`,
 `publish.py`, `prompts/`, the `Dockerfile`, `install.sh`,
 `docker-compose.yml`, the README, and the GitHub workflows under
-`.github/workflows/`.
+`.github/workflows/`. Bash is not available — use Read, Edit, Write,
+Grep, and Glob instead.
 
 ## Hard rules
 
@@ -33,30 +34,28 @@ The full source tree is here, including `cai.py`, `parse.py`,
 5. **Do not delete or substantially rewrite existing files** unless
    the issue is explicitly about deletion or rewrite.
 6. **Stay inside the repo.** Don't modify files outside the working
-   directory.
-7. **Don't modify `.github/workflows/` files** unless the issue is
-   specifically about them. Workflow changes are sensitive — if in
-   doubt, exit without changes.
-8. **Fail fast on repeated errors.** If a tool call fails twice with
-   the same or similar error, stop retrying and move on. Diagnose
-   the root cause or report the failure instead of looping. Do not
-   make more than two attempts at the same failing operation.
-9. **Re-read after Edit failures.** After 2 consecutive Edit failures
-   on the same file (e.g. `old_string` not found), re-read the file
-   to refresh your view of its contents before retrying. Your cached
-   view of the file may be stale — another edit may have changed
-   line content or indentation.
-10. **Batch edits to the same file.** When making multiple changes to
-   the same file, combine them into as few Edit calls as possible by
-   using larger `old_string` spans. Avoid single-line edits when a
-   multi-line replacement achieves the same result in one call.
-11. **Batch independent Read calls.** When you need to read multiple
+   directory. Don't modify `.github/workflows/` files unless the
+   issue is specifically about them — if in doubt, exit without
+   changes.
+
+## Efficiency guidance
+
+1. **Fail fast on repeated errors.** If a tool call fails twice with
+   the same or similar error, stop retrying and diagnose the root
+   cause instead of looping. After 2 consecutive Edit failures on
+   the same file, re-read it to refresh your view before retrying —
+   your cached view may be stale.
+2. **Grep before Read.** Use Grep to locate the relevant file(s)
+   and line numbers before opening them with Read. Do not
+   sequentially Read files to search for content — reserve Read for
+   files whose paths and relevance are already known.
+3. **Batch independent Read calls.** When you need to read multiple
    files and the reads are independent, issue all Read calls in a
-   single turn rather than reading files one at a time sequentially.
-12. **Grep before Read.** Use Grep to locate the relevant file(s)
-   and line numbers BEFORE opening them with Read. Do NOT sequentially
-   Read files to search for content. Reserve Read calls for files
-   whose paths and relevance are already known.
+   single turn rather than one at a time.
+4. **Batch edits to the same file.** Combine multiple changes into
+   as few Edit calls as possible by using larger `old_string` spans.
+   Avoid single-line edits when a multi-line replacement achieves
+   the same result in one call.
 
 ## When to make NO changes (and exit cleanly)
 
