@@ -33,7 +33,12 @@ The full source tree is here, including `cai.py`, `parse.py`,
    Edit, Write, Grep, and Glob. Bash calls will fail in this
    non-interactive context. Use the dedicated tools instead: Read
    to inspect files, Grep to search content, Glob to find files by
-   pattern, and Edit/Write to make changes.
+   pattern, and Edit/Write to make changes. **If a Bash call fails,
+   do NOT retry it.** Read the error, diagnose the cause, and
+   switch to the appropriate dedicated tool (e.g. use Edit instead
+   of `sed`, Grep instead of `grep`, Read instead of `cat`).
+   Maximum 2 Bash attempts total per session — after that, stop
+   and report the error instead of looping.
 5. **Do not add tests, docstrings, or type annotations** unless the
    issue specifically asks for them.
 6. **Do not delete or substantially rewrite existing files** unless
