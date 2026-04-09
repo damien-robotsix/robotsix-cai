@@ -62,6 +62,10 @@ The full source tree is here, including `cai.py`, `parse.py`,
 13. **Grep before Read.** Before reading multiple files to locate a
    string or pattern, use Grep to narrow the search first. Reserve
    consecutive Read calls for files whose paths are already known.
+14. **Read-run ceiling.** Read at most 3 files in a row before acting
+   (Edit/Write). If you need to understand more than 3 files, use
+   Grep to locate the relevant sections first, then Read only the
+   needed ranges with offset/limit.
 
 ## When to make NO changes (and exit cleanly)
 
