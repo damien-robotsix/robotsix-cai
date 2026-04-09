@@ -47,6 +47,11 @@ The full source tree is here, including `cai.py`, `parse.py`,
    the same or similar error, stop retrying and move on. Diagnose
    the root cause or report the failure instead of looping. Do not
    make more than two attempts at the same failing operation.
+10. **Re-read after Edit failures.** After 2 consecutive Edit
+    failures on the same file (e.g. `old_string` not found),
+    re-read the file to refresh your view of its contents before
+    retrying. Stale file contents are the most common cause of
+    repeated match failures.
 
 ## When to make NO changes (and exit cleanly)
 
