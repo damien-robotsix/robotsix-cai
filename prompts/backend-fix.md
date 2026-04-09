@@ -47,6 +47,10 @@ The full source tree is here, including `cai.py`, `parse.py`,
    the same or similar error, stop retrying and move on. Diagnose
    the root cause or report the failure instead of looping. Do not
    make more than two attempts at the same failing operation.
+10. **Batch edits to the same file.** When making multiple changes to
+   the same file, combine them into as few Edit calls as possible by
+   using larger `old_string` spans. Avoid single-line edits when a
+   multi-line replacement achieves the same result in one call.
 
 ## When to make NO changes (and exit cleanly)
 
