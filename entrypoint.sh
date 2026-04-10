@@ -33,6 +33,7 @@ CAI_REVISE_SCHEDULE="${CAI_REVISE_SCHEDULE:-30 * * * *}"
 CAI_CONFIRM_SCHEDULE="${CAI_CONFIRM_SCHEDULE:-0 2 * * *}"
 CAI_REVIEW_PR_SCHEDULE="${CAI_REVIEW_PR_SCHEDULE:-20 * * * *}"
 CAI_MERGE_SCHEDULE="${CAI_MERGE_SCHEDULE:-35 * * * *}"
+CAI_DIAGNOSE_SCHEDULE="${CAI_DIAGNOSE_SCHEDULE:-50 * * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -47,6 +48,7 @@ $CAI_AUDIT_SCHEDULE python /app/cai.py audit
 $CAI_CONFIRM_SCHEDULE python /app/cai.py confirm
 $CAI_REVIEW_PR_SCHEDULE python /app/cai.py review-pr
 $CAI_MERGE_SCHEDULE python /app/cai.py merge
+$CAI_DIAGNOSE_SCHEDULE python /app/cai.py diagnose
 CRONTAB
 
 echo "[entrypoint] crontab:"
@@ -90,6 +92,9 @@ python /app/cai.py audit || echo "[entrypoint] audit exited non-zero; continuing
 
 echo "[entrypoint] running initial cai.py confirm"
 python /app/cai.py confirm || echo "[entrypoint] confirm exited non-zero; continuing"
+
+echo "[entrypoint] running initial cai.py diagnose"
+python /app/cai.py diagnose || echo "[entrypoint] diagnose exited non-zero; continuing"
 
 echo "[entrypoint] handing off to supercronic"
 exec supercronic "$CRONTAB_PATH"

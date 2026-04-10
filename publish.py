@@ -66,6 +66,7 @@ LABELS = [
     ("auto-improve:revising", "d4c5f9", "Revise subagent is actively iterating on a PR"),
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
     ("auto-improve:merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
+    ("auto-improve:diagnose-requested", "1d76db", "Human-requested deep diagnostic (admin-only label)"),
     ("category:reliability", "d73a4a", "Errors, failures, flaky behavior"),
     ("category:cost_reduction", "fbca04", "Token waste, unnecessary tool calls"),
     ("category:prompt_quality", "0075ca", "Unclear or missing prompt guidance"),

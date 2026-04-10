@@ -48,12 +48,14 @@ Subcommands:
                             with `:solved`; patterns that persist stay
                             as `:merged`.
 
-    python cai.py diagnose  Deep diagnostic analysis of a single issue
-                            on user request (--issue required). Gathers
-                            the issue body, comments, linked PR diffs,
-                            and parsed transcript signals, then runs a
-                            Sonnet agent to produce a root-cause report
-                            posted as a comment on the issue.
+    python cai.py diagnose  Deep diagnostic analysis. Without --issue,
+                            scans for open issues labeled
+                            :diagnose-requested and processes each one.
+                            With --issue N, diagnoses that specific
+                            issue. Gathers issue body, comments, linked
+                            PR diffs, and parsed transcript signals, then
+                            runs a Sonnet agent to produce a root-cause
+                            report posted as a comment on the issue.
 
     python cai.py review-pr Walk open PRs against main, run a
                             consistency review for ripple effects, and
@@ -66,8 +68,8 @@ Subcommands:
                             merges when confidence meets the threshold.
 
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`fix`, `revise`, `verify`, `audit`, `confirm`, `review-pr`, and `merge` once synchronously at
-startup, then hands off to supercronic. Each cron tick is a fresh process.
+`fix`, `revise`, `verify`, `audit`, `confirm`, `review-pr`, `merge`, and `diagnose` once
+synchronously at startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
 clear error message in docker logs if credentials ever disappear from
@@ -123,6 +125,7 @@ LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "auto-improve:merge-blocked"
+LABEL_DIAGNOSE_REQUESTED = "auto-improve:diagnose-requested"
 LABEL_AUDIT_RAISED = "audit:raised"
 
 
@@ -2020,9 +2023,8 @@ def cmd_confirm(args) -> int:
 # diagnose
 # ---------------------------------------------------------------------------
 
-def cmd_diagnose(args) -> int:
-    """Deep diagnostic analysis of a single issue on user request."""
-    issue_number = args.issue
+def _diagnose_issue(issue_number: int) -> int:
+    """Run diagnostic analysis on a single issue. Returns exit code."""
     print(f"[cai diagnose] running deep diagnostic on #{issue_number}", flush=True)
     t0 = time.monotonic()
 
@@ -2167,6 +2169,43 @@ def cmd_diagnose(args) -> int:
     print(f"[cai diagnose] posted diagnostic to #{issue_number}", flush=True)
     log_run("diagnose", repo=REPO, issue=issue_number, duration=dur, exit=0)
     return 0
+
+
+def cmd_diagnose(args) -> int:
+    """Deep diagnostic analysis of a single issue, or scan for labeled issues."""
+    # Manual mode: --issue was provided.
+    if args.issue is not None:
+        return _diagnose_issue(args.issue)
+
+    # Scan mode: find issues labeled :diagnose-requested.
+    print("[cai diagnose] scanning for issues with "
+          f"{LABEL_DIAGNOSE_REQUESTED}", flush=True)
+    try:
+        issues = _gh_json([
+            "issue", "list", "--repo", REPO,
+            "--label", LABEL_DIAGNOSE_REQUESTED,
+            "--state", "open",
+            "--json", "number",
+            "--limit", "20",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai diagnose] failed to list labeled issues:\n{e.stderr}",
+              file=sys.stderr)
+        return 1
+
+    if not issues:
+        print("[cai diagnose] no issues with diagnose-requested label", flush=True)
+        return 0
+
+    worst_rc = 0
+    for entry in issues:
+        issue_number = entry["number"]
+        # Remove the trigger label before running so we don't re-process.
+        _set_labels(issue_number, remove=[LABEL_DIAGNOSE_REQUESTED])
+        rc = _diagnose_issue(issue_number)
+        if rc != 0:
+            worst_rc = rc
+    return worst_rc
 
 
 # ---------------------------------------------------------------------------
@@ -2817,8 +2856,8 @@ def main() -> int:
 
     diagnose_parser = sub.add_parser("diagnose", help="Deep diagnostic analysis of a single issue")
     diagnose_parser.add_argument(
-        "--issue", type=int, required=True,
-        help="Issue number to diagnose",
+        "--issue", type=int, default=None,
+        help="Issue number to diagnose (omit to scan for :diagnose-requested label)",
     )
 
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
