@@ -109,8 +109,9 @@ bot) or re-label to `:raised` to retry.
 The `audit` subcommand uses a **separate label namespace** (`audit:*`)
 to distinguish its findings from analyzer findings (`auto-improve:*`).
 Audit findings flag inconsistencies in the issue/PR lifecycle.
-Issues labelled `audit:raised` are picked up by `cai.py fix` just
-like `auto-improve:raised` issues.
+Issues labelled `audit:raised` go through `cai.py audit-triage`
+first, which relabels eligible ones to `auto-improve:raised` so the
+fix subagent picks them up.
 
 | Label | Meaning |
 |---|---|
