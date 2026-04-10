@@ -107,7 +107,6 @@ TRANSCRIPT_DIR = Path("/root/.claude/projects")
 PARSE_SCRIPT = Path("/app/parse.py")
 PUBLISH_SCRIPT = Path("/app/publish.py")
 FIX_PROMPT = Path("/app/prompts/backend-fix.md")
-CONFIRM_PROMPT = Path("/app/prompts/backend-confirm.md")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
 REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
 MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
@@ -3037,9 +3036,10 @@ def cmd_confirm(args) -> int:
                 mi["_pr_diff"] = diff_text
                 mi["_pr_number"] = pr_num
 
-    # 3. Build the confirm prompt.
-    prompt_text = CONFIRM_PROMPT.read_text()
-
+    # 3. Build the user message (parsed signals + merged issues +
+    #    PR diffs). The system prompt, tool allowlist, and model
+    #    choice all live in `.claude/agents/cai-confirm.md` — the
+    #    wrapper only passes dynamic per-run context via stdin.
     issues_section = "## Merged issues to verify\n\n"
     for mi in merged_issues:
         issues_section += (
@@ -3052,8 +3052,7 @@ def cmd_confirm(args) -> int:
                 f"```diff\n{mi['_pr_diff']}\n```\n\n"
             )
 
-    full_prompt = (
-        f"{prompt_text}\n\n"
+    user_message = (
         "## Parsed signals\n\n"
         "```json\n"
         f"{parsed_signals}\n"
@@ -3061,11 +3060,10 @@ def cmd_confirm(args) -> int:
         f"{issues_section}"
     )
 
-    # 4. Run claude with Sonnet.
+    # 4. Invoke the declared cai-confirm subagent.
     confirm = _run(
-        ["claude", "-p", "--model", "claude-sonnet-4-6",
-         "--disallowedTools", "Bash"],
-        input=full_prompt,
+        ["claude", "-p", "--agent", "cai-confirm"],
+        input=user_message,
         capture_output=True,
     )
     if confirm.returncode != 0:
