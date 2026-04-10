@@ -72,7 +72,7 @@ LABELS = [
     ("auto-improve:in-progress", "fbca04", "fix pipeline is actively working on this issue"),
     ("auto-improve:pr-open", "5319e7", "fix pipeline opened a PR"),
     ("auto-improve:merged", "0e8a16", "PR was merged; awaiting verify"),
-    ("auto-improve:no-action", "c5def5", "Fix subagent reviewed and decided no code change is needed; awaiting human triage"),
+    ("auto-improve:no-action", "c5def5", "Fix pipeline reviewed and decided no code change is needed; awaiting human triage"),
     ("auto-improve:revising", "d4c5f9", "Revise subagent is actively iterating on a PR"),
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
     ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
