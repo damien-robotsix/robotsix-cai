@@ -247,8 +247,18 @@ def cmd_analyze(args) -> int:
     in_tokens = token_usage.get("input_tokens", 0)
     out_tokens = token_usage.get("output_tokens", 0)
 
-    # Count sessions by counting .jsonl files under the transcript dir.
-    session_count = sum(1 for _ in TRANSCRIPT_DIR.rglob("*.jsonl"))
+    # Use the session count reported by parse.py (files actually read
+    # after applying time and count windows) instead of counting all
+    # .jsonl files on disk — the latter overstates what was analyzed.
+    session_count = signals.get("session_count", 0)
+
+    if in_tokens > 0 and in_tokens < 500:
+        print(
+            f"[cai analyze] WARNING: in_tokens={in_tokens} is below the "
+            f"expected floor of 500 — the transcript window may be too "
+            f"narrow or session files may be nearly empty",
+            flush=True,
+        )
 
     prompt_text = ANALYZER_PROMPT.read_text()
 
