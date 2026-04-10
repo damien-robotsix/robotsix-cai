@@ -898,6 +898,14 @@ def _is_bot_comment(comment: dict) -> bool:
 # re-processing the same comments forever.
 _NO_ADDITIONAL_CHANGES_MARKER = "## Revise subagent: no additional changes"
 
+# Marker that revise posts when an auto-rebase against main fails due
+# to conflicts. If this marker appears AFTER the current commit, we
+# short-circuit the loop on the very next tick: a conflict will not
+# magically resolve itself across revise ticks (main moving doesn't
+# typically un-conflict an existing diff), and re-trying every cron
+# tick just spams the PR. One failed attempt is enough — see #188.
+_REBASE_FAILED_MARKER = "## Revise subagent: rebase failed"
+
 
 def _parse_iso_ts(value):
     """Parse an ISO-8601 UTC timestamp ('2026-04-10T00:23:34Z'), return datetime or None."""
@@ -1090,6 +1098,23 @@ def _select_revise_targets() -> list[dict]:
         # Determine if the PR needs a rebase (unmergeable).
         needs_rebase = pr_detail.get("mergeable") == "CONFLICTING" or \
             pr_detail.get("mergeStateStatus") == "DIRTY"
+
+        # Loop guard: if the bot has already posted a rebase-failed
+        # comment after the current commit, stop retrying. The conflict
+        # will not resolve itself across revise ticks, so one failed
+        # attempt is enough — a human (or a fresh fix branch) is
+        # required to move forward. See issue #188.
+        if needs_rebase and any(
+            (c.get("body") or "").lstrip().startswith(_REBASE_FAILED_MARKER)
+            and (_parse_iso_ts(c.get("createdAt")) or commit_ts) > commit_ts
+            for c in comments
+        ):
+            print(
+                f"[cai revise] PR #{pr['number']}: prior rebase failure "
+                "since last commit; skipping (needs human rebase)",
+                flush=True,
+            )
+            needs_rebase = False
 
         if not unaddressed and not needs_rebase:
             continue
