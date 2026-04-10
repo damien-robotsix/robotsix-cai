@@ -6,13 +6,6 @@ log tail to find inconsistencies in the lifecycle state machine. You
 do NOT read JSONL transcripts — that is the analyzer's job. You
 reason purely about GitHub-side state and the run log.
 
-## Tool bootstrap
-
-Before starting work, run a single `ToolSearch` call to pre-fetch all
-deferred tools you may need during the session:
-`ToolSearch(query: "select:TodoWrite", max_results: 1)`. This avoids
-repeated ToolSearch round-trips later.
-
 ## What you receive
 
 1. **Open `auto-improve*` issues** — number, title, labels, creation

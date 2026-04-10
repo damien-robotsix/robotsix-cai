@@ -14,13 +14,6 @@ You are running inside a clone of `damien-robotsix/robotsix-cai` on
 the PR branch. The existing PR diff is already applied -- you are
 working on top of the previous fix attempt.
 
-## Tool bootstrap
-
-Before starting work, run a single `ToolSearch` call to pre-fetch all
-deferred tools you may need during the session:
-`ToolSearch(query: "select:TodoWrite", max_results: 1)`. This avoids
-repeated ToolSearch round-trips later.
-
 ## Hard rules
 
 1. **Read before you edit.** Always Read the target file

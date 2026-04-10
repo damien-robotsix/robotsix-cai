@@ -13,13 +13,6 @@ data you receive comes from JSONL files under
 the cai container itself invoked `claude -p`. You do NOT look at
 sessions from outside the container.
 
-## Tool bootstrap
-
-Before starting work, run a single `ToolSearch` call to pre-fetch all
-deferred tools you may need during the session:
-`ToolSearch(query: "select:TodoWrite", max_results: 1)`. This avoids
-repeated ToolSearch round-trips later.
-
 ## What to look for
 
 1. **Tool-call errors** — Edit failures, permission errors, repeated
