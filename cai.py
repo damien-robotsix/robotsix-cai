@@ -1566,6 +1566,7 @@ def cmd_revise(args) -> int:
 
     print(f"[cai revise] found {len(targets)} PR(s) to revise", flush=True)
 
+    had_failure = False
     for target in targets:
         pr_number = target["pr_number"]
         issue_number = target["issue_number"]
@@ -1586,6 +1587,7 @@ def cmd_revise(args) -> int:
             )
             log_run("revise", repo=REPO, pr=pr_number,
                     result="lock_failed", exit=1)
+            had_failure = True
             continue
 
         _run(["gh", "auth", "setup-git"], capture_output=True)
@@ -1610,6 +1612,7 @@ def cmd_revise(args) -> int:
                 _set_labels(issue_number, remove=[LABEL_REVISING])
                 log_run("revise", repo=REPO, pr=pr_number,
                         result="clone_failed", exit=1)
+                had_failure = True
                 continue
 
             _git(work_dir, "fetch", "origin", branch)
@@ -1701,6 +1704,7 @@ def cmd_revise(args) -> int:
                     _set_labels(issue_number, remove=[LABEL_REVISING])
                     log_run("revise", repo=REPO, pr=pr_number,
                             result="rebase_push_failed", exit=1)
+                    had_failure = True
                     continue
 
                 print(
@@ -1870,11 +1874,12 @@ def cmd_revise(args) -> int:
             _set_labels(issue_number, remove=[LABEL_REVISING])
             log_run("revise", repo=REPO, pr=pr_number,
                     result="unexpected_error", exit=1)
+            had_failure = True
         finally:
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
-    return 0
+    return 1 if had_failure else 0
 
 
 # ---------------------------------------------------------------------------
