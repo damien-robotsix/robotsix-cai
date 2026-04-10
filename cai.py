@@ -105,6 +105,7 @@ REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
 REBASE_PROMPT = Path("/app/prompts/backend-rebase.md")
 REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
 MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
+AUDIT_TRIAGE_PROMPT = Path("/app/prompts/backend-audit-triage.md")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
@@ -117,6 +118,7 @@ LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
+LABEL_AUDIT_NEEDS_HUMAN = "audit:needs-human"
 
 # PR-level label applied by `cai merge` when the verdict is below the
 # auto-merge threshold. Lets a human filter open PRs that are waiting
@@ -2068,6 +2070,359 @@ def cmd_audit(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# audit-triage — autonomous resolution of `audit:raised` findings
+# ---------------------------------------------------------------------------
+
+
+def _parse_triage_verdicts(text: str) -> list[dict]:
+    """Parse `### Verdict: #N` blocks emitted by the audit-triage agent.
+
+    Each verdict is a dict with keys: number (int), action (str),
+    target (int|None), confidence (str), reasoning (str). Verdicts
+    that fail to parse the basic shape are skipped.
+    """
+    verdicts: list[dict] = []
+    blocks = re.split(r"^### Verdict:\s*", text, flags=re.MULTILINE)
+    for block in blocks[1:]:
+        lines = block.strip().splitlines()
+        if not lines:
+            continue
+        header_match = re.match(r"#(\d+)", lines[0])
+        if not header_match:
+            continue
+        body = "\n".join(lines[1:])
+        action_m = re.search(
+            r"^- \*\*Action:\*\*\s*`?(\w+)`?", body, flags=re.MULTILINE,
+        )
+        target_m = re.search(
+            r"^- \*\*Target:\*\*\s*#(\d+)", body, flags=re.MULTILINE,
+        )
+        conf_m = re.search(
+            r"^- \*\*Confidence:\*\*\s*`?(high|medium|low)`?",
+            body, flags=re.MULTILINE | re.IGNORECASE,
+        )
+        reason_m = re.search(
+            r"^- \*\*Reasoning:\*\*\s*(.+)$", body, flags=re.MULTILINE,
+        )
+        if not action_m or not conf_m:
+            continue
+        verdicts.append({
+            "number": int(header_match.group(1)),
+            "action": action_m.group(1).lower(),
+            "target": int(target_m.group(1)) if target_m else None,
+            "confidence": conf_m.group(1).lower(),
+            "reasoning": reason_m.group(1).strip() if reason_m else "",
+        })
+    return verdicts
+
+
+def cmd_audit_triage(args) -> int:
+    """Autonomously resolve `audit:raised` findings without opening a PR.
+
+    Calls a triage subagent that classifies each open `audit:raised`
+    issue as one of: close_duplicate, close_resolved, passthrough,
+    escalate. The wrapper then executes deterministically — only
+    `close_*` verdicts at `high` confidence are acted on; everything
+    else is left for the fix subagent or escalated to human triage
+    via the `audit:needs-human` label.
+
+    Refs #193.
+    """
+    print("[cai audit-triage] running audit triage", flush=True)
+    t0 = time.monotonic()
+
+    # 1. List `audit:raised` issues.
+    try:
+        raised_issues = _gh_json([
+            "issue", "list", "--repo", REPO,
+            "--label", LABEL_AUDIT_RAISED,
+            "--state", "open",
+            "--json", "number,title,labels,body,createdAt,updatedAt",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai audit-triage] gh issue list failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        log_run("audit-triage", repo=REPO, exit=1)
+        return 1
+
+    if not raised_issues:
+        print(
+            "[cai audit-triage] no audit:raised issues; nothing to do",
+            flush=True,
+        )
+        log_run("audit-triage", repo=REPO, raised=0, closed_dup=0,
+                closed_res=0, passthrough=0, escalated=0, exit=0)
+        return 0
+
+    print(
+        f"[cai audit-triage] found {len(raised_issues)} audit:raised issue(s)",
+        flush=True,
+    )
+
+    # 2. Gather context: all OTHER open auto-improve* issues + recent PRs.
+    raised_numbers = {oi["number"] for oi in raised_issues}
+    try:
+        context_issues = _gh_json([
+            "issue", "list", "--repo", REPO,
+            "--label", "auto-improve",
+            "--state", "open",
+            "--json", "number,title,labels,body",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError:
+        context_issues = []
+    try:
+        audit_context = _gh_json([
+            "issue", "list", "--repo", REPO,
+            "--label", "audit",
+            "--state", "open",
+            "--json", "number,title,labels,body",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError:
+        audit_context = []
+    # De-dupe by issue number; keep audit issues that aren't in raised set.
+    seen = set()
+    other_issues: list[dict] = []
+    for oi in context_issues + audit_context:
+        n = oi["number"]
+        if n in seen or n in raised_numbers:
+            continue
+        seen.add(n)
+        other_issues.append(oi)
+
+    try:
+        recent_prs = _gh_json([
+            "pr", "list", "--repo", REPO,
+            "--state", "all",
+            "--json", "number,title,state,mergedAt,createdAt",
+            "--limit", "30",
+        ]) or []
+    except subprocess.CalledProcessError:
+        recent_prs = []
+
+    # 3. Build the prompt.
+    prompt_text = AUDIT_TRIAGE_PROMPT.read_text()
+
+    raised_section = "## audit:raised issues to triage\n\n"
+    for oi in raised_issues:
+        labels = ", ".join(lbl["name"] for lbl in oi.get("labels", []))
+        raised_section += (
+            f"### #{oi['number']} — {oi['title']}\n"
+            f"- **Labels:** {labels}\n"
+            f"- **Created:** {oi['createdAt']}\n"
+            f"- **Body:**\n\n"
+            f"{(oi.get('body') or '(empty)')}\n\n"
+            "---\n\n"
+        )
+
+    other_section = "## Other open issues (for duplicate / state checks)\n\n"
+    if other_issues:
+        for oi in other_issues:
+            labels = ", ".join(lbl["name"] for lbl in oi.get("labels", []))
+            excerpt = (oi.get("body") or "(empty)")[:400]
+            other_section += (
+                f"### #{oi['number']} — {oi['title']}\n"
+                f"- **Labels:** {labels}\n"
+                f"- **Body excerpt:** {excerpt}\n\n"
+            )
+    else:
+        other_section += "(none)\n\n"
+
+    pr_section = "## Recent PRs\n\n"
+    if recent_prs:
+        for pr in recent_prs:
+            merged = (
+                f", merged {pr['mergedAt']}" if pr.get("mergedAt") else ""
+            )
+            pr_section += (
+                f"- PR #{pr['number']}: {pr['title']} "
+                f"[{pr.get('state', 'unknown')}] "
+                f"(created {pr['createdAt']}{merged})\n"
+            )
+    else:
+        pr_section += "(none)\n"
+
+    full_prompt = (
+        f"{prompt_text}\n\n"
+        f"{raised_section}\n"
+        f"{other_section}\n"
+        f"{pr_section}\n"
+    )
+
+    # 4. Run claude with the triage prompt (Sonnet — same tier as audit).
+    triage = _run(
+        ["claude", "-p", "--model", "claude-sonnet-4-6"],
+        input=full_prompt,
+        capture_output=True,
+    )
+    print(triage.stdout, flush=True)
+    if triage.returncode != 0:
+        print(
+            f"[cai audit-triage] claude -p failed (exit {triage.returncode}):\n"
+            f"{triage.stderr}",
+            file=sys.stderr,
+        )
+        log_run("audit-triage", repo=REPO, raised=len(raised_issues),
+                exit=triage.returncode)
+        return triage.returncode
+
+    # 5. Parse and execute verdicts.
+    verdicts = _parse_triage_verdicts(triage.stdout)
+    closed_dup = 0
+    closed_res = 0
+    passthrough = 0
+    escalated = 0
+    skipped = 0
+
+    for v in verdicts:
+        n = v["number"]
+        if n not in raised_numbers:
+            print(
+                f"[cai audit-triage] verdict for #{n} is not in the "
+                "raised set; skipping",
+                flush=True,
+            )
+            skipped += 1
+            continue
+
+        action = v["action"]
+        confidence = v["confidence"]
+        reason = v["reasoning"]
+        target = v["target"]
+
+        if action == "close_duplicate":
+            if confidence != "high" or target is None:
+                print(
+                    f"[cai audit-triage] #{n}: close_duplicate but "
+                    f"confidence={confidence} target={target}; "
+                    "downgrading to passthrough",
+                    flush=True,
+                )
+                passthrough += 1
+                continue
+            comment = (
+                "## Audit triage agent: closing as duplicate\n\n"
+                f"Closing as duplicate of #{target}.\n\n"
+                f"**Reasoning:** {reason}\n\n"
+                "---\n"
+                "_Closed automatically by `cai audit-triage`. "
+                "Reopen if this assessment is wrong._"
+            )
+            close_res = _run(
+                ["gh", "issue", "close", str(n),
+                 "--repo", REPO, "--comment", comment],
+                capture_output=True,
+            )
+            if close_res.returncode == 0:
+                print(
+                    f"[cai audit-triage] #{n}: closed as duplicate of #{target}",
+                    flush=True,
+                )
+                closed_dup += 1
+            else:
+                print(
+                    f"[cai audit-triage] #{n}: gh issue close failed:\n"
+                    f"{close_res.stderr}",
+                    file=sys.stderr,
+                )
+                skipped += 1
+
+        elif action == "close_resolved":
+            if confidence != "high":
+                print(
+                    f"[cai audit-triage] #{n}: close_resolved but "
+                    f"confidence={confidence}; downgrading to passthrough",
+                    flush=True,
+                )
+                passthrough += 1
+                continue
+            comment = (
+                "## Audit triage agent: closing as resolved\n\n"
+                f"**Reasoning:** {reason}\n\n"
+                "---\n"
+                "_Closed automatically by `cai audit-triage` because the "
+                "underlying problem appears to be resolved (PR merged, "
+                "state cleared, etc.). Reopen if this assessment is wrong._"
+            )
+            close_res = _run(
+                ["gh", "issue", "close", str(n),
+                 "--repo", REPO, "--comment", comment],
+                capture_output=True,
+            )
+            if close_res.returncode == 0:
+                print(
+                    f"[cai audit-triage] #{n}: closed as resolved",
+                    flush=True,
+                )
+                closed_res += 1
+            else:
+                print(
+                    f"[cai audit-triage] #{n}: gh issue close failed:\n"
+                    f"{close_res.stderr}",
+                    file=sys.stderr,
+                )
+                skipped += 1
+
+        elif action == "escalate":
+            comment = (
+                "## Audit triage agent: escalating to human\n\n"
+                f"**Reasoning:** {reason}\n\n"
+                "---\n"
+                "_The audit triage agent could not resolve this finding "
+                "autonomously. Re-labelled `audit:needs-human` for human "
+                "triage._"
+            )
+            _run(
+                ["gh", "issue", "comment", str(n),
+                 "--repo", REPO, "--body", comment],
+                capture_output=True,
+            )
+            _set_labels(
+                n,
+                add=[LABEL_AUDIT_NEEDS_HUMAN],
+                remove=[LABEL_AUDIT_RAISED],
+            )
+            print(
+                f"[cai audit-triage] #{n}: escalated to audit:needs-human",
+                flush=True,
+            )
+            escalated += 1
+
+        else:
+            # passthrough — leave the labels alone, fix subagent picks it up.
+            print(
+                f"[cai audit-triage] #{n}: passthrough (action={action}, "
+                f"confidence={confidence})",
+                flush=True,
+            )
+            passthrough += 1
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    print(
+        f"[cai audit-triage] raised={len(raised_issues)} "
+        f"closed_dup={closed_dup} closed_res={closed_res} "
+        f"passthrough={passthrough} escalated={escalated} skipped={skipped}",
+        flush=True,
+    )
+    log_run(
+        "audit-triage", repo=REPO,
+        raised=len(raised_issues),
+        closed_dup=closed_dup,
+        closed_res=closed_res,
+        passthrough=passthrough,
+        escalated=escalated,
+        skipped=skipped,
+        duration=dur,
+        exit=0,
+    )
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # confirm
 # ---------------------------------------------------------------------------
 
@@ -3134,6 +3489,10 @@ def main() -> int:
     sub.add_parser("revise", help="Iterate on open PRs based on review comments")
     sub.add_parser("verify", help="Update labels based on PR merge state")
     sub.add_parser("audit", help="Run the queue/PR consistency audit")
+    sub.add_parser(
+        "audit-triage",
+        help="Autonomously resolve audit:raised findings (no PRs)",
+    )
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
@@ -3152,6 +3511,7 @@ def main() -> int:
         "revise": cmd_revise,
         "verify": cmd_verify,
         "audit": cmd_audit,
+        "audit-triage": cmd_audit_triage,
         "confirm": cmd_confirm,
         "review-pr": cmd_review_pr,
         "merge": cmd_merge,
