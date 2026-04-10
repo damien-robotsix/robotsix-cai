@@ -25,8 +25,8 @@ schedule, it:
 1. Reads transcripts of its own recent Claude Code runtime sessions
 2. Analyzes them with a Claude prompt to find bugs, inefficiencies, and
    prompt gaps in its own code
-3. Files issues (and, where confident, opens pull requests) in this
-   repository
+3. Files issues and, where confident, runs a multi-phase fix pipeline
+   (plan → select → implement) to open pull requests in this repository
 4. After human review and merge, the deploy pipeline rolls out the
    improvement
 5. The next run uses the improved code, closing the loop
