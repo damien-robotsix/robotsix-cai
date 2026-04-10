@@ -74,8 +74,14 @@ Emit exactly this structured block — nothing else:
 ```
 
 The action mapping:
-- `high` confidence → `merge`
-- `medium` confidence → `hold`
-- `low` confidence → `reject`
+- `merge` — the PR should be merged. Typically paired with `high` confidence.
+- `hold` — the PR needs more work or human review before merging.
+  Typically paired with `medium` confidence.
+- `reject` — the PR (and the underlying issue) should be **closed
+  without merging**. Use this when the issue itself is invalid,
+  duplicated, no longer relevant, or the PR demonstrates that the
+  requested change is unnecessary or harmful. Can be paired with any
+  confidence level; use `high` confidence when you are certain the
+  issue/PR should be closed outright.
 
 Do not add any text before or after the verdict block.

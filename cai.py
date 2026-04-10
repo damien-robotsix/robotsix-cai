@@ -2175,6 +2175,7 @@ def cmd_merge(args) -> int:
     evaluated = 0
     merged = 0
     held = 0
+    closed = 0
 
     for pr in prs:
         pr_number = pr["number"]
@@ -2407,7 +2408,7 @@ def cmd_merge(args) -> int:
             f"{agent_output}\n\n"
             f"---\n"
             f"_Auto-merge review by `cai merge`. "
-            f"Threshold: `{_MERGE_THRESHOLD}`, verdict: `{confidence}`._"
+            f"Threshold: `{_MERGE_THRESHOLD}`, verdict: `{confidence}`, action: `{action}`._"
         )
         _run(
             ["gh", "pr", "comment", str(pr_number),
@@ -2415,9 +2416,32 @@ def cmd_merge(args) -> int:
             capture_output=True,
         )
 
-        # Decide whether to merge.
+        # Decide whether to merge, hold, or reject.
         verdict_rank = _CONFIDENCE_RANKS.get(confidence, 0)
-        if verdict_rank >= threshold_rank:
+
+        if action == "reject" and verdict_rank >= threshold_rank:
+            # High-confidence reject: close the PR and mark the issue as no-action.
+            print(
+                f"[cai merge] PR #{pr_number}: verdict={confidence} reject >= threshold={_MERGE_THRESHOLD}; closing",
+                flush=True,
+            )
+            close_result = _run(
+                ["gh", "pr", "close", str(pr_number),
+                 "--repo", REPO, "--delete-branch"],
+                capture_output=True,
+            )
+            if close_result.returncode == 0:
+                print(f"[cai merge] PR #{pr_number}: closed successfully", flush=True)
+                _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN])
+                closed += 1
+            else:
+                print(
+                    f"[cai merge] PR #{pr_number}: close failed:\n{close_result.stderr}",
+                    file=sys.stderr,
+                )
+                _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
+                held += 1
+        elif action == "merge" and verdict_rank >= threshold_rank:
             print(
                 f"[cai merge] PR #{pr_number}: verdict={confidence} >= threshold={_MERGE_THRESHOLD}; merging",
                 flush=True,
@@ -2447,11 +2471,11 @@ def cmd_merge(args) -> int:
 
     dur = f"{int(time.monotonic() - t0)}s"
     print(
-        f"[cai merge] prs_evaluated={evaluated} merged={merged} held={held}",
+        f"[cai merge] prs_evaluated={evaluated} merged={merged} held={held} closed={closed}",
         flush=True,
     )
     log_run("merge", repo=REPO, prs_evaluated=evaluated, merged=merged,
-            held=held, duration=dur, exit=0)
+            held=held, closed=closed, duration=dur, exit=0)
     return 0
 
 
