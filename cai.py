@@ -1056,6 +1056,39 @@ def _rebase_conflict_files(work_dir: Path) -> list[str]:
     return [line for line in res.stdout.strip().splitlines() if line]
 
 
+def _advance_rebase(work_dir: Path):
+    """Advance a stopped rebase via `--continue` or `--skip` as appropriate.
+
+    After conflict resolution + `git add -A`, the staged diff for the
+    current commit may be empty — for example when the agent's merged
+    result already exists upstream, so the commit collapses to a no-op.
+    In that case `git rebase --continue` errors out with "no changes -
+    did you forget to use git add?" and the correct call is `git rebase
+    --skip`. We pick the right one by checking the staged diff.
+
+    GIT_EDITOR/EDITOR are forced to `true` so git never tries to open
+    an editor for the commit message during the continue.
+    """
+    diff_check = _run(
+        ["git", "-C", str(work_dir), "diff", "--cached", "--quiet"],
+        capture_output=True,
+    )
+    env = {**os.environ, "GIT_EDITOR": "true", "EDITOR": "true"}
+    if diff_check.returncode == 0:
+        # Nothing staged → empty commit → skip this commit.
+        return _run(
+            ["git", "-C", str(work_dir), "rebase", "--skip"],
+            capture_output=True,
+            env=env,
+        )
+    return _run(
+        ["git", "-C", str(work_dir), "-c", "core.editor=true",
+         "rebase", "--continue"],
+        capture_output=True,
+        env=env,
+    )
+
+
 def _agent_resolve_rebase(
     work_dir: Path,
     pr_number: int,
@@ -1082,15 +1115,15 @@ def _agent_resolve_rebase(
         conflict_files = _rebase_conflict_files(work_dir)
         if not conflict_files:
             # No conflicts but rebase still in progress — try to advance.
-            cont = _run(
-                ["git", "-C", str(work_dir), "-c", "core.editor=true",
-                 "rebase", "--continue"],
-                capture_output=True,
-            )
+            cont = _advance_rebase(work_dir)
             if cont.returncode == 0:
                 return True, "\n\n".join(summaries)
-            # Continue produced new conflicts; loop again.
+            # Continue/skip produced new conflicts; loop again.
             if not _rebase_conflict_files(work_dir):
+                summaries.append(
+                    "git rebase --continue/--skip failed with no "
+                    "conflicts:\n" + (cont.stderr or "").strip()[:1000]
+                )
                 _git(work_dir, "rebase", "--abort", check=False)
                 return False, "\n\n".join(summaries)
             continue
@@ -1142,23 +1175,28 @@ def _agent_resolve_rebase(
             _git(work_dir, "rebase", "--abort", check=False)
             return False, "\n\n".join(summaries)
 
-        # Stage and advance the rebase.
+        # Stage and advance the rebase. _advance_rebase picks --skip
+        # over --continue when the resolution collapsed this commit's
+        # diff to zero (e.g. main already contained the same change).
         _git(work_dir, "add", "-A")
-        cont = _run(
-            ["git", "-C", str(work_dir), "-c", "core.editor=true",
-             "rebase", "--continue"],
-            capture_output=True,
-        )
+        cont = _advance_rebase(work_dir)
         if cont.returncode == 0:
             return True, "\n\n".join(summaries)
-        # Continue might have surfaced new conflicts in the next commit;
-        # the next loop iteration will pick them up. If neither conflicts
-        # nor success, something else went wrong — bail.
+        # Continue/skip might have surfaced new conflicts in the next
+        # commit; the next loop iteration will pick them up. If neither
+        # conflicts nor success, something else went wrong — bail and
+        # surface the stderr in the resolver-failed comment so it's
+        # debuggable.
         if not _rebase_conflict_files(work_dir):
+            err_tail = (cont.stderr or "").strip()[:1000]
             print(
-                f"[cai revise] PR #{pr_number}: rebase --continue failed "
-                f"with no conflicts:\n{cont.stderr}",
+                f"[cai revise] PR #{pr_number}: rebase --continue/--skip "
+                f"failed with no conflicts:\n{err_tail}",
                 file=sys.stderr,
+            )
+            summaries.append(
+                "git rebase --continue/--skip failed with no "
+                f"conflicts:\n{err_tail}"
             )
             _git(work_dir, "rebase", "--abort", check=False)
             return False, "\n\n".join(summaries)
