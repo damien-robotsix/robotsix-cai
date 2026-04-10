@@ -460,7 +460,8 @@ def cmd_analyze(args) -> int:
     )
 
     analyzer = _run(
-        ["claude", "-p", "--agent", "cai-analyze"],
+        ["claude", "-p", "--agent", "cai-analyze",
+         "--disallowedTools", "ToolSearch"],
         input=user_message,
         capture_output=True,
     )
@@ -851,7 +852,8 @@ def cmd_fix(args) -> int:
         # and `acceptEdits` is sufficient for code-editing fixes.
         agent = _run(
             ["claude", "-p", "--agent", "cai-fix",
-             "--permission-mode", "acceptEdits"],
+             "--permission-mode", "acceptEdits",
+             "--disallowedTools", "ToolSearch"],
             input=user_message,
             cwd=str(work_dir),
             capture_output=True,
@@ -1256,7 +1258,8 @@ def _agent_resolve_rebase(
 
     agent = _run(
         ["claude", "-p", "--agent", "cai-rebase-resolver",
-         "--permission-mode", "acceptEdits"],
+         "--permission-mode", "acceptEdits",
+         "--disallowedTools", "ToolSearch"],
         input=user_message,
         cwd=str(work_dir),
         capture_output=True,
@@ -1793,7 +1796,7 @@ def cmd_revise(args) -> int:
             print(f"[cai revise] running revise subagent in {work_dir}", flush=True)
             agent = _run(
                 ["claude", "-p", "--permission-mode", "acceptEdits",
-                 "--disallowedTools", "Bash"],
+                 "--disallowedTools", "Bash,ToolSearch"],
                 input=full_prompt,
                 cwd=str(work_dir),
                 capture_output=True,
@@ -2413,7 +2416,8 @@ def cmd_audit(args) -> int:
 
     # Step 3: Invoke the declared cai-audit subagent.
     audit = _run(
-        ["claude", "-p", "--agent", "cai-audit"],
+        ["claude", "-p", "--agent", "cai-audit",
+         "--disallowedTools", "ToolSearch"],
         input=user_message,
         capture_output=True,
     )
@@ -2633,7 +2637,8 @@ def cmd_audit_triage(args) -> int:
 
     # 4. Run claude with the triage prompt (Sonnet — same tier as audit).
     triage = _run(
-        ["claude", "-p", "--model", "claude-sonnet-4-6"],
+        ["claude", "-p", "--model", "claude-sonnet-4-6",
+         "--disallowedTools", "ToolSearch"],
         input=full_prompt,
         capture_output=True,
     )
@@ -2887,7 +2892,7 @@ def cmd_code_audit(args) -> int:
     agent = _run(
         ["claude", "-p", "--model", "claude-sonnet-4-6",
          "--permission-mode", "acceptEdits",
-         "--disallowedTools", "Bash,Edit,Write,NotebookEdit"],
+         "--disallowedTools", "Bash,Edit,Write,NotebookEdit,ToolSearch"],
         input=full_prompt,
         cwd=str(work_dir),
         capture_output=True,
@@ -3071,7 +3076,8 @@ def cmd_confirm(args) -> int:
 
     # 4. Invoke the declared cai-confirm subagent.
     confirm = _run(
-        ["claude", "-p", "--agent", "cai-confirm"],
+        ["claude", "-p", "--agent", "cai-confirm",
+         "--disallowedTools", "ToolSearch"],
         input=user_message,
         capture_output=True,
     )
@@ -3768,7 +3774,7 @@ def cmd_merge(args) -> int:
         # Run the model (read-only, no tools).
         agent = _run(
             ["claude", "-p", "--model", "claude-opus-4-6",
-             "--disallowedTools", "Bash"],
+             "--disallowedTools", "Bash,ToolSearch"],
             input=full_prompt,
             capture_output=True,
         )
