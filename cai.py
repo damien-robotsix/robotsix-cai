@@ -1631,13 +1631,13 @@ def cmd_confirm(args) -> int:
     except subprocess.CalledProcessError as e:
         print(f"[cai confirm] gh issue list failed:\n{e.stderr}", file=sys.stderr)
         log_run("confirm", repo=REPO, merged_checked=0, solved=0,
-                unsolved=0, inconclusive=0, exit=1)
+                unsolved=0, reraised=0, inconclusive=0, exit=1)
         return 1
 
     if not merged_issues:
         print("[cai confirm] no merged issues; nothing to do", flush=True)
         log_run("confirm", repo=REPO, merged_checked=0, solved=0,
-                unsolved=0, inconclusive=0, exit=0)
+                unsolved=0, reraised=0, inconclusive=0, exit=0)
         return 0
 
     print(f"[cai confirm] found {len(merged_issues)} merged issue(s)", flush=True)
