@@ -106,7 +106,6 @@ TRANSCRIPT_DIR = Path("/root/.claude/projects")
 # Files baked into the image alongside cai.py.
 PARSE_SCRIPT = Path("/app/parse.py")
 PUBLISH_SCRIPT = Path("/app/publish.py")
-FIX_PROMPT = Path("/app/prompts/backend-fix.md")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
 REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
 MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
@@ -638,12 +637,18 @@ def _issue_has_label(issue_number: int, label: str) -> bool:
     return label in [l["name"] for l in (issue or {}).get("labels", [])]
 
 
-def _build_fix_prompt(issue: dict) -> str:
-    prompt = FIX_PROMPT.read_text()
-    # Durable design decisions — defense in depth. If a finding slips
-    # past `analyze` but overlaps a design-decision entry, the fix
-    # subagent should refuse to act and surface the conflict instead.
-    # See #260.
+def _build_fix_user_message(issue: dict) -> str:
+    """Build the dynamic per-run user message for the cai-fix agent.
+
+    The system prompt, tool allowlist, and hard rules all live in
+    `.claude/agents/cai-fix.md`. The wrapper only passes the
+    dynamic context:
+
+      1. Durable design decisions (defense in depth — if a finding
+         slips past analyze but overlaps a decision entry, the fix
+         subagent refuses to act and surfaces the conflict).
+      2. The issue body + any comments the reviewer left on it.
+    """
     decisions_block = _design_decisions_block()
     issue_block = (
         f"## Issue\n\n"
@@ -657,7 +662,7 @@ def _build_fix_prompt(issue: dict) -> str:
             author = c.get("author", {}).get("login", "unknown")
             body = c.get("body", "")
             issue_block += f"**{author}:**\n{body}\n\n"
-    return f"{prompt}{decisions_block}\n\n{issue_block}"
+    return f"{decisions_block}\n\n{issue_block}"
 
 
 def _parse_suggested_issues(agent_output: str) -> list[dict]:
@@ -833,17 +838,21 @@ def cmd_fix(args) -> int:
         branch = f"auto-improve/{issue_number}-{_slugify(title)}"
         _git(work_dir, "checkout", "-b", branch)
 
-        # 5. Run the fix subagent in the work dir with full permissions.
-        prompt = _build_fix_prompt(issue)
-        print(f"[cai fix] running fix subagent in {work_dir}", flush=True)
+        # 5. Run the cai-fix declarative subagent in the work dir.
+        #    System prompt, tool allowlist, and hard rules live in
+        #    `.claude/agents/cai-fix.md`. The wrapper only passes
+        #    dynamic per-run context (design decisions + the issue
+        #    body) as the user message via stdin.
+        user_message = _build_fix_user_message(issue)
+        print(f"[cai fix] running cai-fix subagent in {work_dir}", flush=True)
         # `acceptEdits` auto-accepts file edits (Read/Edit/Write/Grep/Glob)
         # without prompting. We don't use `bypassPermissions` because
         # claude-code refuses it when running as root inside the container,
         # and `acceptEdits` is sufficient for code-editing fixes.
         agent = _run(
-            ["claude", "-p", "--permission-mode", "acceptEdits",
-             "--disallowedTools", "Bash"],
-            input=prompt,
+            ["claude", "-p", "--agent", "cai-fix",
+             "--permission-mode", "acceptEdits"],
+            input=user_message,
             cwd=str(work_dir),
             capture_output=True,
         )
