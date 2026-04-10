@@ -13,8 +13,9 @@ Subcommands:
                             publish.py.
 
     python cai.py fix       Pick the oldest issue labelled
-                            `auto-improve:raised` or `auto-improve:
-                            requested`, lock it via the `:in-progress`
+                            `auto-improve:raised`, `auto-improve:
+                            requested`, or `audit:raised`,
+                            lock it via the `:in-progress`
                             label, clone the repo into /tmp, run the
                             fix subagent (full tool permissions), and
                             open a PR if the agent produced a diff.
