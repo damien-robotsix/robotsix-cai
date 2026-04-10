@@ -418,15 +418,24 @@ the `volumes:` block.
 
 ## Persistent data
 
-The container uses two Docker named volumes:
+The container uses three Docker named volumes:
 
-- **`cai_transcripts`** (mounted at `/home/cai/.claude/projects`) —
-  claude-code writes one JSONL file per session under
-  `/home/cai/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`; the
-  volume keeps that data across restarts so future analyzer runs can
-  read it.
-- **`cai_gh_config`** (mounted at `/home/cai/.config/gh`) — the `gh` CLI's
-  credential store. Populated once by the installer's
+- **`cai_claude`** (mounted at `/home/cai/.claude`) — Claude Code's
+  state directory. Holds the OAuth credentials (after running
+  `docker compose run --rm cai claude /login` once) and the per-session
+  transcripts under `projects/<sanitized-cwd>/<session-id>.jsonl`.
+  Both survive restarts so headless cron invocations don't need to
+  re-authenticate and the analyzer keeps historical sessions to read.
+- **`cai_agent_memory`** (mounted at `/app/.claude/agent-memory`) —
+  Per-agent durable memory. Each declarative subagent has
+  `memory: project` in its frontmatter, which Claude Code stores at
+  `.claude/agent-memory/<agent-name>/MEMORY.md`. The /app agents
+  (analyze, audit, confirm, merge, audit-triage) read/write this
+  volume directly. The cloned-worktree agents (fix, revise,
+  review-pr, code-audit) have their slice of memory copied in/out
+  by the wrapper around each invocation.
+- **`cai_gh_config`** (mounted at `/home/cai/.config/gh`) — the `gh`
+  CLI's credential store. Populated once by the installer's
   `gh auth login` step and reused on every subsequent run.
 
 The container runs as the non-root `cai` user (uid 1000). This is
