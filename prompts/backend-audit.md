@@ -77,6 +77,11 @@ before you run — you will NOT see stale `:in-progress` issues. If a
 rollback happened, it will appear in the log tail as an
 `[audit] action=stale_in_progress_rollback` line.
 
+**Note:** merged-branch cleanup is also handled deterministically
+before you run — remote branches for merged/closed `auto-improve/` PRs
+are deleted automatically. The number of branches cleaned appears in
+the log line as the `branches_cleaned` field.
+
 ## Categories
 
 | Category | Description |
@@ -118,6 +123,6 @@ No findings.
 - Keep titles short and imperative.
 - These findings are **report-only** — they go to humans for triage.
   Do not suggest automated fixes beyond what the deterministic
-  rollback already handles.
+  rollback and branch cleanup already handle.
 - Do not output anything other than the markdown finding blocks (or
   the exact `No findings.` sentinel).
