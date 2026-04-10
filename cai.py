@@ -1656,6 +1656,33 @@ def cmd_confirm(args) -> int:
 
     parsed_signals = parsed.stdout.strip()
 
+    # 2a. Determine the oldest transcript mtime in the current window so we
+    #     can tell whether all parsed conversations are newer than a merge.
+    _oldest_transcript_ts: float | None = None
+    if TRANSCRIPT_DIR.is_dir():
+        _window_raw = os.environ.get("CAI_TRANSCRIPT_WINDOW_DAYS", "7")
+        try:
+            _window_days = int(_window_raw)
+        except ValueError:
+            _window_days = 7
+        _cutoff = time.time() - (_window_days * 86400) if _window_days > 0 else 0.0
+        _max_raw = os.environ.get("CAI_TRANSCRIPT_MAX_FILES", "20")
+        try:
+            _max_files = int(_max_raw)
+        except ValueError:
+            _max_files = 20
+        _cands = []
+        for _jf in TRANSCRIPT_DIR.rglob("*.jsonl"):
+            _mt = _jf.stat().st_mtime
+            if _cutoff and _mt < _cutoff:
+                continue
+            _cands.append(_mt)
+        _cands.sort(reverse=True)
+        if _max_files and len(_cands) > _max_files:
+            _cands = _cands[:_max_files]
+        if _cands:
+            _oldest_transcript_ts = min(_cands)
+
     # 2b. For each merged issue, fetch the associated merged PR diff.
     MAX_DIFF_LEN = 8000
     for mi in merged_issues:
@@ -1665,13 +1692,14 @@ def cmd_confirm(args) -> int:
                 "pr", "list", "--repo", REPO,
                 "--search", f"Refs #{num}",
                 "--state", "merged",
-                "--json", "number",
+                "--json", "number,mergedAt",
                 "--limit", "1",
             ]) or []
         except subprocess.CalledProcessError:
             prs = []
         if prs:
             pr_num = prs[0]["number"]
+            mi["_merged_at"] = prs[0].get("mergedAt")
             diff_result = _run(
                 ["gh", "pr", "diff", str(pr_num), "--repo", REPO],
                 capture_output=True,
@@ -1748,14 +1776,37 @@ def cmd_confirm(args) -> int:
             print(f"[cai confirm] #{issue_num}: solved — closed", flush=True)
             solved += 1
         elif status == "unsolved":
-            _run(
-                ["gh", "issue", "comment", str(issue_num),
-                 "--repo", REPO,
-                 "--body",
-                 "Confirm check: fix did not eliminate the pattern in the recent window."],
-                capture_output=True,
+            # If all parsed transcripts are newer than the merge, the
+            # pattern persists in post-merge data → re-raise so a new
+            # fix attempt is triggered.
+            mi_match = next((m for m in merged_issues if m["number"] == issue_num), None)
+            merged_dt = _parse_iso_ts(mi_match.get("_merged_at")) if mi_match else None
+            merged_epoch = merged_dt.timestamp() if merged_dt else None
+            reraise = (
+                merged_epoch is not None
+                and _oldest_transcript_ts is not None
+                and _oldest_transcript_ts > merged_epoch
             )
-            print(f"[cai confirm] #{issue_num}: unsolved — left as :merged", flush=True)
+            if reraise:
+                _set_labels(issue_num, add=[LABEL_RAISED], remove=[LABEL_MERGED])
+                _run(
+                    ["gh", "issue", "comment", str(issue_num),
+                     "--repo", REPO,
+                     "--body",
+                     "Confirm check: pattern persists in all post-merge conversations. "
+                     "Re-raising for a new fix attempt."],
+                    capture_output=True,
+                )
+                print(f"[cai confirm] #{issue_num}: unsolved — re-raised", flush=True)
+            else:
+                _run(
+                    ["gh", "issue", "comment", str(issue_num),
+                     "--repo", REPO,
+                     "--body",
+                     "Confirm check: fix did not eliminate the pattern in the recent window."],
+                    capture_output=True,
+                )
+                print(f"[cai confirm] #{issue_num}: unsolved — left as :merged", flush=True)
             unsolved += 1
         elif status == "inconclusive":
             # Post reasoning to the issue so humans can see why, but
