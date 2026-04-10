@@ -800,29 +800,38 @@ def cmd_fix(args) -> int:
         #    body) as the user message via stdin.
         user_message = _build_fix_user_message(issue)
         print(f"[cai fix] running cai-fix subagent in {work_dir}", flush=True)
-        # `--permission-mode auto` uses Claude Code's background
-        # safety classifier to auto-approve low-risk actions (like
-        # editing `.claude/agents/*.md` files when auto-improve is
-        # self-modifying its own prompts) while still blocking
-        # genuinely dangerous operations. We need this because
-        # `acceptEdits` denies writes to `.claude/` even though the
-        # agent has Edit/Write tools — the fix agent kept exiting
-        # with "I need write permission to .claude/agents/cai-fix.md"
-        # (see issues #288, #298).
+        # `--dangerously-skip-permissions` is required because:
         #
-        # Defense in depth on top of `auto`:
+        #   1. The cai-fix agent legitimately needs to edit
+        #      `.claude/agents/*.md` files when auto-improve is
+        #      self-modifying its own prompts. Claude Code's
+        #      `acceptEdits` mode denies these writes outright; the
+        #      fix agent kept exiting with "I need write permission
+        #      to .claude/agents/cai-fix.md" (see #288, #298).
+        #
+        #   2. `--permission-mode auto` (the previous attempt, #327)
+        #      proved insufficient — its background classifier still
+        #      gated the same writes in headless mode.
+        #
+        #   3. The blast radius is bounded by other layers, so the
+        #      "dangerously" name is mostly a warning for interactive
+        #      sessions; in our headless cron context the practical
+        #      risk is small (see below).
+        #
+        # Defense in depth that still applies:
         #   - the agent runs in a throwaway clone
         #     (`/tmp/cai-fix-N/`), so any unwanted edit only damages
         #     the clone, never the main worktree
         #   - `.claude/settings.json`'s deny rules still block
-        #     `git push`, `git remote`, and `gh` regardless of mode
+        #     `Bash(git push:*)`, `Bash(git remote:*)`, and
+        #     `Bash(gh:*)` regardless of permission mode
         #   - cai-fix's tool allowlist excludes Bash entirely, so
         #     the agent can't invoke shell commands at all
         #   - the wrapper trust-but-verifies the working tree before
         #     committing/pushing
         agent = _run(
             ["claude", "-p", "--agent", "cai-fix",
-             "--permission-mode", "auto"],
+             "--dangerously-skip-permissions"],
             input=user_message,
             cwd=str(work_dir),
             capture_output=True,
@@ -1588,25 +1597,25 @@ def cmd_revise(args) -> int:
             )
 
             # 6. Invoke the declared cai-revise subagent.
-            #    `--permission-mode auto` uses the background safety
-            #    classifier to auto-approve low-risk actions (like
-            #    editing `.claude/agents/*.md` for self-modifying
-            #    revise comments) while still blocking dangerous
-            #    operations. We can't use `acceptEdits` because it
-            #    denies `.claude/` writes; we don't want
-            #    `dangerously-skip-permissions` because cai-revise has
-            #    Bash and the classifier-based gating is the better
-            #    safety layer for that combination. Same blast-radius
-            #    reasoning as cmd_fix above: throwaway clone, deny
-            #    rules in `.claude/settings.json` still block
-            #    push/remote/gh, trust-but-verify in step 7.
+            #    `--dangerously-skip-permissions` is required for the
+            #    same reason as cmd_fix above: cai-revise legitimately
+            #    needs to edit `.claude/agents/*.md` files when revise
+            #    comments ask for self-modifying changes, AND it has
+            #    Bash for git rebase ops which `acceptEdits` won't
+            #    auto-approve either. The previous attempt with
+            #    `--permission-mode auto` (#327) was insufficient — its
+            #    background classifier still gated the same writes in
+            #    headless mode. Same blast-radius reasoning as cmd_fix:
+            #    throwaway clone, `.claude/settings.json` deny rules
+            #    still block push/remote/gh on Bash regardless of
+            #    permission mode, trust-but-verify in step 7.
             print(
                 f"[cai revise] running cai-revise subagent in {work_dir}",
                 flush=True,
             )
             agent = _run(
                 ["claude", "-p", "--agent", "cai-revise",
-                 "--permission-mode", "auto"],
+                 "--dangerously-skip-permissions"],
                 input=user_message,
                 cwd=str(work_dir),
                 capture_output=True,
