@@ -747,11 +747,30 @@ def cmd_fix(args) -> int:
                 capture_output=True,
             )
             # Transition: in-progress -> no-action (NOT back to :raised)
-            _set_labels(
+            if not _set_labels(
                 issue_number,
                 add=[LABEL_NO_ACTION],
                 remove=[LABEL_IN_PROGRESS],
-            )
+            ):
+                print(
+                    f"[cai fix] WARNING: label transition to :no-action failed for "
+                    f"#{issue_number}; retrying",
+                    flush=True,
+                )
+                if not _set_labels(
+                    issue_number,
+                    add=[LABEL_NO_ACTION],
+                    remove=[LABEL_IN_PROGRESS],
+                ):
+                    print(
+                        f"[cai fix] WARNING: label transition to :no-action failed twice for "
+                        f"#{issue_number} — issue may be stuck without a lifecycle label",
+                        file=sys.stderr, flush=True,
+                    )
+                    rollback()
+                    log_run("fix", repo=REPO, issue=issue_number,
+                            result="label_transition_failed", exit=1)
+                    return 1
             locked = False
             log_run("fix", repo=REPO, issue=issue_number,
                     result="no_action_needed", exit=0)
@@ -2827,7 +2846,12 @@ def cmd_merge(args) -> int:
                     file=sys.stderr,
                 )
                 if not _issue_has_label(issue_number, LABEL_MERGED):
-                    _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
+                    if not _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED]):
+                        print(
+                            f"[cai merge] WARNING: failed to add :merge-blocked label to "
+                            f"#{issue_number} after close failure on PR #{pr_number}",
+                            file=sys.stderr, flush=True,
+                        )
                 # Close failed → PR is still open and needs human attention.
                 _pr_set_needs_human(pr_number, True)
                 held += 1
@@ -2843,7 +2867,21 @@ def cmd_merge(args) -> int:
             )
             if merge_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: merged successfully", flush=True)
-                _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED])
+                if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
+                    print(
+                        f"[cai merge] WARNING: label transition to :merged failed for "
+                        f"#{issue_number} after merging PR #{pr_number}; retrying",
+                        flush=True,
+                    )
+                    if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
+                        print(
+                            f"[cai merge] WARNING: label transition to :merged failed twice for "
+                            f"#{issue_number} — issue may be stuck without a lifecycle label",
+                            file=sys.stderr, flush=True,
+                        )
+                        _pr_set_needs_human(pr_number, True)
+                        held += 1
+                        continue
                 merged += 1
             else:
                 print(
@@ -2861,7 +2899,12 @@ def cmd_merge(args) -> int:
             # Set merge-blocked label on the issue, unless already merged.
             # Re-fetch to avoid race with a concurrent merge run.
             if not _issue_has_label(issue_number, LABEL_MERGED):
-                _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
+                if not _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED]):
+                    print(
+                        f"[cai merge] WARNING: failed to add :merge-blocked label to "
+                        f"#{issue_number} for held PR #{pr_number}",
+                        file=sys.stderr, flush=True,
+                    )
             # Tag the PR itself so humans can filter `label:needs-human-review`.
             _pr_set_needs_human(pr_number, True)
             held += 1
