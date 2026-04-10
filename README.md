@@ -193,10 +193,14 @@ implement their linked issue. For each open `:pr-open` PR on an
 2. Fetches the linked issue body, PR diff, and PR comments
 3. Pipes them through `claude -p --model claude-opus-4-6` with a
    conservative merge-review prompt
-4. Parses the model's verdict: `high`, `medium`, or `low` confidence
-5. If the verdict meets the threshold, merges via
-   `gh pr merge --merge --delete-branch`
-6. Otherwise, labels the issue `auto-improve:merge-blocked` and
+4. Parses the model's verdict: a confidence level (`high`, `medium`,
+   or `low`) and an independent action (`merge`, `hold`, or `reject`)
+5. If the action is `merge` and confidence meets the threshold,
+   merges via `gh pr merge --merge --delete-branch`
+6. If the action is `reject` and confidence meets the threshold,
+   closes the PR via `gh pr close --delete-branch` and transitions
+   the issue to `auto-improve:no-action`
+7. Otherwise, labels the issue `auto-improve:merge-blocked` and
    posts the verdict reasoning as a PR comment
 
 **Confidence levels:**
@@ -211,13 +215,13 @@ implement their linked issue. For each open `:pr-open` PR on an
 
 | Value | Behavior |
 |---|---|
-| `high` (default) | Only `high` verdicts trigger auto-merge |
-| `medium` | Both `high` and `medium` verdicts trigger auto-merge |
-| `disabled` | Never auto-merge; still posts verdict comments |
+| `high` (default) | Only `high` verdicts trigger auto-merge or auto-close |
+| `medium` | Both `high` and `medium` verdicts trigger auto-merge or auto-close |
+| `disabled` | Never auto-merge/close; still posts verdict comments |
 
 The threshold defaults to `high` — only the most clear-cut PRs merge
-automatically. Relax to `medium` by editing the env var once trust
-builds.
+or close automatically. Relax to `medium` by editing the env var once
+trust builds.
 
 `auto-improve:requested` is a separate entry point: a human applies
 it to an arbitrary issue to opt it into the fix queue. The label is
