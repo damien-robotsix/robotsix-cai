@@ -2399,7 +2399,7 @@ def cmd_merge(args) -> int:
             f"{agent_output}\n\n"
             f"---\n"
             f"_Auto-merge review by `cai merge`. "
-            f"Threshold: `{_MERGE_THRESHOLD}`, verdict: `{confidence}`._"
+            f"Threshold: `{_MERGE_THRESHOLD}`, verdict: `{confidence}`, action: `{action}`._"
         )
         _run(
             ["gh", "pr", "comment", str(pr_number),
@@ -2430,8 +2430,9 @@ def cmd_merge(args) -> int:
                     f"[cai merge] PR #{pr_number}: close failed:\n{close_result.stderr}",
                     file=sys.stderr,
                 )
+                _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
                 held += 1
-        elif action != "reject" and verdict_rank >= threshold_rank:
+        elif action == "merge" and verdict_rank >= threshold_rank:
             print(
                 f"[cai merge] PR #{pr_number}: verdict={confidence} >= threshold={_MERGE_THRESHOLD}; merging",
                 flush=True,
