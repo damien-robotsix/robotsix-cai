@@ -1795,6 +1795,7 @@ def cmd_revise(args) -> int:
                 _set_labels(issue_number, remove=[LABEL_REVISING])
                 log_run("revise", repo=REPO, pr=pr_number,
                         comments_addressed=0, exit=agent.returncode)
+                had_failure = True
                 continue
 
             # 7. Inspect the working tree.
@@ -1845,6 +1846,7 @@ def cmd_revise(args) -> int:
                 _set_labels(issue_number, remove=[LABEL_REVISING])
                 log_run("revise", repo=REPO, pr=pr_number,
                         result="push_failed", exit=1)
+                had_failure = True
                 continue
 
             print(f"[cai revise] force-pushed revision to {branch}", flush=True)
