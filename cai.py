@@ -400,6 +400,39 @@ def _select_fix_target():
             candidates[issue["number"]] = issue
 
     if not candidates:
+        # Recover stale :pr-open issues whose linked PR was closed (unmerged).
+        # This handles cases where the verify step failed to transition them
+        # back to :raised (e.g. due to GitHub search indexing delays).
+        try:
+            pr_open_issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", LABEL_PR_OPEN,
+                "--state", "open",
+                "--json", "number,title,body,labels,createdAt,comments",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError:
+            pr_open_issues = []
+        for issue in pr_open_issues:
+            if LABEL_IN_PROGRESS in {lbl["name"] for lbl in issue.get("labels", [])}:
+                continue
+            pr = _find_linked_pr(issue["number"])
+            if pr is None:
+                continue
+            state = (pr.get("state") or "").upper()
+            if state == "CLOSED":
+                issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
+                raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
+                if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN]):
+                    print(
+                        f"[cai fix] recovered stale :pr-open on #{issue['number']} "
+                        f"(PR #{pr['number']} closed unmerged)",
+                        flush=True,
+                    )
+                    candidates[issue["number"]] = issue
+
+    if not candidates:
         return None
 
     return min(candidates.values(), key=lambda i: i["createdAt"])
@@ -2494,16 +2527,16 @@ def cmd_merge(args) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_cycle(args) -> int:
-    """Run fix → revise → review-pr → merge → verify → confirm in order."""
+    """Run verify → fix → revise → review-pr → merge → confirm in order."""
     print("[cai cycle] starting full cycle (no analyze)", flush=True)
     t0 = time.monotonic()
 
     steps = [
+        ("verify", cmd_verify),
         ("fix", cmd_fix),
         ("revise", cmd_revise),
         ("review-pr", cmd_review_pr),
         ("merge", cmd_merge),
-        ("verify", cmd_verify),
         ("confirm", cmd_confirm),
     ]
 
