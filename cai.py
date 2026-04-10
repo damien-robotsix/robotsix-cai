@@ -2491,7 +2491,8 @@ def cmd_merge(args) -> int:
                     f"[cai merge] PR #{pr_number}: close failed:\n{close_result.stderr}",
                     file=sys.stderr,
                 )
-                _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
+                if LABEL_MERGED not in issue_labels:
+                    _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
                 held += 1
         elif action == "merge" and verdict_rank >= threshold_rank:
             print(
