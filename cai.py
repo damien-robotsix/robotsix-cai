@@ -712,6 +712,69 @@ def _is_bot_comment(comment: dict) -> bool:
     return any(body.startswith(m) for m in _BOT_COMMENT_MARKERS)
 
 
+# Marker that revise/cmd_fix uses when its subagent decides no code
+# changes are needed in response to a comment. The presence of this
+# marker AFTER all human comments means the bot has acknowledged the
+# request and explicitly chose not to act — so we should NOT keep
+# re-processing the same comments forever.
+_NO_ADDITIONAL_CHANGES_MARKER = "## Revise subagent: no additional changes"
+
+
+def _parse_iso_ts(value):
+    """Parse an ISO-8601 UTC timestamp ('2026-04-10T00:23:34Z'), return datetime or None."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
+def _filter_unaddressed_comments(comments: list[dict], commit_ts):
+    """Return comments that are truly unaddressed by either code or bot reply.
+
+    A comment is unaddressed if ALL of these are true:
+      1. createdAt > commit_ts (it was posted after the current code state)
+      2. it is not a cai bot self-comment
+      3. there is no later '## Revise subagent: no additional changes'
+         reply that already covered it (otherwise the loop would re-process
+         the same comment forever, since revise's empty-diff path doesn't
+         push a new commit and the createdAt > commit_ts check stays true)
+
+    `commit_ts` should be a timezone-aware datetime in UTC.
+    """
+    if commit_ts is None:
+        return []
+
+    # Find the most recent "no additional changes" reply that is also
+    # newer than the commit (older replies belong to a previous round
+    # and shouldn't suppress current comments).
+    latest_no_changes_ts = None
+    for c in comments:
+        body = (c.get("body") or "").lstrip()
+        if not body.startswith(_NO_ADDITIONAL_CHANGES_MARKER):
+            continue
+        ts = _parse_iso_ts(c.get("createdAt"))
+        if ts is None or ts <= commit_ts:
+            continue
+        if latest_no_changes_ts is None or ts > latest_no_changes_ts:
+            latest_no_changes_ts = ts
+
+    unaddressed = []
+    for c in comments:
+        ts = _parse_iso_ts(c.get("createdAt"))
+        if ts is None or ts <= commit_ts:
+            continue
+        if _is_bot_comment(c):
+            continue
+        # The bot already replied "no additional changes" newer than
+        # this comment — treat as addressed (without code change).
+        if latest_no_changes_ts is not None and ts < latest_no_changes_ts:
+            continue
+        unaddressed.append(c)
+    return unaddressed
+
+
 def _fetch_review_comments(pr_number: int) -> list[dict]:
     """Fetch line-by-line review comments for a PR, normalized to issue-comment shape.
 
@@ -841,20 +904,9 @@ def _select_revise_targets() -> list[dict]:
         line_comments = _fetch_review_comments(pr["number"])
         comments = issue_comments + line_comments
 
-        # Filter: createdAt > commit timestamp AND not bot-generated.
-        unaddressed = []
-        for c in comments:
-            try:
-                c_ts = datetime.strptime(
-                    c["createdAt"], "%Y-%m-%dT%H:%M:%SZ"
-                ).replace(tzinfo=timezone.utc)
-            except (ValueError, KeyError):
-                continue
-            if c_ts <= commit_ts:
-                continue
-            if _is_bot_comment(c):
-                continue
-            unaddressed.append(c)
+        # Filter: createdAt > commit_ts AND not bot AND not already
+        # acknowledged by a "no additional changes" reply (loop guard).
+        unaddressed = _filter_unaddressed_comments(comments, commit_ts)
 
         # Determine if the PR needs a rebase (unmergeable).
         needs_rebase = pr_detail.get("mergeable") == "CONFLICTING" or \
@@ -2006,27 +2058,15 @@ def cmd_merge(args) -> int:
         # human to manually clear the label.
 
         # Safety filter 3: unaddressed review comments → let revise handle.
+        # Mirror the revise subcommand's filter logic via the shared helper
+        # so a "no additional changes" reply correctly suppresses the loop.
         all_comments = list(pr.get("comments", []))
         try:
             all_comments.extend(_fetch_review_comments(pr_number))
         except Exception:
             pass
-        human_comments = [c for c in all_comments if not _is_bot_comment(c)]
-        # Check if any human comment is newer than HEAD (unaddressed).
-        has_unaddressed = False
-        for c in human_comments:
-            created = c.get("createdAt", "")
-            # gh returns ISO 8601 timestamps; string compare works for chronological order.
-            if created > head_sha:
-                # Can't reliably compare timestamp to SHA; use the commit timestamp instead.
-                pass
-        # Simpler approach: if there are human comments that aren't bot comments,
-        # check the PR's commit list. For now, we rely on the revise subcommand's
-        # own logic — if revise hasn't cleared the comments yet, we skip.
-        # Actually, mirror the revise target selection logic: any non-bot comment
-        # with createdAt after the last commit means unaddressed.
-        # We need the push date. Fetch from git log of the branch.
-        # For simplicity, fetch the commit date of HEAD via the API.
+
+        # Fetch the most recent commit timestamp on the branch.
         try:
             commits = _gh_json([
                 "pr", "view", str(pr_number),
@@ -2034,19 +2074,17 @@ def cmd_merge(args) -> int:
                 "--json", "commits",
             ])
             commit_list = commits.get("commits", [])
-            if commit_list:
-                last_commit_date = commit_list[-1].get("committedDate", "")
-            else:
-                last_commit_date = ""
+            last_commit_date = commit_list[-1].get("committedDate", "") if commit_list else ""
         except (subprocess.CalledProcessError, KeyError):
             last_commit_date = ""
 
-        if last_commit_date:
-            for c in human_comments:
-                created = c.get("createdAt", "")
-                if created > last_commit_date:
-                    has_unaddressed = True
-                    break
+        commit_ts = _parse_iso_ts(last_commit_date)
+        unaddressed = (
+            _filter_unaddressed_comments(all_comments, commit_ts)
+            if commit_ts is not None
+            else []
+        )
+        has_unaddressed = bool(unaddressed)
 
         if has_unaddressed:
             print(
