@@ -58,8 +58,16 @@ Subcommands:
                             linked issue, posts a verdict comment, and
                             merges when confidence meets the threshold.
 
+    python cai.py code-audit  Weekly source-code consistency audit.
+                            Clones the repo read-only, runs a Sonnet
+                            agent that checks for cross-file
+                            inconsistencies, dead code, missing
+                            references, and similar concrete problems.
+                            Findings are published as issues via
+                            publish.py with the `code-audit` namespace.
+
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`fix`, `revise`, `verify`, `audit`, `confirm`, `review-pr`, and `merge` once synchronously at
+`fix`, `revise`, `verify`, `audit`, `code-audit`, `confirm`, `review-pr`, and `merge` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
