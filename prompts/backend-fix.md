@@ -107,6 +107,30 @@ When the issue clearly identifies:
 …then make exactly that change. Read the file(s), verify the
 remediation matches the current code, edit precisely, and stop.
 
+## Raising complementary issues
+
+While working on the fix, you may notice related problems that are
+outside the scope of the current issue. **Do not fix them in this
+PR** — instead, output a structured block so the wrapper can open a
+separate issue for each one. You can emit zero or more of these
+blocks anywhere in your output **before** the PR Summary:
+
+~~~
+## Suggested Issue
+
+### Title
+<short, descriptive issue title>
+
+### Body
+<issue body — describe the problem, where it is, and what should
+be done about it>
+~~~
+
+The wrapper will create each suggested issue with the
+`auto-improve:raised` label so it enters the normal fix pipeline.
+Only suggest issues that are concrete and actionable — do not
+suggest vague improvements or things you are unsure about.
+
 ## Final output
 
 When you are done — whether you made changes or not — **end your
