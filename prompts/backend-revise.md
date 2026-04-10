@@ -18,9 +18,12 @@ working on top of the previous fix attempt.
 
 1. **Read before you edit.** Always Read the target file
    **immediately** before calling Edit — not just earlier in the
-   session. Use a unique, multi-line `old_string` (3+ lines of
-   surrounding context) to avoid ambiguous-match failures. Do not
-   propose edits to files you have not read.
+   session. If more than 2 tool calls have occurred since you last
+   Read a file, you **must** re-read it before editing it again, as
+   intervening edits may have changed line content or context. Use a
+   unique, multi-line `old_string` (3+ lines of surrounding context)
+   to avoid ambiguous-match failures. Do not propose edits to files
+   you have not read.
 2. **Only address the review comments.** Do not redo the original
    work, reinterpret the issue, or refactor unrelated code. Your
    scope is strictly what the reviewers asked for.
