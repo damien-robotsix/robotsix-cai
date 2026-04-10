@@ -422,14 +422,21 @@ def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (
     return True
 
 
-def _build_fix_prompt(issue: dict) -> str:
+def _build_fix_prompt(issue: dict, work_dir: Path) -> str:
     prompt = FIX_PROMPT.read_text()
     issue_block = (
         f"## Issue\n\n"
         f"### #{issue['number']} — {issue['title']}\n\n"
         f"{issue.get('body') or '(no body)'}\n"
     )
-    return f"{prompt}\n\n{issue_block}"
+    # Build a short file manifest so the subagent can skip broad discovery.
+    manifest_lines = sorted(
+        str(p.relative_to(work_dir))
+        for p in work_dir.rglob("*")
+        if p.is_file() and ".git" not in p.relative_to(work_dir).parts
+    )
+    manifest_block = "## Repository file manifest\n\n```\n" + "\n".join(manifest_lines) + "\n```\n"
+    return f"{prompt}\n\n{manifest_block}\n\n{issue_block}"
 
 
 def _git(work_dir: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -530,7 +537,7 @@ def cmd_fix(args) -> int:
         _git(work_dir, "checkout", "-b", branch)
 
         # 5. Run the fix subagent in the work dir with full permissions.
-        prompt = _build_fix_prompt(issue)
+        prompt = _build_fix_prompt(issue, work_dir)
         print(f"[cai fix] running fix subagent in {work_dir}", flush=True)
         # `acceptEdits` auto-accepts file edits (Read/Edit/Write/Grep/Glob)
         # without prompting. We don't use `bypassPermissions` because
