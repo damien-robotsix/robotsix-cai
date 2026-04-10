@@ -117,6 +117,8 @@ LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "auto-improve:merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
 
+MAX_UNSOLVED_RETRIES = 2  # recycle :merged → :raised up to this many times
+
 
 # ---------------------------------------------------------------------------
 # Run log
@@ -1960,14 +1962,42 @@ def cmd_confirm(args) -> int:
             print(f"[cai confirm] #{issue_num}: solved — closed", flush=True)
             solved += 1
         elif status == "unsolved":
-            _run(
-                ["gh", "issue", "comment", str(issue_num),
-                 "--repo", REPO,
-                 "--body",
-                 "Confirm check: fix did not eliminate the pattern in the recent window."],
-                capture_output=True,
-            )
-            print(f"[cai confirm] #{issue_num}: unsolved — left as :merged", flush=True)
+            # Count previous unsolved confirmations to decide whether to
+            # recycle back to :raised or give up.
+            prior_unsolved = 0
+            try:
+                comments_data = _gh_json([
+                    "issue", "view", str(issue_num),
+                    "--repo", REPO,
+                    "--json", "comments",
+                ]) or {}
+                for c in comments_data.get("comments") or []:
+                    if "fix did not eliminate the pattern" in (c.get("body") or ""):
+                        prior_unsolved += 1
+            except subprocess.CalledProcessError:
+                pass
+
+            if prior_unsolved < MAX_UNSOLVED_RETRIES:
+                _run(
+                    ["gh", "issue", "comment", str(issue_num),
+                     "--repo", REPO,
+                     "--body",
+                     "Confirm check: fix did not eliminate the pattern in the recent window. "
+                     "Recycling to `:raised` for another fix attempt."],
+                    capture_output=True,
+                )
+                _set_labels(issue_num, add=[LABEL_RAISED], remove=[LABEL_MERGED])
+                print(f"[cai confirm] #{issue_num}: unsolved — recycled to :raised", flush=True)
+            else:
+                _run(
+                    ["gh", "issue", "comment", str(issue_num),
+                     "--repo", REPO,
+                     "--body",
+                     "Confirm check: fix did not eliminate the pattern in the recent window. "
+                     f"Already retried {prior_unsolved} time(s) — leaving as `:merged` for manual review."],
+                    capture_output=True,
+                )
+                print(f"[cai confirm] #{issue_num}: unsolved — max retries reached, left as :merged", flush=True)
             unsolved += 1
         elif status == "inconclusive":
             # Post reasoning to the issue so humans can see why, but
