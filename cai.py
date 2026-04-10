@@ -114,6 +114,7 @@ LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "auto-improve:merge-blocked"
+LABEL_AUDIT_RAISED = "audit:raised"
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +366,7 @@ def _select_fix_target():
     `:in-progress` or `:pr-open`.
     """
     candidates: dict[int, dict] = {}
-    for label in (LABEL_RAISED, LABEL_REQUESTED):
+    for label in (LABEL_RAISED, LABEL_REQUESTED, LABEL_AUDIT_RAISED):
         try:
             issues = _gh_json([
                 "issue", "list",
@@ -472,13 +473,16 @@ def cmd_fix(args) -> int:
 
     issue_number = issue["number"]
     title = issue["title"]
+    label_names = {lbl["name"] for lbl in issue.get("labels", [])}
+    is_audit = LABEL_AUDIT_RAISED in label_names
+    origin_raised_label = LABEL_AUDIT_RAISED if is_audit else LABEL_RAISED
     print(f"[cai fix] picked #{issue_number}: {title}", flush=True)
 
     # 1. Lock — set :in-progress, drop :raised and :requested.
     if not _set_labels(
         issue_number,
         add=[LABEL_IN_PROGRESS],
-        remove=[LABEL_RAISED, LABEL_REQUESTED],
+        remove=[LABEL_RAISED, LABEL_REQUESTED, LABEL_AUDIT_RAISED],
     ):
         print(f"[cai fix] could not lock #{issue_number}", file=sys.stderr)
         log_run("fix", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
@@ -499,7 +503,7 @@ def cmd_fix(args) -> int:
             return
         _set_labels(
             issue_number,
-            add=[LABEL_RAISED],
+            add=[origin_raised_label],
             remove=[LABEL_IN_PROGRESS],
         )
         locked = False
@@ -572,7 +576,7 @@ def cmd_fix(args) -> int:
                 f"---\n"
                 f"_Set by `cai fix` after the subagent reviewed and decided "
                 f"no code change was needed. Re-label to "
-                f"`auto-improve:raised` to retry, or close if you agree._"
+                f"`{origin_raised_label}` to retry, or close if you agree._"
             )
             _run(
                 ["gh", "issue", "comment", str(issue_number),
@@ -1254,7 +1258,7 @@ def cmd_verify(args) -> int:
             "--repo", REPO,
             "--label", LABEL_PR_OPEN,
             "--state", "open",
-            "--json", "number,title",
+            "--json", "number,title,labels",
             "--limit", "100",
         ]) or []
     except subprocess.CalledProcessError as e:
@@ -1280,7 +1284,9 @@ def cmd_verify(args) -> int:
             print(f"[cai verify] #{num}: PR #{pr['number']} merged → :merged", flush=True)
             transitioned += 1
         elif state == "CLOSED":
-            _set_labels(num, add=[LABEL_RAISED], remove=[LABEL_PR_OPEN])
+            issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
+            raised_label = LABEL_AUDIT_RAISED if "audit" in issue_labels else LABEL_RAISED
+            _set_labels(num, add=[raised_label], remove=[LABEL_PR_OPEN])
             print(
                 f"[cai verify] #{num}: PR #{pr['number']} closed unmerged → :raised",
                 flush=True,
@@ -1427,9 +1433,11 @@ def _rollback_stale_in_progress() -> list[dict]:
                 ok = _set_labels(issue_num, remove=[LABEL_REVISING])
             else:
                 # In-progress lock: roll back to :raised.
+                issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
+                raised_label = LABEL_AUDIT_RAISED if "audit" in issue_labels else LABEL_RAISED
                 ok = _set_labels(
                     issue_num,
-                    add=[LABEL_RAISED],
+                    add=[raised_label],
                     remove=[LABEL_IN_PROGRESS],
                 )
             if ok:
