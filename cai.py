@@ -111,7 +111,6 @@ FIX_PROMPT = Path("/app/prompts/backend-fix.md")
 AUDIT_PROMPT = Path("/app/prompts/backend-audit.md")
 CONFIRM_PROMPT = Path("/app/prompts/backend-confirm.md")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
-REBASE_PROMPT = Path("/app/prompts/backend-rebase.md")
 REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
 MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
 AUDIT_TRIAGE_PROMPT = Path("/app/prompts/backend-audit-triage.md")
@@ -1212,51 +1211,45 @@ def _agent_resolve_rebase(
     """Drive a stopped `git rebase` to completion via the resolver subagent.
 
     The wrapper has just run `git rebase origin/main` and the rebase
-    has stopped on conflicts. We hand the in-progress rebase to a
-    single agent invocation that has Bash access (so it can run `git`
-    itself) and tell it to resolve every conflict, stage, and
-    `--continue`/`--skip` until the rebase is fully done. The agent's
-    own prompt (`prompts/backend-rebase.md`) carries the loop logic
-    and the safety rules.
+    has stopped on conflicts. We hand the in-progress rebase to the
+    declared `cai-rebase-resolver` subagent (defined in
+    `.claude/agents/cai-rebase-resolver.md`) via `claude --agent`.
+    The agent has Bash access so it can run `git` itself — resolve
+    every conflict, stage, and `--continue`/`--skip` until the
+    rebase is fully done. The agent's system prompt, tool allowlist,
+    and loop logic all live in the agent file; the wrapper only
+    passes the dynamic per-run context (issue title + body) as the
+    user message via stdin.
 
-    Bash patterns block `git push`, `git remote …`, and `gh` so the
-    agent cannot touch the remote or PR state — pushing is the
-    wrapper's job, and we verify the worktree state ourselves before
-    trusting the agent's "done" signal.
+    Bash pattern restrictions (`git push`, `git remote`, `gh`) are
+    enforced repo-wide by `.claude/settings.json` deny rules — the
+    agent physically cannot touch the remote. Pushing is the
+    wrapper's job, and we verify the worktree state ourselves
+    before trusting the agent's "done" signal (trust-but-verify
+    below).
 
     Returns (success, agent_summary). On failure the rebase is left
     aborted and the caller falls back to the manual-rebase comment
     path. On success the rebase is fully complete and the worktree
     is clean.
     """
-    prompt_text = REBASE_PROMPT.read_text()
-    full_prompt = (
-        f"{prompt_text}\n\n"
-        f"## Original PR issue context\n\n"
+    # The agent's system prompt lives in the agent file; we only
+    # pass the dynamic per-run context via stdin.
+    user_message = (
+        "## Original PR issue context\n\n"
         f"### {issue_title}\n\n"
         f"{issue_body or '(no body)'}\n"
     )
 
     print(
-        f"[cai revise] PR #{pr_number}: invoking rebase resolver agent",
+        f"[cai revise] PR #{pr_number}: invoking cai-rebase-resolver agent",
         flush=True,
     )
 
-    # Block remote-touching commands. The agent gets Bash for `git`
-    # but must not push, fetch from a different remote, rewrite the
-    # remote URL, or call `gh`. Patterns are comma-separated per
-    # claude-code's flag parser (see the cai review-pr block for the
-    # same convention).
-    disallowed = ",".join([
-        "Bash(git push:*)",
-        "Bash(git remote:*)",
-        "Bash(gh:*)",
-    ])
-
     agent = _run(
-        ["claude", "-p", "--permission-mode", "acceptEdits",
-         "--disallowedTools", disallowed],
-        input=full_prompt,
+        ["claude", "-p", "--agent", "cai-rebase-resolver",
+         "--permission-mode", "acceptEdits"],
+        input=user_message,
         cwd=str(work_dir),
         capture_output=True,
     )
