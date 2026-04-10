@@ -116,6 +116,7 @@ LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "auto-improve:merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
+LABEL_AUDIT_SOLVED = "audit:solved"
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +364,7 @@ def _gh_user_identity() -> tuple[str, str]:
 _LIFECYCLE_LABELS = {
     LABEL_RAISED, LABEL_REQUESTED, LABEL_IN_PROGRESS, LABEL_PR_OPEN,
     LABEL_MERGED, LABEL_SOLVED, LABEL_NO_ACTION, LABEL_REVISING,
-    LABEL_MERGE_BLOCKED, LABEL_AUDIT_RAISED, "audit:solved",
+    LABEL_MERGE_BLOCKED, LABEL_AUDIT_RAISED, LABEL_AUDIT_SOLVED,
 }
 
 
