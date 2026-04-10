@@ -16,7 +16,7 @@ prompts, Dockerfile, installer, or docs should change.
 
 You analyze ONLY the cai container's own runtime sessions. The signal
 data you receive comes from JSONL files under
-`/root/.claude/projects/-app/` inside the container — sessions where
+`/home/cai/.claude/projects/-app/` inside the container — sessions where
 the cai container itself invoked `claude -p`. You do NOT look at
 sessions from outside the container.
 

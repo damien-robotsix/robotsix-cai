@@ -93,7 +93,7 @@ any files at all, one `docker run` is enough.
 
 ```bash
 docker run --rm \
-  -v ~/.claude/.credentials.json:/root/.claude/.credentials.json \
+  -v ~/.claude/.credentials.json:/home/cai/.claude/.credentials.json \
   robotsix/cai:latest
 ```
 
@@ -122,11 +122,12 @@ docker compose up
 
 The container persists Claude Code's session transcripts in a Docker
 named volume called **`cai_transcripts`**, mounted at
-`/root/.claude/projects` inside the container. claude-code writes one
+`/home/cai/.claude/projects` inside the container. claude-code writes one
 JSONL file per session under
-`/root/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`, and the
+`/home/cai/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`, and the
 volume keeps that data across container restarts so future analyzer
-runs can read it.
+runs can read it. (The container runs as the non-root `cai` user, uid
+1000 — see Dockerfile for the rationale.)
 
 Inspect the volume from outside the container:
 

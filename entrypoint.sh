@@ -60,7 +60,7 @@ echo
 
 # Wire `gh` in as the git credential helper so the fix subagent can
 # `git push` over HTTPS using the same token that's in the
-# cai_gh_config volume. /root/.gitconfig isn't persisted across
+# cai_gh_config volume. ~/.gitconfig isn't persisted across
 # container restarts, so we re-run this every startup.
 if gh auth status >/dev/null 2>&1; then
   echo "[entrypoint] configuring gh as the git credential helper"

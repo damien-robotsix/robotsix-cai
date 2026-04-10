@@ -57,12 +57,27 @@ RUN wget -nv -O /usr/local/bin/supercronic \
     && chmod +x /usr/local/bin/supercronic \
     && supercronic -version
 
+# Create a non-root user. claude-code refuses
+# `--dangerously-skip-permissions` when running as root
+# ("cannot be used with root/sudo privileges for security reasons"),
+# which we need so the fix and revise subagents can edit
+# `.claude/agents/*.md` files (auto-improve self-modifies its own
+# prompts). UID 1000 matches the typical first-host-user UID so the
+# bind-mounted `./logs:/var/log/cai` directory works without extra
+# host-side chowning.
+RUN groupadd --system --gid 1000 cai \
+    && useradd --system --gid cai --uid 1000 --create-home --shell /bin/bash cai \
+    && mkdir -p /var/log/cai \
+    && chown -R cai:cai /var/log/cai
+
 WORKDIR /app
-COPY cai.py /app/cai.py
-COPY parse.py /app/parse.py
-COPY publish.py /app/publish.py
-COPY .claude /app/.claude
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY --chown=cai:cai cai.py /app/cai.py
+COPY --chown=cai:cai parse.py /app/parse.py
+COPY --chown=cai:cai publish.py /app/publish.py
+COPY --chown=cai:cai .claude /app/.claude
+COPY --chown=cai:cai entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh && chown cai:cai /app
+
+USER cai
 
 CMD ["/app/entrypoint.sh"]

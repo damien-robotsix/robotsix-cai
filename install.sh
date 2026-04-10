@@ -158,9 +158,9 @@ services:
       # access token when it expires. claude-code writes the refreshed
       # token back to this file; without :rw, subsequent API calls
       # would 401 once the token lifetime is up.
-      - \${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json
-      - cai_transcripts:/root/.claude/projects
-      - cai_gh_config:/root/.config/gh
+      - \${HOME}/.claude/.credentials.json:/home/cai/.claude/.credentials.json
+      - cai_transcripts:/home/cai/.claude/projects
+      - cai_gh_config:/home/cai/.config/gh
       - ./logs:/var/log/cai
 ${CAI_LABEL_BLOCK}${WATCHTOWER_SERVICE}
 
@@ -205,8 +205,8 @@ services:
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
     volumes:
-      - cai_transcripts:/root/.claude/projects
-      - cai_gh_config:/root/.config/gh
+      - cai_transcripts:/home/cai/.claude/projects
+      - cai_gh_config:/home/cai/.config/gh
       - ./logs:/var/log/cai
 ${CAI_LABEL_BLOCK}${WATCHTOWER_SERVICE}
 

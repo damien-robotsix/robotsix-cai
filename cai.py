@@ -94,14 +94,17 @@ REPO = "damien-robotsix/robotsix-cai"
 SMOKE_PROMPT = "Say hello in one short sentence."
 
 # Root of claude-code's per-cwd transcript dirs. claude-code writes
-# `/root/.claude/projects/<sanitized-cwd>/<session-id>.jsonl` for every
+# `~/.claude/projects/<sanitized-cwd>/<session-id>.jsonl` for every
 # session, so this directory contains one subdir per cwd:
 #   * `-app/`            — sessions started by cai.py inside /app
 #   * `-tmp-cai-fix-<N>/` — sessions started by the fix subagent in
 #                          its per-issue clone under /tmp
 # The analyzer parses *all* of them so the fix subagent's tool-rich
 # sessions feed back into the next analyzer cycle.
-TRANSCRIPT_DIR = Path("/root/.claude/projects")
+#
+# Path is /home/cai/... because the container runs as the non-root
+# `cai` user (uid 1000) — see Dockerfile.
+TRANSCRIPT_DIR = Path("/home/cai/.claude/projects")
 
 # Files baked into the image alongside cai.py.
 PARSE_SCRIPT = Path("/app/parse.py")
