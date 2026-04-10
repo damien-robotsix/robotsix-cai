@@ -71,9 +71,12 @@ supercronic. (`cycle` is on-demand only and is not part of scheduled or startup 
 
 ### Issue lifecycle
 
-The fix subagent transitions issues through a label-based state
-machine. The lock label (`:in-progress`) is set as the **first** gh
-action so two concurrent `fix` runs can't pick the same issue.
+The fix step runs a multi-phase pipeline — 3 planning agents propose
+fixes in parallel, a selection agent picks the best plan, then the
+implementation agent executes it. Any phase failure rolls the issue
+back to `:raised`. The lock label (`:in-progress`) is set as the
+**first** gh action so two concurrent `fix` runs can't pick the same
+issue.
 
 ```
                               raised  ◄──┐
