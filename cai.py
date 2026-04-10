@@ -2576,7 +2576,16 @@ def cmd_merge(args) -> int:
                     f"[cai merge] PR #{pr_number}: close failed:\n{close_result.stderr}",
                     file=sys.stderr,
                 )
-                if LABEL_MERGED not in issue_labels:
+                # Re-fetch labels to avoid stale-data race: another run may
+                # have merged the PR (and set :merged) while the model was
+                # evaluating this PR.
+                try:
+                    fresh = _gh_json(["issue", "view", str(issue_number),
+                                      "--repo", REPO, "--json", "labels"])
+                    fresh_labels = [l["name"] for l in fresh.get("labels", [])]
+                except Exception:
+                    fresh_labels = issue_labels
+                if LABEL_MERGED not in fresh_labels:
                     _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
                 held += 1
         elif action == "merge" and verdict_rank >= threshold_rank:
@@ -2605,7 +2614,14 @@ def cmd_merge(args) -> int:
                 flush=True,
             )
             # Set merge-blocked label on the issue, unless already merged.
-            if LABEL_MERGED not in issue_labels:
+            # Re-fetch labels to avoid stale-data race (see above).
+            try:
+                fresh = _gh_json(["issue", "view", str(issue_number),
+                                  "--repo", REPO, "--json", "labels"])
+                fresh_labels = [l["name"] for l in fresh.get("labels", [])]
+            except Exception:
+                fresh_labels = issue_labels
+            if LABEL_MERGED not in fresh_labels:
                 _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
             held += 1
 
