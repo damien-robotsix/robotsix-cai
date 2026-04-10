@@ -2442,7 +2442,7 @@ def cmd_merge(args) -> int:
             )
             if close_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: closed successfully", flush=True)
-                _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN])
+                _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED])
                 closed += 1
             else:
                 print(
@@ -2463,6 +2463,7 @@ def cmd_merge(args) -> int:
             )
             if merge_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: merged successfully", flush=True)
+                _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED])
                 merged += 1
             else:
                 print(
