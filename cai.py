@@ -370,11 +370,38 @@ def _gh_user_identity() -> tuple[str, str]:
     return name, email
 
 
+def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> list[dict]:
+    """Transition :pr-open issues whose linked PR was closed (unmerged) back to :raised.
+
+    Returns the list of issues that were successfully recovered.
+    """
+    recovered: list[dict] = []
+    for issue in issues:
+        if LABEL_IN_PROGRESS in {lbl["name"] for lbl in issue.get("labels", [])}:
+            continue
+        pr = _find_linked_pr(issue["number"])
+        if pr is None:
+            continue
+        state = (pr.get("state") or "").upper()
+        if state == "CLOSED":
+            issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
+            raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
+            if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN]):
+                print(
+                    f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
+                    f"(PR #{pr['number']} closed unmerged)",
+                    flush=True,
+                )
+                recovered.append(issue)
+    return recovered
+
+
 def _select_fix_target():
     """Return the oldest open issue eligible for the fix subagent.
 
     Eligible = labelled `:raised`, `:requested`, or `audit:raised`, NOT labelled
-    `:in-progress` or `:pr-open`.
+    `:in-progress` or `:pr-open`.  If no candidates are found, attempts to
+    recover stale `:pr-open` issues whose linked PR was closed unmerged.
     """
     candidates: dict[int, dict] = {}
     for label in (LABEL_RAISED, LABEL_REQUESTED, LABEL_AUDIT_RAISED):
@@ -397,6 +424,24 @@ def _select_fix_target():
             label_names = {lbl["name"] for lbl in issue.get("labels", [])}
             if LABEL_IN_PROGRESS in label_names or LABEL_PR_OPEN in label_names:
                 continue
+            candidates[issue["number"]] = issue
+
+    if not candidates:
+        # Recover stale :pr-open issues whose linked PR was closed (unmerged).
+        # This handles cases where the verify step failed to transition them
+        # back to :raised (e.g. due to GitHub search indexing delays).
+        try:
+            pr_open_issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", LABEL_PR_OPEN,
+                "--state", "open",
+                "--json", "number,title,body,labels,createdAt,comments",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError:
+            pr_open_issues = []
+        for issue in _recover_stale_pr_open(pr_open_issues, log_prefix="cai fix"):
             candidates[issue["number"]] = issue
 
     if not candidates:
@@ -1374,6 +1419,8 @@ def cmd_verify(args) -> int:
         return 0
 
     transitioned = 0
+    # Handle MERGED transitions inline; CLOSED recovery uses the shared helper.
+    remaining = []
     for issue in issues:
         num = issue["number"]
         pr = _find_linked_pr(num)
@@ -1386,16 +1433,11 @@ def cmd_verify(args) -> int:
             print(f"[cai verify] #{num}: PR #{pr['number']} merged → :merged", flush=True)
             transitioned += 1
         elif state == "CLOSED":
-            issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-            raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
-            _set_labels(num, add=[raised_label], remove=[LABEL_PR_OPEN])
-            print(
-                f"[cai verify] #{num}: PR #{pr['number']} closed unmerged → :raised",
-                flush=True,
-            )
-            transitioned += 1
+            remaining.append(issue)
         else:
             print(f"[cai verify] #{num}: PR #{pr['number']} still {state}", flush=True)
+
+    transitioned += len(_recover_stale_pr_open(remaining, log_prefix="cai verify"))
 
     print(f"[cai verify] done ({transitioned} transitioned)", flush=True)
     log_run("verify", repo=REPO, checked=len(issues), transitioned=transitioned, exit=0)
@@ -2494,16 +2536,16 @@ def cmd_merge(args) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_cycle(args) -> int:
-    """Run fix → revise → review-pr → merge → verify → confirm in order."""
+    """Run verify → fix → revise → review-pr → merge → confirm in order."""
     print("[cai cycle] starting full cycle (no analyze)", flush=True)
     t0 = time.monotonic()
 
     steps = [
+        ("verify", cmd_verify),
         ("fix", cmd_fix),
         ("revise", cmd_revise),
         ("review-pr", cmd_review_pr),
         ("merge", cmd_merge),
-        ("verify", cmd_verify),
         ("confirm", cmd_confirm),
     ]
 
@@ -2551,7 +2593,7 @@ def main() -> int:
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
-    sub.add_parser("cycle", help="Full cycle: fix, revise, review-pr, merge, verify, confirm")
+    sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
 
     args = parser.parse_args()
 

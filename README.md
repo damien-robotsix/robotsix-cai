@@ -58,7 +58,7 @@ subprocess with no shared state.
 | `cai.py review-pr` | `20 * * * *` (hourly :20) | Pre-merge consistency review of open PRs — posts ripple-effect findings as PR comments so the revise subagent can act on them |
 | `cai.py merge` | `35 * * * *` (hourly :35) | Confidence-gated auto-merge — evaluates each bot PR against its linked issue, posts a verdict, and merges when confidence meets the threshold |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
-| `cai.py cycle` | _(manual/on-demand)_ | Runs fix → revise → review-pr → merge → verify → confirm in sequence. Convenience wrapper for a full pipeline pass; not included in scheduled or startup runs |
+| `cai.py cycle` | _(manual/on-demand)_ | Runs verify → fix → revise → review-pr → merge → confirm in sequence. Convenience wrapper for a full pipeline pass; not included in scheduled or startup runs |
 
 On `docker compose up -d` the entrypoint templates the crontab from
 the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
