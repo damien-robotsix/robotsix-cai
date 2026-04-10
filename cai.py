@@ -500,7 +500,7 @@ def _issue_has_label(issue_number: int, label: str) -> bool:
     return label in [l["name"] for l in (issue or {}).get("labels", [])]
 
 
-def _build_fix_prompt(issue: dict) -> str:
+def _build_fix_prompt(issue: dict, work_dir: Path | None = None) -> str:
     prompt = FIX_PROMPT.read_text()
     issue_block = (
         f"## Issue\n\n"
@@ -514,7 +514,23 @@ def _build_fix_prompt(issue: dict) -> str:
             author = c.get("author", {}).get("login", "unknown")
             body = c.get("body", "")
             issue_block += f"**{author}:**\n{body}\n\n"
-    return f"{prompt}\n\n{issue_block}"
+
+    manifest = ""
+    if work_dir:
+        files = sorted(
+            str(p.relative_to(work_dir))
+            for p in work_dir.rglob("*")
+            if p.is_file()
+            and ".git" not in p.relative_to(work_dir).parts
+        )
+        if files:
+            listing = "\n".join(files)
+            manifest = (
+                f"\n\n## Repository file manifest\n\n"
+                f"```\n{listing}\n```\n"
+            )
+
+    return f"{prompt}{manifest}\n\n{issue_block}"
 
 
 def _parse_suggested_issues(agent_output: str) -> list[dict]:
@@ -691,7 +707,7 @@ def cmd_fix(args) -> int:
         _git(work_dir, "checkout", "-b", branch)
 
         # 5. Run the fix subagent in the work dir with full permissions.
-        prompt = _build_fix_prompt(issue)
+        prompt = _build_fix_prompt(issue, work_dir=work_dir)
         print(f"[cai fix] running fix subagent in {work_dir}", flush=True)
         # `acceptEdits` auto-accepts file edits (Read/Edit/Write/Grep/Glob)
         # without prompting. We don't use `bypassPermissions` because
