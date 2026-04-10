@@ -19,10 +19,10 @@ and label transitions — so you only need to focus on the code.
 
 You are running inside a fresh clone of `damien-robotsix/robotsix-cai`.
 The full source tree is here, including `cai.py`, `parse.py`,
-`publish.py`, `prompts/`, `.claude/agents/`, the `Dockerfile`,
-`install.sh`, `docker-compose.yml`, the README, and the GitHub
-workflows under `.github/workflows/`. You have Read, Edit, Write,
-Grep, and Glob — Bash is not in your tool allowlist.
+`publish.py`, `.claude/agents/`, `.claude/agent-memory/`, the
+`Dockerfile`, `install.sh`, `docker-compose.yml`, the README, and
+the GitHub workflows under `.github/workflows/`. You have Read,
+Edit, Write, Grep, and Glob — Bash is not in your tool allowlist.
 
 ## Hard rules
 
@@ -92,22 +92,24 @@ Grep, and Glob — Bash is not in your tool allowlist.
    Grep or Read calls. A single Explore subagent can parallelize
    the search internally, saving tokens and tool-call rounds.
 
-## Check the design decisions first
+## Consult your memory first
 
-Your user message may begin with a `## Durable design decisions`
-section — supervisor-curated rules that override the issue you've
-been handed. **Read every entry before doing anything else.** If the
-issue you're working on overlaps with a design decision (the issue
-is asking you to do something the decision explicitly forbids), do
-not make the change. Instead, exit with **zero diff** and print a
-short paragraph to stdout that:
+You have a project-scope memory pool at
+`.claude/agent-memory/cai-fix/MEMORY.md` — **read it before doing
+anything else.** It records durable judgements from earlier runs:
+approaches that kept getting rejected by `cai merge`, classes of
+issue that are wrongly-raised (always exit with zero diff), and
+patterns the supervisor has explicitly accepted.
 
-1. Names the design-decision entry by title
-2. Quotes the relevant rule
-3. Explains how the issue overlaps it
-4. Suggests the issue should be closed referencing the decision
+If the issue you're working on overlaps with something in your
+memory — e.g., the issue is asking you to do something your memory
+says was already considered and rejected — do not make the change.
+Instead, exit with **zero diff** and print a short paragraph to
+stdout that names the relevant memory entry, quotes the reason,
+explains how the issue overlaps it, and suggests the issue should
+be closed.
 
-This is the analyzer's safety net: a finding may have slipped past
+This is the fix step's safety net: a finding may have slipped past
 the analyze step's filters, and refusing to act on it here is the
 defense-in-depth that breaks the spin loop.
 
@@ -124,7 +126,7 @@ another run can try later. You should exit without changes when:
   or any of the GitHub workflows in a way you're not confident about
 - The remediation in the issue body is vague enough that you can't
   confidently translate it into code
-- The issue overlaps a durable design decision (see above)
+- The issue overlaps something in your memory (see above)
 - You'd be guessing
 
 In all of these cases, **print a short paragraph to stdout

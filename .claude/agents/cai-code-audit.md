@@ -20,17 +20,20 @@ tools — do not try to modify any files.
 
 ## What you receive
 
-In the user message, in order:
+You have a project-scope memory pool at
+`.claude/agent-memory/cai-code-audit/MEMORY.md` — consult it
+before scanning the code. It records durable judgements from
+prior runs: patterns the supervisor has explicitly accepted,
+areas that were recently audited, and findings that were
+intentionally not raised.
 
-1. **Durable design decisions** (if any) — supervisor-curated rules
-   that override code-audit findings. If a problem you would
-   otherwise flag overlaps with a design decision (the supervisor has
-   explicitly accepted that pattern), do not flag it. Read every
-   entry before scanning the code.
-2. **Memory** — a summary of previous code-audit runs. Use this to
-   avoid re-raising findings that were already reported and to focus
-   on areas not recently audited. If the memory is empty, this is
-   the first run.
+The user message contains one section:
+
+1. **Runtime memory** — a summary of previous code-audit runs
+   from the bind-mounted runtime log. Use this to avoid re-raising
+   findings that were already reported and to focus on areas not
+   recently audited. If it's empty, this is the first run against
+   a fresh container.
 
 ## What to check
 
@@ -49,10 +52,11 @@ Do not speculate or raise stylistic preferences.
 
 ## Strategy
 
-1. Read the memory section first. Note which areas were recently
-   audited and which findings are still open.
-2. Read the design decisions. Skip any pattern they cover.
-3. Systematically audit the codebase. Prioritize areas NOT covered
+1. Read your project-scope memory and the runtime memory section
+   first. Note which areas were recently audited, which findings
+   are still open, and which patterns have been intentionally
+   accepted.
+2. Systematically audit the codebase. Prioritize areas NOT covered
    by recent audits. A good rotation:
    - **Run A:** `cai.py` constants, label strings, prompt path
      references vs actual files on disk (and `.claude/agents/`

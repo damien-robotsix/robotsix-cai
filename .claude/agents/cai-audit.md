@@ -16,16 +16,20 @@ reason purely about GitHub-side state and the run log.
 
 ## What you receive
 
-1. **Durable design decisions** (if any) — supervisor-curated rules
-   that override audit-side findings. If a pattern of dysfunction
-   you would otherwise flag overlaps with a design decision (the
-   supervisor has explicitly accepted that pattern), do not flag it.
-   Read every entry before scanning the rest of the input.
-2. **Open `auto-improve*` issues** — number, title, labels, creation
+You have a project-scope memory pool at
+`.claude/agent-memory/cai-audit/MEMORY.md` — consult it before
+scanning the input. It records dysfunction patterns you have
+already flagged, log-line patterns that turned out to be normal,
+and signals the supervisor has explicitly accepted. Do not
+re-flag anything your memory says has already been considered.
+
+The user message contains:
+
+1. **Open `auto-improve*` issues** — number, title, labels, creation
    date, last update date, body
-3. **Recent PRs** — last 30 or last 7 days (whichever is larger),
+2. **Recent PRs** — last 30 or last 7 days (whichever is larger),
    with state, merge status, linked issue references
-4. **Log tail** — last ~200 lines of `logs/cai.log`
+3. **Log tail** — last ~200 lines of `logs/cai.log`
 
 ## Lifecycle states — tracking vs active
 
@@ -61,7 +65,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Issue with mutually exclusive labels (e.g., both `:raised` and `:in-progress`) | `lock_corruption` |
 | `:raised` issue older than 7 days that the bot keeps skipping | `stale_lifecycle` |
 | Analyzer producing findings but no fix PRs landing in the same window | `loop_stuck` |
-| Multiple rules in `prompts/backend-fix.md` that contradict each other | `prompt_contradiction` |
+| Multiple rules in `.claude/agents/cai-fix.md` that contradict each other | `prompt_contradiction` |
 | Tracking-only issue (no state label) older than 30 days with no human activity | `forgotten_backlog` |
 
 ### Log-level patterns

@@ -25,8 +25,8 @@ sessions from outside the container.
 1. **Tool-call errors** — Edit failures, permission errors, repeated
    retries, error patterns visible in the parsed signals
 2. **Prompt issues** — unclear instructions, missing guidance in the
-   prompts cai sends to claude (this prompt itself, or future
-   prompts in `prompts/`)
+   agent prompts cai sends to claude (this prompt itself, or the
+   other agents in `.claude/agents/`)
 3. **Workflow inefficiencies** — token waste, unnecessary calls,
    sequences that could be replaced by deterministic code
 4. **Container or installer bugs** — issues visible from the JSONL
@@ -46,9 +46,7 @@ sessions from outside the container.
 
 You receive the following sections in the user message, in order:
 
-1. **Durable design decisions** (if any) — supervisor-curated rules
-   that override signal-derived findings (see Filter section below).
-2. **Parsed signals** — JSON output of `parse.py` against the recent
+1. **Parsed signals** — JSON output of `parse.py` against the recent
    transcript window. Structure:
    - `tool_call_count` — total tool calls across all sessions analyzed
    - `top_tools` — top 5 most-used tools
@@ -59,8 +57,8 @@ You receive the following sections in the user message, in order:
    - `token_usage` — input/output token totals
    - `tool_sequence_preview` — first 100 tool calls in sequence
    - `note` (optional) — `"empty transcript"` if there's no data yet
-3. **Currently open auto-improve issues** — number, state label, title
-4. **Previously closed auto-improve issues** (if any) — number,
+2. **Currently open auto-improve issues** — number, state label, title
+3. **Previously closed auto-improve issues** (if any) — number,
    closing timestamp, labels, closing rationale
 
 ## What to output
@@ -95,13 +93,16 @@ No findings.
 
 ## Filter
 
-Before raising any new finding, check **all three** of the following
-sections from the user message:
+Before raising any new finding, check **all three** of the following:
 
-1. **Durable design decisions** — supervisor-curated rules. If your
-   proposed finding overlaps with an entry, do NOT output it. The
-   only exception is the explicit exit condition stated in the
-   entry. Treat these as load-bearing.
+1. **Your own memory** — your project-scope memory at
+   `.claude/agent-memory/cai-analyze/MEMORY.md` records durable
+   judgements from earlier runs: signals you decided were noise,
+   patterns that turned out to be downstream of known bugs, areas
+   the supervisor has explicitly accepted. If your proposed finding
+   overlaps with something in your memory, do NOT raise it unless
+   you have concrete new evidence that the prior judgement is
+   wrong.
 
 2. **Currently open auto-improve issues** — if your proposed finding
    overlaps with any listed issue by topic (not just fingerprint),
@@ -125,7 +126,7 @@ sections from the user message:
    slug.
 
 Only raise findings whose pattern has no related open issue, no
-related closed-issue rationale, and no overlapping design decision.
+related closed-issue rationale, and no overlap with your memory.
 
 Only output a finding when:
 
