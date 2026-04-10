@@ -8,11 +8,16 @@ reason purely about GitHub-side state and the run log.
 
 ## What you receive
 
-1. **Open `auto-improve*` issues** — number, title, labels, creation
+1. **Durable design decisions** (if any) — supervisor-curated rules
+   that override audit-side findings. If a pattern of dysfunction
+   you would otherwise flag overlaps with a design decision (the
+   supervisor has explicitly accepted that pattern), do not flag it.
+   Read every entry before scanning the rest of the input.
+2. **Open `auto-improve*` issues** — number, title, labels, creation
    date, last update date, body
-2. **Recent PRs** — last 30 or last 7 days (whichever is larger),
+3. **Recent PRs** — last 30 or last 7 days (whichever is larger),
    with state, merge status, linked issue references
-3. **Log tail** — last ~200 lines of `logs/cai.log`
+4. **Log tail** — last ~200 lines of `logs/cai.log`
 
 ## Lifecycle states — tracking vs active
 

@@ -83,6 +83,25 @@ Grep, and Glob instead.
    Grep or Read calls. A single Explore subagent can parallelize
    the search internally, saving tokens and tool-call rounds.
 
+## Check the design decisions first
+
+If a `## Durable design decisions` section is appended to this
+prompt, **read every entry before doing anything else**. Those
+entries are supervisor-curated rules that override the issue you've
+been handed. If the issue you're working on overlaps with a design
+decision (the issue is asking you to do something the decision
+explicitly forbids), do not make the change. Instead, exit with
+**zero diff** and print a short paragraph to stdout that:
+
+1. Names the design-decision entry by title
+2. Quotes the relevant rule
+3. Explains how the issue overlaps it
+4. Suggests the issue should be closed referencing the decision
+
+This is the analyzer's safety net: a finding may have slipped past
+the analyze step's filters, and refusing to act on it here is the
+defense-in-depth that breaks the spin loop.
+
 ## When to make NO changes (and exit cleanly)
 
 Producing **zero diff** is a valid outcome — the wrapper detects an
@@ -96,6 +115,7 @@ another run can try later. You should exit without changes when:
   or any of the GitHub workflows in a way you're not confident about
 - The remediation in the issue body is vague enough that you can't
   confidently translate it into code
+- The issue overlaps a durable design decision (see above)
 - You'd be guessing
 
 In all of these cases, **print a short paragraph to stdout

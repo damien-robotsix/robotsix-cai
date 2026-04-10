@@ -82,16 +82,37 @@ No findings.
 
 ## Filter
 
-Before raising any new finding, check the "Currently open
-auto-improve issues" list at the end of the prompt. If your proposed
-finding overlaps with **any** listed issue — by topic, not just by
-fingerprint — do NOT output it. This includes issues labelled
-`merged`: a merged fix may still appear in the analyzed transcripts
-because historical sessions predate the fix. An issue is only
-considered fully resolved once it is **closed**, not when its PR
-merges. Until then, treat the topic as still in flight and do not
-re-raise it. Only raise findings whose pattern has no related open
-issue at all.
+Before raising any new finding, check **all three** of the following
+sections at the end of the prompt:
+
+1. **Durable design decisions** — supervisor-curated rules. If your
+   proposed finding overlaps with an entry, do NOT output it. The
+   only exception is the explicit exit condition stated in the
+   entry. Treat these as load-bearing.
+
+2. **Currently open auto-improve issues** — if your proposed finding
+   overlaps with any listed issue by topic (not just fingerprint),
+   do NOT output it. This includes issues labelled `merged`: a
+   merged fix may still appear in the analyzed transcripts because
+   historical sessions predate the fix. An issue is only considered
+   fully resolved once it is **closed**, not when its PR merges.
+
+3. **Previously closed auto-improve issues** — closed issues carry
+   the supervisor's reasoning for closure (the "Closing rationale"
+   field). If your proposed finding overlaps with a closed issue's
+   rationale, do NOT re-raise it. The supervisor has already thought
+   about this signal and decided not to act on it.
+
+   The only exception: you have **concrete new evidence** that the
+   prior reasoning is wrong (for example, a precondition stated in
+   the rationale has changed, or a bug the rationale blamed has
+   been fixed). In that case, output a finding that **explicitly
+   names the prior issue number**, quotes the rationale, and
+   explains what changed. Do not silently re-raise under a fresh
+   slug.
+
+Only raise findings whose pattern has no related open issue, no
+related closed-issue rationale, and no overlapping design decision.
 
 Only output a finding when:
 
