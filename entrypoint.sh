@@ -29,6 +29,7 @@ CAI_ANALYZER_SCHEDULE="${CAI_ANALYZER_SCHEDULE:-0 0 * * *}"
 CAI_FIX_SCHEDULE="${CAI_FIX_SCHEDULE:-15 * * * *}"
 CAI_VERIFY_SCHEDULE="${CAI_VERIFY_SCHEDULE:-45 * * * *}"
 CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
+CAI_AUDIT_TRIAGE_SCHEDULE="${CAI_AUDIT_TRIAGE_SCHEDULE:-10 */6 * * *}"
 CAI_REVISE_SCHEDULE="${CAI_REVISE_SCHEDULE:-30 * * * *}"
 CAI_CONFIRM_SCHEDULE="${CAI_CONFIRM_SCHEDULE:-0 2 * * *}"
 CAI_REVIEW_PR_SCHEDULE="${CAI_REVIEW_PR_SCHEDULE:-20 * * * *}"
@@ -44,6 +45,7 @@ $CAI_FIX_SCHEDULE python /app/cai.py fix
 $CAI_REVISE_SCHEDULE python /app/cai.py revise
 $CAI_VERIFY_SCHEDULE python /app/cai.py verify
 $CAI_AUDIT_SCHEDULE python /app/cai.py audit
+$CAI_AUDIT_TRIAGE_SCHEDULE python /app/cai.py audit-triage
 $CAI_CONFIRM_SCHEDULE python /app/cai.py confirm
 $CAI_REVIEW_PR_SCHEDULE python /app/cai.py review-pr
 $CAI_MERGE_SCHEDULE python /app/cai.py merge
@@ -87,6 +89,9 @@ python /app/cai.py merge || echo "[entrypoint] merge exited non-zero; continuing
 
 echo "[entrypoint] running initial cai.py audit"
 python /app/cai.py audit || echo "[entrypoint] audit exited non-zero; continuing"
+
+echo "[entrypoint] running initial cai.py audit-triage"
+python /app/cai.py audit-triage || echo "[entrypoint] audit-triage exited non-zero; continuing"
 
 echo "[entrypoint] running initial cai.py confirm"
 python /app/cai.py confirm || echo "[entrypoint] confirm exited non-zero; continuing"
