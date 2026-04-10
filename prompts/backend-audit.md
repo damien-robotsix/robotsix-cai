@@ -77,6 +77,11 @@ before you run — you will NOT see stale `:in-progress` issues. If a
 rollback happened, it will appear in the log tail as an
 `[audit] action=stale_in_progress_rollback` line.
 
+**Note:** merged-branch cleanup is also handled deterministically
+before you run — remote branches for merged/closed `auto-improve/` PRs
+are deleted automatically. The number of branches cleaned appears in
+the log line as the `branches_cleaned` field.
+
 ## Categories
 
 | Category | Description |
