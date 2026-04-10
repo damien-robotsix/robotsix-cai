@@ -118,6 +118,7 @@ LABEL_PR_OPEN = "auto-improve:pr-open"
 LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
+LABEL_NEEDS_SPIKE = "auto-improve:needs-spike"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
@@ -847,23 +848,61 @@ def cmd_fix(args) -> int:
             n = _create_suggested_issues(suggested, issue_number)
             print(f"[cai fix] created {n}/{len(suggested)} suggested issue(s)", flush=True)
 
-        # 6. Inspect the working tree. Empty diff = deliberate no-action.
+        # 6. Inspect the working tree. Empty diff = deliberate
+        #    no-action OR a spike-shaped bail-out (the agent
+        #    recognised the issue needs a spike, not a code change,
+        #    per the bullet in cai-fix.md).
         status = _git(work_dir, "status", "--porcelain", check=False)
         if not status.stdout.strip():
-            reasoning = (agent.stdout or "").strip()[:2000]
+            agent_text = agent.stdout or ""
+            reasoning = agent_text.strip()[:2000]
+
+            # Detect the spike marker. The cai-fix agent emits a
+            # `## Needs Spike` block when bailing on a spike-shaped
+            # issue so the wrapper can route to :needs-spike instead
+            # of the default :no-action.
+            is_spike = re.search(
+                r"^##\s*Needs Spike\b",
+                agent_text,
+                flags=re.MULTILINE,
+            ) is not None
+
+            if is_spike:
+                target_label = LABEL_NEEDS_SPIKE
+                comment_heading = "## Fix subagent: needs a spike"
+                comment_footer = (
+                    "_Set by `cai fix` after the subagent recognised "
+                    "this issue as spike-shaped (research / verification "
+                    "/ evaluation). The cai-spike subagent (#314) will "
+                    "pick this up once it ships. Re-label to "
+                    f"`{origin_raised_label}` to retry as a routine "
+                    "fix instead._"
+                )
+                log_result = "needs_spike"
+                log_label = "auto-improve:needs-spike"
+            else:
+                target_label = LABEL_NO_ACTION
+                comment_heading = "## Fix subagent: no action needed"
+                comment_footer = (
+                    "_Set by `cai fix` after the subagent reviewed and "
+                    "decided no code change was needed. Re-label to "
+                    f"`{origin_raised_label}` to retry, or close if "
+                    "you agree._"
+                )
+                log_result = "no_action_needed"
+                log_label = "auto-improve:no-action"
+
             print(
                 f"[cai fix] subagent produced no changes for #{issue_number}; "
-                "marking auto-improve:no-action",
+                f"marking {log_label}",
                 flush=True,
             )
             # Post the agent's reasoning as a comment on the issue
             comment_body = (
-                f"## Fix subagent: no action needed\n\n"
+                f"{comment_heading}\n\n"
                 f"{reasoning}\n\n"
                 f"---\n"
-                f"_Set by `cai fix` after the subagent reviewed and decided "
-                f"no code change was needed. Re-label to "
-                f"`{origin_raised_label}` to retry, or close if you agree._"
+                f"{comment_footer}"
             )
             _run(
                 ["gh", "issue", "comment", str(issue_number),
@@ -871,25 +910,26 @@ def cmd_fix(args) -> int:
                  "--body", comment_body],
                 capture_output=True,
             )
-            # Transition: in-progress -> no-action (NOT back to :raised)
+            # Transition: in-progress -> target_label (NOT back to :raised)
             if not _set_labels(
                 issue_number,
-                add=[LABEL_NO_ACTION],
+                add=[target_label],
                 remove=[LABEL_IN_PROGRESS],
             ):
                 print(
-                    f"[cai fix] WARNING: label transition to :no-action failed for "
-                    f"#{issue_number}; retrying",
+                    f"[cai fix] WARNING: label transition to {log_label} "
+                    f"failed for #{issue_number}; retrying",
                     flush=True,
                 )
                 if not _set_labels(
                     issue_number,
-                    add=[LABEL_NO_ACTION],
+                    add=[target_label],
                     remove=[LABEL_IN_PROGRESS],
                 ):
                     print(
-                        f"[cai fix] WARNING: label transition to :no-action failed twice for "
-                        f"#{issue_number} — issue may be stuck without a lifecycle label",
+                        f"[cai fix] WARNING: label transition to "
+                        f"{log_label} failed twice for #{issue_number} "
+                        "— issue may be stuck without a lifecycle label",
                         file=sys.stderr, flush=True,
                     )
                     rollback()
@@ -898,7 +938,7 @@ def cmd_fix(args) -> int:
                     return 1
             locked = False
             log_run("fix", repo=REPO, issue=issue_number,
-                    result="no_action_needed", exit=0)
+                    result=log_result, exit=0)
             return 0
 
         # Count changed files for the log line.

@@ -130,10 +130,23 @@ another run can try later. You should exit without changes when:
 - **The issue asks for a spike, research, or evaluation** rather
   than a specific code change. If the acceptance criteria are
   "documented findings" or "a decision" or "a survey of what's
-  possible" — not a concrete file edit — exit cleanly and note
-  that this issue needs a spike (which may be driven by a
-  different agent, a later cycle, or a human) rather than a
-  routine fix attempt.
+  possible" — not a concrete file edit — exit cleanly. To signal
+  to the wrapper that this is a spike (not just a vague issue),
+  **emit a `## Needs Spike` block** somewhere in your stdout
+  before exiting, like this:
+
+  ~~~
+  ## Needs Spike
+
+  <one-paragraph description of what the spike needs to figure out>
+  ~~~
+
+  When the wrapper sees this marker, it transitions the issue to
+  the `auto-improve:needs-spike` label (instead of the default
+  `auto-improve:no-action`) so the spike-handling agent
+  (cai-spike, see #314) picks it up later. The spike may be
+  driven by a different agent, a later cycle, or a human —
+  emitting the marker is the handoff.
 - You'd be guessing
 
 In all of these cases, **print a short paragraph to stdout
