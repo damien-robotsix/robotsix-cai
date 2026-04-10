@@ -816,11 +816,27 @@ def cmd_fix(args) -> int:
         pr_number = pr_url.rstrip("/").rsplit("/", 1)[-1]
 
         # 10. Transition label :in-progress -> :pr-open.
-        _set_labels(
+        #     This is critical — if it fails, the issue becomes orphaned
+        #     from its open PR.  Retry once before giving up.
+        if not _set_labels(
             issue_number,
             add=[LABEL_PR_OPEN],
             remove=[LABEL_IN_PROGRESS],
-        )
+        ):
+            print(
+                f"[cai fix] label transition to :pr-open failed for #{issue_number}; retrying",
+                flush=True,
+            )
+            if not _set_labels(
+                issue_number,
+                add=[LABEL_PR_OPEN],
+                remove=[LABEL_IN_PROGRESS],
+            ):
+                print(
+                    f"[cai fix] WARNING: label transition to :pr-open failed twice for "
+                    f"#{issue_number} — issue may be orphaned from PR {pr_url}",
+                    file=sys.stderr, flush=True,
+                )
         locked = False
         log_run("fix", repo=REPO, issue=issue_number, branch=branch,
                 pr=pr_number, diff_files=diff_files, exit=0)
@@ -1413,12 +1429,9 @@ def cmd_verify(args) -> int:
         log_run("verify", repo=REPO, checked=0, transitioned=0, exit=1)
         return 1
 
-    if not issues:
-        print("[cai verify] no pr-open issues; nothing to do", flush=True)
-        log_run("verify", repo=REPO, checked=0, transitioned=0, exit=0)
-        return 0
-
     transitioned = 0
+    pr_open_issue_nums = {i["number"] for i in issues}
+
     # Handle MERGED transitions inline; CLOSED recovery uses the shared helper.
     remaining = []
     for issue in issues:
@@ -1438,6 +1451,53 @@ def cmd_verify(args) -> int:
             print(f"[cai verify] #{num}: PR #{pr['number']} still {state}", flush=True)
 
     transitioned += len(_recover_stale_pr_open(remaining, log_prefix="cai verify"))
+
+    # Recovery: find open auto-improve PRs whose linked issue is missing
+    # the :pr-open label.  This heals issues where the label transition
+    # in cmd_fix step 10 failed silently.
+    try:
+        open_prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--base", "main",
+            "--json", "number,headRefName",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError:
+        open_prs = []
+
+    for opr in open_prs:
+        branch = opr.get("headRefName", "")
+        m = re.match(r"^auto-improve/(\d+)-", branch)
+        if not m:
+            continue
+        issue_num = int(m.group(1))
+        if issue_num in pr_open_issue_nums:
+            continue
+        # Check the issue's current state.
+        try:
+            iss = _gh_json([
+                "issue", "view", str(issue_num),
+                "--repo", REPO,
+                "--json", "state,labels",
+            ])
+        except subprocess.CalledProcessError:
+            continue
+        if (iss.get("state") or "").upper() != "OPEN":
+            continue
+        iss_labels = {l["name"] for l in iss.get("labels", [])}
+        if LABEL_PR_OPEN in iss_labels:
+            continue
+        # Issue is open, has an open PR, but missing :pr-open — recover.
+        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]
+        if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove):
+            print(
+                f"[cai verify] recovered #{issue_num}: added :pr-open "
+                f"(open PR #{opr['number']} on branch {branch})",
+                flush=True,
+            )
+            transitioned += 1
 
     print(f"[cai verify] done ({transitioned} transitioned)", flush=True)
     log_run("verify", repo=REPO, checked=len(issues), transitioned=transitioned, exit=0)
