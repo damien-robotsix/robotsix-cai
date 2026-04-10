@@ -360,11 +360,22 @@ def _gh_user_identity() -> tuple[str, str]:
     return name, email
 
 
+_LIFECYCLE_LABELS = {
+    LABEL_RAISED, LABEL_REQUESTED, LABEL_IN_PROGRESS, LABEL_PR_OPEN,
+    LABEL_MERGED, LABEL_SOLVED, LABEL_NO_ACTION, LABEL_REVISING,
+    LABEL_MERGE_BLOCKED, LABEL_AUDIT_RAISED, "audit:solved",
+}
+
+
 def _select_fix_target():
     """Return the oldest open issue eligible for the fix subagent.
 
     Eligible = labelled `:raised`, `:requested`, or `audit:raised`, NOT labelled
     `:in-progress` or `:pr-open`.
+
+    Also picks up "orphaned" issues that carry the base `auto-improve` label
+    but no lifecycle label at all, auto-applying `:raised` so they enter the
+    fix queue.
     """
     candidates: dict[int, dict] = {}
     for label in (LABEL_RAISED, LABEL_REQUESTED, LABEL_AUDIT_RAISED):
@@ -388,6 +399,41 @@ def _select_fix_target():
             if LABEL_IN_PROGRESS in label_names or LABEL_PR_OPEN in label_names:
                 continue
             candidates[issue["number"]] = issue
+
+    # Self-heal: find issues with a base label (`auto-improve` or `audit`)
+    # but no lifecycle label.  Apply the corresponding `:raised` label so
+    # they become eligible instead of being permanently skipped.
+    for base_label, raised_label in (
+        ("auto-improve", LABEL_RAISED),
+        ("audit", LABEL_AUDIT_RAISED),
+    ):
+        try:
+            base_issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", base_label,
+                "--state", "open",
+                "--json", "number,title,body,labels,createdAt,comments",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError:
+            base_issues = []
+
+        for issue in base_issues:
+            num = issue["number"]
+            if num in candidates:
+                continue
+            label_names = {lbl["name"] for lbl in issue.get("labels", [])}
+            if label_names & _LIFECYCLE_LABELS:
+                continue
+            # Orphaned — has base label but no lifecycle label.
+            print(
+                f"[cai fix] #{num}: orphaned (no lifecycle label); "
+                f"auto-applying {raised_label}",
+                flush=True,
+            )
+            _set_labels(num, add=[raised_label])
+            candidates[num] = issue
 
     if not candidates:
         return None
