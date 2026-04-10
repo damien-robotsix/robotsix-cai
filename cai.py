@@ -1945,6 +1945,7 @@ def cmd_confirm(args) -> int:
 
     solved = 0
     unsolved = 0
+    recycled = 0
     inconclusive = 0
 
     for issue_num, status, reasoning in verdicts:
@@ -1988,6 +1989,7 @@ def cmd_confirm(args) -> int:
                 )
                 _set_labels(issue_num, add=[LABEL_RAISED], remove=[LABEL_MERGED])
                 print(f"[cai confirm] #{issue_num}: unsolved — recycled to :raised", flush=True)
+                recycled += 1
             else:
                 _run(
                     ["gh", "issue", "comment", str(issue_num),
@@ -2029,12 +2031,12 @@ def cmd_confirm(args) -> int:
     dur = f"{int(time.monotonic() - t0)}s"
     print(
         f"[cai confirm] merged_checked={len(merged_issues)} "
-        f"solved={solved} unsolved={unsolved} inconclusive={inconclusive}",
+        f"solved={solved} unsolved={unsolved} recycled={recycled} inconclusive={inconclusive}",
         flush=True,
     )
     log_run("confirm", repo=REPO, merged_checked=len(merged_issues),
-            solved=solved, unsolved=unsolved, inconclusive=inconclusive,
-            duration=dur, exit=0)
+            solved=solved, unsolved=unsolved, recycled=recycled,
+            inconclusive=inconclusive, duration=dur, exit=0)
     return 0
 
 
