@@ -1371,6 +1371,11 @@ def _select_revise_targets() -> list[dict]:
         label_names = {lbl["name"] for lbl in issue.get("labels", [])}
         if LABEL_PR_OPEN not in label_names:
             continue
+        # Circuit breaker: skip PRs whose issues already carry the
+        # merge-blocked label — a prior rebase failure has flagged
+        # them for recovery, not another rebase attempt.  See #225.
+        if LABEL_MERGE_BLOCKED in label_names:
+            continue
 
         # Find the most recent commit timestamp on the branch.
         try:
@@ -1683,17 +1688,28 @@ def cmd_revise(args) -> int:
                                 "\n\n<details><summary>Resolver notes</summary>"
                                 f"\n\n{resolver_summary}\n\n</details>"
                             )
-                        _run(
+                        comment_res = _run(
                             ["gh", "pr", "comment", str(pr_number),
                              "--repo", REPO, "--body", comment_body],
                             capture_output=True,
                         )
+                        if comment_res.returncode != 0:
+                            print(
+                                f"[cai revise] PR #{pr_number}: failed to "
+                                f"post rebase-failure comment:\n"
+                                f"{comment_res.stderr}",
+                                file=sys.stderr, flush=True,
+                            )
                         print(
                             f"[cai revise] rebase failed for PR #{pr_number}; "
                             "posted comment",
                             flush=True,
                         )
-                        _set_labels(issue_number, remove=[LABEL_REVISING])
+                        _set_labels(
+                            issue_number,
+                            add=[LABEL_MERGE_BLOCKED],
+                            remove=[LABEL_REVISING],
+                        )
                         log_run("revise", repo=REPO, pr=pr_number,
                                 result="rebase_failed", exit=0)
                         continue
