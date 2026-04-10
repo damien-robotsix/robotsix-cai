@@ -65,7 +65,7 @@ LABELS = [
     ("auto-improve:no-action", "c5def5", "Fix subagent reviewed and decided no code change is needed; awaiting human triage"),
     ("auto-improve:revising", "d4c5f9", "Revise subagent is actively iterating on a PR"),
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
-    ("auto-improve:merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
+    ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
     ("category:reliability", "d73a4a", "Errors, failures, flaky behavior"),
     ("category:cost_reduction", "fbca04", "Token waste, unnecessary tool calls"),
     ("category:prompt_quality", "0075ca", "Unclear or missing prompt guidance"),

@@ -200,7 +200,7 @@ implement their linked issue. For each open `:pr-open` PR on an
 6. If the action is `reject` and confidence meets the threshold,
    closes the PR via `gh pr close --delete-branch` and transitions
    the issue to `auto-improve:no-action`
-7. Otherwise, labels the issue `auto-improve:merge-blocked` and
+7. Otherwise, labels the issue `merge-blocked` and
    posts the verdict reasoning as a PR comment
 
 **Confidence levels:**

@@ -114,7 +114,7 @@ LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_REVISING = "auto-improve:revising"
-LABEL_MERGE_BLOCKED = "auto-improve:merge-blocked"
+LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
 
 
