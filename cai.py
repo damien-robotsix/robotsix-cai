@@ -48,6 +48,13 @@ Subcommands:
                             with `:solved`; patterns that persist stay
                             as `:merged`.
 
+    python cai.py diagnose  Deep diagnostic analysis of a single issue
+                            on user request (--issue required). Gathers
+                            the issue body, comments, linked PR diffs,
+                            and parsed transcript signals, then runs a
+                            Sonnet agent to produce a root-cause report
+                            posted as a comment on the issue.
+
     python cai.py review-pr Walk open PRs against main, run a
                             consistency review for ripple effects, and
                             post findings as PR comments. Skips PRs
@@ -104,6 +111,7 @@ CONFIRM_PROMPT = Path("/app/prompts/backend-confirm.md")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
 REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
 MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
+DIAGNOSE_PROMPT = Path("/app/prompts/backend-diagnose.md")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
@@ -2009,6 +2017,159 @@ def cmd_confirm(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# diagnose
+# ---------------------------------------------------------------------------
+
+def cmd_diagnose(args) -> int:
+    """Deep diagnostic analysis of a single issue on user request."""
+    issue_number = args.issue
+    print(f"[cai diagnose] running deep diagnostic on #{issue_number}", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Fetch the issue.
+    try:
+        issue = _gh_json([
+            "issue", "view", str(issue_number),
+            "--repo", REPO,
+            "--json", "number,title,body,labels,state,createdAt,comments",
+        ])
+    except subprocess.CalledProcessError as e:
+        print(f"[cai diagnose] gh issue view #{issue_number} failed:\n{e.stderr}",
+              file=sys.stderr)
+        log_run("diagnose", repo=REPO, issue=issue_number, result="issue_lookup_failed", exit=1)
+        return 1
+
+    if issue.get("state", "").upper() != "OPEN":
+        print(f"[cai diagnose] issue #{issue_number} is not open; nothing to do", flush=True)
+        log_run("diagnose", repo=REPO, issue=issue_number, result="not_open", exit=0)
+        return 0
+
+    title = issue["title"]
+    print(f"[cai diagnose] issue: #{issue_number} — {title}", flush=True)
+
+    # 2. Find all PRs that reference this issue (merged and open).
+    MAX_DIFF_LEN = 12000
+    pr_sections = ""
+    for pr_state in ("merged", "open"):
+        try:
+            prs = _gh_json([
+                "pr", "list", "--repo", REPO,
+                "--search", f"Refs #{issue_number}",
+                "--state", pr_state,
+                "--json", "number,title,state",
+                "--limit", "10",
+            ]) or []
+        except subprocess.CalledProcessError:
+            prs = []
+        for pr in prs:
+            pr_num = pr["number"]
+            pr_title = pr["title"]
+            pr_sections += f"### PR #{pr_num} — {pr_title} ({pr_state})\n\n"
+            diff_result = _run(
+                ["gh", "pr", "diff", str(pr_num), "--repo", REPO],
+                capture_output=True,
+            )
+            if diff_result.returncode == 0 and diff_result.stdout.strip():
+                diff_text = diff_result.stdout.strip()
+                if len(diff_text) > MAX_DIFF_LEN:
+                    diff_text = diff_text[:MAX_DIFF_LEN] + "\n... (truncated)"
+                pr_sections += f"```diff\n{diff_text}\n```\n\n"
+            else:
+                pr_sections += "(no diff available)\n\n"
+
+    # 3. Run parse.py for transcript signals.
+    parsed_signals = ""
+    parsed = _run(
+        ["python", str(PARSE_SCRIPT), str(TRANSCRIPT_DIR)],
+        capture_output=True,
+    )
+    if parsed.returncode == 0 and parsed.stdout.strip():
+        parsed_signals = parsed.stdout.strip()
+    else:
+        print("[cai diagnose] parse.py returned no signals (continuing)", flush=True)
+
+    # 4. Build the diagnose prompt.
+    prompt_text = DIAGNOSE_PROMPT.read_text()
+
+    issue_section = (
+        f"## Issue\n\n"
+        f"### #{issue['number']} — {title}\n\n"
+        f"{issue.get('body') or '(no body)'}\n\n"
+    )
+
+    comments = issue.get("comments") or []
+    if comments:
+        issue_section += "### Comments\n\n"
+        for c in comments:
+            author = c.get("author", {}).get("login", "unknown")
+            body = c.get("body", "")
+            created = c.get("createdAt", "")
+            issue_section += f"**{author}** ({created}):\n{body}\n\n"
+
+    linked_prs_section = ""
+    if pr_sections:
+        linked_prs_section = f"## Linked PRs\n\n{pr_sections}"
+
+    signals_section = ""
+    if parsed_signals:
+        signals_section = (
+            "## Parsed signals\n\n"
+            "```json\n"
+            f"{parsed_signals}\n"
+            "```\n\n"
+        )
+
+    full_prompt = (
+        f"{prompt_text}\n\n"
+        f"{issue_section}"
+        f"{linked_prs_section}"
+        f"{signals_section}"
+    )
+
+    # 5. Run claude with Sonnet.
+    diagnose = _run(
+        ["claude", "-p", "--model", "claude-sonnet-4-6"],
+        input=full_prompt,
+        capture_output=True,
+    )
+    if diagnose.returncode != 0:
+        print(
+            f"[cai diagnose] claude -p failed (exit {diagnose.returncode}):\n"
+            f"{diagnose.stderr}",
+            flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("diagnose", repo=REPO, issue=issue_number,
+                duration=dur, result="claude_failed", exit=diagnose.returncode)
+        return diagnose.returncode
+
+    report = diagnose.stdout.strip()
+    print(f"[cai diagnose] diagnostic report:\n{report}", flush=True)
+
+    # 6. Post the diagnostic report as a comment on the issue.
+    comment_result = _run(
+        ["gh", "issue", "comment", str(issue_number),
+         "--repo", REPO,
+         "--body", report],
+        capture_output=True,
+    )
+    if comment_result.returncode != 0:
+        print(
+            f"[cai diagnose] failed to post comment:\n{comment_result.stderr}",
+            file=sys.stderr,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("diagnose", repo=REPO, issue=issue_number,
+                duration=dur, result="comment_failed", exit=1)
+        return 1
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    print(f"[cai diagnose] posted diagnostic to #{issue_number}", flush=True)
+    log_run("diagnose", repo=REPO, issue=issue_number, duration=dur, exit=0)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # review-pr
 # ---------------------------------------------------------------------------
 
@@ -2653,6 +2814,13 @@ def main() -> int:
     sub.add_parser("verify", help="Update labels based on PR merge state")
     sub.add_parser("audit", help="Run the queue/PR consistency audit")
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
+
+    diagnose_parser = sub.add_parser("diagnose", help="Deep diagnostic analysis of a single issue")
+    diagnose_parser.add_argument(
+        "--issue", type=int, required=True,
+        help="Issue number to diagnose",
+    )
+
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
     sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
@@ -2671,6 +2839,7 @@ def main() -> int:
         "verify": cmd_verify,
         "audit": cmd_audit,
         "confirm": cmd_confirm,
+        "diagnose": cmd_diagnose,
         "review-pr": cmd_review_pr,
         "merge": cmd_merge,
         "cycle": cmd_cycle,
