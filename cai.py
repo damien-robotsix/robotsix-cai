@@ -500,27 +500,8 @@ def _issue_has_label(issue_number: int, label: str) -> bool:
     return label in [l["name"] for l in (issue or {}).get("labels", [])]
 
 
-def _repo_file_manifest(work_dir: Path) -> str:
-    """Return a compact listing of tracked repo files for prompt context."""
-    paths: list[str] = []
-    for p in sorted(work_dir.rglob("*")):
-        if p.is_dir():
-            continue
-        rel = p.relative_to(work_dir)
-        parts = rel.parts
-        if parts and parts[0] in (".git",):
-            continue
-        paths.append(str(rel))
-    if not paths:
-        return ""
-    return "## Repository file manifest\n\n" + "".join(
-        f"- `{p}`\n" for p in paths
-    )
-
-
-def _build_fix_prompt(issue: dict, work_dir: Path | None = None) -> str:
+def _build_fix_prompt(issue: dict) -> str:
     prompt = FIX_PROMPT.read_text()
-    manifest = _repo_file_manifest(work_dir) if work_dir else ""
     issue_block = (
         f"## Issue\n\n"
         f"### #{issue['number']} — {issue['title']}\n\n"
@@ -533,11 +514,7 @@ def _build_fix_prompt(issue: dict, work_dir: Path | None = None) -> str:
             author = c.get("author", {}).get("login", "unknown")
             body = c.get("body", "")
             issue_block += f"**{author}:**\n{body}\n\n"
-    parts = [prompt]
-    if manifest:
-        parts.append(manifest)
-    parts.append(issue_block)
-    return "\n\n".join(parts)
+    return f"{prompt}\n\n{issue_block}"
 
 
 def _parse_suggested_issues(agent_output: str) -> list[dict]:
@@ -714,7 +691,7 @@ def cmd_fix(args) -> int:
         _git(work_dir, "checkout", "-b", branch)
 
         # 5. Run the fix subagent in the work dir with full permissions.
-        prompt = _build_fix_prompt(issue, work_dir=work_dir)
+        prompt = _build_fix_prompt(issue)
         print(f"[cai fix] running fix subagent in {work_dir}", flush=True)
         # `acceptEdits` auto-accepts file edits (Read/Edit/Write/Grep/Glob)
         # without prompting. We don't use `bypassPermissions` because
