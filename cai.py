@@ -118,6 +118,11 @@ LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
 
+# PR-level label applied by `cai merge` when the verdict is below the
+# auto-merge threshold. Lets a human filter open PRs that are waiting
+# on their decision (`label:needs-human-review`). Issue #216.
+LABEL_PR_NEEDS_HUMAN = "needs-human-review"
+
 
 # ---------------------------------------------------------------------------
 # Run log
@@ -2445,6 +2450,28 @@ _MERGE_THRESHOLD = os.environ.get("CAI_MERGE_CONFIDENCE_THRESHOLD", "high").lowe
 _CONFIDENCE_RANKS = {"high": 3, "medium": 2, "low": 1}
 
 
+def _pr_set_needs_human(pr_number: int, needs: bool) -> None:
+    """Add or remove the `needs-human-review` label on a PR.
+
+    Idempotent: gh silently no-ops if the label is already in the
+    requested state. Logged but not fatal on failure — labelling is a
+    UX nicety, not a correctness requirement.
+    """
+    flag = "--add-label" if needs else "--remove-label"
+    res = _run(
+        ["gh", "pr", "edit", str(pr_number),
+         "--repo", REPO, flag, LABEL_PR_NEEDS_HUMAN],
+        capture_output=True,
+    )
+    if res.returncode != 0:
+        action = "add" if needs else "remove"
+        print(
+            f"[cai merge] PR #{pr_number}: could not {action} "
+            f"label `{LABEL_PR_NEEDS_HUMAN}`:\n{res.stderr}",
+            file=sys.stderr,
+        )
+
+
 def _parse_merge_verdict(text: str) -> dict | None:
     """Extract confidence, action, and reasoning from the agent's output."""
     conf_m = re.search(r"\*\*Confidence:\*\*\s*(high|medium|low)", text, re.IGNORECASE)
@@ -2766,6 +2793,8 @@ def cmd_merge(args) -> int:
                 )
                 if not _issue_has_label(issue_number, LABEL_MERGED):
                     _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
+                # Close failed → PR is still open and needs human attention.
+                _pr_set_needs_human(pr_number, True)
                 held += 1
         elif action == "merge" and verdict_rank >= threshold_rank:
             print(
@@ -2786,6 +2815,8 @@ def cmd_merge(args) -> int:
                     f"[cai merge] PR #{pr_number}: merge failed:\n{merge_result.stderr}",
                     file=sys.stderr,
                 )
+                # Merge failed → PR is still open and needs human attention.
+                _pr_set_needs_human(pr_number, True)
                 held += 1
         else:
             print(
@@ -2796,6 +2827,8 @@ def cmd_merge(args) -> int:
             # Re-fetch to avoid race with a concurrent merge run.
             if not _issue_has_label(issue_number, LABEL_MERGED):
                 _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
+            # Tag the PR itself so humans can filter `label:needs-human-review`.
+            _pr_set_needs_human(pr_number, True)
             held += 1
 
     dur = f"{int(time.monotonic() - t0)}s"
