@@ -1368,11 +1368,6 @@ def cmd_verify(args) -> int:
         log_run("verify", repo=REPO, checked=0, transitioned=0, exit=1)
         return 1
 
-    if not issues:
-        print("[cai verify] no pr-open issues; nothing to do", flush=True)
-        log_run("verify", repo=REPO, checked=0, transitioned=0, exit=0)
-        return 0
-
     transitioned = 0
     for issue in issues:
         num = issue["number"]
