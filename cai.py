@@ -107,8 +107,6 @@ TRANSCRIPT_DIR = Path("/root/.claude/projects")
 PARSE_SCRIPT = Path("/app/parse.py")
 PUBLISH_SCRIPT = Path("/app/publish.py")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
-REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
-MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
 AUDIT_TRIAGE_PROMPT = Path("/app/prompts/backend-audit-triage.md")
 CODE_AUDIT_PROMPT = Path("/app/prompts/backend-code-audit.md")
 DESIGN_DECISIONS = Path("/app/prompts/design-decisions.md")
@@ -3272,11 +3270,12 @@ def cmd_review_pr(args) -> int:
                 )
                 continue
 
-            # Build the prompt.
-            prompt_text = REVIEW_PR_PROMPT.read_text()
+            # Build the user message. The system prompt, tool
+            # allowlist (Read/Grep/Glob/Agent), and hard rules all
+            # live in `.claude/agents/cai-review-pr.md`. The wrapper
+            # only passes dynamic per-run context via stdin.
             author_login = pr.get("author", {}).get("login", "unknown")
-            full_prompt = (
-                f"{prompt_text}\n\n"
+            user_message = (
                 f"## PR metadata\n\n"
                 f"- **Number:** #{pr_number}\n"
                 f"- **Title:** {title}\n"
@@ -3287,16 +3286,11 @@ def cmd_review_pr(args) -> int:
                 f"```diff\n{pr_diff}\n```\n"
             )
 
-            # Run the review agent (read-only tools only). The
-            # `--allowedTools` flag must receive a single comma- (or
-            # space-) separated string. Passing the tools as separate
-            # positional args would cause claude-code's parser to set
-            # only `Read` as the allowed tool and treat `Grep`/`Glob`
-            # as positional arguments to the prompt.
+            # Invoke the declared cai-review-pr subagent.
             agent = _run(
-                ["claude", "-p", "--permission-mode", "acceptEdits",
-                 "--allowedTools", "Read,Grep,Glob"],
-                input=full_prompt,
+                ["claude", "-p", "--agent", "cai-review-pr",
+                 "--permission-mode", "acceptEdits"],
+                input=user_message,
                 cwd=str(work_dir),
                 capture_output=True,
             )
@@ -3752,10 +3746,10 @@ def cmd_merge(args) -> int:
                 comment_texts.append(body)
         comments_section = "\n\n---\n\n".join(comment_texts) if comment_texts else "(no comments)"
 
-        # Build the prompt.
-        prompt_text = MERGE_PROMPT.read_text()
-        full_prompt = (
-            f"{prompt_text}\n\n"
+        # Build the user message. The system prompt, tool allowlist,
+        # and model (opus-4-6) all live in `.claude/agents/cai-merge.md`.
+        # The wrapper only passes dynamic per-run context via stdin.
+        user_message = (
             f"## Linked issue\n\n"
             f"### #{issue_full.get('number', issue_number)} \u2014 {issue_full.get('title', '')}\n\n"
             f"{issue_full.get('body') or '(no body)'}\n\n"
@@ -3765,11 +3759,10 @@ def cmd_merge(args) -> int:
             f"{comments_section}\n"
         )
 
-        # Run the model (read-only, no tools).
+        # Invoke the declared cai-merge subagent.
         agent = _run(
-            ["claude", "-p", "--model", "claude-opus-4-6",
-             "--disallowedTools", "Bash"],
-            input=full_prompt,
+            ["claude", "-p", "--agent", "cai-merge"],
+            input=user_message,
             capture_output=True,
         )
         if agent.returncode != 0:
