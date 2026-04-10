@@ -1420,7 +1420,7 @@ def cmd_verify(args) -> int:
         has_state = any(l.startswith("auto-improve:") or l.startswith("audit:") for l in label_names)
         if not has_state:
             raised_label = (
-                LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in label_names
+                LABEL_AUDIT_RAISED if "audit" in label_names
                 else LABEL_RAISED
             )
             _set_labels(num, add=[raised_label])
