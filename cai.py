@@ -518,7 +518,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
         if state == "CLOSED":
             issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
             raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
-            if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN]):
+            if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
                 print(
                     f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
                     f"(PR #{pr['number']} closed unmerged)",
