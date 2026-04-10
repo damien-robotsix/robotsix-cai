@@ -434,6 +434,7 @@ def _select_fix_target():
                 flush=True,
             )
             _set_labels(num, add=[raised_label])
+            issue.setdefault("labels", []).append({"name": raised_label})
             candidates[num] = issue
 
     if not candidates:
@@ -2476,7 +2477,6 @@ def cmd_merge(args) -> int:
             )
             if merge_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: merged successfully", flush=True)
-                _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED])
                 merged += 1
             else:
                 print(
