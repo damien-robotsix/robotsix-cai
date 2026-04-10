@@ -1058,165 +1058,126 @@ def _rebase_conflict_files(work_dir: Path) -> list[str]:
     return [line for line in res.stdout.strip().splitlines() if line]
 
 
-def _advance_rebase(work_dir: Path):
-    """Advance a stopped rebase via `--continue` or `--skip` as appropriate.
-
-    After conflict resolution + `git add -A`, the staged diff for the
-    current commit may be empty — for example when the agent's merged
-    result already exists upstream, so the commit collapses to a no-op.
-    In that case `git rebase --continue` errors out with "no changes -
-    did you forget to use git add?" and the correct call is `git rebase
-    --skip`. We pick the right one by checking the staged diff.
-
-    GIT_EDITOR/EDITOR are forced to `true` so git never tries to open
-    an editor for the commit message during the continue.
-    """
-    diff_check = _run(
-        ["git", "-C", str(work_dir), "diff", "--cached", "--quiet"],
-        capture_output=True,
-    )
-    env = {**os.environ, "GIT_EDITOR": "true", "EDITOR": "true"}
-    if diff_check.returncode == 0:
-        # Nothing staged → empty commit → skip this commit.
-        return _run(
-            ["git", "-C", str(work_dir), "rebase", "--skip"],
-            capture_output=True,
-            env=env,
-        )
-    return _run(
-        ["git", "-C", str(work_dir), "-c", "core.editor=true",
-         "rebase", "--continue"],
-        capture_output=True,
-        env=env,
-    )
-
-
 def _agent_resolve_rebase(
     work_dir: Path,
     pr_number: int,
     issue_title: str,
     issue_body: str,
 ) -> tuple[bool, str]:
-    """Drive a stopped `git rebase` to completion via the resolve subagent.
+    """Drive a stopped `git rebase` to completion via the resolver subagent.
 
-    The wrapper has just run `git rebase origin/main` and the rebase has
-    stopped on conflicts. We loop: identify conflicted files → invoke
-    claude to edit them → stage → `git rebase --continue`. Each replayed
-    commit may produce a fresh round of conflicts, so we iterate up to
-    MAX_ROUNDS times.
+    The wrapper has just run `git rebase origin/main` and the rebase
+    has stopped on conflicts. We hand the in-progress rebase to a
+    single agent invocation that has Bash access (so it can run `git`
+    itself) and tell it to resolve every conflict, stage, and
+    `--continue`/`--skip` until the rebase is fully done. The agent's
+    own prompt (`prompts/backend-rebase.md`) carries the loop logic
+    and the safety rules.
+
+    Bash patterns block `git push`, `git remote …`, and `gh` so the
+    agent cannot touch the remote or PR state — pushing is the
+    wrapper's job, and we verify the worktree state ourselves before
+    trusting the agent's "done" signal.
 
     Returns (success, agent_summary). On failure the rebase is left
-    aborted and the caller should fall back to the manual-rebase comment
-    path. On success the rebase is fully complete and the worktree is
-    clean (apart from the unpushed commits).
+    aborted and the caller falls back to the manual-rebase comment
+    path. On success the rebase is fully complete and the worktree
+    is clean.
     """
-    MAX_ROUNDS = 5
-    summaries: list[str] = []
-
-    for round_num in range(1, MAX_ROUNDS + 1):
-        conflict_files = _rebase_conflict_files(work_dir)
-        if not conflict_files:
-            # No conflicts but rebase still in progress — try to advance.
-            cont = _advance_rebase(work_dir)
-            if cont.returncode == 0:
-                return True, "\n\n".join(summaries)
-            # Continue/skip produced new conflicts; loop again.
-            if not _rebase_conflict_files(work_dir):
-                summaries.append(
-                    "git rebase --continue/--skip failed with no "
-                    "conflicts:\n" + (cont.stderr or "").strip()[:1000]
-                )
-                _git(work_dir, "rebase", "--abort", check=False)
-                return False, "\n\n".join(summaries)
-            continue
-
-        print(
-            f"[cai revise] PR #{pr_number}: rebase round {round_num} — "
-            f"{len(conflict_files)} conflicted file(s); invoking agent",
-            flush=True,
-        )
-
-        prompt_text = REBASE_PROMPT.read_text()
-        full_prompt = (
-            f"{prompt_text}\n\n"
-            f"## Conflicted files (round {round_num} of up to {MAX_ROUNDS})\n\n"
-            + "".join(f"- `{f}`\n" for f in conflict_files)
-            + f"\n## Original PR issue context\n\n"
-            f"### {issue_title}\n\n"
-            f"{issue_body or '(no body)'}\n"
-        )
-
-        agent = _run(
-            ["claude", "-p", "--permission-mode", "acceptEdits",
-             "--disallowedTools", "Bash"],
-            input=full_prompt,
-            cwd=str(work_dir),
-            capture_output=True,
-        )
-        if agent.stdout:
-            print(agent.stdout, flush=True)
-        if agent.returncode != 0:
-            print(
-                f"[cai revise] rebase resolver subagent failed "
-                f"(exit {agent.returncode}):\n{agent.stderr}",
-                file=sys.stderr,
-            )
-            _git(work_dir, "rebase", "--abort", check=False)
-            return False, "\n\n".join(summaries)
-
-        summaries.append((agent.stdout or "").strip()[:2000])
-
-        # Stage the agent's edits first. The resolver runs with Bash
-        # disallowed so it cannot `git add` itself; until we stage,
-        # `git diff --diff-filter=U` will still report every touched
-        # file as unmerged (the index still holds stages 1/2/3) and
-        # the verification check below would spuriously fail.
-        _git(work_dir, "add", "-A")
-
-        # Verify the agent fully resolved this round.
-        remaining = _rebase_conflict_files(work_dir)
-        if remaining:
-            print(
-                f"[cai revise] PR #{pr_number}: agent left "
-                f"{len(remaining)} unresolved conflict(s); aborting",
-                file=sys.stderr,
-            )
-            _git(work_dir, "rebase", "--abort", check=False)
-            return False, "\n\n".join(summaries)
-
-        # Advance the rebase. _advance_rebase picks --skip over
-        # --continue when the resolution collapsed this commit's diff
-        # to zero (e.g. main already contained the same change).
-        cont = _advance_rebase(work_dir)
-        if cont.returncode == 0:
-            return True, "\n\n".join(summaries)
-        # Continue/skip might have surfaced new conflicts in the next
-        # commit; the next loop iteration will pick them up. If neither
-        # conflicts nor success, something else went wrong — bail and
-        # surface the stderr in the resolver-failed comment so it's
-        # debuggable.
-        if not _rebase_conflict_files(work_dir):
-            err_tail = (cont.stderr or "").strip()[:1000]
-            print(
-                f"[cai revise] PR #{pr_number}: rebase --continue/--skip "
-                f"failed with no conflicts:\n{err_tail}",
-                file=sys.stderr,
-            )
-            summaries.append(
-                "git rebase --continue/--skip failed with no "
-                f"conflicts:\n{err_tail}"
-            )
-            _git(work_dir, "rebase", "--abort", check=False)
-            return False, "\n\n".join(summaries)
-
-    # Hit the round cap with the rebase still in progress.
-    print(
-        f"[cai revise] PR #{pr_number}: rebase resolver exceeded "
-        f"{MAX_ROUNDS} rounds; aborting",
-        file=sys.stderr,
+    prompt_text = REBASE_PROMPT.read_text()
+    full_prompt = (
+        f"{prompt_text}\n\n"
+        f"## Original PR issue context\n\n"
+        f"### {issue_title}\n\n"
+        f"{issue_body or '(no body)'}\n"
     )
-    _git(work_dir, "rebase", "--abort", check=False)
-    return False, "\n\n".join(summaries)
+
+    print(
+        f"[cai revise] PR #{pr_number}: invoking rebase resolver agent",
+        flush=True,
+    )
+
+    # Block remote-touching commands. The agent gets Bash for `git`
+    # but must not push, fetch from a different remote, rewrite the
+    # remote URL, or call `gh`. Patterns are comma-separated per
+    # claude-code's flag parser (see the cai review-pr block for the
+    # same convention).
+    disallowed = ",".join([
+        "Bash(git push:*)",
+        "Bash(git remote:*)",
+        "Bash(gh:*)",
+    ])
+
+    agent = _run(
+        ["claude", "-p", "--permission-mode", "acceptEdits",
+         "--disallowedTools", disallowed],
+        input=full_prompt,
+        cwd=str(work_dir),
+        capture_output=True,
+    )
+    if agent.stdout:
+        print(agent.stdout, flush=True)
+    summary = (agent.stdout or "").strip()[:4000]
+
+    if agent.returncode != 0:
+        print(
+            f"[cai revise] PR #{pr_number}: rebase resolver agent failed "
+            f"(exit {agent.returncode}):\n{agent.stderr}",
+            file=sys.stderr,
+        )
+        _git(work_dir, "rebase", "--abort", check=False)
+        return False, summary
+
+    # Trust but verify. The agent claims success — confirm before
+    # we let the wrapper push:
+    #   1. No rebase still in progress.
+    #   2. No unmerged paths in the index.
+    #   3. Working tree is clean (no stray edits).
+    #   4. Branch contains origin/main (i.e. the rebase actually
+    #      happened, not just got aborted into a passing state).
+    rebase_merge = work_dir / ".git" / "rebase-merge"
+    rebase_apply = work_dir / ".git" / "rebase-apply"
+    if rebase_merge.exists() or rebase_apply.exists():
+        print(
+            f"[cai revise] PR #{pr_number}: agent exited but rebase "
+            "still in progress; aborting",
+            file=sys.stderr,
+        )
+        _git(work_dir, "rebase", "--abort", check=False)
+        return False, summary
+
+    if _rebase_conflict_files(work_dir):
+        print(
+            f"[cai revise] PR #{pr_number}: agent exited with "
+            "unmerged paths still present",
+            file=sys.stderr,
+        )
+        _git(work_dir, "rebase", "--abort", check=False)
+        return False, summary
+
+    status = _git(work_dir, "status", "--porcelain", check=False)
+    if status.stdout.strip():
+        print(
+            f"[cai revise] PR #{pr_number}: agent left working tree "
+            f"dirty:\n{status.stdout}",
+            file=sys.stderr,
+        )
+        return False, summary
+
+    ancestry = _run(
+        ["git", "-C", str(work_dir), "merge-base", "--is-ancestor",
+         "origin/main", "HEAD"],
+        capture_output=True,
+    )
+    if ancestry.returncode != 0:
+        print(
+            f"[cai revise] PR #{pr_number}: agent finished but HEAD "
+            "is not on top of origin/main (rebase likely aborted)",
+            file=sys.stderr,
+        )
+        return False, summary
+
+    return True, summary
 
 
 def _select_revise_targets() -> list[dict]:
