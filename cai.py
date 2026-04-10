@@ -1166,6 +1166,13 @@ def _agent_resolve_rebase(
 
         summaries.append((agent.stdout or "").strip()[:2000])
 
+        # Stage the agent's edits first. The resolver runs with Bash
+        # disallowed so it cannot `git add` itself; until we stage,
+        # `git diff --diff-filter=U` will still report every touched
+        # file as unmerged (the index still holds stages 1/2/3) and
+        # the verification check below would spuriously fail.
+        _git(work_dir, "add", "-A")
+
         # Verify the agent fully resolved this round.
         remaining = _rebase_conflict_files(work_dir)
         if remaining:
@@ -1177,10 +1184,9 @@ def _agent_resolve_rebase(
             _git(work_dir, "rebase", "--abort", check=False)
             return False, "\n\n".join(summaries)
 
-        # Stage and advance the rebase. _advance_rebase picks --skip
-        # over --continue when the resolution collapsed this commit's
-        # diff to zero (e.g. main already contained the same change).
-        _git(work_dir, "add", "-A")
+        # Advance the rebase. _advance_rebase picks --skip over
+        # --continue when the resolution collapsed this commit's diff
+        # to zero (e.g. main already contained the same change).
         cont = _advance_rebase(work_dir)
         if cont.returncode == 0:
             return True, "\n\n".join(summaries)
