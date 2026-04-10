@@ -82,6 +82,17 @@ before you run — remote branches for merged/closed `auto-improve/` PRs
 are deleted automatically. The number of branches cleaned appears in
 the log line as the `branches_cleaned` field.
 
+**Note:** stale `:no-action` issues (no activity for 7+ days) are
+auto-closed deterministically before you run. The fix agent already
+reviewed these and decided no code change was needed. Closures appear
+in the log as `[audit] action=stale_no_action_close`.
+
+**Note:** stale `:merged` issues (no activity for 14+ days) are
+auto-closed deterministically before you run, marked as `:solved`.
+The PR was merged and confirm did not flag it as unsolved within the
+threshold. Closures appear in the log as
+`[audit] action=stale_merged_close`.
+
 ## Categories
 
 | Category | Description |

@@ -1784,6 +1784,8 @@ def cmd_verify(args) -> int:
 # ---------------------------------------------------------------------------
 
 _STALE_IN_PROGRESS_HOURS = 6
+_STALE_NO_ACTION_DAYS = 7
+_STALE_MERGED_DAYS = 14
 
 
 def _cleanup_merged_branches() -> list[str]:
@@ -1937,6 +1939,131 @@ def _rollback_stale_in_progress() -> list[dict]:
     return rolled_back
 
 
+def _close_stale_no_action() -> list[dict]:
+    """Auto-close :no-action issues that have had no activity for _STALE_NO_ACTION_DAYS."""
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_NO_ACTION,
+            "--state", "open",
+            "--json", "number,title,updatedAt",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai audit] gh issue list ({LABEL_NO_ACTION}) failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        return []
+
+    now = datetime.now(timezone.utc).timestamp()
+    threshold = _STALE_NO_ACTION_DAYS * 86400
+    closed = []
+
+    for issue in issues:
+        try:
+            updated = datetime.strptime(
+                issue["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc).timestamp()
+        except (ValueError, KeyError):
+            updated = 0
+        age = now - updated
+        if age <= threshold:
+            continue
+        issue_num = issue["number"]
+        result = _run(
+            ["gh", "issue", "close", str(issue_num),
+             "--repo", REPO,
+             "--comment",
+             f"Auto-closing: this issue has been in `{LABEL_NO_ACTION}` state "
+             f"for {age / 86400:.0f} days with no activity. "
+             f"The fix agent reviewed it and determined no code change was needed. "
+             f"Reopen if you disagree."],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            closed.append(issue)
+            log_run(
+                "audit",
+                action="stale_no_action_close",
+                issue=issue_num,
+                stale_days=f"{age / 86400:.0f}",
+            )
+            print(
+                f"[cai audit] closed #{issue_num} "
+                f"(stale :no-action, {age / 86400:.0f} days)",
+                flush=True,
+            )
+
+    return closed
+
+
+def _close_stale_merged() -> list[dict]:
+    """Auto-close :merged issues that have had no activity for _STALE_MERGED_DAYS.
+
+    These issues had their PRs merged but confirm has not resolved them.
+    After the threshold, assume the fix is in place and close as solved.
+    """
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_MERGED,
+            "--state", "open",
+            "--json", "number,title,updatedAt",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai audit] gh issue list ({LABEL_MERGED}) failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        return []
+
+    now = datetime.now(timezone.utc).timestamp()
+    threshold = _STALE_MERGED_DAYS * 86400
+    closed = []
+
+    for issue in issues:
+        try:
+            updated = datetime.strptime(
+                issue["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc).timestamp()
+        except (ValueError, KeyError):
+            updated = 0
+        age = now - updated
+        if age <= threshold:
+            continue
+        issue_num = issue["number"]
+        _set_labels(issue_num, add=[LABEL_SOLVED], remove=[LABEL_MERGED])
+        result = _run(
+            ["gh", "issue", "close", str(issue_num),
+             "--repo", REPO,
+             "--comment",
+             f"Auto-closing: this issue has been in `{LABEL_MERGED}` state "
+             f"for {age / 86400:.0f} days. The fix was merged and confirm "
+             f"has not flagged it as unsolved — assuming resolved. "
+             f"Reopen if the original problem persists."],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            closed.append(issue)
+            log_run(
+                "audit",
+                action="stale_merged_close",
+                issue=issue_num,
+                stale_days=f"{age / 86400:.0f}",
+            )
+            print(
+                f"[cai audit] closed #{issue_num} "
+                f"(stale :merged, {age / 86400:.0f} days → :solved)",
+                flush=True,
+            )
+
+    return closed
+
+
 def cmd_audit(args) -> int:
     """Run the periodic queue/PR consistency audit."""
     print("[cai audit] running audit", flush=True)
@@ -1950,6 +2077,22 @@ def cmd_audit(args) -> int:
     if deleted_branches:
         print(
             f"[cai audit] cleaned up {len(deleted_branches)} merged branch(es)",
+            flush=True,
+        )
+
+    # Step 1c: Auto-close stale :no-action issues.
+    closed_no_action = _close_stale_no_action()
+    if closed_no_action:
+        print(
+            f"[cai audit] closed {len(closed_no_action)} stale :no-action issue(s)",
+            flush=True,
+        )
+
+    # Step 1d: Auto-close stale :merged issues (assume solved).
+    closed_merged = _close_stale_merged()
+    if closed_merged:
+        print(
+            f"[cai audit] closed {len(closed_merged)} stale :merged issue(s)",
             flush=True,
         )
 
@@ -2020,19 +2163,29 @@ def cmd_audit(args) -> int:
 
     log_section = "## Log tail (last ~200 lines)\n\n```\n" + (log_tail or "(empty)") + "\n```\n"
 
-    rollback_section = ""
+    deterministic_section = ""
     if rolled_back:
-        rollback_section = "## Stale in-progress rollbacks performed this run\n\n"
+        deterministic_section += "## Stale in-progress rollbacks performed this run\n\n"
         for rb in rolled_back:
-            rollback_section += f"- #{rb['number']}: {rb['title']}\n"
-        rollback_section += "\n"
+            deterministic_section += f"- #{rb['number']}: {rb['title']}\n"
+        deterministic_section += "\n"
+    if closed_no_action:
+        deterministic_section += "## Stale :no-action issues closed this run\n\n"
+        for ci in closed_no_action:
+            deterministic_section += f"- #{ci['number']}: {ci['title']}\n"
+        deterministic_section += "\n"
+    if closed_merged:
+        deterministic_section += "## Stale :merged issues closed this run\n\n"
+        for ci in closed_merged:
+            deterministic_section += f"- #{ci['number']}: {ci['title']}\n"
+        deterministic_section += "\n"
 
     full_prompt = (
         f"{prompt_text}\n\n"
         f"{issues_section}\n"
         f"{prs_section}\n"
         f"{log_section}\n"
-        f"{rollback_section}"
+        f"{deterministic_section}"
     )
 
     # Step 3: Run claude with the audit prompt (Sonnet).
@@ -2051,6 +2204,8 @@ def cmd_audit(args) -> int:
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("audit", repo=REPO, duration=dur,
                 branches_cleaned=len(deleted_branches),
+                no_action_closed=len(closed_no_action),
+                merged_closed=len(closed_merged),
                 exit=audit.returncode)
         return audit.returncode
 
@@ -2063,6 +2218,8 @@ def cmd_audit(args) -> int:
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("audit", repo=REPO, rollbacks=len(rolled_back),
             branches_cleaned=len(deleted_branches),
+            no_action_closed=len(closed_no_action),
+            merged_closed=len(closed_merged),
             duration=dur, exit=published.returncode)
     return published.returncode
 
