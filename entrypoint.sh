@@ -58,7 +58,7 @@ echo "[entrypoint] crontab:"
 sed 's/^/[entrypoint]   /' "$CRONTAB_PATH"
 echo
 
-# Wire `gh` in as the git credential helper so the fix subagent can
+# Wire `gh` in as the git credential helper so the fix pipeline can
 # `git push` over HTTPS using the same token that's in the
 # cai_gh_config volume. /root/.gitconfig isn't persisted across
 # container restarts, so we re-run this every startup.

@@ -4,7 +4,7 @@ name: Admin-only label guard
 # admins. When a non-admin applies one of the restricted labels, this
 # workflow removes it and posts a comment explaining why. Without this
 # guard, anyone with read access could queue arbitrary issues into the
-# cai fix subagent.
+# cai fix pipeline.
 #
 # Triggers only on the `labeled` event for issues, so it's a no-op for
 # all other label changes.
