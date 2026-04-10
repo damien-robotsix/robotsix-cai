@@ -113,6 +113,19 @@ PUBLISH_SCRIPT = Path("/app/publish.py")
 # bind-mounted log directory so it survives container restarts.
 CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
 
+# Persistent per-agent memory directory. Each declarative subagent
+# has `memory: project` in its frontmatter, which Claude Code stores
+# under `.claude/agent-memory/<agent-name>/MEMORY.md` relative to
+# the project root. This directory is bind-mounted from the
+# `cai_agent_memory` named volume so the memory survives container
+# restarts. The /app agents (analyze, audit, confirm, merge,
+# audit-triage) read/write this path directly because it IS their
+# project root. The cloned-worktree agents (fix, revise,
+# review-pr, code-audit) need the wrapper to copy their slice in
+# and out around each invocation — see `_copy_agent_memory_into_clone`
+# and `_copy_agent_memory_back`.
+AGENT_MEMORY_DIR = Path("/app/.claude/agent-memory")
+
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
 LABEL_REQUESTED = "auto-improve:requested"
@@ -702,6 +715,54 @@ def _git(work_dir: Path, *args: str, check: bool = True) -> subprocess.Completed
     return subprocess.run(cmd, text=True, check=check, capture_output=True)
 
 
+def _copy_agent_memory_into_clone(agent_name: str, clone_dir: Path) -> None:
+    """Mirror persistent agent memory from the bind-mounted volume
+    into a freshly cloned worktree, so the cloned-worktree subagent
+    sees its accumulated memory rather than an empty fresh dir.
+
+    The persistent memory lives at
+    `/app/.claude/agent-memory/<agent_name>/` (the `cai_agent_memory`
+    docker volume). The cloned worktree's equivalent path is
+    `<clone_dir>/.claude/agent-memory/<agent_name>/`. This function
+    copies the former into the latter, replacing whatever was
+    cloned in (which is usually nothing, since memory dirs aren't
+    committed to the repo).
+
+    Idempotent / no-op if the persistent memory dir doesn't exist
+    yet (first run for this agent).
+    """
+    src = AGENT_MEMORY_DIR / agent_name
+    if not src.exists() or not src.is_dir():
+        return
+    dst = clone_dir / ".claude" / "agent-memory" / agent_name
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+
+def _copy_agent_memory_back(agent_name: str, clone_dir: Path) -> None:
+    """Mirror agent memory updates from the cloned worktree back to
+    the persistent volume after the agent has run.
+
+    Counterpart to `_copy_agent_memory_into_clone`. Called on the
+    success path so that any new entries the agent appended to its
+    `.claude/agent-memory/<agent_name>/MEMORY.md` file (or any
+    other files in that directory) survive the clone deletion.
+
+    Idempotent / no-op if the agent didn't write anything to its
+    memory directory.
+    """
+    src = clone_dir / ".claude" / "agent-memory" / agent_name
+    if not src.exists() or not src.is_dir():
+        return
+    dst = AGENT_MEMORY_DIR / agent_name
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+
 def cmd_fix(args) -> int:
     """Run the fix subagent against one eligible issue."""
     if getattr(args, "issue", None) is not None:
@@ -797,6 +858,12 @@ def cmd_fix(args) -> int:
         branch = f"auto-improve/{issue_number}-{_slugify(title)}"
         _git(work_dir, "checkout", "-b", branch)
 
+        # 4b. Mirror the persistent cai-fix memory from the
+        #     `cai_agent_memory` volume into the clone so the agent
+        #     sees its accumulated learnings rather than an empty
+        #     fresh dir.
+        _copy_agent_memory_into_clone("cai-fix", work_dir)
+
         # 5. Run the cai-fix declarative subagent in the work dir.
         #    System prompt, tool allowlist, and hard rules live in
         #    `.claude/agents/cai-fix.md`. The wrapper only passes
@@ -859,6 +926,14 @@ def cmd_fix(args) -> int:
         if suggested:
             n = _create_suggested_issues(suggested, issue_number)
             print(f"[cai fix] created {n}/{len(suggested)} suggested issue(s)", flush=True)
+
+        # 5c. Mirror any agent-memory updates from the clone back
+        #     to the persistent volume so they survive the clone
+        #     deletion in the finally block. The agent's stdout
+        #     might or might not have changed memory; copy
+        #     unconditionally because the helper is a no-op when
+        #     no memory dir was created.
+        _copy_agent_memory_back("cai-fix", work_dir)
 
         # 6. Inspect the working tree. Empty diff = deliberate
         #    no-action OR a spike-shaped bail-out (the agent
@@ -1639,6 +1714,10 @@ def cmd_revise(args) -> int:
                 f"{comments_section}"
             )
 
+            # 5b. Mirror the persistent cai-revise memory from the
+            #     `cai_agent_memory` volume into the clone.
+            _copy_agent_memory_into_clone("cai-revise", work_dir)
+
             # 6. Invoke the declared cai-revise subagent.
             #    `--dangerously-skip-permissions` is required for the
             #    same reason as cmd_fix above: cai-revise legitimately
@@ -1750,6 +1829,10 @@ def cmd_revise(args) -> int:
                      "--repo", REPO, "--body", comment_body],
                     capture_output=True,
                 )
+                # Copy any agent-memory updates back even on the
+                # no-changes path — the agent may still have
+                # appended to its memory.
+                _copy_agent_memory_back("cai-revise", work_dir)
                 _set_labels(issue_number, remove=[LABEL_REVISING])
                 print(
                     f"[cai revise] no changes for PR #{pr_number}; "
@@ -1790,6 +1873,11 @@ def cmd_revise(args) -> int:
                 f"[cai revise] force-pushed revision to {branch}",
                 flush=True,
             )
+
+            # 10b. Mirror agent-memory updates from the clone back
+            #      to the persistent volume so they survive the
+            #      clone deletion in the finally block.
+            _copy_agent_memory_back("cai-revise", work_dir)
 
             # 11. Post a summary comment describing what happened.
             if head_changed and has_uncommitted:
@@ -2797,6 +2885,10 @@ def cmd_code_audit(args) -> int:
                 duration=dur, exit=1)
         return 1
 
+    # 1b. Mirror the persistent cai-code-audit memory from the
+    #     `cai_agent_memory` volume into the clone.
+    _copy_agent_memory_into_clone("cai-code-audit", work_dir)
+
     # 2. Build the user message with the runtime memory from the
     #    bind-mounted log directory. System prompt, tool allowlist
     #    (Read/Grep/Glob), and model (sonnet) all live in
@@ -2835,8 +2927,14 @@ def cmd_code_audit(args) -> int:
                 duration=dur, exit=agent.returncode)
         return agent.returncode
 
-    # 4. Save the memory update for next run.
+    # 4. Save the memory update for next run (runtime rotation
+    #    state in /var/log/cai/code-audit-memory.md).
     _save_code_audit_memory(agent.stdout)
+
+    # 4b. Mirror agent-memory updates from the clone back to the
+    #     persistent volume so any project-scope memory the agent
+    #     wrote survives the clone deletion.
+    _copy_agent_memory_back("cai-code-audit", work_dir)
 
     # 5. Publish findings via publish.py with code-audit namespace.
     print("[cai code-audit] publishing findings", flush=True)
@@ -3201,6 +3299,10 @@ def cmd_review_pr(args) -> int:
                 )
                 continue
 
+            # Mirror the persistent cai-review-pr memory from the
+            # `cai_agent_memory` volume into the clone.
+            _copy_agent_memory_into_clone("cai-review-pr", work_dir)
+
             # Build the user message. The system prompt, tool
             # allowlist (Read/Grep/Glob/Agent), and hard rules all
             # live in `.claude/agents/cai-review-pr.md`. The wrapper
@@ -3234,6 +3336,10 @@ def cmd_review_pr(args) -> int:
                     file=sys.stderr,
                 )
                 continue
+
+            # Mirror agent-memory updates from the clone back to
+            # the persistent volume.
+            _copy_agent_memory_back("cai-review-pr", work_dir)
 
             agent_output = (agent.stdout or "").strip()
 

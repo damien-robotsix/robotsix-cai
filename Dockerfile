@@ -66,14 +66,19 @@ RUN wget -nv -O /usr/local/bin/supercronic \
 # bind-mounted `./logs:/var/log/cai` directory works without extra
 # host-side chowning.
 #
-# We pre-create the named-volume mount points (`/home/cai/.config/gh`
-# for `cai_gh_config` and `/home/cai/.claude/projects` for
-# `cai_transcripts`) with cai:cai ownership. Docker copies the
-# image's contents (including ownership and permissions) into a
-# new empty named volume on first mount — without these pre-created
-# directories, the volume mount points are created at runtime as
-# root:root and the cai user gets "permission denied" trying to
-# write `gh` credentials or claude-code transcripts there.
+# We pre-create the named-volume mount points with cai:cai ownership
+# so Docker's "copy image contents into a new empty named volume on
+# first mount" trick inherits the right ownership. Without
+# pre-creating, the mount points get created at runtime as
+# root:root and the cai user hits "permission denied":
+#   - /home/cai/.claude/      → cai_claude        (credentials + transcripts)
+#   - /home/cai/.config/gh/   → cai_gh_config     (gh CLI auth)
+#   - /app/.claude/agent-memory/ → cai_agent_memory (per-agent
+#                              durable memory across container
+#                              restarts; the /app agents read/write
+#                              it directly, the cloned-worktree
+#                              agents have it copied in/out by the
+#                              wrapper around each invocation)
 RUN groupadd --system --gid 1000 cai \
     && useradd --system --gid cai --uid 1000 --create-home --shell /bin/bash cai \
     && mkdir -p /var/log/cai /home/cai/.config/gh /home/cai/.claude/projects \
@@ -85,7 +90,9 @@ COPY --chown=cai:cai parse.py /app/parse.py
 COPY --chown=cai:cai publish.py /app/publish.py
 COPY --chown=cai:cai .claude /app/.claude
 COPY --chown=cai:cai entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh && chown cai:cai /app
+RUN chmod +x /app/entrypoint.sh \
+    && mkdir -p /app/.claude/agent-memory \
+    && chown -R cai:cai /app
 
 USER cai
 
