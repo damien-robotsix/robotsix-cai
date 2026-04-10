@@ -1538,6 +1538,33 @@ def cmd_confirm(args) -> int:
 
     parsed_signals = parsed.stdout.strip()
 
+    # 2b. For each merged issue, fetch the associated merged PR diff.
+    MAX_DIFF_LEN = 8000
+    for mi in merged_issues:
+        num = mi["number"]
+        try:
+            prs = _gh_json([
+                "pr", "list", "--repo", REPO,
+                "--search", f"Refs #{num}",
+                "--state", "merged",
+                "--json", "number",
+                "--limit", "1",
+            ]) or []
+        except subprocess.CalledProcessError:
+            prs = []
+        if prs:
+            pr_num = prs[0]["number"]
+            diff_result = _run(
+                ["gh", "pr", "diff", str(pr_num), "--repo", REPO],
+                capture_output=True,
+            )
+            if diff_result.returncode == 0 and diff_result.stdout.strip():
+                diff_text = diff_result.stdout.strip()
+                if len(diff_text) > MAX_DIFF_LEN:
+                    diff_text = diff_text[:MAX_DIFF_LEN] + "\n... (truncated)"
+                mi["_pr_diff"] = diff_text
+                mi["_pr_number"] = pr_num
+
     # 3. Build the confirm prompt.
     prompt_text = CONFIRM_PROMPT.read_text()
 
@@ -1547,6 +1574,11 @@ def cmd_confirm(args) -> int:
             f"### #{mi['number']} — {mi['title']}\n\n"
             f"{mi.get('body') or '(no body)'}\n\n"
         )
+        if mi.get("_pr_diff"):
+            issues_section += (
+                f"#### Merged PR diff (PR #{mi['_pr_number']})\n\n"
+                f"```diff\n{mi['_pr_diff']}\n```\n\n"
+            )
 
     full_prompt = (
         f"{prompt_text}\n\n"
