@@ -19,7 +19,7 @@ permissions:
 jobs:
   enforce:
     if: >-
-      contains(fromJSON('["auto-improve:requested","auto-improve:raised","consistency:raised"]'), github.event.label.name)
+      contains(fromJSON('["auto-improve:requested","auto-improve:raised","consistency:raised","audit:raised"]'), github.event.label.name)
     runs-on: ubuntu-latest
     steps:
       - name: Check sender's permission
