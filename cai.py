@@ -107,7 +107,12 @@ REBASE_PROMPT = Path("/app/prompts/backend-rebase.md")
 REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
 MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
 AUDIT_TRIAGE_PROMPT = Path("/app/prompts/backend-audit-triage.md")
+CODE_AUDIT_PROMPT = Path("/app/prompts/backend-code-audit.md")
 DESIGN_DECISIONS = Path("/app/prompts/design-decisions.md")
+
+# Persistent memory file for the code-audit agent. Stored in the
+# bind-mounted log directory so it survives container restarts.
+CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
@@ -2789,6 +2794,123 @@ def cmd_audit_triage(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# code-audit — read the repo source and flag concrete inconsistencies
+# ---------------------------------------------------------------------------
+
+
+def _read_code_audit_memory() -> str:
+    """Return the contents of the code-audit memory file, or empty string."""
+    if not CODE_AUDIT_MEMORY.exists():
+        return ""
+    try:
+        return CODE_AUDIT_MEMORY.read_text().strip()
+    except OSError:
+        return ""
+
+
+def _save_code_audit_memory(agent_output: str) -> None:
+    """Extract the ## Memory Update block from agent output and persist it.
+
+    Each run overwrites the memory file with the latest update so the
+    next run sees only the most recent state.
+    """
+    match = re.search(
+        r"^## Memory Update\s*\n(.*)",
+        agent_output,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not match:
+        return
+    try:
+        CODE_AUDIT_MEMORY.parent.mkdir(parents=True, exist_ok=True)
+        CODE_AUDIT_MEMORY.write_text(match.group(0).strip() + "\n")
+    except OSError as exc:
+        print(f"[cai code-audit] could not write memory: {exc}", flush=True)
+
+
+def cmd_code_audit(args) -> int:
+    """Clone the repo and run the code-audit agent to find inconsistencies."""
+    print("[cai code-audit] running code audit", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Clone repo into a temporary directory (read-only audit).
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-code-audit-{_uid}")
+
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+
+    clone = _run(
+        ["git", "clone", "--depth", "1",
+         f"https://github.com/{REPO}.git", str(work_dir)],
+        capture_output=True,
+    )
+    if clone.returncode != 0:
+        print(
+            f"[cai code-audit] git clone failed:\n{clone.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("code-audit", repo=REPO, result="clone_failed",
+                duration=dur, exit=1)
+        return 1
+
+    # 2. Build the prompt with design decisions and memory.
+    prompt_text = CODE_AUDIT_PROMPT.read_text()
+    decisions_block = _design_decisions_block()
+    memory = _read_code_audit_memory()
+
+    memory_section = "\n\n## Memory from previous runs\n\n"
+    if memory:
+        memory_section += memory + "\n"
+    else:
+        memory_section += "(first run — no prior memory)\n"
+
+    full_prompt = f"{prompt_text}{decisions_block}{memory_section}"
+
+    # 3. Run the code-audit agent (Sonnet for cost efficiency).
+    print(f"[cai code-audit] running agent in {work_dir}", flush=True)
+    agent = _run(
+        ["claude", "-p", "--model", "claude-sonnet-4-6",
+         "--permission-mode", "acceptEdits",
+         "--disallowedTools", "Bash,Edit,Write,NotebookEdit"],
+        input=full_prompt,
+        cwd=str(work_dir),
+        capture_output=True,
+    )
+    if agent.stdout:
+        print(agent.stdout, flush=True)
+    if agent.returncode != 0:
+        print(
+            f"[cai code-audit] claude -p failed (exit {agent.returncode}):\n"
+            f"{agent.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("code-audit", repo=REPO, result="agent_failed",
+                duration=dur, exit=agent.returncode)
+        return agent.returncode
+
+    # 4. Save the memory update for next run.
+    _save_code_audit_memory(agent.stdout)
+
+    # 5. Publish findings via publish.py with code-audit namespace.
+    print("[cai code-audit] publishing findings", flush=True)
+    published = _run(
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "code-audit"],
+        input=agent.stdout,
+    )
+
+    # 6. Clean up.
+    shutil.rmtree(work_dir, ignore_errors=True)
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("code-audit", repo=REPO, duration=dur, exit=published.returncode)
+    return published.returncode
+
+
+# ---------------------------------------------------------------------------
 # confirm
 # ---------------------------------------------------------------------------
 
@@ -3862,6 +3984,7 @@ def main() -> int:
         "audit-triage",
         help="Autonomously resolve audit:raised findings (no PRs)",
     )
+    sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
@@ -3881,6 +4004,7 @@ def main() -> int:
         "verify": cmd_verify,
         "audit": cmd_audit,
         "audit-triage": cmd_audit_triage,
+        "code-audit": cmd_code_audit,
         "confirm": cmd_confirm,
         "review-pr": cmd_review_pr,
         "merge": cmd_merge,
