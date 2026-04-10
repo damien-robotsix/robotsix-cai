@@ -35,7 +35,9 @@ to issues that have entered an active state.
 
 Active states (`:raised`, `:requested`, `:in-progress`, `:pr-open`,
 `:merged`, `:no-action`, `:revising`) should continue to be checked
-normally against all the rules below.
+normally against all the rules below. (Note: stale `:merged` and
+`:no-action` issues are auto-closed before the LLM audit runs, so
+only non-stale instances of these states will appear in the input.)
 
 ## What to check
 
@@ -134,6 +136,6 @@ No findings.
 - Keep titles short and imperative.
 - These findings are **report-only** — they go to humans for triage.
   Do not suggest automated fixes beyond what the deterministic
-  rollback and branch cleanup already handle.
+  rollback, branch cleanup, and stale issue closures already handle.
 - Do not output anything other than the markdown finding blocks (or
   the exact `No findings.` sentinel).
