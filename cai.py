@@ -372,7 +372,7 @@ def _select_fix_target():
                 "--repo", REPO,
                 "--label", label,
                 "--state", "open",
-                "--json", "number,title,body,labels,createdAt",
+                "--json", "number,title,body,labels,createdAt,comments",
                 "--limit", "100",
             ]) or []
         except subprocess.CalledProcessError as e:
@@ -429,6 +429,13 @@ def _build_fix_prompt(issue: dict) -> str:
         f"### #{issue['number']} — {issue['title']}\n\n"
         f"{issue.get('body') or '(no body)'}\n"
     )
+    comments = issue.get("comments") or []
+    if comments:
+        issue_block += "\n### Comments\n\n"
+        for c in comments:
+            author = c.get("author", {}).get("login", "unknown")
+            body = c.get("body", "")
+            issue_block += f"**{author}:**\n{body}\n\n"
     return f"{prompt}\n\n{issue_block}"
 
 
@@ -517,7 +524,7 @@ def cmd_fix(args) -> int:
             issue = _gh_json([
                 "issue", "view", str(args.issue),
                 "--repo", REPO,
-                "--json", "number,title,body,labels,state,createdAt",
+                "--json", "number,title,body,labels,state,createdAt,comments",
             ])
         except subprocess.CalledProcessError as e:
             print(f"[cai fix] gh issue view #{args.issue} failed:\n{e.stderr}", file=sys.stderr)
