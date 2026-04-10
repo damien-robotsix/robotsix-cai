@@ -127,6 +127,13 @@ another run can try later. You should exit without changes when:
 - The remediation in the issue body is vague enough that you can't
   confidently translate it into code
 - The issue overlaps something in your memory (see above)
+- **The issue asks for a spike, research, or evaluation** rather
+  than a specific code change. If the acceptance criteria are
+  "documented findings" or "a decision" or "a survey of what's
+  possible" — not a concrete file edit — exit cleanly and note
+  that this issue needs a spike (which may be driven by a
+  different agent, a later cycle, or a human) rather than a
+  routine fix attempt.
 - You'd be guessing
 
 In all of these cases, **print a short paragraph to stdout
