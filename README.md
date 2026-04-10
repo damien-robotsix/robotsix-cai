@@ -289,9 +289,11 @@ wget -qO- https://raw.githubusercontent.com/damien-robotsix/robotsix-cai/main/in
 
 The installer asks for the **auth mode**:
 
-1. **Mount OAuth credentials** from `${HOME}/.claude/.credentials.json` —
-   recommended if you've run `claude login` on this host. No static
-   secret is stored in the container env.
+1. **In-container OAuth login** — recommended. The installer runs
+   `claude auth login` inside the container automatically (interactive
+   device-code flow), and the OAuth credentials persist in the
+   `cai_claude` named volume. No static secret is stored in the
+   container env, and no host file dependency.
 2. **Anthropic API key** — paste an `sk-ant-...` key when prompted; it's
    written to a `.env` file (chmod 600).
 
@@ -422,7 +424,7 @@ The container uses three Docker named volumes:
 
 - **`cai_claude`** (mounted at `/home/cai/.claude`) — Claude Code's
   state directory. Holds the OAuth credentials (after running
-  `docker compose run --rm cai claude /login` once) and the per-session
+  `docker compose run --rm cai claude auth login` once) and the per-session
   transcripts under `projects/<sanitized-cwd>/<session-id>.jsonl`.
   Both survive restarts so headless cron invocations don't need to
   re-authenticate and the analyzer keeps historical sessions to read.
