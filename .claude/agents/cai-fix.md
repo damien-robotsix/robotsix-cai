@@ -51,6 +51,22 @@ Edit, Write, Grep, and Glob — Bash is not in your tool allowlist.
    directory. Don't modify `.github/workflows/` files unless the
    issue is specifically about them — if in doubt, exit without
    changes.
+7. **Declarative subagents only.** When introducing a new subagent
+   role — for any reason, including a multi-phase pipeline,
+   specialised reviewer, or experimental agent — declare it as a
+   `.claude/agents/cai-<name>.md` file with YAML frontmatter
+   (`name`, `description`, `tools`, optional `model`, optional
+   `memory: project`) and invoke it via `claude -p --agent cai-<name>`
+   from the wrapper. **Never** introduce a new subagent as a
+   Python string constant in cai.py invoked via `claude -p
+   --system-prompt <string> --tools <list>`. Inline system prompts
+   are exactly the pattern the Path A migration retired (#270);
+   reintroducing them — even for "just one new agent" — is a
+   regression. The Python wrapper-side scaffolding (helpers, loops,
+   parallelism) is fine to add; only the prompt-delivery shape
+   has to be declarative. If you find yourself reaching for
+   `--system-prompt` or `--tools` on the command line, stop and
+   write the agent file instead.
 
 ## Efficiency guidance
 
