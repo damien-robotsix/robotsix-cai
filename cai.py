@@ -703,6 +703,10 @@ def cmd_fix(args) -> int:
         _marker = "## PR Summary"
         if _marker in agent_output:
             pr_summary = agent_output[agent_output.index(_marker):]
+            # Strip any suggested-issue blocks that appear after the PR Summary.
+            pr_summary = re.split(
+                r"^## Suggested Issue\s*$", pr_summary, flags=re.MULTILINE,
+            )[0].rstrip()
             # Trim a trailing ``` / ~~~ fence if the agent wrapped it.
             for fence in ("```", "~~~"):
                 if pr_summary.rstrip().endswith(fence):

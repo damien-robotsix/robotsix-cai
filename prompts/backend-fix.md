@@ -113,7 +113,7 @@ While working on the fix, you may notice related problems that are
 outside the scope of the current issue. **Do not fix them in this
 PR** — instead, output a structured block so the wrapper can open a
 separate issue for each one. You can emit zero or more of these
-blocks anywhere in your output (before or after the PR Summary):
+blocks anywhere in your output **before** the PR Summary:
 
 ~~~
 ## Suggested Issue
