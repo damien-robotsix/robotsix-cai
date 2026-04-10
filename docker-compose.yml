@@ -46,7 +46,7 @@ services:
       # Persistent claude-code state (credentials + session
       # transcripts + any other config). Authenticate once with:
       #
-      #     docker compose run --rm cai claude /login
+      #     docker compose run --rm cai claude auth login
       #
       # The OAuth tokens land in this volume and are reused on every
       # subsequent run, so headless cron invocations don't need to

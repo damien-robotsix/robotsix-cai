@@ -206,6 +206,37 @@ def check_gh_auth() -> int:
     return 0
 
 
+def check_claude_auth() -> int:
+    """Fail fast if `claude` is not authenticated.
+
+    Two valid auth modes for the headless container:
+      1. OAuth: credentials sit in the `cai_claude` named volume
+         (under `/home/cai/.claude`). Verified by `claude auth status`.
+      2. API key: `ANTHROPIC_API_KEY` is set in the env. claude-code
+         uses it directly without needing the OAuth credentials file.
+
+    If neither mode is configured, claude-code will 401 on the first
+    API call with a confusing error. Catch the misconfiguration up
+    front so the user gets a clear next-step instruction.
+    """
+    # API-key mode is checked first because it's a single env-var test
+    # and doesn't require shelling out.
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return 0
+
+    result = _run(["claude", "auth", "status", "--text"], capture_output=True)
+    if result.returncode != 0:
+        print("[cai] ERROR: claude is not authenticated in this container.", file=sys.stderr)
+        print("       Credentials are expected in the cai_claude volume,", file=sys.stderr)
+        print("       OR set ANTHROPIC_API_KEY in your .env file.", file=sys.stderr)
+        print("       Run the installer's login step, or do it manually:", file=sys.stderr)
+        print("         docker compose run --rm cai claude auth login", file=sys.stderr)
+        print(file=sys.stderr)
+        print(result.stderr.strip() or result.stdout.strip(), file=sys.stderr)
+        return 1
+    return 0
+
+
 def _transcript_dir_is_empty() -> bool:
     if not TRANSCRIPT_DIR.exists():
         return True
@@ -4036,6 +4067,10 @@ def main() -> int:
     args = parser.parse_args()
 
     auth_rc = check_gh_auth()
+    if auth_rc != 0:
+        return auth_rc
+
+    auth_rc = check_claude_auth()
     if auth_rc != 0:
         return auth_rc
 
