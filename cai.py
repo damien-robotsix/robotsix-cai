@@ -1608,7 +1608,30 @@ def cmd_confirm(args) -> int:
             print(f"[cai confirm] #{issue_num}: unsolved — left as :merged", flush=True)
             unsolved += 1
         elif status == "inconclusive":
-            print(f"[cai confirm] #{issue_num}: inconclusive — no action", flush=True)
+            # Post reasoning to the issue so humans can see why, but
+            # avoid duplicate comments if the same reasoning was already
+            # posted in the most recent comment.
+            body = f"Confirm check: inconclusive — {reasoning}"
+            try:
+                comments = _gh_json([
+                    "issue", "view", str(issue_num),
+                    "--repo", REPO,
+                    "--json", "comments",
+                ]) or {}
+                last_body = ""
+                clist = comments.get("comments") or []
+                if clist:
+                    last_body = (clist[-1].get("body") or "").strip()
+            except subprocess.CalledProcessError:
+                last_body = ""
+            if last_body != body.strip():
+                _run(
+                    ["gh", "issue", "comment", str(issue_num),
+                     "--repo", REPO,
+                     "--body", body],
+                    capture_output=True,
+                )
+            print(f"[cai confirm] #{issue_num}: inconclusive — {reasoning}", flush=True)
             inconclusive += 1
 
     dur = f"{int(time.monotonic() - t0)}s"
