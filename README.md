@@ -64,7 +64,8 @@ subprocess with no shared state.
 On `docker compose up -d` the entrypoint templates the crontab from
 the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
 `CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`, `CAI_REVISE_SCHEDULE`,
-`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
+`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`,
+`CAI_DIAGNOSE_SCHEDULE`), runs each
 scheduled subcommand once synchronously so logs show immediate results, then execs
 supercronic. (`cycle` is on-demand only and is not part of scheduled or startup runs.)
 
