@@ -383,7 +383,7 @@ any files at all, one `docker run` is enough.
 
 ```bash
 docker run --rm \
-  -v ~/.claude/.credentials.json:/root/.claude/.credentials.json \
+  -v ~/.claude/.credentials.json:/home/cai/.claude/.credentials.json \
   robotsix/cai:latest
 ```
 
@@ -420,14 +420,20 @@ the `volumes:` block.
 
 The container uses two Docker named volumes:
 
-- **`cai_transcripts`** (mounted at `/root/.claude/projects`) —
+- **`cai_transcripts`** (mounted at `/home/cai/.claude/projects`) —
   claude-code writes one JSONL file per session under
-  `/root/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`; the
+  `/home/cai/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`; the
   volume keeps that data across restarts so future analyzer runs can
   read it.
-- **`cai_gh_config`** (mounted at `/root/.config/gh`) — the `gh` CLI's
+- **`cai_gh_config`** (mounted at `/home/cai/.config/gh`) — the `gh` CLI's
   credential store. Populated once by the installer's
   `gh auth login` step and reused on every subsequent run.
+
+The container runs as the non-root `cai` user (uid 1000). This is
+required by `claude-code` because the fix and revise subagents use
+`--dangerously-skip-permissions` to allow self-modifying edits to
+`.claude/agents/*.md`, and `claude-code` refuses that flag when
+invoked as root.
 
 The transcript parser (`parse.py`) only considers sessions whose JSONL
 file was modified within a configurable window. This prevents stale

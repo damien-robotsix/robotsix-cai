@@ -21,7 +21,7 @@ calls this script (see .claude/agents/cai-analyze.md).
 
 Usage::
 
-    python parse.py /root/.claude/projects/-app/
+    python parse.py /home/cai/.claude/projects/-app/
     python parse.py <transcript-file.jsonl>
     cat *.jsonl | python parse.py
 """

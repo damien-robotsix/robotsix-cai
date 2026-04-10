@@ -47,12 +47,15 @@ services:
       # session JSONL into ~/.claude/projects/<sanitized-cwd>/<sid>.jsonl
       # inside the container; this named volume keeps that data across
       # container restarts so future analyzer runs can read it.
-      - cai_transcripts:/root/.claude/projects
+      #
+      # Mount path is /home/cai/... because the container now runs as
+      # the non-root `cai` user (uid 1000) — see Dockerfile.
+      - cai_transcripts:/home/cai/.claude/projects
       # Persistent gh CLI configuration. The installer runs
       # `docker compose run --rm cai gh auth login` once and the
       # resulting credentials land here, so subsequent `docker compose
       # up` runs don't need to re-authenticate.
-      - cai_gh_config:/root/.config/gh
+      - cai_gh_config:/home/cai/.config/gh
       - ./logs:/var/log/cai
       # Uncomment to use OAuth credentials from the host instead of an
       # API key. Requires `claude login` to have been run on the host so
@@ -61,7 +64,7 @@ services:
       # so claude-code can refresh the OAuth access token in place; a
       # :ro mount would block refresh and 401 after the token expires.
       #
-      # - ${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json
+      # - ${HOME}/.claude/.credentials.json:/home/cai/.claude/.credentials.json
     # Required if Watchtower is enabled (uncommented below):
     # labels:
     #   - "com.centurylinklabs.watchtower.enable=true"
