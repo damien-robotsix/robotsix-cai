@@ -123,6 +123,6 @@ No findings.
 - Keep titles short and imperative.
 - These findings are **report-only** — they go to humans for triage.
   Do not suggest automated fixes beyond what the deterministic
-  rollback already handles.
+  rollback and branch cleanup already handle.
 - Do not output anything other than the markdown finding blocks (or
   the exact `No findings.` sentinel).
