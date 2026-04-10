@@ -51,7 +51,7 @@ subprocess with no shared state.
 | Subcommand | Default schedule | What it does |
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
-| `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, lets a subagent edit the repo with full tool permissions, opens a PR — see lifecycle below |
+| `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, runs a 3-phase pipeline (plan → select → implement): 3 planning agents propose fixes in parallel, a selection agent picks the best plan, then the cai-fix implementation agent executes it and opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state; also recovers issues whose `:pr-open` label was lost |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` and `:no-action` issues, flags stale `:merged` issues for human review, deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |

@@ -603,8 +603,10 @@ def _build_fix_user_message(issue: dict) -> str:
 
     The system prompt, tool allowlist, and hard rules live in
     `.claude/agents/cai-fix.md`; durable per-agent learnings live
-    in its `memory: project` pool. The wrapper only passes the
-    issue body + any reviewer comments as stdin.
+    in its `memory: project` pool. This function returns the issue
+    body + any reviewer comments. The caller (cmd_fix) may prepend
+    a ``## Selected Implementation Plan`` block produced by the
+    plan → select pipeline before passing it to the agent.
     """
     issue_block = (
         f"## Issue\n\n"
