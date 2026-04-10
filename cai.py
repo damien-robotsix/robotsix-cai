@@ -13,9 +13,9 @@ Subcommands:
                             publish.py.
 
     python cai.py fix       Pick the oldest issue labelled
-                            `auto-improve:raised`, `auto-improve:
-                            requested`, or `audit:raised`,
-                            lock it via the `:in-progress`
+                            `auto-improve:raised` or `auto-improve:
+                            requested` (audit issues reach fix via
+                            triage relabelling), lock it via the `:in-progress`
                             label, clone the repo into /tmp, run the
                             fix subagent (full tool permissions), and
                             open a PR if the agent produced a diff.
@@ -408,12 +408,15 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
 def _select_fix_target():
     """Return the oldest open issue eligible for the fix subagent.
 
-    Eligible = labelled `:raised`, `:requested`, or `audit:raised`, NOT labelled
-    `:in-progress` or `:pr-open`.  If no candidates are found, attempts to
-    recover stale `:pr-open` issues whose linked PR was closed unmerged.
+    Eligible = labelled `:raised` or `:requested`, NOT labelled
+    `:in-progress` or `:pr-open`.  `audit:raised` issues are handled
+    exclusively by the audit-triage agent — only issues that triage
+    re-labels to `auto-improve:raised` enter the fix pipeline.
+    If no candidates are found, attempts to recover stale `:pr-open`
+    issues whose linked PR was closed unmerged.
     """
     candidates: dict[int, dict] = {}
-    for label in (LABEL_RAISED, LABEL_REQUESTED, LABEL_AUDIT_RAISED):
+    for label in (LABEL_RAISED, LABEL_REQUESTED):
         try:
             issues = _gh_json([
                 "issue", "list",
@@ -632,15 +635,14 @@ def cmd_fix(args) -> int:
     issue_number = issue["number"]
     title = issue["title"]
     label_names = {lbl["name"] for lbl in issue.get("labels", [])}
-    is_audit = LABEL_AUDIT_RAISED in label_names
-    origin_raised_label = LABEL_AUDIT_RAISED if is_audit else LABEL_RAISED
+    origin_raised_label = LABEL_RAISED
     print(f"[cai fix] picked #{issue_number}: {title}", flush=True)
 
     # 1. Lock — set :in-progress, drop :raised and :requested.
     if not _set_labels(
         issue_number,
         add=[LABEL_IN_PROGRESS],
-        remove=[LABEL_RAISED, LABEL_REQUESTED, LABEL_AUDIT_RAISED],
+        remove=[LABEL_RAISED, LABEL_REQUESTED],
     ):
         print(f"[cai fix] could not lock #{issue_number}", file=sys.stderr)
         log_run("fix", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
@@ -2616,10 +2618,17 @@ def cmd_audit_triage(args) -> int:
             escalated += 1
 
         else:
-            # passthrough — leave the labels alone, fix subagent picks it up.
+            # passthrough — relabel to auto-improve:raised so the fix
+            # subagent picks it up (fix no longer selects audit:raised
+            # directly, ensuring all audit issues go through triage first).
+            _set_labels(
+                n,
+                add=[LABEL_RAISED],
+                remove=[LABEL_AUDIT_RAISED],
+            )
             print(
-                f"[cai audit-triage] #{n}: passthrough (action={action}, "
-                f"confidence={confidence})",
+                f"[cai audit-triage] #{n}: passthrough → auto-improve:raised "
+                f"(action={action}, confidence={confidence})",
                 flush=True,
             )
             passthrough += 1
