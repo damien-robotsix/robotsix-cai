@@ -1397,6 +1397,38 @@ def cmd_verify(args) -> int:
         else:
             print(f"[cai verify] #{num}: PR #{pr['number']} still {state}", flush=True)
 
+    # Safety net: recover issues that have the base "auto-improve" label but
+    # lost their lifecycle state suffix (e.g. due to a partial label update
+    # when another command closed a PR).  Transition them back to :raised so
+    # they re-enter the fix pipeline.
+    try:
+        all_ai_issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", "auto-improve",
+            "--state", "open",
+            "--json", "number,labels",
+            "--limit", "200",
+        ]) or []
+    except subprocess.CalledProcessError:
+        all_ai_issues = []
+
+    for issue in all_ai_issues:
+        num = issue["number"]
+        label_names = {lbl["name"] for lbl in issue.get("labels", [])}
+        has_state = any(l.startswith("auto-improve:") for l in label_names)
+        if not has_state:
+            raised_label = (
+                LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in label_names
+                else LABEL_RAISED
+            )
+            _set_labels(num, add=[raised_label])
+            print(
+                f"[cai verify] #{num}: orphaned (no state label) → {raised_label}",
+                flush=True,
+            )
+            transitioned += 1
+
     print(f"[cai verify] done ({transitioned} transitioned)", flush=True)
     log_run("verify", repo=REPO, checked=len(issues), transitioned=transitioned, exit=0)
     return 0
