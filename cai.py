@@ -1382,13 +1382,13 @@ def cmd_verify(args) -> int:
             continue
         state = (pr.get("state") or "").upper()
         if state == "MERGED":
-            _set_labels(num, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN])
+            _set_labels(num, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED])
             print(f"[cai verify] #{num}: PR #{pr['number']} merged → :merged", flush=True)
             transitioned += 1
         elif state == "CLOSED":
             issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
             raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
-            _set_labels(num, add=[raised_label], remove=[LABEL_PR_OPEN])
+            _set_labels(num, add=[raised_label], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED])
             print(
                 f"[cai verify] #{num}: PR #{pr['number']} closed unmerged → :raised",
                 flush=True,
