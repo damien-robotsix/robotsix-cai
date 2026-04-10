@@ -106,8 +106,6 @@ TRANSCRIPT_DIR = Path("/root/.claude/projects")
 # Files baked into the image alongside cai.py.
 PARSE_SCRIPT = Path("/app/parse.py")
 PUBLISH_SCRIPT = Path("/app/publish.py")
-AUDIT_TRIAGE_PROMPT = Path("/app/prompts/backend-audit-triage.md")
-CODE_AUDIT_PROMPT = Path("/app/prompts/backend-code-audit.md")
 DESIGN_DECISIONS = Path("/app/prompts/design-decisions.md")
 
 # Persistent memory file for the code-audit agent. Stored in the
@@ -2490,9 +2488,8 @@ def cmd_audit_triage(args) -> int:
     except subprocess.CalledProcessError:
         recent_prs = []
 
-    # 3. Build the prompt.
-    prompt_text = AUDIT_TRIAGE_PROMPT.read_text()
-
+    # 3. Build the user message. System prompt, tool allowlist, and
+    #    model (sonnet) all live in `.claude/agents/cai-audit-triage.md`.
     raised_section = "## audit:raised issues to triage\n\n"
     for oi in raised_issues:
         labels = ", ".join(lbl["name"] for lbl in oi.get("labels", []))
@@ -2532,17 +2529,16 @@ def cmd_audit_triage(args) -> int:
     else:
         pr_section += "(none)\n"
 
-    full_prompt = (
-        f"{prompt_text}\n\n"
+    user_message = (
         f"{raised_section}\n"
         f"{other_section}\n"
         f"{pr_section}\n"
     )
 
-    # 4. Run claude with the triage prompt (Sonnet — same tier as audit).
+    # 4. Invoke the declared cai-audit-triage subagent.
     triage = _run(
-        ["claude", "-p", "--model", "claude-sonnet-4-6"],
-        input=full_prompt,
+        ["claude", "-p", "--agent", "cai-audit-triage"],
+        input=user_message,
         capture_output=True,
     )
     print(triage.stdout, flush=True)
@@ -2777,8 +2773,9 @@ def cmd_code_audit(args) -> int:
                 duration=dur, exit=1)
         return 1
 
-    # 2. Build the prompt with design decisions and memory.
-    prompt_text = CODE_AUDIT_PROMPT.read_text()
+    # 2. Build the user message with design decisions and memory.
+    #    System prompt, tool allowlist (Read/Grep/Glob), and model
+    #    (sonnet) all live in `.claude/agents/cai-code-audit.md`.
     decisions_block = _design_decisions_block()
     memory = _read_code_audit_memory()
 
@@ -2788,15 +2785,14 @@ def cmd_code_audit(args) -> int:
     else:
         memory_section += "(first run — no prior memory)\n"
 
-    full_prompt = f"{prompt_text}{decisions_block}{memory_section}"
+    user_message = f"{decisions_block}{memory_section}"
 
-    # 3. Run the code-audit agent (Sonnet for cost efficiency).
+    # 3. Invoke the declared cai-code-audit subagent.
     print(f"[cai code-audit] running agent in {work_dir}", flush=True)
     agent = _run(
-        ["claude", "-p", "--model", "claude-sonnet-4-6",
-         "--permission-mode", "acceptEdits",
-         "--disallowedTools", "Bash,Edit,Write,NotebookEdit"],
-        input=full_prompt,
+        ["claude", "-p", "--agent", "cai-code-audit",
+         "--permission-mode", "acceptEdits"],
+        input=user_message,
         cwd=str(work_dir),
         capture_output=True,
     )
