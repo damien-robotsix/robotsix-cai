@@ -102,6 +102,7 @@ FIX_PROMPT = Path("/app/prompts/backend-fix.md")
 AUDIT_PROMPT = Path("/app/prompts/backend-audit.md")
 CONFIRM_PROMPT = Path("/app/prompts/backend-confirm.md")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
+REBASE_PROMPT = Path("/app/prompts/backend-rebase.md")
 REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
 MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
 
@@ -898,13 +899,19 @@ def _is_bot_comment(comment: dict) -> bool:
 # re-processing the same comments forever.
 _NO_ADDITIONAL_CHANGES_MARKER = "## Revise subagent: no additional changes"
 
-# Marker that revise posts when an auto-rebase against main fails due
-# to conflicts. If this marker appears AFTER the current commit, we
-# short-circuit the loop on the very next tick: a conflict will not
-# magically resolve itself across revise ticks (main moving doesn't
-# typically un-conflict an existing diff), and re-trying every cron
-# tick just spams the PR. One failed attempt is enough — see #188.
-_REBASE_FAILED_MARKER = "## Revise subagent: rebase failed"
+# Marker that revise posts when an auto-rebase against main fails
+# even after the resolver subagent has tried to merge the conflicts.
+# If this marker appears AFTER the current commit, we short-circuit
+# the loop on the very next tick: the resolver has already taken its
+# best shot and failed, and re-trying every cron tick just spams the
+# PR with identical failure comments. One failed resolver attempt is
+# enough — see #188.
+#
+# NOTE: this string is intentionally distinct from the legacy
+# "## Revise subagent: rebase failed" marker so PRs that were stuck
+# under the pre-resolver code path get exactly one fresh attempt
+# with the new resolver before being skipped again.
+_REBASE_FAILED_MARKER = "## Revise subagent: rebase resolution failed"
 
 
 def _parse_iso_ts(value):
@@ -1002,6 +1009,131 @@ def _fetch_review_comments(pr_number: int) -> list[dict]:
             "body": body,
         })
     return normalized
+
+
+def _rebase_conflict_files(work_dir: Path) -> list[str]:
+    """Return the list of files currently in a conflicted (unmerged) state."""
+    res = _git(
+        work_dir, "diff", "--name-only", "--diff-filter=U", check=False,
+    )
+    return [line for line in res.stdout.strip().splitlines() if line]
+
+
+def _agent_resolve_rebase(
+    work_dir: Path,
+    pr_number: int,
+    issue_title: str,
+    issue_body: str,
+) -> tuple[bool, str]:
+    """Drive a stopped `git rebase` to completion via the resolve subagent.
+
+    The wrapper has just run `git rebase origin/main` and the rebase has
+    stopped on conflicts. We loop: identify conflicted files → invoke
+    claude to edit them → stage → `git rebase --continue`. Each replayed
+    commit may produce a fresh round of conflicts, so we iterate up to
+    MAX_ROUNDS times.
+
+    Returns (success, agent_summary). On failure the rebase is left
+    aborted and the caller should fall back to the manual-rebase comment
+    path. On success the rebase is fully complete and the worktree is
+    clean (apart from the unpushed commits).
+    """
+    MAX_ROUNDS = 5
+    summaries: list[str] = []
+
+    for round_num in range(1, MAX_ROUNDS + 1):
+        conflict_files = _rebase_conflict_files(work_dir)
+        if not conflict_files:
+            # No conflicts but rebase still in progress — try to advance.
+            cont = _run(
+                ["git", "-C", str(work_dir), "-c", "core.editor=true",
+                 "rebase", "--continue"],
+                capture_output=True,
+            )
+            if cont.returncode == 0:
+                return True, "\n\n".join(summaries)
+            # Continue produced new conflicts; loop again.
+            if not _rebase_conflict_files(work_dir):
+                _git(work_dir, "rebase", "--abort", check=False)
+                return False, "\n\n".join(summaries)
+            continue
+
+        print(
+            f"[cai revise] PR #{pr_number}: rebase round {round_num} — "
+            f"{len(conflict_files)} conflicted file(s); invoking agent",
+            flush=True,
+        )
+
+        prompt_text = REBASE_PROMPT.read_text()
+        full_prompt = (
+            f"{prompt_text}\n\n"
+            f"## Conflicted files (round {round_num} of up to {MAX_ROUNDS})\n\n"
+            + "".join(f"- `{f}`\n" for f in conflict_files)
+            + f"\n## Original PR issue context\n\n"
+            f"### {issue_title}\n\n"
+            f"{issue_body or '(no body)'}\n"
+        )
+
+        agent = _run(
+            ["claude", "-p", "--permission-mode", "acceptEdits",
+             "--disallowedTools", "Bash"],
+            input=full_prompt,
+            cwd=str(work_dir),
+            capture_output=True,
+        )
+        if agent.stdout:
+            print(agent.stdout, flush=True)
+        if agent.returncode != 0:
+            print(
+                f"[cai revise] rebase resolver subagent failed "
+                f"(exit {agent.returncode}):\n{agent.stderr}",
+                file=sys.stderr,
+            )
+            _git(work_dir, "rebase", "--abort", check=False)
+            return False, "\n\n".join(summaries)
+
+        summaries.append((agent.stdout or "").strip()[:2000])
+
+        # Verify the agent fully resolved this round.
+        remaining = _rebase_conflict_files(work_dir)
+        if remaining:
+            print(
+                f"[cai revise] PR #{pr_number}: agent left "
+                f"{len(remaining)} unresolved conflict(s); aborting",
+                file=sys.stderr,
+            )
+            _git(work_dir, "rebase", "--abort", check=False)
+            return False, "\n\n".join(summaries)
+
+        # Stage and advance the rebase.
+        _git(work_dir, "add", "-A")
+        cont = _run(
+            ["git", "-C", str(work_dir), "-c", "core.editor=true",
+             "rebase", "--continue"],
+            capture_output=True,
+        )
+        if cont.returncode == 0:
+            return True, "\n\n".join(summaries)
+        # Continue might have surfaced new conflicts in the next commit;
+        # the next loop iteration will pick them up. If neither conflicts
+        # nor success, something else went wrong — bail.
+        if not _rebase_conflict_files(work_dir):
+            print(
+                f"[cai revise] PR #{pr_number}: rebase --continue failed "
+                f"with no conflicts:\n{cont.stderr}",
+                file=sys.stderr,
+            )
+            _git(work_dir, "rebase", "--abort", check=False)
+            return False, "\n\n".join(summaries)
+
+    # Hit the round cap with the rebase still in progress.
+    print(
+        f"[cai revise] PR #{pr_number}: rebase resolver exceeded "
+        f"{MAX_ROUNDS} rounds; aborting",
+        file=sys.stderr,
+    )
+    _git(work_dir, "rebase", "--abort", check=False)
+    return False, "\n\n".join(summaries)
 
 
 def _select_revise_targets() -> list[dict]:
@@ -1206,37 +1338,63 @@ def cmd_revise(args) -> int:
                 rebase = _git(
                     work_dir, "rebase", "origin/main", check=False,
                 )
+
+                resolver_summary = ""
                 if rebase.returncode != 0:
-                    # Rebase failed — find conflicting files, abort, comment.
-                    conflict_status = _git(
-                        work_dir, "diff", "--name-only", "--diff-filter=U",
-                        check=False,
+                    # Rebase stopped on conflicts — let the resolver subagent
+                    # try to merge them rather than bailing immediately.
+                    try:
+                        issue_data = _gh_json([
+                            "issue", "view", str(issue_number),
+                            "--repo", REPO,
+                            "--json", "number,title,body",
+                        ])
+                    except subprocess.CalledProcessError:
+                        issue_data = {"title": "(unknown)", "body": ""}
+
+                    resolved, resolver_summary = _agent_resolve_rebase(
+                        work_dir,
+                        pr_number,
+                        issue_data.get("title", "(unknown)"),
+                        issue_data.get("body") or "",
                     )
-                    conflict_files = conflict_status.stdout.strip() or "(unknown)"
-                    _git(work_dir, "rebase", "--abort", check=False)
-                    comment_body = (
-                        "## Revise subagent: rebase failed\n\n"
-                        "Could not auto-rebase against current main "
-                        "due to conflicts in:\n```\n"
-                        f"{conflict_files}\n```\n"
-                        "Please rebase manually."
-                    )
-                    _run(
-                        ["gh", "pr", "comment", str(pr_number),
-                         "--repo", REPO, "--body", comment_body],
-                        capture_output=True,
-                    )
+
+                    if not resolved:
+                        # Capture conflict files for the comment (rebase has
+                        # already been aborted by the resolver).
+                        comment_body = (
+                            "## Revise subagent: rebase resolution failed\n\n"
+                            "Could not auto-rebase against current main, "
+                            "and the resolver subagent could not resolve "
+                            "the conflicts cleanly. Please rebase manually."
+                        )
+                        if resolver_summary:
+                            comment_body += (
+                                "\n\n<details><summary>Resolver notes</summary>"
+                                f"\n\n{resolver_summary}\n\n</details>"
+                            )
+                        _run(
+                            ["gh", "pr", "comment", str(pr_number),
+                             "--repo", REPO, "--body", comment_body],
+                            capture_output=True,
+                        )
+                        print(
+                            f"[cai revise] rebase failed for PR #{pr_number}; "
+                            "posted comment",
+                            flush=True,
+                        )
+                        _set_labels(issue_number, remove=[LABEL_REVISING])
+                        log_run("revise", repo=REPO, pr=pr_number,
+                                result="rebase_failed", exit=0)
+                        continue
+
                     print(
-                        f"[cai revise] rebase failed for PR #{pr_number}; "
-                        "posted comment",
+                        f"[cai revise] PR #{pr_number}: resolver subagent "
+                        "completed the rebase",
                         flush=True,
                     )
-                    _set_labels(issue_number, remove=[LABEL_REVISING])
-                    log_run("revise", repo=REPO, pr=pr_number,
-                            result="rebase_failed", exit=0)
-                    continue
 
-                # Rebase succeeded — force-push.
+                # Rebase succeeded (cleanly or via resolver) — force-push.
                 push = _run(
                     ["git", "-C", str(work_dir), "push",
                      "--force-with-lease", "origin", branch],
@@ -1258,6 +1416,23 @@ def cmd_revise(args) -> int:
                 )
                 log_run("revise", repo=REPO, pr=pr_number,
                         result="rebased", exit=0)
+
+                # If the resolver subagent ran, post a summary so reviewers
+                # can audit how the conflicts were merged.
+                if resolver_summary:
+                    rebase_comment = (
+                        "## Revise subagent: rebase resolved\n\n"
+                        f"{resolver_summary}\n\n"
+                        "---\n"
+                        "_Auto-rebased onto current `main` by `cai revise`. "
+                        "Conflict resolution was performed by the resolver "
+                        "subagent — please double-check the merged hunks._\n"
+                    )
+                    _run(
+                        ["gh", "pr", "comment", str(pr_number),
+                         "--repo", REPO, "--body", rebase_comment],
+                        capture_output=True,
+                    )
 
                 # If there are no comments to address, we're done with this PR.
                 if not comments:
