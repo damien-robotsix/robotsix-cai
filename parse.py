@@ -212,8 +212,12 @@ def _get_max_files() -> int:
     return max_files
 
 
-def collect_jsonl_lines(source: str) -> list[str]:
-    """Collect all JSONL lines from a file, directory, or stdin sentinel."""
+def collect_jsonl_lines(source: str) -> tuple[list[str], int]:
+    """Collect all JSONL lines from a file, directory, or stdin sentinel.
+
+    Returns (lines, file_count) where file_count is the number of session
+    files actually read (after applying time and count windows).
+    """
     p = pathlib.Path(source)
     cutoff = _get_cutoff_time()
     max_files = _get_max_files()
@@ -230,24 +234,28 @@ def collect_jsonl_lines(source: str) -> list[str]:
         lines: list[str] = []
         for _mtime, jf in candidates:
             lines.extend(jf.read_text(errors="replace").splitlines())
-        return lines
+        return lines, len(candidates)
     if p.is_file():
         if cutoff and p.stat().st_mtime < cutoff:
-            return []
-        return p.read_text(errors="replace").splitlines()
-    return []
+            return [], 0
+        return p.read_text(errors="replace").splitlines(), 1
+    return [], 0
 
 
 def main() -> None:
+    session_count = 0
     if len(sys.argv) > 1:
         all_lines: list[str] = []
         for arg in sys.argv[1:]:
-            all_lines.extend(collect_jsonl_lines(arg))
+            lines, count = collect_jsonl_lines(arg)
+            all_lines.extend(lines)
+            session_count += count
     else:
         all_lines = sys.stdin.read().splitlines()
 
     if not any(line.strip() for line in all_lines):
         print(json.dumps({
+            "session_count": session_count,
             "tool_call_count": 0,
             "top_tools": [],
             "tool_counts": {},
@@ -261,6 +269,7 @@ def main() -> None:
         return
 
     result = extract_tool_calls(all_lines)
+    result["session_count"] = session_count
     print(json.dumps(result, indent=2))
 
 
