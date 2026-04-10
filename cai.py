@@ -2584,7 +2584,7 @@ def main() -> int:
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
-    sub.add_parser("cycle", help="Full cycle: fix, revise, review-pr, merge, verify, confirm")
+    sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
 
     args = parser.parse_args()
 
