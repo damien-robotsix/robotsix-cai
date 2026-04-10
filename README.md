@@ -433,7 +433,7 @@ the same global window settings.
   history to include in the analysis. Default: `7`. Set to `0` to
   include all sessions (useful for debugging or initial seeding).
 - **`CAI_TRANSCRIPT_MAX_FILES`** — maximum number of transcript files
-  to read (most recent first by mtime). Default: `20`. Set to `0` to
+  to read (most recent first by mtime). Default: `500`. Set to `0` to
   disable the count limit. Both knobs apply together — a file must be
   within the time window AND in the top N most recent to be included.
 - **`CAI_MERGE_CONFIDENCE_THRESHOLD`** — confidence level required for
