@@ -2068,6 +2068,24 @@ def cmd_confirm(args) -> int:
 
     parsed_signals = parsed.stdout.strip()
 
+    # Extract stats from parse.py's JSON output.
+    try:
+        signals = json.loads(parsed_signals)
+    except (json.JSONDecodeError, ValueError):
+        signals = {}
+    token_usage = signals.get("token_usage", {})
+    in_tokens = token_usage.get("input_tokens", 0)
+    out_tokens = token_usage.get("output_tokens", 0)
+    session_count = signals.get("session_count", 0)
+
+    if in_tokens > 0 and in_tokens < 500:
+        print(
+            f"[cai confirm] WARNING: in_tokens={in_tokens} is below the "
+            f"expected floor of 500 — the transcript window may be too "
+            f"narrow or session files may be nearly empty",
+            flush=True,
+        )
+
     # 2b. For each merged issue, fetch the associated merged PR diff.
     MAX_DIFF_LEN = 8000
     for mi in merged_issues:
@@ -2199,11 +2217,13 @@ def cmd_confirm(args) -> int:
     dur = f"{int(time.monotonic() - t0)}s"
     print(
         f"[cai confirm] merged_checked={len(merged_issues)} "
-        f"solved={solved} unsolved={unsolved} inconclusive={inconclusive}",
+        f"solved={solved} unsolved={unsolved} inconclusive={inconclusive} "
+        f"sessions={session_count} in_tokens={in_tokens} out_tokens={out_tokens}",
         flush=True,
     )
     log_run("confirm", repo=REPO, merged_checked=len(merged_issues),
             solved=solved, unsolved=unsolved, inconclusive=inconclusive,
+            sessions=session_count, in_tokens=in_tokens, out_tokens=out_tokens,
             duration=dur, exit=0)
     return 0
 
