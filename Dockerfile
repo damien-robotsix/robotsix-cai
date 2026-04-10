@@ -62,6 +62,7 @@ COPY cai.py /app/cai.py
 COPY parse.py /app/parse.py
 COPY publish.py /app/publish.py
 COPY prompts /app/prompts
+COPY .claude /app/.claude
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
