@@ -77,6 +77,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -651,7 +652,8 @@ def cmd_fix(args) -> int:
     # idempotent and lets ad-hoc `docker run` invocations work too.
     _run(["gh", "auth", "setup-git"], capture_output=True)
 
-    work_dir = Path(f"/tmp/cai-fix-{issue_number}")
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-fix-{issue_number}-{_uid}")
     locked = True
 
     def rollback() -> None:
@@ -1458,7 +1460,8 @@ def cmd_revise(args) -> int:
 
         _run(["gh", "auth", "setup-git"], capture_output=True)
 
-        work_dir = Path(f"/tmp/cai-revise-{issue_number}")
+        _uid = uuid.uuid4().hex[:8]
+        work_dir = Path(f"/tmp/cai-revise-{issue_number}-{_uid}")
 
         try:
             if work_dir.exists():
@@ -2973,7 +2976,8 @@ def cmd_review_pr(args) -> int:
         pr_diff = diff_result.stdout
 
         # Clone the repo for the agent to walk.
-        work_dir = Path(f"/tmp/cai-review-{pr_number}")
+        _uid = uuid.uuid4().hex[:8]
+        work_dir = Path(f"/tmp/cai-review-{pr_number}-{_uid}")
         try:
             if work_dir.exists():
                 shutil.rmtree(work_dir)
