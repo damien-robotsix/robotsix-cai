@@ -106,9 +106,7 @@ TRANSCRIPT_DIR = Path("/root/.claude/projects")
 # Files baked into the image alongside cai.py.
 PARSE_SCRIPT = Path("/app/parse.py")
 PUBLISH_SCRIPT = Path("/app/publish.py")
-ANALYZER_PROMPT = Path("/app/prompts/backend-auto-improve.md")
 FIX_PROMPT = Path("/app/prompts/backend-fix.md")
-AUDIT_PROMPT = Path("/app/prompts/backend-audit.md")
 CONFIRM_PROMPT = Path("/app/prompts/backend-confirm.md")
 REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
 REBASE_PROMPT = Path("/app/prompts/backend-rebase.md")
@@ -393,8 +391,6 @@ def cmd_analyze(args) -> int:
             flush=True,
         )
 
-    prompt_text = ANALYZER_PROMPT.read_text()
-
     # Fetch currently open auto-improve issues so the analyzer can
     # avoid raising duplicates (semantic dedup, not just fingerprint).
     _STATE_PRIORITY = {
@@ -451,8 +447,12 @@ def cmd_analyze(args) -> int:
     # any signal from parsed transcripts. See #260.
     decisions_block = _design_decisions_block()
 
-    full_prompt = (
-        f"{prompt_text}"
+    # The system prompt, tool allowlist, and model choice all live
+    # in `.claude/agents/cai-analyze.md`. The wrapper only passes
+    # dynamic per-run context (design decisions, parsed signals,
+    # open issues, closed-issue rationales) via stdin as the user
+    # message.
+    user_message = (
         f"{decisions_block}\n\n"
         "## Parsed signals\n\n"
         "```json\n"
@@ -463,8 +463,8 @@ def cmd_analyze(args) -> int:
     )
 
     analyzer = _run(
-        ["claude", "-p", "--disallowedTools", "Bash"],
-        input=full_prompt,
+        ["claude", "-p", "--agent", "cai-analyze"],
+        input=user_message,
         capture_output=True,
     )
     print(analyzer.stdout, flush=True)
@@ -2349,9 +2349,9 @@ def cmd_audit(args) -> int:
         except Exception:
             log_tail = "(could not read log)"
 
-    # Build the prompt.
-    prompt_text = AUDIT_PROMPT.read_text()
-
+    # Build the user message. The system prompt, tool allowlist,
+    # and model choice all live in `.claude/agents/cai-audit.md` —
+    # the wrapper only passes dynamic per-run context via stdin.
     issues_section = "## Open auto-improve issues\n\n"
     if open_issues:
         for oi in open_issues:
@@ -2402,8 +2402,7 @@ def cmd_audit(args) -> int:
     # accepted. See #260.
     decisions_block = _design_decisions_block()
 
-    full_prompt = (
-        f"{prompt_text}"
+    user_message = (
         f"{decisions_block}\n\n"
         f"{issues_section}\n"
         f"{prs_section}\n"
@@ -2411,11 +2410,10 @@ def cmd_audit(args) -> int:
         f"{deterministic_section}"
     )
 
-    # Step 3: Run claude with the audit prompt (Sonnet).
+    # Step 3: Invoke the declared cai-audit subagent.
     audit = _run(
-        ["claude", "-p", "--model", "claude-sonnet-4-6",
-         "--disallowedTools", "Bash"],
-        input=full_prompt,
+        ["claude", "-p", "--agent", "cai-audit"],
+        input=user_message,
         capture_output=True,
     )
     print(audit.stdout, flush=True)
