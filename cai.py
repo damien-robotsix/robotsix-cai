@@ -1392,24 +1392,30 @@ def cmd_verify(args) -> int:
         else:
             print(f"[cai verify] #{num}: PR #{pr['number']} still {state}", flush=True)
 
-    # Safety net: recover issues that have the base "auto-improve" label but
-    # lost their lifecycle state suffix (e.g. due to a partial label update
-    # when another command closed a PR).  Transition them back to :raised so
-    # they re-enter the fix pipeline.
-    try:
-        all_ai_issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", "auto-improve",
-            "--state", "open",
-            "--json", "number,labels",
-            "--limit", "200",
-        ]) or []
-    except subprocess.CalledProcessError:
-        all_ai_issues = []
+    # Safety net: recover issues that have the base "auto-improve" or "audit"
+    # label but lost their lifecycle state suffix (e.g. due to a partial label
+    # update when another command closed a PR).  Transition them back to
+    # :raised so they re-enter the fix pipeline.
+    all_ai_issues: list[dict] = []
+    for base_label in ("auto-improve", "audit"):
+        try:
+            all_ai_issues.extend(_gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", base_label,
+                "--state", "open",
+                "--json", "number,labels",
+                "--limit", "200",
+            ]) or [])
+        except subprocess.CalledProcessError:
+            pass
 
+    seen_nums: set[int] = set()
     for issue in all_ai_issues:
         num = issue["number"]
+        if num in seen_nums:
+            continue
+        seen_nums.add(num)
         label_names = {lbl["name"] for lbl in issue.get("labels", [])}
         has_state = any(l.startswith("auto-improve:") or l.startswith("audit:") for l in label_names)
         if not has_state:
