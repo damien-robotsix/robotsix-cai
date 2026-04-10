@@ -2512,6 +2512,110 @@ def _pr_set_needs_human(pr_number: int, needs: bool) -> None:
         )
 
 
+def _pr_label_sweep() -> tuple[int, int]:
+    """Sync `needs-human-review` across every open bot PR.
+
+    Run after the merge loop so that PRs the merge step did NOT
+    process this tick (e.g., idempotency-skipped because no human
+    comment landed since the last verdict, or in `:revising` state)
+    still pick up the label whenever the bot has signalled it cannot
+    move forward alone. Without this sweep, a PR that hits
+    `rebase resolution failed` once would never be labelled, since
+    that failure path doesn't go through the merge agent. Refs #223.
+
+    Signals (each scoped to comments AFTER the latest commit so a
+    fresh push naturally clears them):
+
+    - latest `## cai merge verdict` is below the auto-merge threshold
+      (or rejects, but the PR is still open)
+    - any `## Revise subagent: rebase resolution failed` comment
+    - any `## Revise subagent: no additional changes` comment
+    - mergeStateStatus is DIRTY (unresolved conflict against main)
+
+    Returns (added, removed) for the run summary.
+    """
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--limit", "100",
+            "--json",
+            "number,labels,comments,mergeStateStatus,headRefName,commits",
+        ])
+    except subprocess.CalledProcessError:
+        return (0, 0)
+
+    threshold_rank = _CONFIDENCE_RANKS.get(_MERGE_THRESHOLD, 99)
+    added = 0
+    removed = 0
+
+    for pr in prs:
+        branch = pr.get("headRefName", "")
+        if not branch.startswith("auto-improve/"):
+            continue
+
+        pr_number = pr["number"]
+        comments = pr.get("comments", [])
+        merge_state = pr.get("mergeStateStatus", "")
+        labels = {l.get("name", "") for l in pr.get("labels", [])}
+        currently_labeled = LABEL_PR_NEEDS_HUMAN in labels
+
+        # Scope signals to comments newer than the latest commit so
+        # that a fresh push (rebase, revise, etc.) clears stale
+        # markers from earlier rounds.
+        commits = pr.get("commits", [])
+        last_commit_date = commits[-1].get("committedDate", "") if commits else ""
+        commit_ts = _parse_iso_ts(last_commit_date)
+
+        needs = False
+
+        # Signal: latest merge verdict is below threshold (or reject).
+        latest_verdict_ts = None
+        latest_verdict = None
+        for c in comments:
+            body = (c.get("body") or "").lstrip()
+            if not body.startswith(_MERGE_COMMENT_HEADING):
+                continue
+            v_ts = _parse_iso_ts(c.get("createdAt"))
+            if v_ts is None:
+                continue
+            if latest_verdict_ts is None or v_ts > latest_verdict_ts:
+                latest_verdict_ts = v_ts
+                latest_verdict = _parse_merge_verdict(body)
+        if latest_verdict and (commit_ts is None or latest_verdict_ts > commit_ts):
+            action = latest_verdict.get("action", "")
+            v_rank = _CONFIDENCE_RANKS.get(latest_verdict.get("confidence", ""), 0)
+            if action in ("hold", "reject") or v_rank < threshold_rank:
+                needs = True
+
+        # Signal: bot bailed on rebase or review comments.
+        if not needs:
+            for c in comments:
+                body = (c.get("body") or "").lstrip()
+                if not (body.startswith(_REBASE_FAILED_MARKER) or
+                        body.startswith(_NO_ADDITIONAL_CHANGES_MARKER)):
+                    continue
+                ts = _parse_iso_ts(c.get("createdAt"))
+                if commit_ts is not None and (ts is None or ts <= commit_ts):
+                    continue
+                needs = True
+                break
+
+        # Signal: PR has unresolved merge conflict against main.
+        if not needs and merge_state == "DIRTY":
+            needs = True
+
+        if needs and not currently_labeled:
+            _pr_set_needs_human(pr_number, True)
+            added += 1
+        elif not needs and currently_labeled:
+            _pr_set_needs_human(pr_number, False)
+            removed += 1
+
+    return (added, removed)
+
+
 def _parse_merge_verdict(text: str) -> dict | None:
     """Extract confidence, action, and reasoning from the agent's output."""
     conf_m = re.search(r"\*\*Confidence:\*\*\s*(high|medium|low)", text, re.IGNORECASE)
@@ -2909,13 +3013,27 @@ def cmd_merge(args) -> int:
             _pr_set_needs_human(pr_number, True)
             held += 1
 
+    # Sweep `needs-human-review` across every open bot PR so that any
+    # PR the merge agent did NOT touch this tick (idempotency-skipped,
+    # in :revising, blocked on rebase, etc.) still ends up with a
+    # correct label state. Refs #223.
+    label_added, label_removed = _pr_label_sweep()
+    if label_added or label_removed:
+        print(
+            f"[cai merge] needs-human-review sweep: "
+            f"added={label_added} removed={label_removed}",
+            flush=True,
+        )
+
     dur = f"{int(time.monotonic() - t0)}s"
     print(
         f"[cai merge] prs_evaluated={evaluated} merged={merged} held={held} closed={closed}",
         flush=True,
     )
     log_run("merge", repo=REPO, prs_evaluated=evaluated, merged=merged,
-            held=held, closed=closed, duration=dur, exit=0)
+            held=held, closed=closed,
+            label_added=label_added, label_removed=label_removed,
+            duration=dur, exit=0)
     return 0
 
 
