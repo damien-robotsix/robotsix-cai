@@ -480,6 +480,19 @@ def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (
     return True
 
 
+def _issue_has_label(issue_number: int, label: str) -> bool:
+    """Re-fetch an issue's labels and check for *label*. Avoids stale-snapshot races."""
+    try:
+        issue = _gh_json([
+            "issue", "view", str(issue_number),
+            "--repo", REPO,
+            "--json", "labels",
+        ])
+    except subprocess.CalledProcessError:
+        return False
+    return label in [l["name"] for l in (issue or {}).get("labels", [])]
+
+
 def _build_fix_prompt(issue: dict) -> str:
     prompt = FIX_PROMPT.read_text()
     issue_block = (
@@ -2751,7 +2764,7 @@ def cmd_merge(args) -> int:
                     f"[cai merge] PR #{pr_number}: close failed:\n{close_result.stderr}",
                     file=sys.stderr,
                 )
-                if LABEL_MERGED not in issue_labels:
+                if not _issue_has_label(issue_number, LABEL_MERGED):
                     _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
                 held += 1
         elif action == "merge" and verdict_rank >= threshold_rank:
@@ -2780,7 +2793,8 @@ def cmd_merge(args) -> int:
                 flush=True,
             )
             # Set merge-blocked label on the issue, unless already merged.
-            if LABEL_MERGED not in issue_labels:
+            # Re-fetch to avoid race with a concurrent merge run.
+            if not _issue_has_label(issue_number, LABEL_MERGED):
                 _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
             held += 1
 
