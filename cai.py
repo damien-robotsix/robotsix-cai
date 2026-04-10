@@ -1429,7 +1429,7 @@ def cmd_verify(args) -> int:
             continue
         state = (pr.get("state") or "").upper()
         if state == "MERGED":
-            _set_labels(num, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN])
+            _set_labels(num, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED])
             print(f"[cai verify] #{num}: PR #{pr['number']} merged → :merged", flush=True)
             transitioned += 1
         elif state == "CLOSED":
@@ -2491,7 +2491,8 @@ def cmd_merge(args) -> int:
                     f"[cai merge] PR #{pr_number}: close failed:\n{close_result.stderr}",
                     file=sys.stderr,
                 )
-                _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
+                if LABEL_MERGED not in issue_labels:
+                    _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
                 held += 1
         elif action == "merge" and verdict_rank >= threshold_rank:
             print(
@@ -2517,8 +2518,9 @@ def cmd_merge(args) -> int:
                 f"[cai merge] PR #{pr_number}: verdict={confidence} < threshold={_MERGE_THRESHOLD}; holding",
                 flush=True,
             )
-            # Set merge-blocked label on the issue.
-            _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
+            # Set merge-blocked label on the issue, unless already merged.
+            if LABEL_MERGED not in issue_labels:
+                _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED])
             held += 1
 
     dur = f"{int(time.monotonic() - t0)}s"
