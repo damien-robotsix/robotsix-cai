@@ -52,6 +52,16 @@ AUDIT_CATEGORIES = {
     "forgotten_backlog",
 }
 
+CODE_AUDIT_CATEGORIES = {
+    "cross_file_inconsistency",
+    "dead_code",
+    "missing_reference",
+    "duplicated_logic",
+    "hardcoded_drift",
+    "config_mismatch",
+    "registration_mismatch",
+}
+
 # Labels we ensure exist before creating issues. The first two are the
 # state labels; the rest are the category labels. Idempotent — `gh label
 # create` returns non-zero if the label already exists, which we ignore.
@@ -83,6 +93,18 @@ AUDIT_LABELS = [
     ("category:topic_duplicate", "5319e7", "Two open issues about the same pattern"),
     ("category:silent_failure", "b60205", "Step exited 0 but log shows it did not succeed"),
     ("category:forgotten_backlog", "c2e0c6", "Tracking-only issue with no state label idle >30 days"),
+]
+
+CODE_AUDIT_LABELS = [
+    ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
+    ("auto-improve:raised", "0e8a16", "Finding freshly raised; not yet triaged"),
+    ("category:cross_file_inconsistency", "d73a4a", "Constant/path/label mismatch across files"),
+    ("category:dead_code", "c5def5", "Unreachable or unused code"),
+    ("category:missing_reference", "e11d48", "Prompt or file reference that does not exist"),
+    ("category:duplicated_logic", "fbca04", "Same logic implemented in multiple places"),
+    ("category:hardcoded_drift", "0075ca", "Hardcoded values duplicated across files"),
+    ("category:config_mismatch", "5319e7", "Env var or config inconsistency"),
+    ("category:registration_mismatch", "d93f0b", "Handler registered without function or vice versa"),
 ]
 
 
@@ -202,9 +224,18 @@ def _extract_multiline_field(block: str, name: str) -> str:
     return match.group(1).strip()
 
 
+def _label_set_for(namespace: str):
+    """Return the label set for the given namespace."""
+    if namespace == "audit":
+        return AUDIT_LABELS
+    if namespace == "code-audit":
+        return CODE_AUDIT_LABELS
+    return LABELS
+
+
 def ensure_labels(namespace: str = "auto-improve") -> None:
     """Create the cai label set if it doesn't exist. Idempotent."""
-    label_set = AUDIT_LABELS if namespace == "audit" else LABELS
+    label_set = _label_set_for(namespace)
     for name, color, description in label_set:
         subprocess.run(
             [
@@ -250,6 +281,9 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     if namespace == "audit":
         source_note = "cai audit agent"
         source_file = "prompts/backend-audit.md"
+    elif namespace == "code-audit":
+        source_note = "cai code-audit agent"
+        source_file = "prompts/backend-code-audit.md"
     else:
         source_note = "cai self-analyzer"
         source_file = "prompts/backend-auto-improve.md"
@@ -299,12 +333,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
     parser.add_argument(
         "--namespace", default="auto-improve",
-        choices=["auto-improve", "audit"],
+        choices=["auto-improve", "audit", "code-audit"],
         help="Label namespace to use (default: auto-improve)",
     )
     args = parser.parse_args()
     namespace = args.namespace
-    valid_cats = AUDIT_CATEGORIES if namespace == "audit" else VALID_CATEGORIES
+    if namespace == "audit":
+        valid_cats = AUDIT_CATEGORIES
+    elif namespace == "code-audit":
+        valid_cats = CODE_AUDIT_CATEGORIES
+    else:
+        valid_cats = VALID_CATEGORIES
 
     text = sys.stdin.read()
     if not text.strip():
