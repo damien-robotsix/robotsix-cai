@@ -1286,7 +1286,7 @@ def cmd_verify(args) -> int:
             transitioned += 1
         elif state == "CLOSED":
             issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-            raised_label = LABEL_AUDIT_RAISED if "audit" in issue_labels else LABEL_RAISED
+            raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
             _set_labels(num, add=[raised_label], remove=[LABEL_PR_OPEN])
             print(
                 f"[cai verify] #{num}: PR #{pr['number']} closed unmerged → :raised",
@@ -1435,7 +1435,7 @@ def _rollback_stale_in_progress() -> list[dict]:
             else:
                 # In-progress lock: roll back to :raised.
                 issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-                raised_label = LABEL_AUDIT_RAISED if "audit" in issue_labels else LABEL_RAISED
+                raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
                 ok = _set_labels(
                     issue_num,
                     add=[raised_label],
