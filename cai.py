@@ -518,7 +518,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
         if state == "CLOSED":
             issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
             raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
-            if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN]):
+            if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
                 print(
                     f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
                     f"(PR #{pr['number']} closed unmerged)",
@@ -3690,13 +3690,13 @@ def cmd_merge(args) -> int:
             )
             if close_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: closed successfully", flush=True)
-                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN]):
+                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
                     print(
                         f"[cai merge] WARNING: label transition to :no-action failed for "
                         f"#{issue_number} after closing PR #{pr_number}; retrying",
                         flush=True,
                     )
-                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN]):
+                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
                         print(
                             f"[cai merge] WARNING: label transition to :no-action failed twice for "
                             f"#{issue_number} — issue may be stuck without a lifecycle label",
