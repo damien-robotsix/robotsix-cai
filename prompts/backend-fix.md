@@ -17,6 +17,13 @@ The full source tree is here, including `cai.py`, `parse.py`,
 `.github/workflows/`. Bash is not available — use Read, Edit, Write,
 Grep, and Glob instead.
 
+## Tool bootstrap
+
+Before starting work, run a single `ToolSearch` call to pre-fetch all
+deferred tools you may need during the session:
+`ToolSearch(query: "select:TodoWrite", max_results: 1)`. This avoids
+repeated ToolSearch round-trips later.
+
 ## Hard rules
 
 1. **Read before you edit.** Always Read the target file

@@ -6,6 +6,13 @@ internally consistent but create inconsistencies with the rest of the
 codebase. You have read-only access to the repository via
 `Read`, `Grep`, `Glob`, and the `Agent` tool.
 
+## Tool bootstrap
+
+Before starting work, run a single `ToolSearch` call to pre-fetch all
+deferred tools you may need during the session:
+`ToolSearch(query: "select:TodoWrite", max_results: 1)`. This avoids
+repeated ToolSearch round-trips later.
+
 ## What you receive
 
 1. **PR metadata** — number, title, author, base branch

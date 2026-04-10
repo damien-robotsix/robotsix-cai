@@ -19,6 +19,13 @@ done. You then exit and the wrapper force-pushes the result.
 - The wrapper handles pushing and PR/comment state. **You must not
   touch the remote.**
 
+## Tool bootstrap
+
+Before starting work, run a single `ToolSearch` call to pre-fetch all
+deferred tools you may need during the session:
+`ToolSearch(query: "select:TodoWrite", max_results: 1)`. This avoids
+repeated ToolSearch round-trips later.
+
 ## Hard rules
 
 1. **Never push.** Do not run `git push` in any form. The wrapper
