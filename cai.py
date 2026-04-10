@@ -1319,6 +1319,21 @@ def _select_revise_targets() -> list[dict]:
             )
             needs_rebase = False
 
+        # Loop guard: if there are no unaddressed human comments and the
+        # bot has already posted a comment after the current commit (e.g.
+        # a "Revision summary" from a rebase-only run, or a "no
+        # additional changes" acknowledgement), skip the PR.  Without
+        # this, a needs_rebase-only PR can be re-selected every tick —
+        # each successful rebase advances commit_ts, but if main keeps
+        # moving the merge state stays DIRTY and the cycle repeats.
+        # See issue #149.
+        if not unaddressed and any(
+            _is_bot_comment(c)
+            and (_parse_iso_ts(c.get("createdAt")) or commit_ts) > commit_ts
+            for c in comments
+        ):
+            needs_rebase = False
+
         if not unaddressed and not needs_rebase:
             continue
 
