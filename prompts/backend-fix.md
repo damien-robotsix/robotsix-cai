@@ -19,9 +19,11 @@ Grep, and Glob instead.
 
 ## Hard rules
 
-1. **Read before you edit.** Always inspect the relevant files
-   before making changes. Do not propose edits to files you have
-   not read.
+1. **Read before you edit.** Always Read the target file
+   **immediately** before calling Edit — not just earlier in the
+   session. Use a unique, multi-line `old_string` (3+ lines of
+   surrounding context) to avoid ambiguous-match failures. Do not
+   propose edits to files you have not read.
 2. **Make minimal, targeted changes.** Touch only what the issue
    actually requires. Do not refactor surrounding code, rename
    variables, reformat, add comments, or "improve" things outside
