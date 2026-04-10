@@ -65,10 +65,19 @@ RUN wget -nv -O /usr/local/bin/supercronic \
 # prompts). UID 1000 matches the typical first-host-user UID so the
 # bind-mounted `./logs:/var/log/cai` directory works without extra
 # host-side chowning.
+#
+# We pre-create the named-volume mount points (`/home/cai/.config/gh`
+# for `cai_gh_config` and `/home/cai/.claude/projects` for
+# `cai_transcripts`) with cai:cai ownership. Docker copies the
+# image's contents (including ownership and permissions) into a
+# new empty named volume on first mount — without these pre-created
+# directories, the volume mount points are created at runtime as
+# root:root and the cai user gets "permission denied" trying to
+# write `gh` credentials or claude-code transcripts there.
 RUN groupadd --system --gid 1000 cai \
     && useradd --system --gid cai --uid 1000 --create-home --shell /bin/bash cai \
-    && mkdir -p /var/log/cai \
-    && chown -R cai:cai /var/log/cai
+    && mkdir -p /var/log/cai /home/cai/.config/gh /home/cai/.claude/projects \
+    && chown -R cai:cai /var/log/cai /home/cai
 
 WORKDIR /app
 COPY --chown=cai:cai cai.py /app/cai.py
