@@ -396,7 +396,9 @@ def _select_fix_target():
 def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = ()) -> bool:
     """Add and/or remove labels on an issue. Returns True on success."""
     # Auto-add the base label for any state-prefixed label being added.
-    _BASE_NAMESPACES = {"auto-improve", "consistency", "audit"}
+    # This is defensive: create_issue already applies base labels, but
+    # auto-adding here self-heals issues that lost theirs.
+    _BASE_NAMESPACES = {"auto-improve", "audit"}
     auto_added_bases: set[str] = set()
     for label in add:
         if ":" in label:
