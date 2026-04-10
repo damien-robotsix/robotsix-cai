@@ -78,6 +78,7 @@ No third-party Python dependencies — only stdlib.
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
 import re
@@ -698,6 +699,192 @@ def _git(work_dir: Path, *args: str, check: bool = True) -> subprocess.Completed
     return subprocess.run(cmd, text=True, check=check, capture_output=True)
 
 
+# ---------------------------------------------------------------------------
+# Fix pipeline: plan → select → implement
+# ---------------------------------------------------------------------------
+
+_PLAN_SYSTEM_PROMPT = """\
+You are a planning subagent for robotsix-cai. Your job is to analyze a \
+GitHub issue and the codebase, then produce a detailed implementation plan \
+describing exactly how to fix the issue.
+
+You have read-only access to the codebase via Read, Grep, and Glob.
+
+What you must do:
+1. Read the issue carefully — understand the problem, evidence, and remediation.
+2. Explore the codebase — use Grep and Read to find the relevant files, \
+functions, and code paths.
+3. Produce a plan — be specific: name files, functions, line ranges, and \
+describe exactly what should change.
+
+End your response with a fenced block in exactly this format:
+
+## Plan
+
+### Analysis
+<brief analysis of the issue and relevant code>
+
+### Files to change
+<bullet list of files that need to be modified or created>
+
+### Steps
+<numbered list of specific implementation steps>
+
+### Risks and considerations
+<edge cases, risks, or things the implementer should watch out for>
+
+Rules:
+- Do NOT edit any files. You are read-only.
+- Do NOT suggest changes outside the scope of the issue.
+- Be concrete and specific — vague plans are useless.
+- If the issue is unclear, say so in Analysis with empty Steps.
+"""
+
+_SELECT_SYSTEM_PROMPT = """\
+You are a plan selection subagent for robotsix-cai. You receive multiple \
+implementation plans produced by independent planning agents for the same \
+issue. Your job is to evaluate each plan and select the best one.
+
+You have read-only access to the codebase via Read, Grep, and Glob to \
+verify claims made in the plans.
+
+Evaluation criteria (in order of importance):
+1. Correctness — Does the plan actually fix the issue?
+2. Minimality — Does it make the smallest change necessary?
+3. Specificity — Is it concrete enough to follow without guessing?
+4. Safety — Does it avoid risky side effects?
+
+What you must do:
+1. Read each plan carefully.
+2. If needed, use Read/Grep/Glob to verify claims in the plans.
+3. Select the best plan or synthesize the best parts of multiple plans.
+
+End your response with a fenced block in exactly this format:
+
+## Selected Plan
+
+### Rationale
+<why this plan was selected over the others>
+
+### Analysis
+<analysis from the selected plan, refined if needed>
+
+### Files to change
+<files to change, refined if needed>
+
+### Steps
+<implementation steps, refined if needed>
+
+### Risks and considerations
+<risks, refined if needed>
+
+Rules:
+- Do NOT edit any files. You are read-only.
+- You may combine the best elements of multiple plans.
+- If no plan is adequate, provide your own following the same format.
+- If the issue should not be fixed, say so in Rationale with empty Steps.
+"""
+
+_NUM_PLAN_AGENTS = 3
+
+
+def _run_single_plan_agent(
+    idx: int, user_message: str, work_dir: Path,
+) -> subprocess.CompletedProcess:
+    """Run one planning agent. Designed to be called in a thread pool."""
+    print(f"[cai fix] starting plan agent {idx + 1}/{_NUM_PLAN_AGENTS}", flush=True)
+    result = _run(
+        [
+            "claude", "-p",
+            "--model", "claude-opus-4-6",
+            "--system-prompt", _PLAN_SYSTEM_PROMPT,
+            "--tools", "Read,Grep,Glob",
+            "--permission-mode", "acceptEdits",
+        ],
+        input=user_message,
+        cwd=str(work_dir),
+        capture_output=True,
+    )
+    print(
+        f"[cai fix] plan agent {idx + 1}/{_NUM_PLAN_AGENTS} finished "
+        f"(exit {result.returncode})",
+        flush=True,
+    )
+    return result
+
+
+def _run_plan_phase(
+    user_message: str, work_dir: Path,
+) -> list[str] | None:
+    """Run N planning agents in parallel. Return list of plan texts, or None on failure."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_NUM_PLAN_AGENTS) as pool:
+        futures = [
+            pool.submit(_run_single_plan_agent, i, user_message, work_dir)
+            for i in range(_NUM_PLAN_AGENTS)
+        ]
+        results = [f.result() for f in futures]
+
+    plans: list[str] = []
+    for i, r in enumerate(results):
+        if r.returncode != 0:
+            print(
+                f"[cai fix] plan agent {i + 1} failed (exit {r.returncode}): "
+                f"{r.stderr[:500]}",
+                file=sys.stderr,
+            )
+            continue
+        output = (r.stdout or "").strip()
+        if output:
+            plans.append(output)
+
+    if not plans:
+        print("[cai fix] all plan agents failed; aborting", file=sys.stderr)
+        return None
+
+    print(f"[cai fix] collected {len(plans)}/{_NUM_PLAN_AGENTS} plans", flush=True)
+    return plans
+
+
+def _run_select_phase(
+    user_message: str, plans: list[str], work_dir: Path,
+) -> str | None:
+    """Run the selection agent. Return the selected plan text, or None on failure."""
+    # Build the selection prompt with all plans + the original issue.
+    parts = [user_message, "\n---\n"]
+    for i, plan in enumerate(plans):
+        parts.append(f"\n## Plan {i + 1}\n\n{plan}\n")
+
+    select_input = "".join(parts)
+    print("[cai fix] running plan selection agent", flush=True)
+    result = _run(
+        [
+            "claude", "-p",
+            "--model", "claude-opus-4-6",
+            "--system-prompt", _SELECT_SYSTEM_PROMPT,
+            "--tools", "Read,Grep,Glob",
+            "--permission-mode", "acceptEdits",
+        ],
+        input=select_input,
+        cwd=str(work_dir),
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"[cai fix] selection agent failed (exit {result.returncode}): "
+            f"{result.stderr[:500]}",
+            file=sys.stderr,
+        )
+        return None
+
+    output = (result.stdout or "").strip()
+    if not output:
+        print("[cai fix] selection agent returned empty output", file=sys.stderr)
+        return None
+
+    print("[cai fix] plan selection complete", flush=True)
+    return output
+
+
 def cmd_fix(args) -> int:
     """Run the fix subagent against one eligible issue."""
     if getattr(args, "issue", None) is not None:
@@ -793,21 +980,46 @@ def cmd_fix(args) -> int:
         branch = f"auto-improve/{issue_number}-{_slugify(title)}"
         _git(work_dir, "checkout", "-b", branch)
 
-        # 5. Run the cai-fix declarative subagent in the work dir.
-        #    System prompt, tool allowlist, and hard rules live in
-        #    `.claude/agents/cai-fix.md`. The wrapper only passes
-        #    dynamic per-run context (design decisions + the issue
-        #    body) as the user message via stdin.
+        # 5. Three-phase fix pipeline: plan → select → implement.
         user_message = _build_fix_user_message(issue)
-        print(f"[cai fix] running cai-fix subagent in {work_dir}", flush=True)
+
+        # 5a. Planning phase — run N plan agents in parallel.
+        print(f"[cai fix] starting planning phase ({_NUM_PLAN_AGENTS} agents)", flush=True)
+        plans = _run_plan_phase(user_message, work_dir)
+        if plans is None:
+            rollback()
+            log_run("fix", repo=REPO, issue=issue_number,
+                    result="plan_phase_failed", exit=1)
+            return 1
+
+        # 5b. Selection phase — pick the best plan.
+        selected_plan = _run_select_phase(user_message, plans, work_dir)
+        if selected_plan is None:
+            rollback()
+            log_run("fix", repo=REPO, issue=issue_number,
+                    result="select_phase_failed", exit=1)
+            return 1
+
+        # 5c. Implementation phase — run the cai-fix agent with the
+        #     selected plan prepended to the user message.
+        impl_message = (
+            f"## Selected Implementation Plan\n\n"
+            f"The following plan was selected by the planning pipeline. "
+            f"Follow it to implement the fix.\n\n"
+            f"{selected_plan}\n\n"
+            f"---\n\n"
+            f"{user_message}"
+        )
+        print(f"[cai fix] running implementation agent in {work_dir}", flush=True)
         # `acceptEdits` auto-accepts file edits (Read/Edit/Write/Grep/Glob)
         # without prompting. We don't use `bypassPermissions` because
         # claude-code refuses it when running as root inside the container,
         # and `acceptEdits` is sufficient for code-editing fixes.
         agent = _run(
             ["claude", "-p", "--agent", "cai-fix",
+             "--model", "claude-opus-4-6",
              "--permission-mode", "acceptEdits"],
-            input=user_message,
+            input=impl_message,
             cwd=str(work_dir),
             capture_output=True,
         )
@@ -815,7 +1027,7 @@ def cmd_fix(args) -> int:
             print(agent.stdout, flush=True)
         if agent.returncode != 0:
             print(
-                f"[cai fix] subagent claude -p failed (exit {agent.returncode}):\n"
+                f"[cai fix] implementation agent failed (exit {agent.returncode}):\n"
                 f"{agent.stderr}",
                 file=sys.stderr,
             )
@@ -824,7 +1036,7 @@ def cmd_fix(args) -> int:
                     result="subagent_failed", exit=agent.returncode)
             return agent.returncode
 
-        # 5b. Create any suggested issues the subagent raised.
+        # 5d. Create any suggested issues the subagent raised.
         agent_text = agent.stdout or ""
         suggested = _parse_suggested_issues(agent_text)
         if suggested:
