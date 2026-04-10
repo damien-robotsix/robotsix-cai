@@ -2054,6 +2054,12 @@ def cmd_confirm(args) -> int:
 _REVIEW_COMMENT_HEADING_FINDINGS = "## cai pre-merge review"
 _REVIEW_COMMENT_HEADING_CLEAN = "## cai pre-merge review (clean)"
 
+# Maximum number of review-pr reviews per PR. After this many reviews
+# (with or without findings), review-pr will stop re-reviewing the PR
+# to prevent review→revise→review loops from cycling indefinitely.
+# See issue #158.
+_MAX_REVIEWS_PER_PR = 3
+
 
 def cmd_review_pr(args) -> int:
     """Review open PRs for ripple effects and post findings as PR comments."""
@@ -2104,6 +2110,25 @@ def cmd_review_pr(args) -> int:
         if already_reviewed:
             print(
                 f"[cai review-pr] PR #{pr_number}: already reviewed at {head_sha[:8]}; skipping",
+                flush=True,
+            )
+            skipped += 1
+            continue
+
+        # Loop guard: cap the total number of reviews per PR to prevent
+        # review→revise→review cycles from running indefinitely.
+        # Count all prior review comments (both findings and clean).
+        # See issue #158.
+        prior_reviews = sum(
+            1 for c in pr.get("comments", [])
+            if (c.get("body") or "").lstrip().startswith(
+                _REVIEW_COMMENT_HEADING_FINDINGS
+            )
+        )
+        if prior_reviews >= _MAX_REVIEWS_PER_PR:
+            print(
+                f"[cai review-pr] PR #{pr_number}: already reviewed {prior_reviews} "
+                f"times (cap={_MAX_REVIEWS_PER_PR}); skipping to avoid review loop",
                 flush=True,
             )
             skipped += 1
