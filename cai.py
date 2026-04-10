@@ -326,7 +326,7 @@ def cmd_analyze(args) -> int:
     )
 
     analyzer = _run(
-        ["claude", "-p"],
+        ["claude", "-p", "--disallowedTools", "Bash"],
         input=full_prompt,
         capture_output=True,
     )
@@ -2171,7 +2171,8 @@ def cmd_audit(args) -> int:
 
     # Step 3: Run claude with the audit prompt (Sonnet).
     audit = _run(
-        ["claude", "-p", "--model", "claude-sonnet-4-6"],
+        ["claude", "-p", "--model", "claude-sonnet-4-6",
+         "--disallowedTools", "Bash"],
         input=full_prompt,
         capture_output=True,
     )
@@ -2705,7 +2706,8 @@ def cmd_confirm(args) -> int:
 
     # 4. Run claude with Sonnet.
     confirm = _run(
-        ["claude", "-p", "--model", "claude-sonnet-4-6"],
+        ["claude", "-p", "--model", "claude-sonnet-4-6",
+         "--disallowedTools", "Bash"],
         input=full_prompt,
         capture_output=True,
     )
@@ -3400,7 +3402,8 @@ def cmd_merge(args) -> int:
 
         # Run the model (read-only, no tools).
         agent = _run(
-            ["claude", "-p", "--model", "claude-opus-4-6"],
+            ["claude", "-p", "--model", "claude-opus-4-6",
+             "--disallowedTools", "Bash"],
             input=full_prompt,
             capture_output=True,
         )
