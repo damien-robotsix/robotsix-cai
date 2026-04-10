@@ -1142,6 +1142,7 @@ def cmd_revise(args) -> int:
 
     print(f"[cai revise] found {len(targets)} PR(s) to revise", flush=True)
 
+    had_failure = False
     for target in targets:
         pr_number = target["pr_number"]
         issue_number = target["issue_number"]
@@ -1233,7 +1234,8 @@ def cmd_revise(args) -> int:
                     )
                     _set_labels(issue_number, remove=[LABEL_REVISING])
                     log_run("revise", repo=REPO, pr=pr_number,
-                            result="rebase_failed", exit=0)
+                            result="rebase_failed", exit=1)
+                    had_failure = True
                     continue
 
                 # Rebase succeeded — force-push.
@@ -1402,11 +1404,12 @@ def cmd_revise(args) -> int:
             _set_labels(issue_number, remove=[LABEL_REVISING])
             log_run("revise", repo=REPO, pr=pr_number,
                     result="unexpected_error", exit=1)
+            had_failure = True
         finally:
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
-    return 0
+    return 1 if had_failure else 0
 
 
 # ---------------------------------------------------------------------------
