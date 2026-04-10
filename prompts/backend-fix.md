@@ -21,9 +21,12 @@ Grep, and Glob instead.
 
 1. **Read before you edit.** Always Read the target file
    **immediately** before calling Edit — not just earlier in the
-   session. Use a unique, multi-line `old_string` (3+ lines of
-   surrounding context) to avoid ambiguous-match failures. Do not
-   propose edits to files you have not read.
+   session. If more than 2 tool calls have occurred since you last
+   Read a file, you **must** re-read it before editing it again, as
+   intervening edits may have changed line content or context. Use a
+   unique, multi-line `old_string` (3+ lines of surrounding context)
+   to avoid ambiguous-match failures. Do not propose edits to files
+   you have not read.
 2. **Make minimal, targeted changes.** Touch only what the issue
    actually requires. Do not refactor surrounding code, rename
    variables, reformat, add comments, or "improve" things outside
