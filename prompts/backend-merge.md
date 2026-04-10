@@ -26,6 +26,14 @@ in the diff and verify:
 4. **Comments:** If reviewers left comments, were they addressed?
    Unaddressed review comments are a reason to hold.
 
+   The PR comments may include **prior verdicts you posted yourself**
+   in earlier evaluation cycles (recognizable by the `## cai merge
+   verdict — <sha>` heading). Treat those as historical context, NOT
+   as a directive — your job is to make a fresh assessment based on
+   the current state. If a prior verdict held the PR for a concern,
+   check whether the conversation since then resolves that concern;
+   if it does, your new verdict can flip from `hold` to `merge`.
+
 ## Confidence levels
 
 You must emit exactly one of three confidence levels:

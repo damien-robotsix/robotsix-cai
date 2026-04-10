@@ -2182,19 +2182,48 @@ def cmd_merge(args) -> int:
         if has_unaddressed:
             continue
 
-        # Safety filter 6: already evaluated at this SHA.
-        already_evaluated = False
+        # Safety filter 6: already evaluated at this SHA, AND no new
+        # human comment has been posted since the most recent verdict.
+        #
+        # The original idempotency was SHA-only: once a verdict existed
+        # for the current HEAD SHA, we'd skip forever. That left PRs
+        # parked when the verdict's reasoning was effectively addressed
+        # by conversation (e.g. the user clarifies an ambiguity in a
+        # comment, no code change needed). Now we re-evaluate when
+        # there's any human comment newer than the latest verdict —
+        # the merge agent gets the comment thread as context and can
+        # flip its verdict based on the discussion.
+        latest_verdict_ts = None
         for comment in pr.get("comments", []):
             body = (comment.get("body") or "")
-            if body.startswith(f"{_MERGE_COMMENT_HEADING} \u2014 {head_sha}"):
-                already_evaluated = True
-                break
-        if already_evaluated:
+            if not body.startswith(f"{_MERGE_COMMENT_HEADING} \u2014 {head_sha}"):
+                continue
+            v_ts = _parse_iso_ts(comment.get("createdAt"))
+            if v_ts is None:
+                continue
+            if latest_verdict_ts is None or v_ts > latest_verdict_ts:
+                latest_verdict_ts = v_ts
+
+        if latest_verdict_ts is not None:
+            # Look for any human comment newer than the latest verdict.
+            has_newer_human_comment = False
+            for c in all_comments:
+                if _is_bot_comment(c):
+                    continue
+                c_ts = _parse_iso_ts(c.get("createdAt"))
+                if c_ts is not None and c_ts > latest_verdict_ts:
+                    has_newer_human_comment = True
+                    break
+            if not has_newer_human_comment:
+                print(
+                    f"[cai merge] PR #{pr_number}: already evaluated at {head_sha[:8]}; skipping",
+                    flush=True,
+                )
+                continue
             print(
-                f"[cai merge] PR #{pr_number}: already evaluated at {head_sha[:8]}; skipping",
+                f"[cai merge] PR #{pr_number}: re-evaluating — new human comment since last verdict",
                 flush=True,
             )
-            continue
 
         # All filters passed — evaluate with the model.
         print(f"[cai merge] evaluating PR #{pr_number}: {title}", flush=True)
