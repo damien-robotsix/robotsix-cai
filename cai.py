@@ -2117,8 +2117,10 @@ def cmd_review_pr(args) -> int:
 
         # Loop guard: cap the total number of reviews per PR to prevent
         # review→revise→review cycles from running indefinitely.
-        # Count all prior review comments (both findings and clean).
-        # See issue #158.
+        # Match either heading variant (findings or clean) —
+        # _REVIEW_COMMENT_HEADING_CLEAN starts with
+        # _REVIEW_COMMENT_HEADING_FINDINGS, so a single startswith
+        # check covers both.  See issue #158.
         prior_reviews = sum(
             1 for c in pr.get("comments", [])
             if (c.get("body") or "").lstrip().startswith(

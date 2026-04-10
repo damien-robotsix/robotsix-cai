@@ -173,9 +173,9 @@ references, etc.).
 Findings are posted as a single PR comment starting with
 `## cai pre-merge review — <sha>`. The SHA prevents re-reviewing PRs
 that haven't changed. To prevent review→revise→review loops from
-cycling indefinitely, `review-pr` also caps total reviews per PR at 3;
-PRs that have already been reviewed 3 times are skipped regardless of
-new commits. Because findings are PR comments, the `revise`
+cycling indefinitely, `review-pr` also caps total reviews per PR at 3
+(regardless of whether findings were posted); PRs that have already
+been reviewed 3 times are skipped regardless of new commits. Because findings are PR comments, the `revise`
 subagent picks them up on the next tick and can address them
 automatically — no separate issue is created.
 
