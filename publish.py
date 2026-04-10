@@ -3,7 +3,7 @@
 Publish analyzer findings as GitHub issues via the `gh` CLI.
 
 Reads the analyzer's stdout from this script's own stdin, parses
-`### Finding:` markdown blocks produced by `prompts/backend-auto-improve.md`,
+`### Finding:` markdown blocks produced by `.claude/agents/cai-analyze.md`,
 and creates one issue per finding in the `damien-robotsix/robotsix-cai`
 repository. Existing findings are deduped by a fingerprint HTML comment
 embedded in the issue body (`<!-- fingerprint: <key> -->`).
@@ -32,7 +32,7 @@ from dataclasses import dataclass
 # will be parameterized per workspace.
 REPO = "damien-robotsix/robotsix-cai"
 
-# The set of categories declared in prompts/backend-auto-improve.md. Any
+# The set of categories declared in .claude/agents/cai-analyze.md. Any
 # finding whose category is outside this set is rejected before we touch
 # GitHub — the analyzer is instructed not to invent new ones.
 VALID_CATEGORIES = {
@@ -280,13 +280,13 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     """Create one issue. Returns gh's exit code."""
     if namespace == "audit":
         source_note = "cai audit agent"
-        source_file = "prompts/backend-audit.md"
+        source_file = ".claude/agents/cai-audit.md"
     elif namespace == "code-audit":
         source_note = "cai code-audit agent"
-        source_file = "prompts/backend-code-audit.md"
+        source_file = ".claude/agents/cai-code-audit.md"
     else:
         source_note = "cai self-analyzer"
-        source_file = "prompts/backend-auto-improve.md"
+        source_file = ".claude/agents/cai-analyze.md"
     body = (
         f"<!-- fingerprint: {f.key} -->\n"
         f"**Category:** `{f.category}`  \n"

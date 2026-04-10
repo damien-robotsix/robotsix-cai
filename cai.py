@@ -106,8 +106,6 @@ TRANSCRIPT_DIR = Path("/root/.claude/projects")
 # Files baked into the image alongside cai.py.
 PARSE_SCRIPT = Path("/app/parse.py")
 PUBLISH_SCRIPT = Path("/app/publish.py")
-DESIGN_DECISIONS = Path("/app/prompts/design-decisions.md")
-
 # Persistent memory file for the code-audit agent. Stored in the
 # bind-mounted log directory so it survives container restarts.
 CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
@@ -220,34 +218,6 @@ def cmd_init(args) -> int:
 # ---------------------------------------------------------------------------
 # analyze
 # ---------------------------------------------------------------------------
-
-def _design_decisions_block() -> str:
-    """Return the design-decisions file as a prompt section, or "".
-
-    Read by every subagent that decides what to raise, fix, or skip
-    (analyze, audit, fix). The file lives at `prompts/design-decisions.md`
-    and contains durable, supervisor-curated rules that override any
-    signal from parsed transcripts. See #260.
-    """
-    if not DESIGN_DECISIONS.exists():
-        return ""
-    try:
-        text = DESIGN_DECISIONS.read_text().strip()
-    except OSError:
-        return ""
-    if not text:
-        return ""
-    return (
-        "\n\n## Durable design decisions\n\n"
-        "The following entries are supervisor-curated rules. They "
-        "override any signal from parsed transcripts: if your finding "
-        "or proposed action overlaps with an entry below, do NOT raise "
-        "or act on it. The only exception is the explicit exit "
-        "condition stated in each entry. Read every entry before "
-        "deciding.\n\n"
-        f"{text}\n"
-    )
-
 
 def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
     """Return recently closed `auto-improve` issues with closing rationale.
@@ -435,17 +405,12 @@ def cmd_analyze(args) -> int:
     closed_issues = _fetch_closed_auto_improve_issues(limit=50)
     closed_block = _closed_issues_block(closed_issues)
 
-    # Durable design decisions — load-bearing rules that override
-    # any signal from parsed transcripts. See #260.
-    decisions_block = _design_decisions_block()
-
     # The system prompt, tool allowlist, and model choice all live
-    # in `.claude/agents/cai-analyze.md`. The wrapper only passes
-    # dynamic per-run context (design decisions, parsed signals,
-    # open issues, closed-issue rationales) via stdin as the user
-    # message.
+    # in `.claude/agents/cai-analyze.md`. Durable per-agent learnings
+    # live in its `memory: project` pool. The wrapper only passes
+    # dynamic per-run context (parsed signals, open issues,
+    # closed-issue rationales) via stdin as the user message.
     user_message = (
-        f"{decisions_block}\n\n"
         "## Parsed signals\n\n"
         "```json\n"
         f"{parsed_signals}\n"
@@ -635,16 +600,11 @@ def _issue_has_label(issue_number: int, label: str) -> bool:
 def _build_fix_user_message(issue: dict) -> str:
     """Build the dynamic per-run user message for the cai-fix agent.
 
-    The system prompt, tool allowlist, and hard rules all live in
-    `.claude/agents/cai-fix.md`. The wrapper only passes the
-    dynamic context:
-
-      1. Durable design decisions (defense in depth — if a finding
-         slips past analyze but overlaps a decision entry, the fix
-         subagent refuses to act and surfaces the conflict).
-      2. The issue body + any comments the reviewer left on it.
+    The system prompt, tool allowlist, and hard rules live in
+    `.claude/agents/cai-fix.md`; durable per-agent learnings live
+    in its `memory: project` pool. The wrapper only passes the
+    issue body + any reviewer comments as stdin.
     """
-    decisions_block = _design_decisions_block()
     issue_block = (
         f"## Issue\n\n"
         f"### #{issue['number']} — {issue['title']}\n\n"
@@ -657,7 +617,7 @@ def _build_fix_user_message(issue: dict) -> str:
             author = c.get("author", {}).get("login", "unknown")
             body = c.get("body", "")
             issue_block += f"**{author}:**\n{body}\n\n"
-    return f"{decisions_block}\n\n{issue_block}"
+    return issue_block
 
 
 def _parse_suggested_issues(agent_output: str) -> list[dict]:
@@ -1251,17 +1211,7 @@ def _select_revise_targets() -> list[dict]:
         if LABEL_PR_OPEN not in label_names:
             continue
 
-        # Find the most recent commit timestamp on the branch.
-        try:
-            commit_info = _gh_json([
-                "api", f"repos/{REPO}/commits",
-                "--jq", ".[0].commit.committer.date",
-                "-q", "sha=" + branch,
-            ])
-        except Exception:
-            commit_info = None
-
-        # Use gh pr view to get the last commit date more reliably.
+        # Find the most recent commit date via `gh pr view`.
         try:
             pr_detail = _gh_json([
                 "pr", "view", str(pr["number"]),
@@ -2304,13 +2254,7 @@ def cmd_audit(args) -> int:
             deterministic_section += f"- #{ci['number']}: {ci['title']}\n"
         deterministic_section += "\n"
 
-    # Durable design decisions — the audit subagent should not flag
-    # patterns of dysfunction that the supervisor has explicitly
-    # accepted. See #260.
-    decisions_block = _design_decisions_block()
-
     user_message = (
-        f"{decisions_block}\n\n"
         f"{issues_section}\n"
         f"{prs_section}\n"
         f"{log_section}\n"
@@ -2773,19 +2717,20 @@ def cmd_code_audit(args) -> int:
                 duration=dur, exit=1)
         return 1
 
-    # 2. Build the user message with design decisions and memory.
-    #    System prompt, tool allowlist (Read/Grep/Glob), and model
-    #    (sonnet) all live in `.claude/agents/cai-code-audit.md`.
-    decisions_block = _design_decisions_block()
+    # 2. Build the user message with the runtime memory from the
+    #    bind-mounted log directory. System prompt, tool allowlist
+    #    (Read/Grep/Glob), and model (sonnet) all live in
+    #    `.claude/agents/cai-code-audit.md`. Durable per-agent
+    #    learnings live in its `memory: project` pool.
     memory = _read_code_audit_memory()
 
-    memory_section = "\n\n## Memory from previous runs\n\n"
+    memory_section = "## Memory from previous runs\n\n"
     if memory:
         memory_section += memory + "\n"
     else:
         memory_section += "(first run — no prior memory)\n"
 
-    user_message = f"{decisions_block}{memory_section}"
+    user_message = memory_section
 
     # 3. Invoke the declared cai-code-audit subagent.
     print(f"[cai code-audit] running agent in {work_dir}", flush=True)

@@ -17,7 +17,7 @@ failed tools, repeated consecutive runs, token usage, and a short
 sequence preview.
 
 The reasoning over this summary is the job of the Claude analyzer that
-calls this script (see prompts/backend-auto-improve.md).
+calls this script (see .claude/agents/cai-analyze.md).
 
 Usage::
 
