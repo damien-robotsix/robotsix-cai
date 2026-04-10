@@ -500,8 +500,27 @@ def _issue_has_label(issue_number: int, label: str) -> bool:
     return label in [l["name"] for l in (issue or {}).get("labels", [])]
 
 
-def _build_fix_prompt(issue: dict) -> str:
+def _file_manifest(root: Path) -> str:
+    """Return a compact newline-separated list of repo files (excludes .git)."""
+    paths: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        rel = os.path.relpath(dirpath, root)
+        for f in sorted(filenames):
+            paths.append(f"{rel}/{f}" if rel != "." else f)
+    paths.sort()
+    return "\n".join(paths)
+
+
+def _build_fix_prompt(issue: dict, work_dir: Path | None = None) -> str:
     prompt = FIX_PROMPT.read_text()
+    if work_dir and work_dir.is_dir():
+        manifest = _file_manifest(work_dir)
+        prompt += (
+            "\n\n## Repository file manifest\n\n"
+            "These are all files in the working directory:\n\n"
+            f"```\n{manifest}\n```\n"
+        )
     issue_block = (
         f"## Issue\n\n"
         f"### #{issue['number']} — {issue['title']}\n\n"
@@ -691,7 +710,7 @@ def cmd_fix(args) -> int:
         _git(work_dir, "checkout", "-b", branch)
 
         # 5. Run the fix subagent in the work dir with full permissions.
-        prompt = _build_fix_prompt(issue)
+        prompt = _build_fix_prompt(issue, work_dir=work_dir)
         print(f"[cai fix] running fix subagent in {work_dir}", flush=True)
         # `acceptEdits` auto-accepts file edits (Read/Edit/Write/Grep/Glob)
         # without prompting. We don't use `bypassPermissions` because
