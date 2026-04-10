@@ -2475,6 +2475,7 @@ def cmd_merge(args) -> int:
             )
             if merge_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: merged successfully", flush=True)
+                _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN])
                 merged += 1
             else:
                 print(
