@@ -106,7 +106,6 @@ TRANSCRIPT_DIR = Path("/root/.claude/projects")
 # Files baked into the image alongside cai.py.
 PARSE_SCRIPT = Path("/app/parse.py")
 PUBLISH_SCRIPT = Path("/app/publish.py")
-REVISE_PROMPT = Path("/app/prompts/backend-revise.md")
 AUDIT_TRIAGE_PROMPT = Path("/app/prompts/backend-audit-triage.md")
 CODE_AUDIT_PROMPT = Path("/app/prompts/backend-code-audit.md")
 DESIGN_DECISIONS = Path("/app/prompts/design-decisions.md")
@@ -1208,122 +1207,6 @@ def _rebase_conflict_files(work_dir: Path) -> list[str]:
     return [line for line in res.stdout.strip().splitlines() if line]
 
 
-def _agent_resolve_rebase(
-    work_dir: Path,
-    pr_number: int,
-    issue_title: str,
-    issue_body: str,
-) -> tuple[bool, str]:
-    """Drive a stopped `git rebase` to completion via the resolver subagent.
-
-    The wrapper has just run `git rebase origin/main` and the rebase
-    has stopped on conflicts. We hand the in-progress rebase to the
-    declared `cai-rebase-resolver` subagent (defined in
-    `.claude/agents/cai-rebase-resolver.md`) via `claude --agent`.
-    The agent has Bash access so it can run `git` itself — resolve
-    every conflict, stage, and `--continue`/`--skip` until the
-    rebase is fully done. The agent's system prompt, tool allowlist,
-    and loop logic all live in the agent file; the wrapper only
-    passes the dynamic per-run context (issue title + body) as the
-    user message via stdin.
-
-    Bash pattern restrictions (`git push`, `git remote`, `gh`) are
-    enforced repo-wide by `.claude/settings.json` deny rules — the
-    agent physically cannot touch the remote. Pushing is the
-    wrapper's job, and we verify the worktree state ourselves
-    before trusting the agent's "done" signal (trust-but-verify
-    below).
-
-    Returns (success, agent_summary). On failure the rebase is left
-    aborted and the caller falls back to the manual-rebase comment
-    path. On success the rebase is fully complete and the worktree
-    is clean.
-    """
-    # The agent's system prompt lives in the agent file; we only
-    # pass the dynamic per-run context via stdin.
-    user_message = (
-        "## Original PR issue context\n\n"
-        f"### {issue_title}\n\n"
-        f"{issue_body or '(no body)'}\n"
-    )
-
-    print(
-        f"[cai revise] PR #{pr_number}: invoking cai-rebase-resolver agent",
-        flush=True,
-    )
-
-    agent = _run(
-        ["claude", "-p", "--agent", "cai-rebase-resolver",
-         "--permission-mode", "acceptEdits"],
-        input=user_message,
-        cwd=str(work_dir),
-        capture_output=True,
-    )
-    if agent.stdout:
-        print(agent.stdout, flush=True)
-    summary = (agent.stdout or "").strip()[:4000]
-
-    if agent.returncode != 0:
-        print(
-            f"[cai revise] PR #{pr_number}: rebase resolver agent failed "
-            f"(exit {agent.returncode}):\n{agent.stderr}",
-            file=sys.stderr,
-        )
-        _git(work_dir, "rebase", "--abort", check=False)
-        return False, summary
-
-    # Trust but verify. The agent claims success — confirm before
-    # we let the wrapper push:
-    #   1. No rebase still in progress.
-    #   2. No unmerged paths in the index.
-    #   3. Working tree is clean (no stray edits).
-    #   4. Branch contains origin/main (i.e. the rebase actually
-    #      happened, not just got aborted into a passing state).
-    rebase_merge = work_dir / ".git" / "rebase-merge"
-    rebase_apply = work_dir / ".git" / "rebase-apply"
-    if rebase_merge.exists() or rebase_apply.exists():
-        print(
-            f"[cai revise] PR #{pr_number}: agent exited but rebase "
-            "still in progress; aborting",
-            file=sys.stderr,
-        )
-        _git(work_dir, "rebase", "--abort", check=False)
-        return False, summary
-
-    if _rebase_conflict_files(work_dir):
-        print(
-            f"[cai revise] PR #{pr_number}: agent exited with "
-            "unmerged paths still present",
-            file=sys.stderr,
-        )
-        _git(work_dir, "rebase", "--abort", check=False)
-        return False, summary
-
-    status = _git(work_dir, "status", "--porcelain", check=False)
-    if status.stdout.strip():
-        print(
-            f"[cai revise] PR #{pr_number}: agent left working tree "
-            f"dirty:\n{status.stdout}",
-            file=sys.stderr,
-        )
-        return False, summary
-
-    ancestry = _run(
-        ["git", "-C", str(work_dir), "merge-base", "--is-ancestor",
-         "origin/main", "HEAD"],
-        capture_output=True,
-    )
-    if ancestry.returncode != 0:
-        print(
-            f"[cai revise] PR #{pr_number}: agent finished but HEAD "
-            "is not on top of origin/main (rebase likely aborted)",
-            file=sys.stderr,
-        )
-        return False, summary
-
-    return True, summary
-
-
 def _select_revise_targets() -> list[dict]:
     """Return PRs needing revision (unaddressed comments since last commit).
 
@@ -1635,120 +1518,68 @@ def cmd_revise(args) -> int:
             _git(work_dir, "config", "user.name", name)
             _git(work_dir, "config", "user.email", email)
 
-            # 3b. Rebase onto current main if the PR is unmergeable.
-            if target.get("needs_rebase"):
+            # 3b. Deterministically attempt the rebase onto main.
+            #     We always rebase — if main hasn't moved, it's a
+            #     no-op. The unified cai-revise subagent handles both
+            #     conflict resolution AND review-comment addressing
+            #     in one session, so the wrapper doesn't need to
+            #     branch on `needs_rebase` anymore.
+            _git(work_dir, "fetch", "origin", "main")
+            pre_agent_head = _git(
+                work_dir, "rev-parse", "HEAD", check=False,
+            ).stdout.strip()
+            rebase = _git(
+                work_dir, "rebase", "origin/main", check=False,
+            )
+
+            rebase_merge_dir = work_dir / ".git" / "rebase-merge"
+            rebase_apply_dir = work_dir / ".git" / "rebase-apply"
+            rebase_in_progress = (
+                rebase_merge_dir.exists() or rebase_apply_dir.exists()
+            )
+
+            if rebase_in_progress:
+                conflict_files = _rebase_conflict_files(work_dir)
+                rebase_state_block = (
+                    "## Rebase state\n\n"
+                    f"**Status:** in progress — {len(conflict_files)} "
+                    "conflicted file(s)\n\n"
+                    "The wrapper ran `git rebase origin/main` and it "
+                    "stopped on conflicts. You must drive the rebase "
+                    "to completion before addressing review comments. "
+                    "Conflicted files:\n\n"
+                    + "\n".join(f"- `{f}`" for f in conflict_files)
+                    + "\n"
+                )
                 print(
-                    f"[cai revise] PR #{pr_number} is unmergeable, "
-                    "attempting rebase onto main",
+                    f"[cai revise] PR #{pr_number}: rebase stopped on "
+                    f"{len(conflict_files)} conflict(s); handing to agent",
                     flush=True,
                 )
-                _git(work_dir, "fetch", "origin", "main")
-                rebase = _git(
-                    work_dir, "rebase", "origin/main", check=False,
-                )
-
-                resolver_summary = ""
-                if rebase.returncode != 0:
-                    # Rebase stopped on conflicts — let the resolver subagent
-                    # try to merge them rather than bailing immediately.
-                    try:
-                        issue_data = _gh_json([
-                            "issue", "view", str(issue_number),
-                            "--repo", REPO,
-                            "--json", "number,title,body",
-                        ])
-                    except subprocess.CalledProcessError:
-                        issue_data = {"title": "(unknown)", "body": ""}
-
-                    resolved, resolver_summary = _agent_resolve_rebase(
-                        work_dir,
-                        pr_number,
-                        issue_data.get("title", "(unknown)"),
-                        issue_data.get("body") or "",
-                    )
-
-                    if not resolved:
-                        # Capture conflict files for the comment (rebase has
-                        # already been aborted by the resolver).
-                        comment_body = (
-                            "## Revise subagent: rebase resolution failed\n\n"
-                            "Could not auto-rebase against current main, "
-                            "and the resolver subagent could not resolve "
-                            "the conflicts cleanly. Please rebase manually."
-                        )
-                        if resolver_summary:
-                            comment_body += (
-                                "\n\n<details><summary>Resolver notes</summary>"
-                                f"\n\n{resolver_summary}\n\n</details>"
-                            )
-                        _run(
-                            ["gh", "pr", "comment", str(pr_number),
-                             "--repo", REPO, "--body", comment_body],
-                            capture_output=True,
-                        )
-                        print(
-                            f"[cai revise] rebase failed for PR #{pr_number}; "
-                            "posted comment",
-                            flush=True,
-                        )
-                        _set_labels(issue_number, remove=[LABEL_REVISING])
-                        log_run("revise", repo=REPO, pr=pr_number,
-                                result="rebase_failed", exit=0)
-                        continue
-
-                    print(
-                        f"[cai revise] PR #{pr_number}: resolver subagent "
-                        "completed the rebase",
-                        flush=True,
-                    )
-
-                # Rebase succeeded (cleanly or via resolver) — force-push.
-                push = _run(
-                    ["git", "-C", str(work_dir), "push",
-                     "--force-with-lease", "origin", branch],
-                    capture_output=True,
-                )
-                if push.returncode != 0:
-                    print(
-                        f"[cai revise] rebase push failed:\n{push.stderr}",
-                        file=sys.stderr,
-                    )
-                    _set_labels(issue_number, remove=[LABEL_REVISING])
-                    log_run("revise", repo=REPO, pr=pr_number,
-                            result="rebase_push_failed", exit=1)
-                    had_failure = True
-                    continue
-
+            elif rebase.returncode != 0:
+                # Rebase failed but no rebase in progress — anomalous
+                # state (git refused to start the rebase at all). Bail
+                # loudly rather than hand a broken worktree to the agent.
                 print(
-                    f"[cai revise] rebased PR #{pr_number} onto main",
-                    flush=True,
+                    f"[cai revise] PR #{pr_number}: rebase exit "
+                    f"{rebase.returncode} with no in-progress state:\n"
+                    f"{rebase.stderr}",
+                    file=sys.stderr,
                 )
+                _set_labels(issue_number, remove=[LABEL_REVISING])
                 log_run("revise", repo=REPO, pr=pr_number,
-                        result="rebased", exit=0)
+                        result="rebase_weird_failure", exit=1)
+                had_failure = True
+                continue
+            else:
+                rebase_state_block = (
+                    "## Rebase state\n\n"
+                    "**Status:** clean — `git rebase origin/main` "
+                    "completed without conflicts. You can skip straight "
+                    "to addressing review comments (if any).\n"
+                )
 
-                # If the resolver subagent ran, post a summary so reviewers
-                # can audit how the conflicts were merged.
-                if resolver_summary:
-                    rebase_comment = (
-                        "## Revise subagent: rebase resolved\n\n"
-                        f"{resolver_summary}\n\n"
-                        "---\n"
-                        "_Auto-rebased onto current `main` by `cai revise`. "
-                        "Conflict resolution was performed by the resolver "
-                        "subagent — please double-check the merged hunks._\n"
-                    )
-                    _run(
-                        ["gh", "pr", "comment", str(pr_number),
-                         "--repo", REPO, "--body", rebase_comment],
-                        capture_output=True,
-                    )
-
-                # If there are no comments to address, we're done with this PR.
-                if not comments:
-                    _set_labels(issue_number, remove=[LABEL_REVISING])
-                    continue
-
-            # 4. Fetch original issue body.
+            # 4. Fetch original issue body + current PR diff.
             try:
                 issue_data = _gh_json([
                     "issue", "view", str(issue_number),
@@ -1758,27 +1589,32 @@ def cmd_revise(args) -> int:
             except subprocess.CalledProcessError:
                 issue_data = {"number": issue_number, "title": "(unknown)", "body": ""}
 
-            # Get current PR diff.
             diff_result = _run(
                 ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
                 capture_output=True,
             )
             pr_diff = diff_result.stdout if diff_result.returncode == 0 else "(could not fetch diff)"
 
-            # 5. Build the revise prompt.
-            prompt_text = REVISE_PROMPT.read_text()
+            # 5. Build the user message. The system prompt, tool
+            #    allowlist (Bash + edit tools), and hard rules all
+            #    live in `.claude/agents/cai-revise.md`.
             comments_section = "## Unaddressed review comments\n\n"
-            for c in comments:
-                author = c.get("author", {}).get("login", "unknown")
-                body = c.get("body", "")
-                created = c.get("createdAt", "")
+            if comments:
+                for c in comments:
+                    author = c.get("author", {}).get("login", "unknown")
+                    body = c.get("body", "")
+                    created = c.get("createdAt", "")
+                    comments_section += (
+                        f"### Comment by @{author} ({created})\n\n"
+                        f"{body}\n\n"
+                    )
+            else:
                 comments_section += (
-                    f"### Comment by @{author} ({created})\n\n"
-                    f"{body}\n\n"
+                    "(none — only the rebase needed attention)\n"
                 )
 
-            full_prompt = (
-                f"{prompt_text}\n\n"
+            user_message = (
+                f"{rebase_state_block}\n"
                 f"## Original issue\n\n"
                 f"### #{issue_data['number']} — {issue_data.get('title', '')}\n\n"
                 f"{issue_data.get('body') or '(no body)'}\n\n"
@@ -1787,40 +1623,99 @@ def cmd_revise(args) -> int:
                 f"{comments_section}"
             )
 
-            # 6. Run the revise subagent.
-            print(f"[cai revise] running revise subagent in {work_dir}", flush=True)
+            # 6. Invoke the declared cai-revise subagent.
+            print(
+                f"[cai revise] running cai-revise subagent in {work_dir}",
+                flush=True,
+            )
             agent = _run(
-                ["claude", "-p", "--permission-mode", "acceptEdits",
-                 "--disallowedTools", "Bash"],
-                input=full_prompt,
+                ["claude", "-p", "--agent", "cai-revise",
+                 "--permission-mode", "acceptEdits"],
+                input=user_message,
                 cwd=str(work_dir),
                 capture_output=True,
             )
             if agent.stdout:
                 print(agent.stdout, flush=True)
-            if agent.returncode != 0:
+
+            agent_summary = (agent.stdout or "").strip()[:4000]
+
+            # 7. Trust but verify the final state. The agent may have
+            #    (a) resolved a rebase and addressed comments, (b)
+            #    resolved a rebase only, (c) addressed comments only,
+            #    or (d) aborted the rebase because a conflict was
+            #    ambiguous. All four cases need distinct handling.
+            rebase_still_in_progress = (
+                rebase_merge_dir.exists() or rebase_apply_dir.exists()
+            )
+            remaining_conflicts = _rebase_conflict_files(work_dir)
+
+            rebase_failure = (
+                rebase_still_in_progress
+                or bool(remaining_conflicts)
+                or agent.returncode != 0
+            )
+
+            if not rebase_failure:
+                # Also check: HEAD must contain origin/main as an
+                # ancestor. If the agent ran `git rebase --abort`,
+                # the rebase is "not in progress" but HEAD is back
+                # where it started — not on top of main.
+                ancestry = _run(
+                    ["git", "-C", str(work_dir), "merge-base",
+                     "--is-ancestor", "origin/main", "HEAD"],
+                    capture_output=True,
+                )
+                if ancestry.returncode != 0:
+                    rebase_failure = True
+
+            if rebase_failure:
+                if rebase_still_in_progress:
+                    _git(work_dir, "rebase", "--abort", check=False)
+                comment_body = (
+                    "## Revise subagent: rebase resolution failed\n\n"
+                    "Could not auto-rebase against current main, and "
+                    "the revise subagent could not resolve the "
+                    "conflicts cleanly. Please rebase manually."
+                )
+                if agent_summary:
+                    comment_body += (
+                        "\n\n<details><summary>Agent notes</summary>"
+                        f"\n\n{agent_summary}\n\n</details>"
+                    )
+                _run(
+                    ["gh", "pr", "comment", str(pr_number),
+                     "--repo", REPO, "--body", comment_body],
+                    capture_output=True,
+                )
                 print(
-                    f"[cai revise] subagent failed (exit {agent.returncode}):\n"
-                    f"{agent.stderr}",
-                    file=sys.stderr,
+                    f"[cai revise] rebase/agent failed for PR #{pr_number}; "
+                    "posted comment",
+                    flush=True,
                 )
                 _set_labels(issue_number, remove=[LABEL_REVISING])
                 log_run("revise", repo=REPO, pr=pr_number,
-                        comments_addressed=0, exit=agent.returncode)
-                had_failure = True
+                        result="rebase_failed", exit=0)
                 continue
 
-            # 7. Inspect the working tree.
+            # 8. Determine what work actually happened.
+            post_agent_head = _git(
+                work_dir, "rev-parse", "HEAD", check=False,
+            ).stdout.strip()
             status = _git(work_dir, "status", "--porcelain", check=False)
-            if not status.stdout.strip():
-                # Empty diff — post a comment explaining.
-                reasoning = (agent.stdout or "").strip()[:2000]
+            has_uncommitted = bool(status.stdout.strip())
+            head_changed = pre_agent_head != post_agent_head
+
+            if not has_uncommitted and not head_changed:
+                # Nothing happened — rebase was clean AND the agent
+                # decided no comments were actionable.
+                reasoning = agent_summary or "(no output from agent)"
                 comment_body = (
                     f"## Revise subagent: no additional changes\n\n"
                     f"{reasoning}\n\n"
                     f"---\n"
-                    f"_The revise subagent reviewed the comments but did not "
-                    f"find actionable changes to make._"
+                    f"_The revise subagent reviewed the comments but "
+                    f"did not find actionable changes to make._"
                 )
                 _run(
                     ["gh", "pr", "comment", str(pr_number),
@@ -1837,14 +1732,16 @@ def cmd_revise(args) -> int:
                         comments_addressed=0, exit=0)
                 continue
 
-            # 8. Commit and force-push.
-            _git(work_dir, "add", "-A")
-            commit_msg = (
-                f"auto-improve: revise per review comments\n\n"
-                f"Refs damien-robotsix/robotsix-cai#{issue_number}"
-            )
-            _git(work_dir, "commit", "-m", commit_msg)
+            # 9. Commit any uncommitted review-comment edits.
+            if has_uncommitted:
+                _git(work_dir, "add", "-A")
+                commit_msg = (
+                    f"auto-improve: revise per review comments\n\n"
+                    f"Refs damien-robotsix/robotsix-cai#{issue_number}"
+                )
+                _git(work_dir, "commit", "-m", commit_msg)
 
+            # 10. Force-push the rebased and/or revised branch.
             push = _run(
                 ["git", "-C", str(work_dir), "push", "--force-with-lease",
                  "origin", branch],
@@ -1861,16 +1758,29 @@ def cmd_revise(args) -> int:
                 had_failure = True
                 continue
 
-            print(f"[cai revise] force-pushed revision to {branch}", flush=True)
+            print(
+                f"[cai revise] force-pushed revision to {branch}",
+                flush=True,
+            )
 
-            # 8b. Post a revision summary comment on the PR.
-            agent_summary = (agent.stdout or "").strip()[:4000]
+            # 11. Post a summary comment describing what happened.
+            if head_changed and has_uncommitted:
+                summary_suffix = (
+                    f"{len(comments)} review comment(s) addressed; "
+                    "rebase was resolved by the subagent"
+                )
+            elif head_changed:
+                summary_suffix = "rebase was resolved by the subagent"
+            else:
+                summary_suffix = (
+                    f"{len(comments)} review comment(s) addressed; "
+                    "rebase was already clean"
+                )
             revision_comment = (
                 f"## Revision summary\n\n"
                 f"{agent_summary}\n\n"
                 f"---\n"
-                f"_Applied by `cai revise` in response to the review comment(s) "
-                f"above. {len(comments)} comment(s) addressed._\n"
+                f"_Applied by `cai revise`. {summary_suffix}._\n"
             )
             _run(
                 ["gh", "pr", "comment", str(pr_number),
@@ -1878,7 +1788,7 @@ def cmd_revise(args) -> int:
                 capture_output=True,
             )
 
-            # 9. Remove lock label.
+            # 12. Remove lock label.
             _set_labels(issue_number, remove=[LABEL_REVISING])
             log_run("revise", repo=REPO, pr=pr_number,
                     comments_addressed=len(comments), exit=0)
