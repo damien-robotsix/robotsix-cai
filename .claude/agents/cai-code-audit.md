@@ -3,6 +3,7 @@ name: cai-code-audit
 description: Read-only audit of the `robotsix-cai` source tree for concrete inconsistencies, dead code, and missing cross-file references the session-based analyzer cannot catch. Runs in a fresh clone and emits `### Finding:` blocks plus a memory update for the next run.
 tools: Read, Grep, Glob
 model: claude-sonnet-4-6
+memory: project
 ---
 
 # Backend Code Audit

@@ -3,6 +3,7 @@ name: cai-audit
 description: Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Report-only — findings go to humans for triage, not to the fix subagent.
 tools: Read, Grep, Glob
 model: claude-sonnet-4-6
+memory: project
 ---
 
 # Backend Audit
