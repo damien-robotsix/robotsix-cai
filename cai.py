@@ -363,7 +363,7 @@ def _gh_user_identity() -> tuple[str, str]:
 def _select_fix_target():
     """Return the oldest open issue eligible for the fix subagent.
 
-    Eligible = labelled `:raised` or `:requested`, NOT labelled
+    Eligible = labelled `:raised`, `:requested`, or `audit:raised`, NOT labelled
     `:in-progress` or `:pr-open`.
     """
     candidates: dict[int, dict] = {}
