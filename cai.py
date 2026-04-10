@@ -395,8 +395,18 @@ def _select_fix_target():
 
 def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = ()) -> bool:
     """Add and/or remove labels on an issue. Returns True on success."""
-    args = ["issue", "edit", str(issue_number), "--repo", REPO]
+    # Auto-add the base label for any state-prefixed label being added.
+    _BASE_NAMESPACES = {"auto-improve", "consistency", "audit"}
+    auto_added_bases: set[str] = set()
     for label in add:
+        if ":" in label:
+            base = label.split(":", 1)[0]
+            if base in _BASE_NAMESPACES and base not in add:
+                auto_added_bases.add(base)
+    effective_add = list(add) + sorted(auto_added_bases)
+
+    args = ["issue", "edit", str(issue_number), "--repo", REPO]
+    for label in effective_add:
         args.extend(["--add-label", label])
     for label in remove:
         args.extend(["--remove-label", label])
