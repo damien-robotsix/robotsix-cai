@@ -34,6 +34,7 @@ services:
       CAI_REVISE_SCHEDULE: "30 * * * *"     # hourly at :30 (iterate on PR comments)
       CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly at :45 (mechanical, no LLM)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only + branch cleanup)
+      CAI_AUDIT_TRIAGE_SCHEDULE: "10 */6 * * *" # every 6h at :10 (triage raised findings)
       CAI_CODE_AUDIT_SCHEDULE: "0 3 * * 0"  # weekly Sunday 03:00 UTC (Sonnet, code consistency)
       CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily at 02:00 UTC (verify merged fixes)
       CAI_REVIEW_PR_SCHEDULE: "20 * * * *"  # hourly at :20 (pre-merge consistency review)
