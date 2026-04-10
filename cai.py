@@ -1411,7 +1411,7 @@ def cmd_verify(args) -> int:
     for issue in all_ai_issues:
         num = issue["number"]
         label_names = {lbl["name"] for lbl in issue.get("labels", [])}
-        has_state = any(l.startswith("auto-improve:") for l in label_names)
+        has_state = any(l.startswith("auto-improve:") or l.startswith("audit:") for l in label_names)
         if not has_state:
             raised_label = (
                 LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in label_names
