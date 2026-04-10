@@ -79,6 +79,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from parse import _get_cutoff_time, _get_max_files
+
 
 REPO = "damien-robotsix/robotsix-cai"
 SMOKE_PROMPT = "Say hello in one short sentence."
@@ -1660,17 +1662,8 @@ def cmd_confirm(args) -> int:
     #     can tell whether all parsed conversations are newer than a merge.
     _oldest_transcript_ts: float | None = None
     if TRANSCRIPT_DIR.is_dir():
-        _window_raw = os.environ.get("CAI_TRANSCRIPT_WINDOW_DAYS", "7")
-        try:
-            _window_days = int(_window_raw)
-        except ValueError:
-            _window_days = 7
-        _cutoff = time.time() - (_window_days * 86400) if _window_days > 0 else 0.0
-        _max_raw = os.environ.get("CAI_TRANSCRIPT_MAX_FILES", "20")
-        try:
-            _max_files = int(_max_raw)
-        except ValueError:
-            _max_files = 20
+        _cutoff = _get_cutoff_time()
+        _max_files = _get_max_files()
         _cands = []
         for _jf in TRANSCRIPT_DIR.rglob("*.jsonl"):
             _mt = _jf.stat().st_mtime
@@ -1749,7 +1742,7 @@ def cmd_confirm(args) -> int:
         )
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("confirm", repo=REPO, merged_checked=len(merged_issues),
-                solved=0, unsolved=0, inconclusive=0,
+                solved=0, unsolved=0, reraised=0, inconclusive=0,
                 duration=dur, exit=confirm.returncode)
         return confirm.returncode
 
@@ -1759,6 +1752,7 @@ def cmd_confirm(args) -> int:
 
     solved = 0
     unsolved = 0
+    reraised = 0
     inconclusive = 0
 
     for issue_num, status, reasoning in verdicts:
@@ -1798,6 +1792,7 @@ def cmd_confirm(args) -> int:
                     capture_output=True,
                 )
                 print(f"[cai confirm] #{issue_num}: unsolved — re-raised", flush=True)
+                reraised += 1
             else:
                 _run(
                     ["gh", "issue", "comment", str(issue_num),
@@ -1807,7 +1802,7 @@ def cmd_confirm(args) -> int:
                     capture_output=True,
                 )
                 print(f"[cai confirm] #{issue_num}: unsolved — left as :merged", flush=True)
-            unsolved += 1
+                unsolved += 1
         elif status == "inconclusive":
             # Post reasoning to the issue so humans can see why, but
             # avoid duplicate comments if the same reasoning was already
@@ -1838,12 +1833,13 @@ def cmd_confirm(args) -> int:
     dur = f"{int(time.monotonic() - t0)}s"
     print(
         f"[cai confirm] merged_checked={len(merged_issues)} "
-        f"solved={solved} unsolved={unsolved} inconclusive={inconclusive}",
+        f"solved={solved} unsolved={unsolved} reraised={reraised} "
+        f"inconclusive={inconclusive}",
         flush=True,
     )
     log_run("confirm", repo=REPO, merged_checked=len(merged_issues),
-            solved=solved, unsolved=unsolved, inconclusive=inconclusive,
-            duration=dur, exit=0)
+            solved=solved, unsolved=unsolved, reraised=reraised,
+            inconclusive=inconclusive, duration=dur, exit=0)
     return 0
 
 
