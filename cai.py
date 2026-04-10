@@ -432,6 +432,79 @@ def _build_fix_prompt(issue: dict) -> str:
     return f"{prompt}\n\n{issue_block}"
 
 
+def _parse_suggested_issues(agent_output: str) -> list[dict]:
+    """Extract suggested issues from the subagent's stdout.
+
+    The subagent can emit blocks like:
+
+        ## Suggested Issue
+        ### Title
+        <title text>
+        ### Body
+        <body text>
+
+    Returns a list of dicts with 'title' and 'body' keys.
+    """
+    issues: list[dict] = []
+    parts = re.split(r"^## Suggested Issue\s*$", agent_output, flags=re.MULTILINE)
+    for part in parts[1:]:  # skip everything before the first marker
+        title = ""
+        body = ""
+        title_match = re.search(
+            r"^### Title\s*\n(.*?)(?=^### |\Z)",
+            part,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        body_match = re.search(
+            r"^### Body\s*\n(.*?)(?=^## |\Z)",
+            part,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        if title_match:
+            title = title_match.group(1).strip()
+        if body_match:
+            body = body_match.group(1).strip()
+        if title:
+            issues.append({"title": title, "body": body})
+    return issues
+
+
+def _create_suggested_issues(
+    suggested: list[dict], source_issue_number: int,
+) -> int:
+    """Create GitHub issues raised by the fix subagent. Returns count created."""
+    created = 0
+    for s in suggested:
+        issue_body = (
+            f"{s['body']}\n\n"
+            f"---\n"
+            f"_Raised by the fix subagent while working on "
+            f"#{source_issue_number}._\n"
+        )
+        labels = ",".join(["auto-improve", LABEL_RAISED])
+        result = _run(
+            [
+                "gh", "issue", "create",
+                "--repo", REPO,
+                "--title", s["title"],
+                "--body", issue_body,
+                "--label", labels,
+            ],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            print(f"[cai fix] created suggested issue: {url}", flush=True)
+            created += 1
+        else:
+            print(
+                f"[cai fix] failed to create suggested issue "
+                f"'{s['title']}': {result.stderr}",
+                file=sys.stderr,
+            )
+    return created
+
+
 def _git(work_dir: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     cmd = ["git", "-C", str(work_dir)] + list(args)
     return subprocess.run(cmd, text=True, check=check, capture_output=True)
@@ -555,6 +628,13 @@ def cmd_fix(args) -> int:
             log_run("fix", repo=REPO, issue=issue_number,
                     result="subagent_failed", exit=agent.returncode)
             return agent.returncode
+
+        # 5b. Create any suggested issues the subagent raised.
+        agent_text = agent.stdout or ""
+        suggested = _parse_suggested_issues(agent_text)
+        if suggested:
+            n = _create_suggested_issues(suggested, issue_number)
+            print(f"[cai fix] created {n}/{len(suggested)} suggested issue(s)", flush=True)
 
         # 6. Inspect the working tree. Empty diff = deliberate no-action.
         status = _git(work_dir, "status", "--porcelain", check=False)
