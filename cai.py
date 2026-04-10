@@ -1339,14 +1339,130 @@ def _select_revise_targets() -> list[dict]:
     return targets
 
 
+def _recover_stuck_rebase_prs() -> int:
+    """Close PRs the rebase resolver gave up on so the fix subagent
+    can re-attempt them from a fresh branch off current main.
+
+    Trigger condition: an open `auto-improve/<N>-*` PR has a
+    `## Revise subagent: rebase resolution failed` comment newer than
+    its latest commit. The loop guard from #196 already stops the
+    revise step from spamming retry comments — but without recovery
+    the PR sits stuck forever, accumulating an ever-larger conflict
+    surface every time main moves. Closing it and resetting the issue
+    to `:raised` lets the fix subagent open a fresh PR against the
+    current main on its next tick (#144 was the original symptom).
+
+    Returns the number of PRs recovered.
+    """
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--limit", "100",
+            "--json",
+            "number,headRefName,comments,commits",
+        ])
+    except subprocess.CalledProcessError:
+        return 0
+
+    recovered = 0
+    for pr in prs:
+        branch = pr.get("headRefName", "")
+        if not branch.startswith("auto-improve/"):
+            continue
+
+        # Pull issue number from the branch name (`auto-improve/<N>-*`).
+        m = re.match(r"auto-improve/(\d+)-", branch)
+        if not m:
+            continue
+        issue_number = int(m.group(1))
+        pr_number = pr["number"]
+
+        commits = pr.get("commits", [])
+        last_commit_date = commits[-1].get("committedDate", "") if commits else ""
+        commit_ts = _parse_iso_ts(last_commit_date)
+        if commit_ts is None:
+            continue
+
+        # Look for a `rebase resolution failed` marker newer than the
+        # latest commit — that means the resolver tried, failed, and
+        # nothing has moved since.
+        stuck = False
+        for c in pr.get("comments", []):
+            body = (c.get("body") or "").lstrip()
+            if not body.startswith(_REBASE_FAILED_MARKER):
+                continue
+            ts = _parse_iso_ts(c.get("createdAt"))
+            if ts is None or ts <= commit_ts:
+                continue
+            stuck = True
+            break
+        if not stuck:
+            continue
+
+        print(
+            f"[cai revise] PR #{pr_number}: rebase resolver gave up "
+            f"and no commits since; closing and resetting issue "
+            f"#{issue_number} to :raised so fix can retry",
+            flush=True,
+        )
+
+        comment = (
+            "## Revise subagent: closing stuck PR for fresh attempt\n\n"
+            "The rebase resolver could not land this branch onto "
+            "current `main` and no further progress is possible from "
+            f"this branch. Closing so the fix subagent can re-open a "
+            f"fresh PR for #{issue_number} against the current `main`.\n\n"
+            "---\n"
+            "_Closed automatically by `cai revise` recovery. The "
+            "linked issue has been reset to `auto-improve:raised` and "
+            "will be picked up on the next `cai fix` tick._"
+        )
+        close_res = _run(
+            ["gh", "pr", "close", str(pr_number),
+             "--repo", REPO, "--delete-branch", "--comment", comment],
+            capture_output=True,
+        )
+        if close_res.returncode != 0:
+            print(
+                f"[cai revise] PR #{pr_number}: gh pr close failed:\n"
+                f"{close_res.stderr}",
+                file=sys.stderr,
+            )
+            continue
+
+        # Reset the linked issue back to the eligible-for-fix state.
+        _set_labels(
+            issue_number,
+            add=[LABEL_RAISED],
+            remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING],
+        )
+        log_run("revise", repo=REPO, pr=pr_number, issue=issue_number,
+                result="recovered_stuck_rebase", exit=0)
+        recovered += 1
+
+    return recovered
+
+
 def cmd_revise(args) -> int:
     """Iterate on open PRs based on review comments."""
     print("[cai revise] checking for PRs with unaddressed comments", flush=True)
 
+    # Recover any PRs the rebase resolver has given up on, so they
+    # don't sit stuck forever. Refs #144.
+    recovered = _recover_stuck_rebase_prs()
+    if recovered:
+        print(
+            f"[cai revise] recovered {recovered} stuck PR(s) for fresh fix attempt",
+            flush=True,
+        )
+
     targets = _select_revise_targets()
     if not targets:
         print("[cai revise] no PRs need revision; nothing to do", flush=True)
-        log_run("revise", repo=REPO, result="no_targets", exit=0)
+        log_run("revise", repo=REPO, result="no_targets",
+                recovered=recovered, exit=0)
         return 0
 
     print(f"[cai revise] found {len(targets)} PR(s) to revise", flush=True)
