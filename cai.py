@@ -2152,6 +2152,7 @@ def cmd_confirm(args) -> int:
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("confirm", repo=REPO, merged_checked=len(merged_issues),
                 solved=0, unsolved=0, inconclusive=0,
+                sessions=session_count, in_tokens=in_tokens, out_tokens=out_tokens,
                 duration=dur, exit=confirm.returncode)
         return confirm.returncode
 
