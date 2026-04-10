@@ -104,7 +104,7 @@ issue.
                                      (reasoning posted)
 ```
 
-`:no-action` means the fix subagent reviewed the issue and decided no
+`:no-action` means the fix pipeline reviewed the issue and decided no
 code change was needed. The agent's reasoning is posted as a comment
 on the issue. A human can either close the issue (agreeing with the
 bot) or re-label to `:raised` to retry.

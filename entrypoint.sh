@@ -5,7 +5,7 @@
 #
 # 1. Template the crontab from env vars. Independent tasks:
 #      - analyze:   parse own transcripts, raise findings as issues
-#      - fix:       pick an eligible issue and let the subagent fix it
+#      - fix:       pick an eligible issue and run the fix pipeline
 #      - review-pr: pre-merge consistency review of open PRs
 #      - revise:    iterate on open PRs based on review comments
 #      - verify:    walk pr-open issues and update labels per PR state

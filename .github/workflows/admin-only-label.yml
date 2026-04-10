@@ -43,4 +43,4 @@ jobs:
 
           gh issue comment "${{ github.event.issue.number }}" \
             --repo "${{ github.repository }}" \
-            --body "@${{ github.event.sender.login }} only repo admins can apply the \`${{ github.event.label.name }}\` label — it triggers autonomous code execution by the cai fix subagent. The label has been removed."
+            --body "@${{ github.event.sender.login }} only repo admins can apply the \`${{ github.event.label.name }}\` label — it triggers autonomous code execution by the cai fix pipeline. The label has been removed."
