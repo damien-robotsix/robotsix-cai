@@ -1431,7 +1431,7 @@ def cmd_verify(args) -> int:
             transitioned += 1
 
     print(f"[cai verify] done ({transitioned} transitioned)", flush=True)
-    log_run("verify", repo=REPO, checked=len(issues), transitioned=transitioned, exit=0)
+    log_run("verify", repo=REPO, checked=len(issues) + len(seen_nums), transitioned=transitioned, exit=0)
     return 0
 
 
