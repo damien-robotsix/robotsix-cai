@@ -107,6 +107,7 @@ REBASE_PROMPT = Path("/app/prompts/backend-rebase.md")
 REVIEW_PR_PROMPT = Path("/app/prompts/backend-review-pr.md")
 MERGE_PROMPT = Path("/app/prompts/backend-merge.md")
 AUDIT_TRIAGE_PROMPT = Path("/app/prompts/backend-audit-triage.md")
+DESIGN_DECISIONS = Path("/app/prompts/design-decisions.md")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
@@ -217,6 +218,116 @@ def cmd_init(args) -> int:
 # analyze
 # ---------------------------------------------------------------------------
 
+def _design_decisions_block() -> str:
+    """Return the design-decisions file as a prompt section, or "".
+
+    Read by every subagent that decides what to raise, fix, or skip
+    (analyze, audit, fix). The file lives at `prompts/design-decisions.md`
+    and contains durable, supervisor-curated rules that override any
+    signal from parsed transcripts. See #260.
+    """
+    if not DESIGN_DECISIONS.exists():
+        return ""
+    try:
+        text = DESIGN_DECISIONS.read_text().strip()
+    except OSError:
+        return ""
+    if not text:
+        return ""
+    return (
+        "\n\n## Durable design decisions\n\n"
+        "The following entries are supervisor-curated rules. They "
+        "override any signal from parsed transcripts: if your finding "
+        "or proposed action overlaps with an entry below, do NOT raise "
+        "or act on it. The only exception is the explicit exit "
+        "condition stated in each entry. Read every entry before "
+        "deciding.\n\n"
+        f"{text}\n"
+    )
+
+
+def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
+    """Return recently closed `auto-improve` issues with closing rationale.
+
+    For each closed issue, the "rationale" is the last comment posted
+    before the issue was closed by a non-bot author. Bot comments are
+    skipped because they are status updates, not reasoning. If no
+    human rationale comment exists, the rationale is left empty and
+    the analyzer can fall back to the issue body.
+    """
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", "auto-improve",
+            "--state", "closed",
+            "--json",
+            "number,title,labels,closedAt,comments",
+            "--limit", str(limit),
+        ]) or []
+    except subprocess.CalledProcessError:
+        return []
+
+    result = []
+    for issue in issues:
+        comments = issue.get("comments") or []
+        rationale = ""
+        rationale_author = ""
+        # Walk comments newest-first; pick the first non-bot.
+        for c in reversed(comments):
+            author = (c.get("author") or {}).get("login", "")
+            if not author or author.endswith("[bot]") or author == "github-actions":
+                continue
+            body = (c.get("body") or "").strip()
+            if not body:
+                continue
+            rationale = body[:600]
+            rationale_author = author
+            break
+        result.append({
+            "number": issue["number"],
+            "title": issue["title"],
+            "labels": [lbl["name"] for lbl in issue.get("labels", [])],
+            "closedAt": issue.get("closedAt", ""),
+            "rationale": rationale,
+            "rationale_author": rationale_author,
+        })
+    return result
+
+
+def _closed_issues_block(closed: list[dict]) -> str:
+    """Format closed issues + their rationales as a prompt section."""
+    if not closed:
+        return ""
+    lines = [
+        "\n\n## Previously closed auto-improve issues",
+        "",
+        "These auto-improve issues have already been considered and "
+        "closed. Before raising any new finding, check the rationale "
+        "for each closed issue below. If your proposed finding "
+        "overlaps with one of these by topic, do NOT re-raise it — "
+        "the supervisor's reasoning still applies. The only exception: "
+        "you have concrete new evidence that the prior reasoning is "
+        "wrong, in which case raise a finding that explicitly "
+        "references the prior issue number and explains what changed.",
+        "",
+    ]
+    for ci in closed:
+        labels_str = ", ".join(ci["labels"]) if ci["labels"] else "(none)"
+        lines.append(f"### #{ci['number']} — {ci['title']}")
+        lines.append(f"- **Closed:** {ci['closedAt']}")
+        lines.append(f"- **Labels:** {labels_str}")
+        if ci["rationale"]:
+            lines.append(
+                f"- **Closing rationale (@{ci['rationale_author']}):** "
+                f"{ci['rationale']}"
+            )
+        else:
+            lines.append("- **Closing rationale:** (none recorded)")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def cmd_analyze(args) -> int:
     """Parse prior transcripts, ask claude to analyze, publish findings."""
     print("[cai analyze] running self-analyzer", flush=True)
@@ -317,13 +428,25 @@ def cmd_analyze(args) -> int:
             + "\n"
         )
 
+    # Closed-issue rationales — so the analyzer doesn't re-raise
+    # findings the supervisor has already reasoned through and
+    # rejected. See #260.
+    closed_issues = _fetch_closed_auto_improve_issues(limit=50)
+    closed_block = _closed_issues_block(closed_issues)
+
+    # Durable design decisions — load-bearing rules that override
+    # any signal from parsed transcripts. See #260.
+    decisions_block = _design_decisions_block()
+
     full_prompt = (
-        f"{prompt_text}\n\n"
+        f"{prompt_text}"
+        f"{decisions_block}\n\n"
         "## Parsed signals\n\n"
         "```json\n"
         f"{parsed_signals}\n"
         "```\n"
         f"{issues_block}"
+        f"{closed_block}"
     )
 
     analyzer = _run(
@@ -506,6 +629,11 @@ def _issue_has_label(issue_number: int, label: str) -> bool:
 
 def _build_fix_prompt(issue: dict) -> str:
     prompt = FIX_PROMPT.read_text()
+    # Durable design decisions — defense in depth. If a finding slips
+    # past `analyze` but overlaps a design-decision entry, the fix
+    # subagent should refuse to act and surface the conflict instead.
+    # See #260.
+    decisions_block = _design_decisions_block()
     issue_block = (
         f"## Issue\n\n"
         f"### #{issue['number']} — {issue['title']}\n\n"
@@ -518,7 +646,7 @@ def _build_fix_prompt(issue: dict) -> str:
             author = c.get("author", {}).get("login", "unknown")
             body = c.get("body", "")
             issue_block += f"**{author}:**\n{body}\n\n"
-    return f"{prompt}\n\n{issue_block}"
+    return f"{prompt}{decisions_block}\n\n{issue_block}"
 
 
 def _parse_suggested_issues(agent_output: str) -> list[dict]:
@@ -2249,8 +2377,14 @@ def cmd_audit(args) -> int:
             deterministic_section += f"- #{ci['number']}: {ci['title']}\n"
         deterministic_section += "\n"
 
+    # Durable design decisions — the audit subagent should not flag
+    # patterns of dysfunction that the supervisor has explicitly
+    # accepted. See #260.
+    decisions_block = _design_decisions_block()
+
     full_prompt = (
-        f"{prompt_text}\n\n"
+        f"{prompt_text}"
+        f"{decisions_block}\n\n"
         f"{issues_section}\n"
         f"{prs_section}\n"
         f"{log_section}\n"
