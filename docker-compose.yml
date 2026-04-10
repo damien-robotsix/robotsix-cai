@@ -39,7 +39,7 @@ services:
       CAI_MERGE_SCHEDULE: "35 * * * *"      # hourly at :35 (auto-merge confident PRs)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
-      CAI_TRANSCRIPT_MAX_FILES: "20"        # read at most N recent transcript files
+      CAI_TRANSCRIPT_MAX_FILES: "0"         # 0 = no limit; set N > 0 to cap file count
     volumes:
       # Persistent claude-code session transcripts. claude-code writes
       # session JSONL into ~/.claude/projects/<sanitized-cwd>/<sid>.jsonl
