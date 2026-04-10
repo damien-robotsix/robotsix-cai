@@ -82,6 +82,10 @@ Grep, and Glob instead.
    with `subagent_type: Explore` instead of issuing many sequential
    Grep or Read calls. A single Explore subagent can parallelize
    the search internally, saving tokens and tool-call rounds.
+9. **Pre-fetch deferred tools.** Before starting work, run a single
+   `ToolSearch` call to fetch the tools you will need (e.g.,
+   `"select:TodoWrite"`). This avoids repeated discovery calls
+   scattered throughout the session.
 
 ## Check the design decisions first
 
