@@ -35,7 +35,9 @@ to issues that have entered an active state.
 
 Active states (`:raised`, `:requested`, `:in-progress`, `:pr-open`,
 `:merged`, `:no-action`, `:revising`) should continue to be checked
-normally against all the rules below.
+normally against all the rules below. (Note: stale `:no-action`
+issues are rolled back to `:raised` before the LLM audit runs, and
+stale `:merged` issues are flagged with `needs-human-review`.)
 
 ## What to check
 
@@ -82,6 +84,17 @@ before you run — remote branches for merged/closed `auto-improve/` PRs
 are deleted automatically. The number of branches cleaned appears in
 the log line as the `branches_cleaned` field.
 
+**Note:** stale `:no-action` issues (no activity for 7+ days) are
+rolled back to `:raised` deterministically before you run, allowing
+the fix agent to retry with new context. These appear in the log as
+`[audit] action=stale_no_action_unstuck`.
+
+**Note:** stale `:merged` issues (no activity for 14+ days) are
+flagged with `needs-human-review` deterministically before you run.
+The PR was merged but confirm has not resolved the issue within the
+threshold — human intervention is needed. These appear in the log as
+`[audit] action=stale_merged_flag`.
+
 ## Categories
 
 | Category | Description |
@@ -123,6 +136,6 @@ No findings.
 - Keep titles short and imperative.
 - These findings are **report-only** — they go to humans for triage.
   Do not suggest automated fixes beyond what the deterministic
-  rollback and branch cleanup already handle.
+  rollback, branch cleanup, and stale issue handling already handle.
 - Do not output anything other than the markdown finding blocks (or
   the exact `No findings.` sentinel).
