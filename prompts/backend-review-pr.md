@@ -29,7 +29,10 @@ ripple effects in these six categories:
 
 1. Read the diff carefully
 2. For each changed file/function/constant, use `Grep` and `Glob` to
-   find other references in the codebase
+   find other references in the codebase. When you need to search
+   broadly across many files or directories, use the Agent tool with
+   `subagent_type: Explore` instead of issuing many sequential Grep
+   or Read calls.
 3. Check if the PR's changes are consistent with those references
 4. Only report findings where you are confident there is a real
    inconsistency — not hypothetical or stylistic concerns
