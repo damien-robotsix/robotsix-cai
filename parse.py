@@ -202,13 +202,13 @@ def _get_cutoff_time() -> float:
 
 def _get_max_files() -> int:
     """Return the maximum number of transcript files to read, or 0 to disable."""
-    raw = os.environ.get("CAI_TRANSCRIPT_MAX_FILES", "200")
+    raw = os.environ.get("CAI_TRANSCRIPT_MAX_FILES", "50")
     try:
         max_files = int(raw)
     except ValueError:
-        max_files = 200
+        max_files = 50
     if max_files < 0:
-        max_files = 200
+        max_files = 50
     return max_files
 
 

@@ -151,7 +151,7 @@ services:
       CAI_MERGE_SCHEDULE: "35 * * * *"      # hourly :35 (auto-merge confident PRs)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
-      CAI_TRANSCRIPT_MAX_FILES: "200"       # read at most N recent transcript files (0 = no limit)
+      CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
     volumes:
       # Mount is read-write so claude-code can refresh the OAuth
       # access token when it expires. claude-code writes the refreshed
@@ -201,7 +201,7 @@ services:
       CAI_MERGE_SCHEDULE: "35 * * * *"      # hourly :35 (auto-merge confident PRs)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
-      CAI_TRANSCRIPT_MAX_FILES: "200"       # read at most N recent transcript files (0 = no limit)
+      CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
     volumes:
       - cai_transcripts:/root/.claude/projects
       - cai_gh_config:/root/.config/gh
