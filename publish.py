@@ -123,7 +123,7 @@ CODE_AUDIT_LABELS = [
 
 UPDATE_CHECK_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
-    ("auto-improve:raised", "0e8a16", "Finding freshly raised; not yet triaged"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before fix subagent picks it up"),
     ("category:version_update", "d73a4a", "New Claude Code version with relevant fixes"),
     ("category:feature_adoption", "0075ca", "New feature that could improve the workspace"),
     ("category:deprecation", "e11d48", "Deprecated flag or pattern we use"),

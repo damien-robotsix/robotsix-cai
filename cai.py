@@ -839,7 +839,8 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
                 comment = (
                     "## Auto-improve: rolling back to :raised\n\n"
                     "No linked PR found for this `:pr-open` issue. "
-                    "Resetting to `:raised` so the fix subagent can attempt a fresh fix.\n\n"
+                    "Resetting to `:raised` so the refine subagent can re-structure it "
+                    "and the fix subagent can then attempt a fresh fix.\n\n"
                     f"---\n_Rolled back automatically by `{log_prefix}`._"
                 )
                 _run(["gh", "issue", "comment", str(issue["number"]),
