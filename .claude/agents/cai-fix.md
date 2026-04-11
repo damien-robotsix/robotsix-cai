@@ -207,13 +207,26 @@ three questions by reading only the issue body:
    modify specific code)?
 3. Can you state in one sentence **what the diff will look like**?
 
-If any answer is "no", the issue is likely a research task, a
-feature request, or an ambiguous finding. **Do not explore the
-codebase.** Instead, emit a `## Needs Spike` block (see below)
-and exit immediately with zero diff. Over-exploring ambiguous
-issues is the single largest source of wasted cost in the fix
-pipeline — a 30-second bail saves more than a 50-turn
-investigation that produces a speculative change.
+If any answer is "no", **do not explore the codebase.** Exit
+immediately with zero diff and a short stdout explanation.
+Over-exploring ambiguous issues is the single largest source of
+wasted cost in the fix pipeline — a 30-second bail saves more
+than a 50-turn investigation that produces a speculative change.
+
+Choose your exit path based on *why* you answered "no":
+
+- **Spike-shaped** (the acceptance criteria are "documented
+  findings", "a decision", or "a survey of what's possible" —
+  i.e., question 3 is answerable but describes an evaluation
+  outcome rather than a diff): emit a `## Needs Spike` block
+  (see the `## When to make NO changes` section below) so the
+  wrapper routes the issue to `auto-improve:needs-spike`.
+- **Ambiguous or feature-request-shaped** (the issue is vague,
+  unclear, or describes a desired capability without specifying
+  what code to change): exit with **zero diff and no `## Needs
+  Spike` marker** — the wrapper will roll the label back to
+  `auto-improve:no-action`, which is the correct queue for
+  issues that need human clarification before they can be fixed.
 
 ## When to make NO changes (and exit cleanly)
 
