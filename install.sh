@@ -146,6 +146,7 @@ services:
       CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily 02:00 UTC (verify merged fixes)
       CAI_REVIEW_PR_SCHEDULE: "20 * * * *"  # hourly :20 (pre-merge consistency review)
       CAI_MERGE_SCHEDULE: "35 * * * *"      # hourly :35 (auto-merge confident PRs)
+      CAI_SPIKE_SCHEDULE: "0 */2 * * *"    # every 2h (research/verification spikes)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
@@ -213,6 +214,7 @@ services:
       CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily 02:00 UTC (verify merged fixes)
       CAI_REVIEW_PR_SCHEDULE: "20 * * * *"  # hourly :20 (pre-merge consistency review)
       CAI_MERGE_SCHEDULE: "35 * * * *"      # hourly :35 (auto-merge confident PRs)
+      CAI_SPIKE_SCHEDULE: "0 */2 * * *"    # every 2h (research/verification spikes)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
