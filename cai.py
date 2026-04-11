@@ -3206,7 +3206,7 @@ def cmd_audit(args) -> int:
         )
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("audit", repo=REPO, duration=dur,
-                branches_cleaned=len(deleted_branches),
+                branches_cleaned=len(deleted_branches) + len(deleted_orphaned),
                 no_action_unstuck=len(unstuck_no_action),
                 merged_flagged=len(flagged_merged),
                 exit=audit.returncode)
@@ -3220,7 +3220,7 @@ def cmd_audit(args) -> int:
     )
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("audit", repo=REPO, rollbacks=len(rolled_back),
-            branches_cleaned=len(deleted_branches),
+            branches_cleaned=len(deleted_branches) + len(deleted_orphaned),
             no_action_unstuck=len(unstuck_no_action),
             merged_flagged=len(flagged_merged),
             duration=dur, exit=published.returncode)
