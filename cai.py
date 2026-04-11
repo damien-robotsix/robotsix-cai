@@ -2743,6 +2743,84 @@ def _cleanup_merged_branches() -> list[str]:
     return deleted
 
 
+def _cleanup_orphaned_branches() -> list[str]:
+    """Delete remote auto-improve/* branches with no open PR.
+
+    A branch is considered orphaned if it starts with 'auto-improve/' but
+    has no open PR associated with it and is not owned by an
+    :in-progress or :revising issue (which may not have opened their PR yet).
+    Returns list of deleted branch names.
+    """
+    deleted: list[str] = []
+
+    # 1. Fetch all remote branches.
+    try:
+        branches_data = _gh_json([
+            "api", f"repos/{REPO}/branches",
+            "--paginate",
+        ]) or []
+    except (subprocess.CalledProcessError, Exception):
+        return deleted
+
+    auto_branches = {
+        b["name"] for b in branches_data
+        if isinstance(b, dict) and b.get("name", "").startswith("auto-improve/")
+    }
+    if not auto_branches:
+        return deleted
+
+    # 2. Fetch all open PRs to find branches that already have an active PR.
+    try:
+        open_prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--json", "headRefName",
+            "--limit", "200",
+        ]) or []
+    except subprocess.CalledProcessError:
+        return deleted
+
+    branches_with_open_pr = {pr.get("headRefName", "") for pr in open_prs}
+
+    # 3. Protect branches owned by :in-progress or :revising issues
+    #    (the fix agent may have pushed the branch but not yet opened the PR).
+    protected_prefixes: set[str] = set()
+    for lock_label in (LABEL_IN_PROGRESS, LABEL_REVISING):
+        try:
+            issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", lock_label,
+                "--state", "open",
+                "--json", "number",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError:
+            continue
+        for issue in issues:
+            num = issue.get("number")
+            if num:
+                protected_prefixes.add(f"auto-improve/{num}-")
+
+    # 4. Delete orphaned branches.
+    for branch in sorted(auto_branches):
+        if branch in branches_with_open_pr:
+            continue
+        if any(branch.startswith(p) for p in protected_prefixes):
+            continue
+        result = _run([
+            "gh", "api",
+            "--method", "DELETE",
+            f"repos/{REPO}/git/refs/heads/{branch}",
+        ], capture_output=True)
+        if result.returncode == 0:
+            deleted.append(branch)
+            print(f"[cai audit] deleted orphaned branch: {branch}", flush=True)
+
+    return deleted
+
+
 def _rollback_stale_in_progress() -> list[dict]:
     """Deterministic rollback: :in-progress or :revising issues with no recent activity.
 
@@ -2980,6 +3058,14 @@ def cmd_audit(args) -> int:
     if deleted_branches:
         print(
             f"[cai audit] cleaned up {len(deleted_branches)} merged branch(es)",
+            flush=True,
+        )
+
+    # Step 1b2: Delete orphaned auto-improve/* branches with no open PR.
+    deleted_orphaned = _cleanup_orphaned_branches()
+    if deleted_orphaned:
+        print(
+            f"[cai audit] cleaned up {len(deleted_orphaned)} orphaned branch(es)",
             flush=True,
         )
 
