@@ -94,9 +94,8 @@ for you:
 
 Rules:
 
-  - The wrapper only applies staged files whose target already
-    exists — you CANNOT create new agent definitions via this
-    mechanism.
+  - Both updates to existing agent files and creation of new
+    agent files are supported.
   - Write the FULL file, not a diff. The wrapper does an
     unconditional overwrite.
   - Use the exact same basename as the target
