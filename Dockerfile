@@ -71,14 +71,29 @@ RUN wget -nv -O /usr/local/bin/supercronic \
 # first mount" trick inherits the right ownership. Without
 # pre-creating, the mount points get created at runtime as
 # root:root and the cai user hits "permission denied":
-#   - /home/cai/.claude/      → cai_claude        (credentials + transcripts)
-#   - /home/cai/.config/gh/   → cai_gh_config     (gh CLI auth)
-#   - /app/.claude/agent-memory/ → cai_agent_memory (per-agent
-#                              durable memory across container
-#                              restarts; the /app agents read/write
-#                              it directly, the cloned-worktree
-#                              agents have it copied in/out by the
-#                              wrapper around each invocation)
+#
+#   - /home/cai/                  → cai_home          (the user's
+#                                    entire home directory:
+#                                    .claude/credentials, .claude.json
+#                                    runtime config (sibling to
+#                                    .claude/), .config/gh, session
+#                                    transcripts under
+#                                    .claude/projects/, etc. — one
+#                                    volume for ALL claude-code and
+#                                    gh user state.)
+#   - /app/.claude/agent-memory/  → cai_agent_memory  (per-agent
+#                                    durable memory across container
+#                                    restarts; the /app agents
+#                                    read/write it directly, the
+#                                    cloned-worktree agents have it
+#                                    copied in/out by the wrapper
+#                                    around each invocation)
+#
+# We pre-create a few subdirs under /home/cai (.config/gh and
+# .claude/projects) so they exist with cai ownership in the image,
+# and Docker's volume copy preserves them. claude-code's runtime
+# config files (.claude.json, .claude/.credentials.json, etc.) are
+# created on first run inside the volume.
 RUN groupadd --system --gid 1000 cai \
     && useradd --system --gid cai --uid 1000 --create-home --shell /bin/bash cai \
     && mkdir -p /var/log/cai /home/cai/.config/gh /home/cai/.claude/projects \

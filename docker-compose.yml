@@ -43,19 +43,32 @@ services:
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
     volumes:
-      # Persistent claude-code state (credentials + session
-      # transcripts + any other config). Authenticate once with:
+      # Persistent state for the cai user — Claude OAuth credentials,
+      # session transcripts, gh config, claude-code's runtime
+      # `.claude.json` config file (NB: this is a SIBLING of the
+      # `.claude/` directory, not inside it), and anything else
+      # claude-code or gh write under the user's home.
       #
-      #     docker compose run --rm cai claude auth login
+      # Mounting `/home/cai` as a single volume is intentional:
+      # claude-code stores its credentials at `~/.claude/.credentials.json`
+      # but its main runtime config at `~/.claude.json` (a sibling
+      # file outside the directory). Mounting only `/home/cai/.claude`
+      # captures the credentials but loses the sibling file on every
+      # restart, breaking auth persistence. Mounting the parent dir
+      # captures both.
       #
-      # The OAuth tokens land in this volume and are reused on every
-      # subsequent run, so headless cron invocations don't need to
-      # re-authenticate. Session transcripts also accumulate here under
-      # `projects/`, which the analyzer reads back.
+      # Authenticate once with:
+      #
+      #     docker compose run --rm -it cai claude
+      #
+      # The REPL auto-prompts for OAuth login on first start. Exit
+      # gracefully (`/exit` or Ctrl-D) to flush credentials to disk.
+      # Subsequent `docker compose up` runs find the credentials and
+      # don't need to re-authenticate.
       #
       # For API-key auth, set ANTHROPIC_API_KEY in .env instead — the
       # volume can stay empty and claude-code will use the env var.
-      - cai_claude:/home/cai/.claude
+      - cai_home:/home/cai
       # Persistent per-agent memory (`.claude/agent-memory/<name>/`).
       # Each declarative subagent has `memory: project` in its
       # frontmatter, which Claude Code stores under
@@ -66,13 +79,6 @@ services:
       # of their per-issue clones by the wrapper around each
       # invocation.
       - cai_agent_memory:/app/.claude/agent-memory
-      # Persistent gh CLI configuration. Authenticate once with:
-      #
-      #     docker compose run --rm cai gh auth login
-      #
-      # The resulting credentials land here so subsequent `docker
-      # compose up` runs don't need to re-authenticate.
-      - cai_gh_config:/home/cai/.config/gh
       - ./logs:/var/log/cai
     # Required if Watchtower is enabled (uncommented below):
     # labels:
@@ -94,9 +100,7 @@ services:
   #     - --cleanup
 
 volumes:
-  cai_claude:
-    name: cai_claude
+  cai_home:
+    name: cai_home
   cai_agent_memory:
     name: cai_agent_memory
-  cai_gh_config:
-    name: cai_gh_config
