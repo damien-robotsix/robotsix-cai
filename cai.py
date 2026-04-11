@@ -61,6 +61,13 @@ Subcommands:
                             linked issue, posts a verdict comment, and
                             merges when confidence meets the threshold.
 
+    python cai.py refine      Pick the oldest issue labelled
+                            `auto-improve:needs-refinement`, invoke
+                            the cai-refine subagent (read-only) to
+                            produce a structured plan, update the
+                            issue body, and transition the label to
+                            `auto-improve:raised`.
+
     python cai.py code-audit  Weekly source-code consistency audit.
                             Clones the repo read-only, runs a Sonnet
                             agent that checks for cross-file
@@ -70,7 +77,7 @@ Subcommands:
                             publish.py with the `code-audit` namespace.
 
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`fix`, `revise`, `verify`, `audit`, `code-audit`, `confirm`, `review-pr`, and `merge` once synchronously at
+`fix`, `refine`, `revise`, `verify`, `audit`, `code-audit`, `confirm`, `review-pr`, and `merge` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
@@ -139,6 +146,7 @@ LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_NEEDS_SPIKE = "auto-improve:needs-spike"
+LABEL_NEEDS_REFINEMENT = "auto-improve:needs-refinement"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
@@ -4102,6 +4110,145 @@ def cmd_merge(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Refine — turn human-filed issues into structured plans
+# ---------------------------------------------------------------------------
+
+
+def cmd_refine(args) -> int:
+    """Invoke the cai-refine agent on the oldest :needs-refinement issue."""
+    print("[cai refine] looking for issues to refine", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Find candidates.
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_NEEDS_REFINEMENT,
+            "--state", "open",
+            "--json", "number,title,body,labels,createdAt,comments",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai refine] gh issue list failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        log_run("refine", repo=REPO, result="list_failed", exit=1)
+        return 1
+
+    if not issues:
+        print("[cai refine] no :needs-refinement issues; nothing to do", flush=True)
+        log_run("refine", repo=REPO, result="no_eligible_issues", exit=0)
+        return 0
+
+    # 2. Pick the oldest.
+    issue = min(issues, key=lambda i: i["createdAt"])
+    issue_number = issue["number"]
+    title = issue["title"]
+    print(f"[cai refine] picked #{issue_number}: {title}", flush=True)
+
+    # 3. Build user message and invoke cai-refine (read-only, no clone needed).
+    user_message = _build_issue_block(issue)
+    result = _run(
+        ["claude", "-p", "--agent", "cai-refine",
+         "--dangerously-skip-permissions"],
+        input=user_message,
+        capture_output=True,
+    )
+    print(result.stdout, flush=True)
+
+    if result.returncode != 0:
+        print(
+            f"[cai refine] claude -p failed (exit {result.returncode}):\n"
+            f"{result.stderr}",
+            flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("refine", repo=REPO, issue=issue_number,
+                duration=dur, result="agent_failed", exit=result.returncode)
+        return result.returncode
+
+    stdout = result.stdout
+
+    # 4. Check for early-exit (already structured).
+    if "## No Refinement Needed" in stdout:
+        print(
+            f"[cai refine] #{issue_number} already structured; "
+            f"transitioning to :raised",
+            flush=True,
+        )
+        _set_labels(
+            issue_number,
+            add=[LABEL_RAISED],
+            remove=[LABEL_NEEDS_REFINEMENT],
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("refine", repo=REPO, issue=issue_number,
+                duration=dur, result="already_structured", exit=0)
+        return 0
+
+    # 5. Parse the refined issue block.
+    marker = "## Refined Issue"
+    marker_pos = stdout.find(marker)
+    if marker_pos == -1:
+        print(
+            f"[cai refine] agent output missing '{marker}' marker; "
+            f"leaving #{issue_number} as-is",
+            flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("refine", repo=REPO, issue=issue_number,
+                duration=dur, result="no_marker", exit=0)
+        return 0
+
+    refined_body = stdout[marker_pos:].strip()
+
+    # 6. Build the new issue body: refined content + original text quoted.
+    original_body = issue.get("body") or "(no body)"
+    quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
+    new_body = (
+        f"{refined_body}\n\n"
+        f"---\n\n"
+        f"> **Original issue text:**\n>\n"
+        f"{quoted_original}\n"
+    )
+
+    # 7. Update the issue body.
+    update = _run(
+        ["gh", "issue", "edit", str(issue_number),
+         "--repo", REPO, "--body", new_body],
+        capture_output=True,
+    )
+    if update.returncode != 0:
+        print(
+            f"[cai refine] gh issue edit failed:\n{update.stderr}",
+            file=sys.stderr,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("refine", repo=REPO, issue=issue_number,
+                duration=dur, result="edit_failed", exit=1)
+        return 1
+
+    # 8. Transition labels: :needs-refinement → :raised.
+    _set_labels(
+        issue_number,
+        add=[LABEL_RAISED],
+        remove=[LABEL_NEEDS_REFINEMENT],
+    )
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    print(
+        f"[cai refine] #{issue_number} refined and transitioned to :raised "
+        f"in {dur}",
+        flush=True,
+    )
+    log_run("refine", repo=REPO, issue=issue_number,
+            duration=dur, result="refined", exit=0)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Cycle (full pipeline without analyze)
 # ---------------------------------------------------------------------------
 
@@ -4168,6 +4315,7 @@ def main() -> int:
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
+    sub.add_parser("refine", help="Refine human-filed issues into structured plans")
     sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
 
     args = parser.parse_args()
@@ -4192,6 +4340,7 @@ def main() -> int:
         "confirm": cmd_confirm,
         "review-pr": cmd_review_pr,
         "merge": cmd_merge,
+        "refine": cmd_refine,
         "cycle": cmd_cycle,
     }
     return handlers[args.command](args)
