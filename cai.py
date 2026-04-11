@@ -86,6 +86,7 @@ import subprocess
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -645,6 +646,23 @@ def _issue_has_label(issue_number: int, label: str) -> bool:
     return label in [l["name"] for l in (issue or {}).get("labels", [])]
 
 
+def _build_issue_block(issue: dict) -> str:
+    """Build the issue block shared by plan, select, and fix agents."""
+    block = (
+        f"## Issue\n\n"
+        f"### #{issue['number']} — {issue['title']}\n\n"
+        f"{issue.get('body') or '(no body)'}\n"
+    )
+    comments = issue.get("comments") or []
+    if comments:
+        block += "\n### Comments\n\n"
+        for c in comments:
+            author = c.get("author", {}).get("login", "unknown")
+            body = c.get("body", "")
+            block += f"**{author}:**\n{body}\n\n"
+    return block
+
+
 def _build_fix_user_message(issue: dict) -> str:
     """Build the dynamic per-run user message for the cai-fix agent.
 
@@ -653,19 +671,83 @@ def _build_fix_user_message(issue: dict) -> str:
     in its `memory: project` pool. The wrapper only passes the
     issue body + any reviewer comments as stdin.
     """
-    issue_block = (
-        f"## Issue\n\n"
-        f"### #{issue['number']} — {issue['title']}\n\n"
-        f"{issue.get('body') or '(no body)'}\n"
+    return _build_issue_block(issue)
+
+
+def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path) -> str:
+    """Run a single cai-plan agent and return its stdout.
+
+    Called in parallel (3×) by _run_plan_select_pipeline.
+    """
+    user_message = _build_issue_block(issue)
+    result = _run(
+        ["claude", "-p", "--agent", "cai-plan",
+         "--dangerously-skip-permissions"],
+        input=user_message,
+        cwd=str(work_dir),
+        capture_output=True,
     )
-    comments = issue.get("comments") or []
-    if comments:
-        issue_block += "\n### Comments\n\n"
-        for c in comments:
-            author = c.get("author", {}).get("login", "unknown")
-            body = c.get("body", "")
-            issue_block += f"**{author}:**\n{body}\n\n"
-    return issue_block
+    if result.returncode != 0:
+        return f"(Plan {plan_index} failed: exit {result.returncode})"
+    return result.stdout or ""
+
+
+def _run_select_agent(issue: dict, plans: list[str], work_dir: Path) -> str:
+    """Run the cai-select agent to choose the best plan.
+
+    Returns the full stdout from the select agent.
+    """
+    user_message = _build_issue_block(issue)
+    user_message += "\n---\n\n# Candidate Plans\n\n"
+    for i, plan in enumerate(plans, 1):
+        user_message += f"## Plan {i}\n\n{plan}\n\n---\n\n"
+    result = _run(
+        ["claude", "-p", "--agent", "cai-select",
+         "--dangerously-skip-permissions"],
+        input=user_message,
+        cwd=str(work_dir),
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout or ""
+
+
+def _run_plan_select_pipeline(issue: dict, work_dir: Path) -> str | None:
+    """Run the 3-plan → select pipeline and return the selected plan.
+
+    Returns the selected plan text to prepend to the fix agent's
+    user message, or None if the pipeline fails.
+    """
+    issue_number = issue["number"]
+
+    # Step 1: Run 3 plan agents in parallel.
+    print(f"[cai fix] running 3 plan agents in parallel for #{issue_number}", flush=True)
+    plans: list[str] = ["", "", ""]
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {
+            pool.submit(_run_plan_agent, issue, i, work_dir): i
+            for i in range(1, 4)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                plans[idx - 1] = future.result()
+            except Exception as exc:
+                plans[idx - 1] = f"(Plan {idx} raised an exception: {exc!r})"
+
+    for i, plan in enumerate(plans, 1):
+        print(f"[cai fix] plan {i}: {len(plan)} chars", flush=True)
+
+    # Step 2: Run the select agent to pick the best plan.
+    print(f"[cai fix] running select agent for #{issue_number}", flush=True)
+    selection = _run_select_agent(issue, plans, work_dir)
+    if not selection.strip():
+        print("[cai fix] select agent produced no output; skipping pipeline", flush=True)
+        return None
+
+    print(f"[cai fix] select agent produced {len(selection)} chars", flush=True)
+    return selection
 
 
 def _parse_suggested_issues(agent_output: str) -> list[dict]:
@@ -895,12 +977,29 @@ def cmd_fix(args) -> int:
         #     fresh dir.
         _copy_agent_memory_into_clone("cai-fix", work_dir)
 
+        # 4c. Run the plan-select pipeline: 3 plan agents in
+        #     parallel, then a select agent picks the best plan.
+        #     The selected plan is prepended to the fix agent's
+        #     user message so it has a concrete implementation
+        #     strategy to follow.
+        selected_plan = _run_plan_select_pipeline(issue, work_dir)
+
         # 5. Run the cai-fix declarative subagent in the work dir.
         #    System prompt, tool allowlist, and hard rules live in
         #    `.claude/agents/cai-fix.md`. The wrapper only passes
         #    dynamic per-run context (design decisions + the issue
         #    body) as the user message via stdin.
         user_message = _build_fix_user_message(issue)
+        if selected_plan:
+            user_message = (
+                "## Selected Implementation Plan\n\n"
+                "The following plan was selected by the plan-select "
+                "pipeline from 3 independently generated candidates. "
+                "Follow this plan to implement the fix.\n\n"
+                f"{selected_plan}\n\n"
+                "---\n\n"
+                f"{user_message}"
+            )
         print(f"[cai fix] running cai-fix subagent in {work_dir}", flush=True)
         # `--dangerously-skip-permissions` is required because:
         #
