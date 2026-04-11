@@ -813,6 +813,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
     Returns the list of issues that were successfully recovered.
     """
     recovered: list[dict] = []
+    subcmd = log_prefix.split()[-1]
     for issue in issues:
         if LABEL_IN_PROGRESS in {lbl["name"] for lbl in issue.get("labels", [])}:
             continue
@@ -830,7 +831,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
                 )
                 _run(["gh", "issue", "comment", str(issue["number"]),
                       "--repo", REPO, "--body", comment], capture_output=True)
-                log_run("verify", repo=REPO, issue=issue["number"],
+                log_run(subcmd, repo=REPO, issue=issue["number"],
                         pr=0, result="rollback_no_pr", exit=0)
                 print(
                     f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
