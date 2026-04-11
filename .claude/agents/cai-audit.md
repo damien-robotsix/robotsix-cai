@@ -62,10 +62,12 @@ reminder. This is distinct from `stale_lifecycle`, which applies only
 to issues that have entered an active state.
 
 Active states (`:raised`, `:requested`, `:in-progress`, `:pr-open`,
-`:merged`, `:no-action`, `:revising`) should continue to be checked
-normally against all the rules below. (Note: stale `:no-action`
-issues are rolled back to `:raised` before the LLM audit runs, and
-stale `:merged` issues are flagged with `needs-human-review`.)
+`:merged`, `:no-action`, `:revising`, `:needs-spike`,
+`:needs-human-review`, `:needs-refinement`) should continue to be
+checked normally against all the rules below. (Note: stale
+`:no-action` issues are rolled back to `:raised` before the LLM
+audit runs, and stale `:merged` issues are flagged with
+`needs-human-review`.)
 
 ## What to check
 
@@ -75,6 +77,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Two open issues semantically about the same pattern | `topic_duplicate` |
 | Issue with mutually exclusive labels (e.g., both `:raised` and `:in-progress`) | `lock_corruption` |
 | `:raised` issue older than 7 days that the bot keeps skipping | `stale_lifecycle` |
+| `:needs-spike` issue older than 3 days with no spike log entry | `stale_lifecycle` |
 | Analyzer producing findings but no fix PRs landing in the same window | `loop_stuck` |
 | Multiple rules in `.claude/agents/cai-fix.md` that contradict each other | `prompt_contradiction` |
 | Tracking-only issue (no state label) older than 30 days with no human activity | `forgotten_backlog` |
