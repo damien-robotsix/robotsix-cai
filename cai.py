@@ -164,6 +164,7 @@ LABEL_PR_NEEDS_HUMAN = "needs-human-review"
 # ---------------------------------------------------------------------------
 
 LOG_PATH = Path("/var/log/cai/cai.log")
+COST_LOG_PATH = Path("/var/log/cai/cai-cost.jsonl")
 
 
 def log_run(category: str, **fields) -> None:
@@ -182,6 +183,128 @@ def log_run(category: str, **fields) -> None:
         pass
 
 
+def log_cost(row: dict) -> None:
+    """Append one JSON object to the per-invocation cost log. Never raises.
+
+    Each row records the cost and token usage of a single `claude -p`
+    invocation, plus the cai-side context (category, agent) so the
+    audit agent and the `cost-report` subcommand can attribute spend
+    to specific cai commands and subagents.
+    """
+    try:
+        COST_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with COST_LOG_PATH.open("a") as f:
+            f.write(json.dumps(row, separators=(",", ":")) + "\n")
+            f.flush()
+    except Exception:
+        pass
+
+
+def _load_cost_log(days: int = 7) -> list[dict]:
+    """Read COST_LOG_PATH and return rows from the last `days` days.
+
+    Each row is a dict as written by `log_cost`. Malformed lines are
+    skipped silently. Returns an empty list if the file is missing or
+    unreadable. Used by both `_build_cost_summary` (audit prompt) and
+    `cmd_cost_report` (host-facing report).
+    """
+    if not COST_LOG_PATH.exists():
+        return []
+    cutoff_ts = datetime.now(timezone.utc).timestamp() - days * 86400
+    rows: list[dict] = []
+    try:
+        with COST_LOG_PATH.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                ts = row.get("ts") or ""
+                try:
+                    row_ts = datetime.strptime(
+                        ts, "%Y-%m-%dT%H:%M:%SZ",
+                    ).replace(tzinfo=timezone.utc).timestamp()
+                except ValueError:
+                    continue
+                if row_ts >= cutoff_ts:
+                    rows.append(row)
+    except Exception:
+        return []
+    return rows
+
+
+def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
+    """Build a markdown cost summary for the cai-audit user message.
+
+    Returns an empty string if no cost rows exist for the window.
+    Otherwise emits a section with per-category aggregates and the
+    top-N most expensive individual invocations, so the audit agent
+    can spot cost outliers (a single invocation that dwarfs the
+    median, or a category that dominates total spend).
+    """
+    rows = _load_cost_log(days=days)
+    if not rows:
+        return ""
+
+    # Per-category aggregates: total cost, call count, mean cost.
+    cats: dict[str, dict] = {}
+    grand_total = 0.0
+    for r in rows:
+        cat = r.get("category") or "(unknown)"
+        cost = r.get("cost_usd") or 0.0
+        try:
+            cost = float(cost)
+        except (TypeError, ValueError):
+            cost = 0.0
+        bucket = cats.setdefault(cat, {"calls": 0, "cost": 0.0})
+        bucket["calls"] += 1
+        bucket["cost"] += cost
+        grand_total += cost
+
+    cat_lines = []
+    for cat, b in sorted(cats.items(), key=lambda kv: -kv[1]["cost"]):
+        share = (b["cost"] / grand_total * 100.0) if grand_total else 0.0
+        mean = b["cost"] / b["calls"] if b["calls"] else 0.0
+        cat_lines.append(
+            f"| {cat} | {b['calls']} | ${b['cost']:.4f} "
+            f"({share:.1f}%) | ${mean:.4f} |"
+        )
+
+    # Top-N most expensive individual invocations.
+    top = sorted(
+        rows,
+        key=lambda r: float(r.get("cost_usd") or 0.0),
+        reverse=True,
+    )[:top_n]
+    top_lines = []
+    for r in top:
+        cost = float(r.get("cost_usd") or 0.0)
+        top_lines.append(
+            f"| {r.get('ts', '')} | {r.get('category', '')} | "
+            f"{r.get('agent', '')} | ${cost:.4f} | "
+            f"{r.get('num_turns', '')} | "
+            f"{(r.get('input_tokens') or 0) + (r.get('output_tokens') or 0)} |"
+        )
+
+    return (
+        f"## Cost summary (last {days}d, total ${grand_total:.4f} "
+        f"across {len(rows)} invocations)\n\n"
+        "### Per-category totals\n\n"
+        "| category | calls | total cost (share) | mean cost |\n"
+        "|---|---|---|---|\n"
+        + "\n".join(cat_lines)
+        + "\n\n"
+        f"### Top {len(top_lines)} most expensive individual invocations\n\n"
+        "| ts | category | agent | cost | turns | tokens |\n"
+        "|---|---|---|---|---|---|\n"
+        + "\n".join(top_lines)
+        + "\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Common helpers
 # ---------------------------------------------------------------------------
@@ -189,6 +312,98 @@ def log_run(category: str, **fields) -> None:
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     """Thin wrapper around subprocess.run with text mode and check=False."""
     return subprocess.run(cmd, text=True, check=False, **kwargs)
+
+
+def _run_claude_p(
+    cmd: list[str],
+    *,
+    category: str,
+    agent: str = "",
+    **kwargs,
+) -> subprocess.CompletedProcess:
+    """Run a `claude -p` command and record its cost.
+
+    `cmd` is the full argv. The wrapper injects `--output-format json
+    --verbose` so claude-code returns a single JSON envelope with
+    `result`, `total_cost_usd`, `usage`, `duration_ms`, etc. After the
+    call, `log_cost()` writes one row to COST_LOG_PATH and the
+    returned `CompletedProcess.stdout` is rewritten to the extracted
+    `result` text — so existing callers that pipe `proc.stdout` to
+    `publish.py` or print it keep working unchanged.
+
+    `category` labels the row by top-level cai command (e.g.
+    "analyze", "fix", "audit"). `agent` records the subagent name
+    (e.g. "cai-fix") if applicable.
+
+    On JSON parse failure the original stdout is left in place and no
+    cost row is written; the caller still sees the real returncode.
+    Never raises.
+    """
+    # Inject --output-format json --verbose right after `claude -p`
+    # (positions 0 and 1). --verbose is required for claude-code to
+    # populate the `usage` field in the JSON envelope.
+    if len(cmd) < 2 or cmd[0] != "claude" or cmd[1] != "-p":
+        raise ValueError("_run_claude_p requires cmd[:2] == ['claude', '-p']")
+    full_cmd = (
+        cmd[:2]
+        + ["--output-format", "json", "--verbose"]
+        + cmd[2:]
+    )
+
+    # Force capture so we can parse the JSON envelope. Callers that
+    # previously did not capture (only cmd_init) get back the result
+    # text in `.stdout` — they can print it themselves if needed.
+    kwargs.setdefault("capture_output", True)
+    proc = _run(full_cmd, **kwargs)
+
+    # Parse the JSON envelope and write the cost row. Belt and braces
+    # — never let log writes break the actual command flow.
+    try:
+        envelope = json.loads(proc.stdout) if proc.stdout else None
+    except (json.JSONDecodeError, ValueError):
+        envelope = None
+
+    if isinstance(envelope, dict):
+        usage = envelope.get("usage") or {}
+        # claude-code's `usage` may be either a flat dict (input_tokens,
+        # output_tokens, cache_*_input_tokens) or a nested per-model
+        # dict. Record both shapes when available.
+        flat_keys = (
+            "input_tokens",
+            "output_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+        )
+        flat = {k: usage[k] for k in flat_keys if isinstance(usage.get(k), (int, float))}
+        models = {
+            k: v for k, v in usage.items()
+            if isinstance(v, dict) and any(fk in v for fk in flat_keys)
+        }
+
+        row = {
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "category": category,
+            "agent": agent,
+            "cost_usd": envelope.get("total_cost_usd"),
+            "duration_ms": envelope.get("duration_ms"),
+            "duration_api_ms": envelope.get("duration_api_ms"),
+            "num_turns": envelope.get("num_turns"),
+            "session_id": envelope.get("session_id"),
+            "exit": proc.returncode,
+            "is_error": bool(envelope.get("is_error", proc.returncode != 0)),
+        }
+        row.update(flat)
+        if models:
+            row["models"] = models
+        log_cost(row)
+
+        # Rewrite stdout to the result text so existing callers stay
+        # backwards compatible. If `result` is missing, fall back to
+        # the raw envelope so callers still see *something*.
+        if "result" in envelope and isinstance(envelope["result"], str):
+            proc.stdout = envelope["result"]
+
+    return proc
 
 
 def _gh_json(args: list[str]):
@@ -272,7 +487,15 @@ def cmd_init(args) -> int:
         return 0
 
     print("[cai init] no prior transcripts; running smoke test to seed loop", flush=True)
-    result = _run(["claude", "-p", SMOKE_PROMPT])
+    result = _run_claude_p(
+        ["claude", "-p", SMOKE_PROMPT],
+        category="init",
+    )
+    # _run_claude_p forces capture_output=True so the smoke test no
+    # longer streams to the terminal. Print the result text now so
+    # the user still sees that the loop seeded successfully.
+    if result.stdout:
+        print(result.stdout, flush=True)
     rc = result.returncode
     if rc != 0:
         print(f"[cai init] smoke test failed (exit {rc})", flush=True)
@@ -484,10 +707,11 @@ def cmd_analyze(args) -> int:
         f"{closed_block}"
     )
 
-    analyzer = _run(
+    analyzer = _run_claude_p(
         ["claude", "-p", "--agent", "cai-analyze"],
+        category="analyze",
+        agent="cai-analyze",
         input=user_message,
-        capture_output=True,
     )
     print(analyzer.stdout, flush=True)
     if analyzer.returncode != 0:
@@ -704,13 +928,14 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path) -> str:
         + "\n"
         + _build_issue_block(issue)
     )
-    result = _run(
+    result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-plan",
          "--dangerously-skip-permissions",
          "--add-dir", str(work_dir)],
+        category="fix.plan",
+        agent="cai-plan",
         input=user_message,
         cwd="/app",
-        capture_output=True,
     )
     if result.returncode != 0:
         return f"(Plan {plan_index} failed: exit {result.returncode})"
@@ -731,13 +956,14 @@ def _run_select_agent(issue: dict, plans: list[str], work_dir: Path) -> str:
     user_message += "\n---\n\n# Candidate Plans\n\n"
     for i, plan in enumerate(plans, 1):
         user_message += f"## Plan {i}\n\n{plan}\n\n---\n\n"
-    result = _run(
+    result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-select",
          "--dangerously-skip-permissions",
          "--add-dir", str(work_dir)],
+        category="fix.select",
+        agent="cai-select",
         input=user_message,
         cwd="/app",
-        capture_output=True,
     )
     if result.returncode != 0:
         return ""
@@ -1240,13 +1466,14 @@ def cmd_fix(args) -> int:
         # protection on `.claude/agents/*.md` is NOT bypassed by
         # any flag — we route self-modifications through the
         # staging directory instead (see _work_directory_block).
-        agent = _run(
+        agent = _run_claude_p(
             ["claude", "-p", "--agent", "cai-fix",
              "--dangerously-skip-permissions",
              "--add-dir", str(work_dir)],
+            category="fix",
+            agent="cai-fix",
             input=user_message,
             cwd="/app",
-            capture_output=True,
         )
         if agent.stdout:
             print(agent.stdout, flush=True)
@@ -2097,13 +2324,14 @@ def cmd_revise(args) -> int:
                 f"[cai revise] running cai-revise subagent for {work_dir}",
                 flush=True,
             )
-            agent = _run(
+            agent = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-revise",
                  "--dangerously-skip-permissions",
                  "--add-dir", str(work_dir)],
+                category="revise",
+                agent="cai-revise",
                 input=user_message,
                 cwd="/app",
-                capture_output=True,
             )
             if agent.stdout:
                 print(agent.stdout, flush=True)
@@ -2796,18 +3024,26 @@ def cmd_audit(args) -> int:
             deterministic_section += f"- #{ci['number']}: {ci['title']}\n"
         deterministic_section += "\n"
 
+    # Cost summary so the audit agent can flag cost outliers — same
+    # window as the run-log tail (last 7 days, top 10 invocations).
+    cost_section = _build_cost_summary(days=7, top_n=10)
+    if not cost_section:
+        cost_section = "## Cost summary\n\n(no cost-log entries yet)\n"
+
     user_message = (
         f"{issues_section}\n"
         f"{prs_section}\n"
         f"{log_section}\n"
+        f"{cost_section}\n"
         f"{deterministic_section}"
     )
 
     # Step 3: Invoke the declared cai-audit subagent.
-    audit = _run(
+    audit = _run_claude_p(
         ["claude", "-p", "--agent", "cai-audit"],
+        category="audit",
+        agent="cai-audit",
         input=user_message,
-        capture_output=True,
     )
     print(audit.stdout, flush=True)
     if audit.returncode != 0:
@@ -3022,10 +3258,11 @@ def cmd_audit_triage(args) -> int:
     )
 
     # 4. Invoke the declared cai-audit-triage subagent.
-    triage = _run(
+    triage = _run_claude_p(
         ["claude", "-p", "--agent", "cai-audit-triage"],
+        category="audit-triage",
+        agent="cai-audit-triage",
         input=user_message,
-        capture_output=True,
     )
     print(triage.stdout, flush=True)
     if triage.returncode != 0:
@@ -3200,6 +3437,131 @@ def cmd_audit_triage(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# cost-report — human-readable view of /var/log/cai/cai-cost.jsonl
+# ---------------------------------------------------------------------------
+
+
+def cmd_cost_report(args) -> int:
+    """Print a human-readable cost report from the cost log.
+
+    Reads `/var/log/cai/cai-cost.jsonl` (written by `_run_claude_p`),
+    aggregates by `--by` (category | agent | day), and prints two
+    fixed-width tables: the per-group totals and the top-N most
+    expensive individual invocations.
+
+    Invoked from the host via the existing alias documented in
+    README.md (`docker compose ... exec cai python /app/cai.py`):
+
+        cai cost-report
+        cai cost-report --days 30 --top 20 --by agent
+    """
+    rows = _load_cost_log(days=args.days)
+    if not rows:
+        print(
+            f"[cai cost-report] no rows in {COST_LOG_PATH} for the "
+            f"last {args.days} day(s)"
+        )
+        return 0
+
+    # Group rows by the requested key.
+    def group_key(r: dict) -> str:
+        if args.by == "category":
+            return r.get("category") or "(unknown)"
+        if args.by == "agent":
+            return r.get("agent") or "(none)"
+        if args.by == "day":
+            ts = r.get("ts") or ""
+            return ts.split("T", 1)[0] or "(unknown)"
+        return "(unknown)"
+
+    groups: dict[str, dict] = {}
+    grand_total = 0.0
+    grand_in = 0
+    grand_out = 0
+    for r in rows:
+        key = group_key(r)
+        try:
+            cost = float(r.get("cost_usd") or 0.0)
+        except (TypeError, ValueError):
+            cost = 0.0
+        in_t = int(r.get("input_tokens") or 0)
+        out_t = int(r.get("output_tokens") or 0)
+        bucket = groups.setdefault(
+            key, {"calls": 0, "cost": 0.0, "in": 0, "out": 0},
+        )
+        bucket["calls"] += 1
+        bucket["cost"] += cost
+        bucket["in"] += in_t
+        bucket["out"] += out_t
+        grand_total += cost
+        grand_in += in_t
+        grand_out += out_t
+
+    # Header.
+    print(
+        f"\n=== Cost report — last {args.days} day(s), "
+        f"{len(rows)} invocations, total ${grand_total:.4f} ===\n"
+    )
+
+    # Per-group totals (sorted by cost descending).
+    sorted_groups = sorted(
+        groups.items(), key=lambda kv: -kv[1]["cost"],
+    )
+    key_width = max(len(args.by), max(len(k) for k in groups) if groups else 0)
+    key_width = max(key_width, 12)
+    header = (
+        f"{args.by:<{key_width}}  {'calls':>6}  {'cost':>10}  "
+        f"{'share':>7}  {'mean':>10}  {'in_tok':>10}  {'out_tok':>10}"
+    )
+    print(header)
+    print("-" * len(header))
+    for key, b in sorted_groups:
+        share = (b["cost"] / grand_total * 100.0) if grand_total else 0.0
+        mean = b["cost"] / b["calls"] if b["calls"] else 0.0
+        print(
+            f"{key:<{key_width}}  {b['calls']:>6}  ${b['cost']:>9.4f}  "
+            f"{share:>6.1f}%  ${mean:>9.4f}  {b['in']:>10}  {b['out']:>10}"
+        )
+    print(
+        f"{'TOTAL':<{key_width}}  {len(rows):>6}  ${grand_total:>9.4f}  "
+        f"{100.0:>6.1f}%  "
+        f"${(grand_total / len(rows) if rows else 0):>9.4f}  "
+        f"{grand_in:>10}  {grand_out:>10}"
+    )
+
+    # Top-N most expensive invocations.
+    top = sorted(
+        rows,
+        key=lambda r: float(r.get("cost_usd") or 0.0),
+        reverse=True,
+    )[: args.top]
+    print(f"\n--- Top {len(top)} most expensive invocations ---\n")
+    top_header = (
+        f"{'ts':<20}  {'category':<14}  {'agent':<20}  "
+        f"{'cost':>10}  {'turns':>5}  {'in_tok':>10}  {'out_tok':>10}"
+    )
+    print(top_header)
+    print("-" * len(top_header))
+    for r in top:
+        try:
+            cost = float(r.get("cost_usd") or 0.0)
+        except (TypeError, ValueError):
+            cost = 0.0
+        ts = (r.get("ts") or "")[:19]
+        cat = (r.get("category") or "")[:14]
+        ag = (r.get("agent") or "")[:20]
+        turns = r.get("num_turns") or 0
+        in_t = int(r.get("input_tokens") or 0)
+        out_t = int(r.get("output_tokens") or 0)
+        print(
+            f"{ts:<20}  {cat:<14}  {ag:<20}  ${cost:>9.4f}  "
+            f"{turns:>5}  {in_t:>10}  {out_t:>10}"
+        )
+    print()
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # code-audit — read the repo source and flag concrete inconsistencies
 # ---------------------------------------------------------------------------
 
@@ -3283,13 +3645,14 @@ def cmd_code_audit(args) -> int:
     #    the agent reads its definition + memory from the canonical
     #    /app paths while auditing the clone via absolute paths.
     print(f"[cai code-audit] running agent for {work_dir}", flush=True)
-    agent = _run(
+    agent = _run_claude_p(
         ["claude", "-p", "--agent", "cai-code-audit",
          "--permission-mode", "acceptEdits",
          "--add-dir", str(work_dir)],
+        category="code-audit",
+        agent="cai-code-audit",
         input=user_message,
         cwd="/app",
-        capture_output=True,
     )
     if agent.stdout:
         print(agent.stdout, flush=True)
@@ -3470,10 +3833,11 @@ def cmd_confirm(args) -> int:
     )
 
     # 4. Invoke the declared cai-confirm subagent.
-    confirm = _run(
+    confirm = _run_claude_p(
         ["claude", "-p", "--agent", "cai-confirm"],
+        category="confirm",
+        agent="cai-confirm",
         input=user_message,
-        capture_output=True,
     )
     if confirm.returncode != 0:
         print(
@@ -3697,13 +4061,14 @@ def cmd_review_pr(args) -> int:
             # so it reads its definition + memory from the canonical
             # /app paths while reviewing the cloned PR via absolute
             # paths.
-            agent = _run(
+            agent = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-review-pr",
                  "--permission-mode", "acceptEdits",
                  "--add-dir", str(work_dir)],
+                category="review-pr",
+                agent="cai-review-pr",
                 input=user_message,
                 cwd="/app",
-                capture_output=True,
             )
             if agent.stdout:
                 print(agent.stdout, flush=True)
@@ -4171,10 +4536,11 @@ def cmd_merge(args) -> int:
         )
 
         # Invoke the declared cai-merge subagent.
-        agent = _run(
+        agent = _run_claude_p(
             ["claude", "-p", "--agent", "cai-merge"],
+            category="merge",
+            agent="cai-merge",
             input=user_message,
-            capture_output=True,
         )
         if agent.returncode != 0:
             print(
@@ -4379,11 +4745,12 @@ def cmd_refine(args) -> int:
 
     # 3. Build user message and invoke cai-refine (read-only, no clone needed).
     user_message = _build_issue_block(issue)
-    result = _run(
+    result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-refine",
          "--dangerously-skip-permissions"],
+        category="refine",
+        agent="cai-refine",
         input=user_message,
-        capture_output=True,
     )
     print(result.stdout, flush=True)
 
@@ -4549,6 +4916,23 @@ def main() -> int:
     sub.add_parser("refine", help="Refine human-filed issues into structured plans")
     sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
 
+    cost_parser = sub.add_parser(
+        "cost-report",
+        help="Print a human-readable cost report from the cost log",
+    )
+    cost_parser.add_argument(
+        "--days", type=int, default=7,
+        help="Window in days to include (default: 7)",
+    )
+    cost_parser.add_argument(
+        "--top", type=int, default=10,
+        help="Number of most-expensive invocations to list (default: 10)",
+    )
+    cost_parser.add_argument(
+        "--by", choices=["category", "agent", "day"], default="category",
+        help="Aggregation grouping (default: category)",
+    )
+
     args = parser.parse_args()
 
     auth_rc = check_gh_auth()
@@ -4573,6 +4957,7 @@ def main() -> int:
         "merge": cmd_merge,
         "refine": cmd_refine,
         "cycle": cmd_cycle,
+        "cost-report": cmd_cost_report,
     }
     return handlers[args.command](args)
 
