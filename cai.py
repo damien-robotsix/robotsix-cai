@@ -1924,7 +1924,8 @@ def _select_revise_targets() -> list[dict]:
     """Return PRs needing revision (unaddressed comments since last commit).
 
     Eligible = branch matches auto-improve/<N>-* AND linked issue has
-    label auto-improve:pr-open. Returns a list of dicts with keys:
+    label auto-improve:pr-open AND does NOT have label
+    auto-improve:revising. Returns a list of dicts with keys:
     pr_number, issue_number, branch, comments (the unaddressed ones).
 
     Reads BOTH issue-level comments (via `gh pr list --json comments`)
@@ -1964,6 +1965,8 @@ def _select_revise_targets() -> list[dict]:
             continue
         label_names = {lbl["name"] for lbl in issue.get("labels", [])}
         if LABEL_PR_OPEN not in label_names:
+            continue
+        if LABEL_REVISING in label_names:
             continue
 
         # Find the most recent commit date via `gh pr view`.
