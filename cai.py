@@ -5791,12 +5791,13 @@ def cmd_spike(args) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_cycle(args) -> int:
-    """Run verify → fix → revise → review-pr → merge → confirm in order."""
+    """Run verify → spike → fix → revise → review-pr → merge → confirm in order."""
     print("[cai cycle] starting full cycle (no analyze)", flush=True)
     t0 = time.monotonic()
 
     steps = [
         ("verify", cmd_verify),
+        ("spike", cmd_spike),
         ("fix", cmd_fix),
         ("revise", cmd_revise),
         ("review-pr", cmd_review_pr),
