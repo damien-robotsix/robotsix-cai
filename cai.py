@@ -144,6 +144,10 @@ CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
 PROPOSE_MEMORY = Path("/var/log/cai/propose-memory.md")
 # Persistent memory file for the update-check agent.
 UPDATE_CHECK_MEMORY = Path("/var/log/cai/update-check-memory.md")
+# Persistent log of review-pr finding patterns. Each line is a JSON
+# object with {timestamp, pr_number, category, description}. The
+# analyze agent reads this to spot recurring review patterns.
+REVIEW_PR_PATTERNS = Path("/var/log/cai/review-pr-patterns.jsonl")
 
 # Persistent per-agent memory directory. Each declarative subagent
 # has `memory: project` in its frontmatter, which Claude Code stores
@@ -749,6 +753,24 @@ def cmd_analyze(args) -> int:
     closed_issues = _fetch_closed_auto_improve_issues(limit=50)
     closed_block = _closed_issues_block(closed_issues)
 
+    # Review-PR patterns — recurring findings from pre-merge reviews
+    # that may indicate systemic issues worth raising as improvements.
+    review_patterns = _read_review_pr_patterns()
+    review_patterns_block = ""
+    if review_patterns:
+        review_patterns_block = (
+            "\n\n## Review-PR patterns\n\n"
+            "The following are recent findings from `cai review-pr` pre-merge "
+            "reviews. Look for recurring categories or descriptions that suggest "
+            "a systemic issue in the codebase or in the auto-improve agents' "
+            "output. If you see the same kind of finding repeated across multiple "
+            "PRs, consider raising an improvement issue to address the root "
+            "cause.\n\n"
+            "```jsonl\n"
+            f"{review_patterns}\n"
+            "```\n"
+        )
+
     # The system prompt, tool allowlist, and model choice all live
     # in `.claude/agents/cai-analyze.md`. Durable per-agent learnings
     # live in its `memory: project` pool. The wrapper only passes
@@ -761,6 +783,7 @@ def cmd_analyze(args) -> int:
         "```\n"
         f"{issues_block}"
         f"{closed_block}"
+        f"{review_patterns_block}"
     )
 
     analyzer = _run_claude_p(
@@ -4587,6 +4610,47 @@ _REVIEW_COMMENT_HEADING_FINDINGS = "## cai pre-merge review"
 _REVIEW_COMMENT_HEADING_CLEAN = "## cai pre-merge review (clean)"
 
 
+def _append_review_pr_patterns(pr_number: int, agent_output: str) -> None:
+    """Append review-pr finding patterns to the JSONL log for trend analysis."""
+    findings = re.findall(
+        r"^### Finding:\s*(\S+)\s*\n(.*?)(?=^### Finding:|\Z)",
+        agent_output,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not findings:
+        return
+    ts = datetime.now(timezone.utc).isoformat()
+    try:
+        REVIEW_PR_PATTERNS.parent.mkdir(parents=True, exist_ok=True)
+        with REVIEW_PR_PATTERNS.open("a") as f:
+            for category, body in findings:
+                desc_match = re.search(r"\*\*Description:\*\*\s*(.+)", body)
+                desc = desc_match.group(1).strip() if desc_match else body.strip()[:160]
+                record = json.dumps({
+                    "timestamp": ts,
+                    "pr_number": pr_number,
+                    "category": category,
+                    "description": desc,
+                })
+                f.write(record + "\n")
+    except OSError as exc:
+        print(f"[cai review-pr] could not write pattern log: {exc}", flush=True)
+
+
+def _read_review_pr_patterns() -> str:
+    """Read the review-pr patterns log and return recent entries for the analyzer."""
+    if not REVIEW_PR_PATTERNS.exists():
+        return ""
+    try:
+        lines = REVIEW_PR_PATTERNS.read_text().strip().splitlines()
+    except OSError:
+        return ""
+    if not lines:
+        return ""
+    # Return the last 100 entries (most recent patterns).
+    return "\n".join(lines[-100:])
+
+
 def cmd_review_pr(args) -> int:
     """Review open PRs for ripple effects and post findings as PR comments."""
     print("[cai review-pr] checking open PRs against main", flush=True)
@@ -4729,6 +4793,7 @@ def cmd_review_pr(args) -> int:
             )
 
             if has_findings:
+                _append_review_pr_patterns(pr_number, agent_output)
                 # Findings comments use the actionable heading form
                 # so the revise subagent picks them up on its next
                 # tick (`_BOT_COMMENT_MARKERS` does NOT match this).

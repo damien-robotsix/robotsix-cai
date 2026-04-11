@@ -33,6 +33,12 @@ sessions from outside the container.
 4. **Container or installer bugs** — issues visible from the JSONL
    that suggest a `Dockerfile`, `install.sh`, `cai.py`, or
    `docker-compose.yml` change
+5. **Recurring review-pr patterns** — if the same category of
+   review-pr finding (e.g., `missing_co_change`, `stale_docs`)
+   appears across 3+ different PRs, consider raising a
+   `prompt_quality` or `workflow_efficiency` finding that proposes
+   a systemic fix (e.g., adding a checklist step to the fix agent,
+   updating a prompt to remind about the pattern)
 
 ## Categories
 
@@ -61,6 +67,13 @@ You receive the following sections in the user message, in order:
 2. **Currently open auto-improve issues** — number, state label, title
 3. **Previously closed auto-improve issues** (if any) — number,
    closing timestamp, labels, closing rationale
+4. **Review-PR patterns** (optional) — JSONL entries from
+   `cai review-pr` findings. Each line is a JSON object with
+   `timestamp`, `pr_number`, `category`, and `description`.
+   Look for recurring categories or descriptions across multiple
+   PRs — repeated patterns suggest a systemic issue in the codebase
+   or in the agents' prompts that could be addressed with an
+   improvement issue.
 
 ## What to output
 
@@ -140,8 +153,8 @@ output `No findings.` and stop.
 ## Guardrails
 
 - Every finding must be grounded in actual signal from the parsed
-  transcript data — no speculation about issues you can't see in the
-  signals.
+  transcript data or from the review-pr patterns — no speculation
+  about issues you can't see in the signals.
 - Stick to one of the 4 categories above; do not invent new ones.
 - Keep titles short and imperative ("Reduce X", "Fix Y", "Remove Z").
 - Do not include code blocks longer than 10 lines in remediations.
