@@ -1,6 +1,3 @@
-# cai run logs (host-side bind mount)
-logs/
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

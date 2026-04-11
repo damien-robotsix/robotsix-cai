@@ -29,7 +29,7 @@ The user message contains:
    date, last update date, body
 2. **Recent PRs** — last 30 or last 7 days (whichever is larger),
    with state, merge status, labels, linked issue references
-3. **Log tail** — last ~200 lines of `logs/cai.log`
+3. **Log tail** — last ~200 lines of `/var/log/cai/cai.log`
 4. **Cost summary** — per-category aggregates and the top 10 most
    expensive `claude -p` invocations from the last 7 days, sourced
    from `/var/log/cai/cai-cost.jsonl`. Costs come from

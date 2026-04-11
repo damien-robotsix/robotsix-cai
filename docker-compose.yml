@@ -81,7 +81,7 @@ services:
       # of their per-issue clones by the wrapper around each
       # invocation.
       - cai_agent_memory:/app/.claude/agent-memory
-      - ./logs:/var/log/cai
+      - cai_logs:/var/log/cai
     # Required if Watchtower is enabled (uncommented below):
     # labels:
     #   - "com.centurylinklabs.watchtower.enable=true"
@@ -106,3 +106,5 @@ volumes:
     name: cai_home
   cai_agent_memory:
     name: cai_agent_memory
+  cai_logs:
+    name: cai_logs

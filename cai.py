@@ -129,7 +129,7 @@ TRANSCRIPT_DIR = Path("/home/cai/.claude/projects")
 PARSE_SCRIPT = Path("/app/parse.py")
 PUBLISH_SCRIPT = Path("/app/publish.py")
 # Persistent memory file for the code-audit agent. Stored in the
-# bind-mounted log directory so it survives container restarts.
+# named-volume log directory so it survives container restarts.
 CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
 # Persistent memory file for the propose agent (same pattern).
 PROPOSE_MEMORY = Path("/var/log/cai/propose-memory.md")
@@ -3994,7 +3994,7 @@ def cmd_code_audit(args) -> int:
         return 1
 
     # 2. Build the user message with the runtime memory from the
-    #    bind-mounted log directory. System prompt, tool allowlist
+    #    named-volume log directory (cai_logs). System prompt, tool allowlist
     #    (Read/Grep/Glob), and model (sonnet) all live in
     #    `.claude/agents/cai-code-audit.md`. Durable per-agent
     #    learnings live in its `memory: project` pool, which the

@@ -59,7 +59,6 @@ echo "Install directory: $INSTALL_DIR"
 echo "Image:             robotsix/cai:$IMAGE_TAG"
 echo
 
-mkdir -p "$INSTALL_DIR/logs"
 cd "$INSTALL_DIR"
 
 if [[ -e docker-compose.yml ]]; then
@@ -167,7 +166,7 @@ services:
       # so the durable notes each subagent accumulates across runs
       # survive container restarts.
       - cai_agent_memory:/app/.claude/agent-memory
-      - ./logs:/var/log/cai
+      - cai_logs:/var/log/cai
 ${CAI_LABEL_BLOCK}${WATCHTOWER_SERVICE}
 
 volumes:
@@ -175,6 +174,8 @@ volumes:
     name: cai_home
   cai_agent_memory:
     name: cai_agent_memory
+  cai_logs:
+    name: cai_logs
 YAML
     echo
     echo "[OK] Wrote $INSTALL_DIR/docker-compose.yml (in-container OAuth mode)"
@@ -224,7 +225,7 @@ services:
       # so the durable notes each subagent accumulates across runs
       # survive container restarts.
       - cai_agent_memory:/app/.claude/agent-memory
-      - ./logs:/var/log/cai
+      - cai_logs:/var/log/cai
 ${CAI_LABEL_BLOCK}${WATCHTOWER_SERVICE}
 
 volumes:
@@ -232,6 +233,8 @@ volumes:
     name: cai_home
   cai_agent_memory:
     name: cai_agent_memory
+  cai_logs:
+    name: cai_logs
 YAML
     cat > .env <<ENV
 ANTHROPIC_API_KEY=${API_KEY}
@@ -266,7 +269,7 @@ fi
 # root. Easier to wipe and start fresh than to migrate.
 echo
 echo "Wiping any existing cai volumes for a clean install..."
-for vol in cai_home cai_agent_memory cai_claude cai_gh_config cai_transcripts; do
+for vol in cai_home cai_agent_memory cai_logs cai_claude cai_gh_config cai_transcripts; do
   if docker volume inspect "$vol" >/dev/null 2>&1; then
     if docker volume rm "$vol" >/dev/null 2>&1; then
       echo "  removed: $vol"
