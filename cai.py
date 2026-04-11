@@ -871,7 +871,7 @@ def _select_fix_target():
     exclusively by the audit-triage agent — only issues that triage
     re-labels to `auto-improve:raised` enter the fix pipeline.
     If no candidates are found, attempts to recover stale `:pr-open`
-    issues whose linked PR was closed unmerged.
+    issues whose linked PR was closed unmerged or that have no linked PR.
     """
     candidates: dict[int, dict] = {}
     for label in (LABEL_RAISED, LABEL_REQUESTED):
@@ -2650,7 +2650,7 @@ def cmd_verify(args) -> int:
     transitioned = 0
     pr_open_issue_nums = {i["number"] for i in issues}
 
-    # Handle MERGED transitions inline; CLOSED recovery uses the shared helper.
+    # Handle MERGED transitions inline; CLOSED and no-linked-PR recovery uses the shared helper.
     remaining = []
     for issue in issues:
         num = issue["number"]
