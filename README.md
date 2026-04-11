@@ -174,7 +174,7 @@ identity as the operator.
 If the bot can't address a comment (unclear or out of scope), it
 posts a reply explaining why and exits without changes.
 
-**Skip conditions:** `cai revise` silently skips a PR when its linked
+**Skip conditions:** `cai revise` skips (logging a `[cai revise] … skipping` message) a PR when its linked
 issue carries the `merge-blocked` label **or** the PR itself carries
 the `needs-human-review` label. Revising code cannot unblock a PR
 that is waiting on a human decision, so the bot leaves it alone to
