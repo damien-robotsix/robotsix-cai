@@ -3847,7 +3847,7 @@ def _pr_label_sweep() -> tuple[int, int]:
     except subprocess.CalledProcessError:
         return (0, 0)
 
-    threshold_rank = _CONFIDENCE_RANKS.get(_MERGE_THRESHOLD, 99)
+    threshold_rank = _CONFIDENCE_RANKS.get(_MERGE_THRESHOLD, _CONFIDENCE_RANKS["high"])
     added = 0
     removed = 0
 
