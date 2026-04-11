@@ -11,10 +11,11 @@
 #      - revise:    iterate on open PRs based on review comments
 #      - verify:    walk pr-open issues and update labels per PR state
 #      - audit:     periodic queue/PR consistency checks
-#      - code-audit: periodic source code consistency checks
-#      - propose:   weekly creative improvement proposals
-#      - confirm:   verify merged fixes are actually solved
-#      - merge:     confidence-gated auto-merge for bot PRs
+#      - code-audit:    periodic source code consistency checks
+#      - propose:       weekly creative improvement proposals
+#      - update-check:  periodic Claude Code release checks
+#      - confirm:       verify merged fixes are actually solved
+#      - merge:         confidence-gated auto-merge for bot PRs
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #
@@ -35,6 +36,7 @@ CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
 CAI_AUDIT_TRIAGE_SCHEDULE="${CAI_AUDIT_TRIAGE_SCHEDULE:-10 */6 * * *}"
 CAI_CODE_AUDIT_SCHEDULE="${CAI_CODE_AUDIT_SCHEDULE:-0 3 * * 0}"
 CAI_PROPOSE_SCHEDULE="${CAI_PROPOSE_SCHEDULE:-0 4 * * 0}"
+CAI_UPDATE_CHECK_SCHEDULE="${CAI_UPDATE_CHECK_SCHEDULE:-0 4 * * 1}"
 CAI_REVISE_SCHEDULE="${CAI_REVISE_SCHEDULE:-30 * * * *}"
 CAI_CONFIRM_SCHEDULE="${CAI_CONFIRM_SCHEDULE:-0 2 * * *}"
 CAI_REVIEW_PR_SCHEDULE="${CAI_REVIEW_PR_SCHEDULE:-20 * * * *}"
@@ -55,6 +57,7 @@ $CAI_AUDIT_SCHEDULE python /app/cai.py audit
 $CAI_AUDIT_TRIAGE_SCHEDULE python /app/cai.py audit-triage
 $CAI_CODE_AUDIT_SCHEDULE python /app/cai.py code-audit
 $CAI_PROPOSE_SCHEDULE python /app/cai.py propose
+$CAI_UPDATE_CHECK_SCHEDULE python /app/cai.py update-check
 $CAI_CONFIRM_SCHEDULE python /app/cai.py confirm
 $CAI_REVIEW_PR_SCHEDULE python /app/cai.py review-pr
 $CAI_MERGE_SCHEDULE python /app/cai.py merge
@@ -110,6 +113,9 @@ python /app/cai.py code-audit || echo "[entrypoint] code-audit exited non-zero; 
 
 echo "[entrypoint] running initial cai.py propose"
 python /app/cai.py propose || echo "[entrypoint] propose exited non-zero; continuing"
+
+echo "[entrypoint] running initial cai.py update-check"
+python /app/cai.py update-check || echo "[entrypoint] update-check exited non-zero; continuing"
 
 echo "[entrypoint] running initial cai.py confirm"
 python /app/cai.py confirm || echo "[entrypoint] confirm exited non-zero; continuing"
