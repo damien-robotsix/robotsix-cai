@@ -111,3 +111,8 @@ No issues to triage.
   states or new labels.
 - Do not write code, diffs, or remediation prose — that is the fix
   subagent's job. Your output is structured verdicts only.
+- **Verify paths with Glob before Read.** When a file path is
+  constructed or inferred (not hard-coded), confirm the file exists
+  using Glob before attempting to Read it. If a Read fails, do not
+  retry the same path — use Glob to find the correct filename
+  first.
