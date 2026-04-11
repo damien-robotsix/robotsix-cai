@@ -775,7 +775,8 @@ def cmd_analyze(args) -> int:
     # in `.claude/agents/cai-analyze.md`. Durable per-agent learnings
     # live in its `memory: project` pool. The wrapper only passes
     # dynamic per-run context (parsed signals, open issues,
-    # closed-issue rationales) via stdin as the user message.
+    # closed-issue rationales, review-pr patterns) via stdin as the
+    # user message.
     user_message = (
         "## Parsed signals\n\n"
         "```json\n"
