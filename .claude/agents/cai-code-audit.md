@@ -47,7 +47,7 @@ intentionally not raised.
 The user message contains one section:
 
 1. **Runtime memory** — a summary of previous code-audit runs
-   from the bind-mounted runtime log. Use this to avoid re-raising
+   from the named-volume runtime log. Use this to avoid re-raising
    findings that were already reported and to focus on areas not
    recently audited. If it's empty, this is the first run against
    a fresh container.
