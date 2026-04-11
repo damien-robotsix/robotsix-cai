@@ -77,7 +77,7 @@ Subcommands:
                             publish.py with the `code-audit` namespace.
 
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`fix`, `refine`, `revise`, `verify`, `audit`, `code-audit`, `confirm`, `review-pr`, and `merge` once synchronously at
+`verify`, `refine`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a

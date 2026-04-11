@@ -51,6 +51,7 @@ subprocess with no shared state.
 | Subcommand | Default schedule | What it does |
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
+| `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:needs-refinement` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:raised` |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, runs 3 parallel plan agents then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state; also recovers issues whose `:pr-open` label was lost |
@@ -63,9 +64,10 @@ subprocess with no shared state.
 
 On `docker compose up -d` the entrypoint templates the crontab from
 the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
-`CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`, `CAI_REVISE_SCHEDULE`,
-`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`, `CAI_AUDIT_TRIAGE_SCHEDULE`,
-`CAI_CODE_AUDIT_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
+`CAI_REFINE_SCHEDULE`, `CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`,
+`CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
+`CAI_AUDIT_TRIAGE_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`,
+`CAI_CONFIRM_SCHEDULE`), runs each
 scheduled subcommand once synchronously so logs show immediate results, then execs
 supercronic. (`cycle` is on-demand only and is not part of scheduled or startup runs.)
 
