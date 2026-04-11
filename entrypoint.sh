@@ -108,6 +108,9 @@ python /app/cai.py audit-triage || echo "[entrypoint] audit-triage exited non-ze
 echo "[entrypoint] running initial cai.py code-audit"
 python /app/cai.py code-audit || echo "[entrypoint] code-audit exited non-zero; continuing"
 
+echo "[entrypoint] running initial cai.py propose"
+python /app/cai.py propose || echo "[entrypoint] propose exited non-zero; continuing"
+
 echo "[entrypoint] running initial cai.py confirm"
 python /app/cai.py confirm || echo "[entrypoint] confirm exited non-zero; continuing"
 

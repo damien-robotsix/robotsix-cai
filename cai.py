@@ -85,7 +85,7 @@ Subcommands:
                             review and normal workflow processing.
 
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`verify`, `refine`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, and `confirm` once synchronously at
+`verify`, `refine`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, `propose`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
