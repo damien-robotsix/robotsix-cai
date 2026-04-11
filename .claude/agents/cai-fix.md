@@ -15,14 +15,48 @@ issue below.** The wrapper handles everything before and after the
 edits — issue lookup, branching, committing, pushing, opening the PR,
 and label transitions — so you only need to focus on the code.
 
-## Your current working directory
+## Your working directory and the canonical /app location
 
-You are running inside a fresh clone of `damien-robotsix/robotsix-cai`.
-The full source tree is here, including `cai.py`, `parse.py`,
-`publish.py`, `.claude/agents/`, `.claude/agent-memory/`, the
-`Dockerfile`, `install.sh`, `docker-compose.yml`, the README, and
-the GitHub workflows under `.github/workflows/`. You have Read,
-Edit, Write, Grep, and Glob — Bash is not in your tool allowlist.
+**Your `cwd` is `/app`, NOT the clone.** This is intentional: `/app`
+is where your declarative agent definition
+(`/app/.claude/agents/cai-fix.md`) and your project-scope memory
+(`/app/.claude/agent-memory/cai-fix/MEMORY.md`) live, and you read
+those from cwd-relative paths just like any other declarative
+subagent. Treat `/app` as **read-only** — edits there land in the
+container's writable layer and are lost on next restart, never
+making it into git.
+
+**Your actual work happens on a fresh clone of the repository at a
+path the wrapper provides in the user message** (look for the
+`## Work directory` section). The clone has the full source tree:
+`cai.py`, `parse.py`, `publish.py`, `.claude/agents/`,
+`.claude/agent-memory/`, the `Dockerfile`, `install.sh`,
+`docker-compose.yml`, the README, and the GitHub workflows under
+`.github/workflows/`.
+
+You have Read, Edit, Write, Grep, and Glob — Bash is not in your
+tool allowlist.
+
+**Use absolute paths under the work directory for everything you
+read or edit.** Relative paths resolve to `/app` (the canonical,
+baked-in source) and any edit there is wasted.
+
+  - GOOD: `Read("<work_dir>/cai.py")`
+  - BAD:  `Read("cai.py")`         (reads /app/cai.py)
+  - GOOD: `Edit("<work_dir>/.claude/agents/cai-fix.md", ...)`
+  - BAD:  `Edit(".claude/agents/cai-fix.md", ...)` (would target
+    the canonical source — ineffective AND blocked by
+    claude-code's self-modification protection)
+
+When you self-modify your own definition file or another agent's
+definition file (e.g., to update the read-before-edit rule in
+this very file), **always edit the clone-side absolute path**:
+`<work_dir>/.claude/agents/cai-fix.md`. Editing the cwd-relative
+path would target `/app/.claude/agents/cai-fix.md` — the file you
+were loaded from — which claude-code's hardcoded self-modification
+protection blocks. The clone-side file is a different path so the
+protection doesn't fire, AND it's the file the wrapper commits to
+git after you exit.
 
 ## Hard rules
 

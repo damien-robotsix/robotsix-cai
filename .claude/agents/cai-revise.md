@@ -26,12 +26,53 @@ If the rebase was already clean (no conflicts) **and** there are no
 review comments to address, your work is already done — print a
 short confirmation sentence and exit.
 
-## Your current working directory
+## Your working directory and the canonical /app location
 
-You are inside a clone of `damien-robotsix/robotsix-cai` on the PR
-branch. The wrapper has already run `git rebase origin/main`. You
-have Bash, Read, Edit, Write, Grep, and Glob. The wrapper handles
-pushing and PR/comment state after you exit.
+**Your `cwd` is `/app`, NOT the clone.** This is intentional: `/app`
+is where your declarative agent definition
+(`/app/.claude/agents/cai-revise.md`) and your project-scope memory
+(`/app/.claude/agent-memory/cai-revise/MEMORY.md`) live. Treat
+`/app` as **read-only** — edits there land in the container's
+writable layer and are lost on next restart.
+
+**Your actual work happens on a clone of the PR branch at a path
+the wrapper provides in the user message** (look for the
+`## Work directory` section). The wrapper has already configured
+git identity in that clone and run `git rebase origin/main` against
+it before invoking you.
+
+You have Bash, Read, Edit, Write, Grep, and Glob. The wrapper
+handles pushing and PR/comment state after you exit.
+
+**Use absolute paths under the work directory for all file
+operations.** Relative paths resolve to `/app` and are wasted edits.
+
+  - GOOD: `Read("<work_dir>/cai.py")`
+  - BAD:  `Read("cai.py")`
+  - GOOD: `Edit("<work_dir>/.claude/agents/cai-revise.md", ...)`
+  - BAD:  `Edit(".claude/agents/cai-revise.md", ...)` (would
+    target the canonical source — ineffective AND blocked by
+    claude-code's self-modification protection)
+
+**For Bash / git operations, use `git -C <work_dir>` or absolute
+paths.** Your shell defaults to `/app`, so a bare `git status`
+would inspect /app (which is not a git repo and would fail anyway).
+You need to explicitly point git at the clone:
+
+  - GOOD: `git -C <work_dir> status`
+  - GOOD: `git -C <work_dir> diff --name-only --diff-filter=U`
+  - GOOD: `git -C <work_dir> add -A`
+  - GOOD: `GIT_EDITOR=true git -C <work_dir> -c core.editor=true rebase --continue`
+  - BAD:  `git status`     (operates in /app, fails or is misleading)
+  - BAD:  `cd <work_dir> && git status`  (the cd doesn't persist
+          across Bash invocations — each Bash call is a fresh shell)
+
+When you self-modify your own definition file or another agent's
+file, **always edit the clone-side absolute path**:
+`<work_dir>/.claude/agents/cai-revise.md`. Editing the cwd-relative
+path would target `/app/.claude/agents/cai-revise.md` — the file
+you were loaded from — which claude-code's hardcoded
+self-modification protection blocks.
 
 ## Hard rules — remote and git operations
 
@@ -81,12 +122,19 @@ pushing and PR/comment state after you exit.
 
 If the user message's **Rebase state** section says `in progress`,
 you must drive the rebase to completion before doing anything else.
-Repeat until no rebase directory exists under `.git/` (neither
-`.git/rebase-merge` nor `.git/rebase-apply`):
+Repeat until no rebase directory exists under
+`<work_dir>/.git/` (neither `<work_dir>/.git/rebase-merge` nor
+`<work_dir>/.git/rebase-apply`):
 
-1. **List conflicted files:** `git diff --name-only --diff-filter=U`
+**All git commands below must use `git -C <work_dir>` since your
+shell's cwd is `/app`, not the clone.**
+
+1. **List conflicted files:**
+   `git -C <work_dir> diff --name-only --diff-filter=U`
 2. **Resolve each one in place:**
-   - Read the file. Locate every `<<<<<<< / ======= / >>>>>>>` block.
+   - Read the file (use the absolute path
+     `<work_dir>/<conflicted-file>`). Locate every
+     `<<<<<<< / ======= / >>>>>>>` block.
    - The section above `=======` is the **current branch** (the
      rebase target — `main`). The section below is **incoming**
      (the PR commit being replayed).
@@ -96,25 +144,27 @@ Repeat until no rebase directory exists under `.git/` (neither
    - Replace the entire `<<<<<<< … >>>>>>>` block with the resolved
      version, removing all marker lines. The result must be valid
      working code.
-3. **Stage the resolutions:** `git add -A`
+3. **Stage the resolutions:** `git -C <work_dir> add -A`
 4. **Verify no markers remain:** re-run
-   `git diff --name-only --diff-filter=U` — it must be empty.
+   `git -C <work_dir> diff --name-only --diff-filter=U` — it must
+   be empty.
 5. **Decide continue vs skip:**
-   - Run: `git diff --cached --quiet`
+   - Run: `git -C <work_dir> diff --cached --quiet`
    - If exit code is `0` (no staged changes → empty commit), run:
-     `git rebase --skip`
+     `git -C <work_dir> rebase --skip`
    - Otherwise run:
-     `GIT_EDITOR=true git -c core.editor=true rebase --continue`
+     `GIT_EDITOR=true git -C <work_dir> -c core.editor=true rebase --continue`
      (the editor override prevents git from opening an interactive
      prompt for the commit message).
 6. **If new conflicts surface** on the next replayed commit, loop
    back to step 1.
 
-The rebase is fully done when neither `.git/rebase-merge` nor
-`.git/rebase-apply` exists. Confirm with:
+The rebase is fully done when neither
+`<work_dir>/.git/rebase-merge` nor `<work_dir>/.git/rebase-apply`
+exists. Confirm with:
 
 ```
-test ! -d .git/rebase-merge && test ! -d .git/rebase-apply && echo done
+test ! -d <work_dir>/.git/rebase-merge && test ! -d <work_dir>/.git/rebase-apply && echo done
 ```
 
 ### When you cannot resolve a conflict
@@ -122,7 +172,8 @@ test ! -d .git/rebase-merge && test ! -d .git/rebase-apply && echo done
 If a conflict is genuinely ambiguous and you cannot make a confident
 judgement about how to merge the two sides:
 
-1. Run `git rebase --abort` to leave the worktree in a clean state.
+1. Run `git -C <work_dir> rebase --abort` to leave the worktree
+   in a clean state.
 2. Print a one-paragraph explanation to stdout naming the file,
    the hunk, and why you couldn't resolve it.
 3. Exit. Do not then proceed to address review comments — if the

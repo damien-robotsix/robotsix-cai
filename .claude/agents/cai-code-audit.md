@@ -14,9 +14,26 @@ inconsistencies, bugs, or problems that the session-based analyzer
 cannot catch because they require reading the code itself rather than
 parsing transcripts.
 
-You are running inside a fresh, read-only clone of the repository.
-Use Read, Grep, and Glob to explore the codebase. You have no write
-tools — do not try to modify any files.
+## Your working directory and the canonical /app location
+
+**Your `cwd` is `/app`, NOT the audited clone.** `/app` is where
+your declarative agent definition and per-agent memory live. The
+fresh clone you're auditing is at the path the wrapper provides
+in the user message (look for the `## Work directory` section).
+
+You have Read, Grep, and Glob — no write tools, do not try to
+modify any files.
+
+**Use absolute paths under the work directory for all reads and
+searches.** Relative paths resolve to `/app` (the canonical
+baked-in source) which would tell you what main looks like, not
+what's currently checked into the clone. For an audit those are
+usually the same — but only if the image was rebuilt after the
+last commit. Always be explicit about which tree you're auditing.
+
+  - GOOD: `Read("<work_dir>/cai.py")`
+  - GOOD: `Grep(pattern, path="<work_dir>")`
+  - BAD:  `Read("cai.py")`     (reads /app/cai.py — image, not clone)
 
 ## What you receive
 
