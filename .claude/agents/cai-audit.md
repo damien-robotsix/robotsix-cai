@@ -99,6 +99,8 @@ did not actually succeed. Flag these as `silent_failure`.
 | `[fix] result=push_failed exit=1` (≥2 occurrences in window) | Recurring git push problem |
 | `[fix] result=clone_failed exit=1` (≥2 occurrences in window) | Recurring gh/git auth problem |
 | `[fix] result=no_eligible_issues` repeating ≥7 times in a row while open `:raised`/`:requested` issues exist | Bot is skipping issues it should be picking |
+| `[spike] result=no_eligible_issues` repeating while open `:needs-spike` issues exist | Spike agent is running but not picking up eligible issues — possible label mismatch or gh auth problem |
+| `[spike] result=clone_failed exit=1` (≥2 occurrences in window) | Recurring gh/git auth problem affecting spike runs |
 | `[cai analyze] claude -p failed (exit N)` | API errors (rate limit, auth, network) |
 | `[cai analyze] parse.py failed (exit N)` | Parser crash |
 | `level=error msg="..."` lines from supercronic itself | Scheduler errors |
