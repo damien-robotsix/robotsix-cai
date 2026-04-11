@@ -76,6 +76,14 @@ Subcommands:
                             Findings are published as issues via
                             publish.py with the `code-audit` namespace.
 
+    python cai.py propose     Weekly creative improvement proposal.
+                            Clones the repo read-only, runs a creative
+                            agent to propose an ambitious improvement,
+                            then a review agent to evaluate feasibility.
+                            Approved proposals are filed as issues with
+                            `auto-improve:needs-refinement` for human
+                            review and normal workflow processing.
+
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
 `verify`, `refine`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
@@ -123,6 +131,8 @@ PUBLISH_SCRIPT = Path("/app/publish.py")
 # Persistent memory file for the code-audit agent. Stored in the
 # bind-mounted log directory so it survives container restarts.
 CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
+# Persistent memory file for the propose agent (same pattern).
+PROPOSE_MEMORY = Path("/var/log/cai/propose-memory.md")
 
 # Persistent per-agent memory directory. Each declarative subagent
 # has `memory: project` in its frontmatter, which Claude Code stores
@@ -132,8 +142,9 @@ CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
 # restarts. ALL subagents (both /app agents and the cloned-worktree
 # agents) now read/write this path directly because they're all
 # invoked with `cwd=/app`. The cloned-worktree agents
-# (cai-fix, cai-revise, cai-review-pr, cai-code-audit, cai-plan,
-# cai-select) operate on a clone elsewhere via absolute paths —
+# (cai-fix, cai-revise, cai-review-pr, cai-code-audit, cai-propose,
+# cai-propose-review, cai-plan, cai-select) operate on a clone
+# elsewhere via absolute paths —
 # see `_work_directory_block` for the user-message section that
 # tells them where the clone is.
 AGENT_MEMORY_DIR = Path("/app/.claude/agent-memory")
@@ -1264,7 +1275,8 @@ def _work_directory_block(work_dir: Path) -> str:
     files via the staging directory.
 
     All cloned-worktree subagents (cai-fix, cai-revise, cai-review-pr,
-    cai-code-audit, cai-plan, cai-select) are invoked with `cwd=/app`
+    cai-code-audit, cai-propose, cai-propose-review, cai-plan,
+    cai-select) are invoked with `cwd=/app`
     rather than `cwd=<clone>`. This makes their canonical agent
     definition (`/app/.claude/agents/<name>.md`) and per-agent memory
     (`/app/.claude/agent-memory/<name>/`) directly available via
@@ -3650,6 +3662,240 @@ def _save_code_audit_memory(agent_output: str) -> None:
         print(f"[cai code-audit] could not write memory: {exc}", flush=True)
 
 
+# ---------------------------------------------------------------------------
+# propose — creative improvement proposals
+# ---------------------------------------------------------------------------
+
+
+def _read_propose_memory() -> str:
+    """Return the contents of the propose memory file, or empty string."""
+    if not PROPOSE_MEMORY.exists():
+        return ""
+    try:
+        return PROPOSE_MEMORY.read_text().strip()
+    except OSError:
+        return ""
+
+
+def _save_propose_memory(agent_output: str) -> None:
+    """Extract the ## Memory Update block from agent output and persist it."""
+    match = re.search(
+        r"^## Memory Update\s*\n(.*)",
+        agent_output,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not match:
+        return
+    try:
+        PROPOSE_MEMORY.parent.mkdir(parents=True, exist_ok=True)
+        PROPOSE_MEMORY.write_text(match.group(0).strip() + "\n")
+    except OSError as exc:
+        print(f"[cai propose] could not write memory: {exc}", flush=True)
+
+
+def cmd_propose(args) -> int:
+    """Clone the repo and run the creative + review agents to propose improvements."""
+    print("[cai propose] running creative improvement proposal", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Clone repo into a temporary directory (read-only).
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-propose-{_uid}")
+
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+
+    clone = _run(
+        ["git", "clone", "--depth", "1",
+         f"https://github.com/{REPO}.git", str(work_dir)],
+        capture_output=True,
+    )
+    if clone.returncode != 0:
+        print(
+            f"[cai propose] git clone failed:\n{clone.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("propose", repo=REPO, result="clone_failed",
+                duration=dur, exit=1)
+        return 1
+
+    # 2. Build user message for the creative agent.
+    memory = _read_propose_memory()
+    memory_section = "## Memory from previous runs\n\n"
+    if memory:
+        memory_section += memory + "\n"
+    else:
+        memory_section += "(first run — no prior memory)\n"
+
+    user_message = _work_directory_block(work_dir) + "\n" + memory_section
+
+    # 3. Run the creative proposal agent.
+    print(f"[cai propose] running creative agent for {work_dir}", flush=True)
+    creative = _run(
+        ["claude", "-p", "--agent", "cai-propose",
+         "--permission-mode", "acceptEdits",
+         "--add-dir", str(work_dir)],
+        input=user_message,
+        cwd="/app",
+        capture_output=True,
+    )
+    if creative.stdout:
+        print(creative.stdout, flush=True)
+    if creative.returncode != 0:
+        print(
+            f"[cai propose] creative agent failed (exit {creative.returncode}):\n"
+            f"{creative.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("propose", repo=REPO, result="creative_agent_failed",
+                duration=dur, exit=creative.returncode)
+        return creative.returncode
+
+    # 4. Save the creative agent's memory for next run.
+    _save_propose_memory(creative.stdout)
+
+    # 5. Check if the creative agent had nothing to propose.
+    if "No proposal." in creative.stdout:
+        print("[cai propose] creative agent had no proposal; done", flush=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("propose", repo=REPO, result="no_proposal", duration=dur, exit=0)
+        return 0
+
+    # 6. Extract the proposal title and text.
+    title_match = re.search(
+        r"^### Proposal:\s*(.+)$", creative.stdout, flags=re.MULTILINE
+    )
+    proposal_title = title_match.group(1).strip() if title_match else "Improvement proposal"
+
+    # Extract proposal block (everything from ### Proposal: to ## Memory Update or end).
+    proposal_match = re.search(
+        r"(### Proposal:.*?)(?=\n## Memory Update|\Z)",
+        creative.stdout,
+        flags=re.DOTALL,
+    )
+    proposal_text = proposal_match.group(1).strip() if proposal_match else creative.stdout.strip()
+
+    # Extract the key for deduplication.
+    key_match = re.search(
+        r"\*\*Key:\*\*\s*(\S+)", creative.stdout
+    )
+    proposal_key = key_match.group(1).strip() if key_match else _uid
+
+    # 7. Run the review agent with the proposal.
+    review_message = (
+        _work_directory_block(work_dir) + "\n"
+        "## Proposal\n\n" + proposal_text + "\n"
+    )
+
+    print("[cai propose] running review agent", flush=True)
+    review = _run(
+        ["claude", "-p", "--agent", "cai-propose-review",
+         "--permission-mode", "acceptEdits",
+         "--add-dir", str(work_dir)],
+        input=review_message,
+        cwd="/app",
+        capture_output=True,
+    )
+    if review.stdout:
+        print(review.stdout, flush=True)
+    if review.returncode != 0:
+        print(
+            f"[cai propose] review agent failed (exit {review.returncode}):\n"
+            f"{review.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("propose", repo=REPO, result="review_agent_failed",
+                duration=dur, exit=review.returncode)
+        return review.returncode
+
+    # 8. Check the verdict.
+    if "### Verdict: reject" in review.stdout:
+        print("[cai propose] proposal rejected by review agent; done", flush=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("propose", repo=REPO, result="rejected", duration=dur, exit=0)
+        return 0
+
+    # 9. Extract the refined issue body.
+    refined_match = re.search(
+        r"## Refined Issue\s*\n(.*)",
+        review.stdout,
+        flags=re.DOTALL,
+    )
+    if not refined_match:
+        print(
+            "[cai propose] review agent approved but no ## Refined Issue found; "
+            "skipping issue creation",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("propose", repo=REPO, result="no_refined_issue", duration=dur, exit=0)
+        return 0
+
+    refined_body = refined_match.group(1).strip()
+
+    # 10. Check for duplicates before creating the issue.
+    fingerprint = f"<!-- fingerprint: propose-{proposal_key} -->"
+    dup_check = _run(
+        ["gh", "issue", "list",
+         "--repo", REPO,
+         "--search", f"propose-{proposal_key} in:body",
+         "--state", "all",
+         "--limit", "1",
+         "--json", "number"],
+        capture_output=True,
+    )
+    if dup_check.returncode == 0 and dup_check.stdout.strip() not in ("", "[]"):
+        print(
+            f"[cai propose] duplicate found for key {proposal_key}; skipping",
+            flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("propose", repo=REPO, result="duplicate", duration=dur, exit=0)
+        return 0
+
+    # 11. Create the GitHub issue.
+    issue_body = (
+        f"{refined_body}\n\n"
+        f"---\n"
+        f"_Proposed by the weekly creative improvement agent "
+        f"(`cai propose`)._\n\n"
+        f"{fingerprint}\n"
+    )
+    labels = ",".join(["auto-improve", LABEL_NEEDS_REFINEMENT])
+    result = _run(
+        ["gh", "issue", "create",
+         "--repo", REPO,
+         "--title", proposal_title,
+         "--body", issue_body,
+         "--label", labels],
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        url = result.stdout.strip()
+        print(f"[cai propose] created proposal issue: {url}", flush=True)
+    else:
+        print(
+            f"[cai propose] failed to create issue: {result.stderr}",
+            file=sys.stderr, flush=True,
+        )
+
+    # 12. Clean up.
+    shutil.rmtree(work_dir, ignore_errors=True)
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("propose", repo=REPO, duration=dur, exit=result.returncode)
+    return result.returncode
+
+
 def cmd_code_audit(args) -> int:
     """Clone the repo and run the code-audit agent to find inconsistencies."""
     print("[cai code-audit] running code audit", flush=True)
@@ -5003,6 +5249,7 @@ def main() -> int:
         help="Autonomously resolve audit:raised findings (no PRs)",
     )
     sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
+    sub.add_parser("propose", help="Weekly creative improvement proposal")
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
@@ -5045,6 +5292,7 @@ def main() -> int:
         "audit": cmd_audit,
         "audit-triage": cmd_audit_triage,
         "code-audit": cmd_code_audit,
+        "propose": cmd_propose,
         "confirm": cmd_confirm,
         "review-pr": cmd_review_pr,
         "merge": cmd_merge,
