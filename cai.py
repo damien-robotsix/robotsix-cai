@@ -2260,7 +2260,7 @@ def _recover_stuck_rebase_prs() -> int:
         print(
             f"[cai revise] PR #{pr_number}: rebase resolver gave up "
             f"and no commits since; closing and resetting issue "
-            f"#{issue_number} to :raised so fix can retry",
+            f"#{issue_number} to :refined so fix can retry",
             flush=True,
         )
 
