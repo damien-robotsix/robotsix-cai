@@ -30,6 +30,12 @@ The user message contains:
 2. **Recent PRs** — last 30 or last 7 days (whichever is larger),
    with state, merge status, linked issue references
 3. **Log tail** — last ~200 lines of `logs/cai.log`
+4. **Cost summary** — per-category aggregates and the top 10 most
+   expensive `claude -p` invocations from the last 7 days, sourced
+   from `/var/log/cai/cai-cost.jsonl`. Costs come from
+   `claude -p --output-format json`'s `total_cost_usd` field, so
+   they reflect what Anthropic actually billed. Use this section to
+   spot `cost_outlier` patterns (see categories below).
 
 ## Lifecycle states — tracking vs active
 
@@ -67,6 +73,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Analyzer producing findings but no fix PRs landing in the same window | `loop_stuck` |
 | Multiple rules in `.claude/agents/cai-fix.md` that contradict each other | `prompt_contradiction` |
 | Tracking-only issue (no state label) older than 30 days with no human activity | `forgotten_backlog` |
+| A single `claude -p` invocation in the cost summary whose `cost` is >3× the mean cost of its category, OR a category whose `total cost (share)` exceeds 50% of the window total | `cost_outlier` |
 
 ### Log-level patterns
 
@@ -123,6 +130,7 @@ threshold — human intervention is needed. These appear in the log as
 | `topic_duplicate` | Two open issues about the same underlying pattern |
 | `silent_failure` | Step exited 0 but log shows it did not succeed |
 | `forgotten_backlog` | Tracking-only issue (no state label) older than 30 days with no human activity |
+| `cost_outlier` | A `claude -p` invocation (or category aggregate) in the cost summary that dominates token spend disproportionately to its functional value |
 
 ## Output format
 
@@ -131,7 +139,7 @@ For each anomaly, output a markdown block:
 ```markdown
 ### Finding: <short imperative title>
 
-- **Category:** <one of the 7 categories above>
+- **Category:** <one of the 8 categories above>
 - **Key:** <stable-slug-for-deduplication>
 - **Confidence:** low | medium | high
 - **Evidence:**
@@ -149,7 +157,7 @@ No findings.
 
 - Every finding must be grounded in the data you received — no
   speculation about issues you can't see.
-- Stick to the 7 categories above; do not invent new ones.
+- Stick to the 8 categories above; do not invent new ones.
 - Keep titles short and imperative.
 - These findings are **report-only** — they go to humans for triage.
   Do not suggest automated fixes beyond what the deterministic
