@@ -5858,7 +5858,7 @@ def main() -> int:
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
     sub.add_parser("refine", help="Refine human-filed issues into structured plans")
     sub.add_parser("spike", help="Run research spikes on :needs-spike issues")
-    sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
+    sub.add_parser("cycle", help="Full cycle: verify, spike, fix, revise, review-pr, merge, confirm")
 
     cost_parser = sub.add_parser(
         "cost-report",
