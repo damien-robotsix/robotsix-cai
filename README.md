@@ -50,7 +50,7 @@ subprocess with no shared state.
 
 | Subcommand | Default schedule | What it does |
 |---|---|---|
-| `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
+| `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts and recent review-pr finding patterns, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:needs-refinement` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:raised` |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, runs 3 parallel plan agents then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
