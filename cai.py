@@ -324,24 +324,28 @@ def _run_claude_p(
     """Run a `claude -p` command and record its cost.
 
     `cmd` is the full argv. The wrapper injects `--output-format json
-    --verbose` so claude-code returns a single JSON envelope with
-    `result`, `total_cost_usd`, `usage`, `duration_ms`, etc. After the
-    call, `log_cost()` writes one row to COST_LOG_PATH and the
-    returned `CompletedProcess.stdout` is rewritten to the extracted
-    `result` text — so existing callers that pipe `proc.stdout` to
-    `publish.py` or print it keep working unchanged.
+    --verbose` so claude-code returns the cost/usage bookkeeping for
+    the run. With `--verbose`, claude-code emits a JSON **array** of
+    stream events (`system` → `assistant` → `user` → `result`); the
+    `result` element holds `total_cost_usd`, `usage`, `duration_ms`,
+    `result` text, etc. We extract that element, log a cost row, and
+    rewrite `CompletedProcess.stdout` to just the `result` text — so
+    existing callers that pipe `proc.stdout` to `publish.py` or print
+    it keep working unchanged.
 
     `category` labels the row by top-level cai command (e.g.
     "analyze", "fix", "audit"). `agent` records the subagent name
     (e.g. "cai-fix") if applicable.
 
-    On JSON parse failure the original stdout is left in place and no
-    cost row is written; the caller still sees the real returncode.
-    Never raises.
+    On JSON parse failure or a missing `result` event, no cost row is
+    written, the original stdout is left in place, and a one-line
+    warning is printed to stderr so this silent-drop failure mode is
+    noisy. Never raises.
     """
     # Inject --output-format json --verbose right after `claude -p`
     # (positions 0 and 1). --verbose is required for claude-code to
-    # populate the `usage` field in the JSON envelope.
+    # populate the `usage` field; with it, the output becomes a JSON
+    # array of stream events instead of a single envelope dict.
     if len(cmd) < 2 or cmd[0] != "claude" or cmd[1] != "-p":
         raise ValueError("_run_claude_p requires cmd[:2] == ['claude', '-p']")
     full_cmd = (
@@ -359,9 +363,39 @@ def _run_claude_p(
     # Parse the JSON envelope and write the cost row. Belt and braces
     # — never let log writes break the actual command flow.
     try:
-        envelope = json.loads(proc.stdout) if proc.stdout else None
+        parsed = json.loads(proc.stdout) if proc.stdout else None
     except (json.JSONDecodeError, ValueError):
-        envelope = None
+        parsed = None
+
+    # Two shapes are tolerated:
+    #   1. dict   — legacy `--output-format json` (no --verbose) returns
+    #      a single envelope object. Kept for forward/backward compat.
+    #   2. list   — current `--output-format json --verbose` returns a
+    #      JSON array of stream events; the cost data lives on the
+    #      element with `"type": "result"`.
+    envelope: dict | None = None
+    if isinstance(parsed, dict):
+        envelope = parsed
+    elif isinstance(parsed, list):
+        envelope = next(
+            (
+                e for e in parsed
+                if isinstance(e, dict) and e.get("type") == "result"
+            ),
+            None,
+        )
+
+    if envelope is None:
+        # Don't fail the caller, but make the silent-drop loud so a
+        # future shape change in claude-code surfaces immediately
+        # instead of leaving cai-cost.jsonl mysteriously empty.
+        preview = (proc.stdout or "")[:120].replace("\n", " ")
+        print(
+            f"[cai cost] could not extract cost envelope from claude -p "
+            f"({category}/{agent}); stdout starts with: {preview!r}",
+            file=sys.stderr,
+            flush=True,
+        )
 
     if isinstance(envelope, dict):
         usage = envelope.get("usage") or {}
