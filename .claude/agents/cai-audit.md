@@ -28,7 +28,7 @@ The user message contains:
 1. **Open `auto-improve*` issues** — number, title, labels, creation
    date, last update date, body
 2. **Recent PRs** — last 30 or last 7 days (whichever is larger),
-   with state, merge status, linked issue references
+   with state, merge status, labels, linked issue references
 3. **Log tail** — last ~200 lines of `logs/cai.log`
 4. **Cost summary** — per-category aggregates and the top 10 most
    expensive `claude -p` invocations from the last 7 days, sourced
@@ -36,6 +36,11 @@ The user message contains:
    `claude -p --output-format json`'s `total_cost_usd` field, so
    they reflect what Anthropic actually billed. Use this section to
    spot `cost_outlier` patterns (see categories below).
+5. **Recently closed auto-improve issues** — number, title, labels at
+   close time, close date, and the last human rationale comment (if any).
+   Use this to verify that issues transitioned through the expected
+   lifecycle states before closing, and that PRs linked to closed issues
+   were actually merged.
 
 ## Lifecycle states — tracking vs active
 
@@ -74,6 +79,9 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Multiple rules in `.claude/agents/cai-fix.md` that contradict each other | `prompt_contradiction` |
 | Tracking-only issue (no state label) older than 30 days with no human activity | `forgotten_backlog` |
 | A single `claude -p` invocation in the cost summary whose `cost` is >3× the mean cost of its category, OR a category whose `total cost (share)` exceeds 50% of the window total | `cost_outlier` |
+| Closed issue whose labels don't include a terminal state (`auto-improve:merged` or `auto-improve:no-action`) — may indicate manual close without proper resolution | `workflow_anomaly` |
+| Merged PR whose linked `auto-improve` issue is still open (check recent PRs for matching branch/title against open issues) | `workflow_anomaly` |
+| Closed-unmerged PR whose linked issue is not rolled back to `:raised` | `workflow_anomaly` |
 
 ### Log-level patterns
 
@@ -131,6 +139,7 @@ threshold — human intervention is needed. These appear in the log as
 | `silent_failure` | Step exited 0 but log shows it did not succeed |
 | `forgotten_backlog` | Tracking-only issue (no state label) older than 30 days with no human activity |
 | `cost_outlier` | A `claude -p` invocation (or category aggregate) in the cost summary that dominates token spend disproportionately to its functional value |
+| `workflow_anomaly` | Issue or PR whose lifecycle transitions don't match expected workflow (e.g., closed without terminal label, merged PR with open issue) |
 
 ## Output format
 
@@ -139,7 +148,7 @@ For each anomaly, output a markdown block:
 ```markdown
 ### Finding: <short imperative title>
 
-- **Category:** <one of the 8 categories above>
+- **Category:** <one of the 9 categories above>
 - **Key:** <stable-slug-for-deduplication>
 - **Confidence:** low | medium | high
 - **Evidence:**
@@ -157,7 +166,7 @@ No findings.
 
 - Every finding must be grounded in the data you received — no
   speculation about issues you can't see.
-- Stick to the 8 categories above; do not invent new ones.
+- Stick to the 9 categories above; do not invent new ones.
 - Keep titles short and imperative.
 - These findings are **report-only** — they go to humans for triage.
   Do not suggest automated fixes beyond what the deterministic

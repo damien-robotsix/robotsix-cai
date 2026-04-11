@@ -50,6 +50,8 @@ AUDIT_CATEGORIES = {
     "topic_duplicate",
     "silent_failure",
     "forgotten_backlog",
+    "cost_outlier",
+    "workflow_anomaly",
 }
 
 CODE_AUDIT_CATEGORIES = {
@@ -96,6 +98,8 @@ AUDIT_LABELS = [
     ("category:topic_duplicate", "5319e7", "Two open issues about the same pattern"),
     ("category:silent_failure", "b60205", "Step exited 0 but log shows it did not succeed"),
     ("category:forgotten_backlog", "c2e0c6", "Tracking-only issue with no state label idle >30 days"),
+    ("category:cost_outlier", "fbca04", "A claude -p invocation or category aggregate that dominates token spend"),
+    ("category:workflow_anomaly", "e4e669", "Issue or PR lifecycle transition doesn't match expected workflow"),
 ]
 
 CODE_AUDIT_LABELS = [
