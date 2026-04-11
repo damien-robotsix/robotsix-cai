@@ -174,6 +174,14 @@ identity as the operator.
 If the bot can't address a comment (unclear or out of scope), it
 posts a reply explaining why and exits without changes.
 
+**Skip conditions:** `cai revise` silently skips a PR when its linked
+issue carries the `merge-blocked` label **or** the PR itself carries
+the `needs-human-review` label. Revising code cannot unblock a PR
+that is waiting on a human decision, so the bot leaves it alone to
+avoid infinite revision loops. A human must clear those labels
+(and, for `merge-blocked` issues, resolve the underlying blocker)
+to re-enable automatic comment-driven iteration.
+
 ### Pre-merge consistency review
 
 The `review-pr` subcommand (default: hourly at `:20`) walks all open
