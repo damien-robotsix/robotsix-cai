@@ -99,6 +99,8 @@ def extract_tool_calls(lines: list[str]) -> dict:
     tool_sequences: list[str] = []
     total_input_tokens = 0
     total_output_tokens = 0
+    total_cache_creation_tokens = 0
+    total_cache_read_tokens = 0
 
     for raw in lines:
         raw = raw.strip()
@@ -122,6 +124,10 @@ def extract_tool_calls(lines: list[str]) -> dict:
         usage = msg.get("usage") or entry.get("usage", {})
         if usage:
             total_input_tokens += usage.get("input_tokens", 0)
+            total_input_tokens += usage.get("cache_creation_input_tokens", 0)
+            total_input_tokens += usage.get("cache_read_input_tokens", 0)
+            total_cache_creation_tokens += usage.get("cache_creation_input_tokens", 0)
+            total_cache_read_tokens += usage.get("cache_read_input_tokens", 0)
             total_output_tokens += usage.get("output_tokens", 0)
 
         if role == "assistant":
@@ -183,6 +189,8 @@ def extract_tool_calls(lines: list[str]) -> dict:
         "token_usage": {
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
+            "cache_creation_tokens": total_cache_creation_tokens,
+            "cache_read_tokens": total_cache_read_tokens,
         },
         "tool_sequence_preview": sequence_preview,
     }
@@ -262,7 +270,7 @@ def main() -> None:
             "error_tools": {},
             "error_categories": {"total": 0, "controllable": 0, "network_auth": 0},
             "repeated_sequences": [],
-            "token_usage": {"input_tokens": 0, "output_tokens": 0},
+            "token_usage": {"input_tokens": 0, "output_tokens": 0, "cache_creation_tokens": 0, "cache_read_tokens": 0},
             "tool_sequence_preview": "",
             "note": "empty transcript",
         }))
