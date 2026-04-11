@@ -3646,9 +3646,10 @@ def cmd_audit_triage(args) -> int:
             escalated += 1
 
         else:
-            # passthrough — relabel to auto-improve:raised so the fix
-            # subagent picks it up (fix no longer selects audit:raised
-            # directly, ensuring all audit issues go through triage first).
+            # passthrough — relabel to auto-improve:raised so the refine
+            # subagent can structure it, then transition to :refined for
+            # the fix subagent (fix no longer selects audit:raised directly,
+            # ensuring all audit issues go through triage first).
             _set_labels(
                 n,
                 add=[LABEL_RAISED],
