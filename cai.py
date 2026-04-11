@@ -84,8 +84,17 @@ Subcommands:
                             `auto-improve:needs-refinement` for human
                             review and normal workflow processing.
 
+    python cai.py update-check  Periodic Claude Code release check.
+                            Clones the repo, fetches the latest Claude
+                            Code releases from GitHub, and runs a Sonnet
+                            agent that compares the current pinned
+                            version against the latest releases. Findings
+                            (new versions, deprecated flags, best
+                            practices) are published via publish.py with
+                            the `update-check` namespace.
+
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`verify`, `refine`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, `propose`, and `confirm` once synchronously at
+`verify`, `refine`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
@@ -133,6 +142,8 @@ PUBLISH_SCRIPT = Path("/app/publish.py")
 CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
 # Persistent memory file for the propose agent (same pattern).
 PROPOSE_MEMORY = Path("/var/log/cai/propose-memory.md")
+# Persistent memory file for the update-check agent.
+UPDATE_CHECK_MEMORY = Path("/var/log/cai/update-check-memory.md")
 
 # Persistent per-agent memory directory. Each declarative subagent
 # has `memory: project` in its frontmatter, which Claude Code stores
@@ -143,8 +154,8 @@ PROPOSE_MEMORY = Path("/var/log/cai/propose-memory.md")
 # agents) now read/write this path directly because they're all
 # invoked with `cwd=/app`. The cloned-worktree agents
 # (cai-fix, cai-revise, cai-review-pr, cai-code-audit, cai-propose,
-# cai-propose-review, cai-plan, cai-select) operate on a clone
-# elsewhere via absolute paths —
+# cai-propose-review, cai-update-check, cai-plan, cai-select) operate
+# on a clone elsewhere via absolute paths —
 # see `_work_directory_block` for the user-message section that
 # tells them where the clone is.
 AGENT_MEMORY_DIR = Path("/app/.claude/agent-memory")
@@ -1306,8 +1317,8 @@ def _work_directory_block(work_dir: Path) -> str:
     files via the staging directory.
 
     All cloned-worktree subagents (cai-fix, cai-revise, cai-review-pr,
-    cai-code-audit, cai-propose, cai-propose-review, cai-plan,
-    cai-select) are invoked with `cwd=/app`
+    cai-code-audit, cai-propose, cai-propose-review, cai-update-check,
+    cai-plan, cai-select) are invoked with `cwd=/app`
     rather than `cwd=<clone>`. This makes their canonical agent
     definition (`/app/.claude/agents/<name>.md`) and per-agent memory
     (`/app/.claude/agent-memory/<name>/`) directly available via
@@ -3966,6 +3977,36 @@ def cmd_propose(args) -> int:
     return result.returncode
 
 
+def _read_update_check_memory() -> str:
+    """Return the contents of the update-check memory file, or empty string."""
+    if not UPDATE_CHECK_MEMORY.exists():
+        return ""
+    try:
+        return UPDATE_CHECK_MEMORY.read_text().strip()
+    except OSError:
+        return ""
+
+
+def _save_update_check_memory(agent_output: str) -> None:
+    """Extract the ## Memory Update block from agent output and persist it.
+
+    Each run overwrites the memory file with the latest update so the
+    next run sees only the most recent state.
+    """
+    match = re.search(
+        r"^## Memory Update\s*\n(.*)",
+        agent_output,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not match:
+        return
+    try:
+        UPDATE_CHECK_MEMORY.parent.mkdir(parents=True, exist_ok=True)
+        UPDATE_CHECK_MEMORY.write_text(match.group(0).strip() + "\n")
+    except OSError as exc:
+        print(f"[cai update-check] could not write memory: {exc}", flush=True)
+
+
 def cmd_code_audit(args) -> int:
     """Clone the repo and run the code-audit agent to find inconsistencies."""
     print("[cai code-audit] running code audit", flush=True)
@@ -4054,6 +4095,138 @@ def cmd_code_audit(args) -> int:
 
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("code-audit", repo=REPO, duration=dur, exit=published.returncode)
+    return published.returncode
+
+
+# ---------------------------------------------------------------------------
+# update-check
+# ---------------------------------------------------------------------------
+
+
+def cmd_update_check(args) -> int:
+    """Clone the repo and check Claude Code releases for workspace improvements."""
+    print("[cai update-check] checking for updates", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Clone repo into a temporary directory.
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-update-check-{_uid}")
+
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+
+    clone = _run(
+        ["git", "clone", "--depth", "1",
+         f"https://github.com/{REPO}.git", str(work_dir)],
+        capture_output=True,
+    )
+    if clone.returncode != 0:
+        print(
+            f"[cai update-check] git clone failed:\n{clone.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("update-check", repo=REPO, result="clone_failed",
+                duration=dur, exit=1)
+        return 1
+
+    # 2. Read current pinned version from Dockerfile.
+    try:
+        dockerfile = (work_dir / "Dockerfile").read_text()
+        version_match = re.search(
+            r"ARG\s+CLAUDE_CODE_VERSION=(\S+)", dockerfile
+        )
+        current_version = version_match.group(1) if version_match else "unknown"
+    except OSError:
+        current_version = "unknown"
+
+    # 3. Fetch latest releases from GitHub API.
+    releases_result = _run(
+        ["gh", "api", "repos/anthropics/claude-code/releases",
+         "--jq", ".[:5]"],
+        capture_output=True,
+    )
+    if releases_result.returncode != 0:
+        print(
+            f"[cai update-check] failed to fetch releases:\n{releases_result.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("update-check", repo=REPO, result="api_failed",
+                duration=dur, exit=1)
+        return 1
+
+    releases_json = releases_result.stdout if releases_result.stdout else "[]"
+
+    # 4. Read workspace settings.
+    try:
+        settings = (work_dir / ".claude" / "settings.json").read_text()
+    except OSError:
+        settings = "{}"
+
+    # 5. Build the user message. The system prompt, tool allowlist, and
+    #    model all live in `.claude/agents/cai-update-check.md`. Durable
+    #    per-agent learnings live in its `memory: project` pool.
+    memory = _read_update_check_memory()
+
+    memory_section = "## Memory from previous runs\n\n"
+    if memory:
+        memory_section += memory + "\n"
+    else:
+        memory_section += "(first run — no prior memory)\n"
+
+    user_message = (
+        _work_directory_block(work_dir) + "\n"
+        + f"## Current pinned version\n\n`{current_version}`\n\n"
+        + f"## Latest Claude Code releases\n\n```json\n{releases_json}\n```\n\n"
+        + f"## Current workspace settings\n\n```json\n{settings}\n```\n\n"
+        + memory_section
+    )
+
+    # 6. Invoke the declared cai-update-check subagent.
+    #    Runs with `cwd=/app` and `--add-dir <work_dir>` so the agent
+    #    reads its definition + memory from the canonical /app paths
+    #    while examining the clone via absolute paths.
+    print(f"[cai update-check] running agent for {work_dir}", flush=True)
+    agent = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-update-check",
+         "--permission-mode", "acceptEdits",
+         "--add-dir", str(work_dir)],
+        category="update-check",
+        agent="cai-update-check",
+        input=user_message,
+        cwd="/app",
+    )
+    if agent.stdout:
+        print(agent.stdout, flush=True)
+    if agent.returncode != 0:
+        print(
+            f"[cai update-check] claude -p failed (exit {agent.returncode}):\n"
+            f"{agent.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("update-check", repo=REPO, result="agent_failed",
+                duration=dur, exit=agent.returncode)
+        return agent.returncode
+
+    # 7. Save the memory update for next run.
+    _save_update_check_memory(agent.stdout)
+
+    # 8. Publish findings via publish.py with update-check namespace.
+    print("[cai update-check] publishing findings", flush=True)
+    published = _run(
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "update-check"],
+        input=agent.stdout,
+    )
+
+    # 9. Clean up.
+    shutil.rmtree(work_dir, ignore_errors=True)
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("update-check", repo=REPO, duration=dur, exit=published.returncode)
     return published.returncode
 
 
@@ -5320,6 +5493,7 @@ def main() -> int:
     )
     sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
     sub.add_parser("propose", help="Weekly creative improvement proposal")
+    sub.add_parser("update-check", help="Check Claude Code releases for workspace improvements")
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
@@ -5363,6 +5537,7 @@ def main() -> int:
         "audit-triage": cmd_audit_triage,
         "code-audit": cmd_code_audit,
         "propose": cmd_propose,
+        "update-check": cmd_update_check,
         "confirm": cmd_confirm,
         "review-pr": cmd_review_pr,
         "merge": cmd_merge,

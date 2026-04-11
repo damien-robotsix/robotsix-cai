@@ -64,6 +64,13 @@ CODE_AUDIT_CATEGORIES = {
     "registration_mismatch",
 }
 
+UPDATE_CHECK_CATEGORIES = {
+    "version_update",
+    "feature_adoption",
+    "deprecation",
+    "best_practice",
+}
+
 # Labels we ensure exist before creating issues. The first two are the
 # state labels; the rest are the category labels. Idempotent — `gh label
 # create` returns non-zero if the label already exists, which we ignore.
@@ -112,6 +119,15 @@ CODE_AUDIT_LABELS = [
     ("category:hardcoded_drift", "0075ca", "Hardcoded values duplicated across files"),
     ("category:config_mismatch", "5319e7", "Env var or config inconsistency"),
     ("category:registration_mismatch", "d93f0b", "Handler registered without function or vice versa"),
+]
+
+UPDATE_CHECK_LABELS = [
+    ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
+    ("auto-improve:raised", "0e8a16", "Finding freshly raised; not yet triaged"),
+    ("category:version_update", "d73a4a", "New Claude Code version with relevant fixes"),
+    ("category:feature_adoption", "0075ca", "New feature that could improve the workspace"),
+    ("category:deprecation", "e11d48", "Deprecated flag or pattern we use"),
+    ("category:best_practice", "5319e7", "Best-practice change from release notes"),
 ]
 
 
@@ -237,6 +253,8 @@ def _label_set_for(namespace: str):
         return AUDIT_LABELS
     if namespace == "code-audit":
         return CODE_AUDIT_LABELS
+    if namespace == "update-check":
+        return UPDATE_CHECK_LABELS
     return LABELS
 
 
@@ -291,6 +309,9 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     elif namespace == "code-audit":
         source_note = "cai code-audit agent"
         source_file = ".claude/agents/cai-code-audit.md"
+    elif namespace == "update-check":
+        source_note = "cai update-check agent"
+        source_file = ".claude/agents/cai-update-check.md"
     else:
         source_note = "cai self-analyzer"
         source_file = ".claude/agents/cai-analyze.md"
@@ -323,6 +344,7 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
             "auto-improve:raised",
             f"category:{f.category}",
         ])
+
     result = subprocess.run(
         [
             "gh", "issue", "create",
@@ -340,7 +362,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
     parser.add_argument(
         "--namespace", default="auto-improve",
-        choices=["auto-improve", "audit", "code-audit"],
+        choices=["auto-improve", "audit", "code-audit", "update-check"],
         help="Label namespace to use (default: auto-improve)",
     )
     args = parser.parse_args()
@@ -349,6 +371,8 @@ def main() -> int:
         valid_cats = AUDIT_CATEGORIES
     elif namespace == "code-audit":
         valid_cats = CODE_AUDIT_CATEGORIES
+    elif namespace == "update-check":
+        valid_cats = UPDATE_CHECK_CATEGORIES
     else:
         valid_cats = VALID_CATEGORIES
 
