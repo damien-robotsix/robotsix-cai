@@ -29,7 +29,7 @@ Subcommands:
                             `:pr-open`, find their linked PR by `Refs`
                             search, and transition the label:
                             merged → `:merged`,
-                            closed-unmerged → `:raised`.
+                            closed-unmerged or no-linked-PR → `:raised`.
 
     python cai.py audit     Periodic queue/PR consistency audit.
                             Deterministically rolls back stale
@@ -809,20 +809,51 @@ def _gh_user_identity() -> tuple[str, str]:
 def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> list[dict]:
     """Transition :pr-open issues whose linked PR was closed (unmerged) back to :raised.
 
+    Also recovers issues with no linked PR at all (dangling :pr-open).
     Returns the list of issues that were successfully recovered.
     """
     recovered: list[dict] = []
+    subcmd = log_prefix.split()[-1]
     for issue in issues:
         if LABEL_IN_PROGRESS in {lbl["name"] for lbl in issue.get("labels", [])}:
             continue
         pr = _find_linked_pr(issue["number"])
+        issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
+        raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
+        remove_labels = [LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING]
         if pr is None:
+            if _set_labels(issue["number"], add=[raised_label], remove=remove_labels, log_prefix=log_prefix):
+                comment = (
+                    "## Auto-improve: rolling back to :raised\n\n"
+                    "No linked PR found for this `:pr-open` issue. "
+                    "Resetting to `:raised` so the fix subagent can attempt a fresh fix.\n\n"
+                    f"---\n_Rolled back automatically by `{log_prefix}`._"
+                )
+                _run(["gh", "issue", "comment", str(issue["number"]),
+                      "--repo", REPO, "--body", comment], capture_output=True)
+                log_run(subcmd, repo=REPO, issue=issue["number"],
+                        pr=0, result="rollback_no_pr", exit=0)
+                print(
+                    f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
+                    f"(no linked PR found)",
+                    flush=True,
+                )
+                recovered.append(issue)
             continue
         state = (pr.get("state") or "").upper()
         if state == "CLOSED":
-            issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-            raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
-            if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix=log_prefix):
+            if _set_labels(issue["number"], add=[raised_label], remove=remove_labels, log_prefix=log_prefix):
+                comment = (
+                    "## Auto-improve: rolling back to :raised\n\n"
+                    f"Linked PR #{pr['number']} was closed without merging. "
+                    "Resetting this issue to `:raised` so the fix subagent can "
+                    "re-attempt on the next tick.\n\n"
+                    f"---\n_Rolled back automatically by `{log_prefix}`._"
+                )
+                _run(["gh", "issue", "comment", str(issue["number"]),
+                      "--repo", REPO, "--body", comment], capture_output=True)
+                log_run(subcmd, repo=REPO, issue=issue["number"],
+                        pr=pr["number"], result="rollback_closed_pr", exit=0)
                 print(
                     f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
                     f"(PR #{pr['number']} closed unmerged)",
@@ -840,7 +871,7 @@ def _select_fix_target():
     exclusively by the audit-triage agent — only issues that triage
     re-labels to `auto-improve:raised` enter the fix pipeline.
     If no candidates are found, attempts to recover stale `:pr-open`
-    issues whose linked PR was closed unmerged.
+    issues whose linked PR was closed unmerged or that have no linked PR.
     """
     candidates: dict[int, dict] = {}
     for label in (LABEL_RAISED, LABEL_REQUESTED):
@@ -866,7 +897,7 @@ def _select_fix_target():
             candidates[issue["number"]] = issue
 
     if not candidates:
-        # Recover stale :pr-open issues whose linked PR was closed (unmerged).
+        # Recover stale :pr-open issues whose linked PR was closed (unmerged) or that have no linked PR.
         # This handles cases where the verify step failed to transition them
         # back to :raised (e.g. due to GitHub search indexing delays).
         try:
@@ -2619,17 +2650,17 @@ def cmd_verify(args) -> int:
     transitioned = 0
     pr_open_issue_nums = {i["number"] for i in issues}
 
-    # Handle MERGED transitions inline; CLOSED recovery uses the shared helper.
+    # Handle MERGED transitions inline; CLOSED and no-linked-PR recovery uses the shared helper.
     remaining = []
     for issue in issues:
         num = issue["number"]
         pr = _find_linked_pr(num)
         if pr is None:
-            print(f"[cai verify] #{num}: no linked PR found, leaving as-is", flush=True)
+            remaining.append(issue)
             continue
         state = (pr.get("state") or "").upper()
         if state == "MERGED":
-            _set_labels(num, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai verify")
+            _set_labels(num, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai verify")
             print(f"[cai verify] #{num}: PR #{pr['number']} merged → :merged", flush=True)
             transitioned += 1
         elif state == "CLOSED":
@@ -4936,13 +4967,13 @@ def cmd_merge(args) -> int:
             )
             if close_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: closed successfully", flush=True)
-                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
+                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
                     print(
                         f"[cai merge] WARNING: label transition to :no-action failed for "
                         f"#{issue_number} after closing PR #{pr_number}; retrying",
                         flush=True,
                     )
-                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
+                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
                         print(
                             f"[cai merge] WARNING: label transition to :no-action failed twice for "
                             f"#{issue_number} — issue may be stuck without a lifecycle label",
@@ -4979,13 +5010,13 @@ def cmd_merge(args) -> int:
             )
             if merge_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: merged successfully", flush=True)
-                if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
+                if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
                     print(
                         f"[cai merge] WARNING: label transition to :merged failed for "
                         f"#{issue_number} after merging PR #{pr_number}; retrying",
                         flush=True,
                     )
-                    if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
+                    if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
                         print(
                             f"[cai merge] WARNING: label transition to :merged failed twice for "
                             f"#{issue_number} — issue may be stuck without a lifecycle label",
