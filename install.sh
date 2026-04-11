@@ -136,6 +136,7 @@ services:
       # stagger them so they never overlap.
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
       CAI_FIX_SCHEDULE: "15 * * * *"        # hourly :15 (cheap if no work)
+      CAI_REFINE_SCHEDULE: "10 * * * *"     # hourly :10 (structure human-filed issues)
       CAI_REVISE_SCHEDULE: "30 * * * *"     # hourly :30 (iterate on PR comments)
       CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly :45 (no LLM)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only + branch cleanup)
@@ -198,6 +199,7 @@ services:
       # stagger them so they never overlap.
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
       CAI_FIX_SCHEDULE: "15 * * * *"        # hourly :15 (cheap if no work)
+      CAI_REFINE_SCHEDULE: "10 * * * *"     # hourly :10 (structure human-filed issues)
       CAI_REVISE_SCHEDULE: "30 * * * *"     # hourly :30 (iterate on PR comments)
       CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly :45 (no LLM)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet, report-only + branch cleanup)
