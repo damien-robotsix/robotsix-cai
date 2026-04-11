@@ -93,19 +93,20 @@ action so two concurrent `fix` runs can't pick the same issue.
                    │     spike       │ ▼│                   │
                    ▼        │     pr-open ─┘                │
               no-action     ▼        │                      │
-                       needs-spike   │ verify (PR merged)   │
-                            │        ▼                      │
-                            │     merged                    │
-                            │        │                      │
-                       spike │  ┌────┴──────────┐           │
-                            │  │               │           │
-                            ▼  confirm      confirm        │
-                       in-progress (pattern  (inconclusive  │
-                            │      absent)   / unsolved)   │
-                       ┌────┴────┐    ▼           ▼        │
-                       │    │    │  solved    stays :merged │
-                  findings  │  blocked (closed) (reasoning  │
-                  (closed)  │  (needs-           posted)   │
+                       needs-spike ◄─┐ │ verify (PR merged) │
+                          (self-loop)│  ▼                   │
+                            │  refine_and_retry             │
+                            │        merged                 │
+                            │           │                   │
+                       spike │     ┌────┴──────────┐        │
+                            │     │               │        │
+                            ▼  confirm         confirm     │
+                       in-progress (pattern   (inconclusive │
+                            │      absent)    / unsolved)  │
+                       ┌────┴────┐    ▼            ▼       │
+                       │    │    │  solved     stays :merged│
+                  findings  │  blocked (closed)  (reasoning │
+                  (closed)  │  (needs-            posted)  │
                             │  human-                      │
                          refined review)                    │
                             └───────────────────────────────┘
@@ -120,7 +121,8 @@ bot) or re-label to `:raised` to retry.
 research or verification rather than a direct code change. The spike
 subagent picks it up, investigates, and either closes the issue with
 documented findings, rewrites it into a fix-ready issue (back to
-`:raised`), or escalates to `:needs-human-review`.
+`:raised`), re-queues it for another spike pass (`refine_and_retry` →
+back to `:needs-spike`), or escalates to `:needs-human-review`.
 
 ### Audit findings
 
