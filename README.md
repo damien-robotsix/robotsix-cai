@@ -59,6 +59,7 @@ subprocess with no shared state.
 | `cai.py review-pr` | `20 * * * *` (hourly :20) | Pre-merge consistency review of open PRs — posts ripple-effect findings as PR comments so the revise subagent can act on them |
 | `cai.py merge` | `35 * * * *` (hourly :35) | Confidence-gated auto-merge — evaluates each bot PR against its linked issue, posts a verdict, and merges when confidence meets the threshold |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
+| `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:needs-refinement` issues for human review |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
 | `cai.py cycle` | _(manual/on-demand)_ | Runs verify → fix → revise → review-pr → merge → confirm in sequence. Convenience wrapper for a full pipeline pass; not included in scheduled or startup runs |
 
@@ -67,7 +68,7 @@ the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
 `CAI_REFINE_SCHEDULE`, `CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`,
 `CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
 `CAI_AUDIT_TRIAGE_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`,
-`CAI_CONFIRM_SCHEDULE`), runs each
+`CAI_PROPOSE_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
 scheduled subcommand once synchronously so logs show immediate results, then execs
 supercronic. (`cycle` is on-demand only and is not part of scheduled or startup runs.)
 
@@ -444,8 +445,10 @@ The container uses two Docker named volumes:
   `.claude/agent-memory/<agent-name>/MEMORY.md`. The /app agents
   (analyze, audit, confirm, merge, audit-triage) read/write this
   volume directly. The cloned-worktree agents (fix, revise,
-  review-pr, code-audit) have their slice of memory copied in/out
-  by the wrapper around each invocation.
+  review-pr, code-audit, propose, propose-review) also access their
+  memory directly from `/app/.claude/agent-memory/<agent-name>/`
+  via the mounted `cai_agent_memory` volume — no copy in/out by
+  the wrapper.
 
 The container runs as the non-root `cai` user (uid 1000). This is
 required by `claude-code` because the fix and revise subagents use
@@ -492,7 +495,7 @@ docker run --rm -v cai_home:/data alpine ls -R /data
 
 A **run log** is written to `./logs/cai.log` (bind-mounted from
 `/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
-`fix`, `review-pr`, `revise`, `verify`, `audit`, `confirm`, and `merge` invocation appends one key=value line so you can
+`fix`, `review-pr`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, and `merge` invocation appends one key=value line so you can
 watch cycle activity from the host without `docker exec`:
 
 ```bash
