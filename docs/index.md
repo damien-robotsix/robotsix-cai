@@ -61,11 +61,13 @@ wget -qO- https://raw.githubusercontent.com/damien-robotsix/robotsix-cai/main/in
 
 The installer asks for the **auth mode**:
 
-1. **In-container OAuth login** — recommended. The installer runs
-   `claude auth login` inside the container automatically (interactive
-   device-code flow), and the OAuth credentials persist in the
-   `cai_claude` named volume. No static secret is stored in the
-   container env, and no host file dependency.
+1. **In-container OAuth login** — recommended. The installer opens
+   the claude REPL inside the container automatically; the REPL
+   auto-prompts for OAuth login on first start. Complete the
+   browser flow, exit the REPL gracefully (`/exit` or Ctrl-D), and
+   the credentials persist in the `cai_home` named volume. No
+   static secret is stored in the container env, and no host file
+   dependency.
 2. **Anthropic API key** — paste an `sk-ant-...` key when prompted;
    it's written to a `.env` file (chmod 600).
 
@@ -122,27 +124,35 @@ docker compose up
 
 ## Persistent data
 
-The container persists Claude Code's session transcripts in a Docker
-named volume called **`cai_transcripts`**, mounted at
-`/home/cai/.claude/projects` inside the container. claude-code writes one
-JSONL file per session under
-`/home/cai/.claude/projects/<sanitized-cwd>/<session-id>.jsonl`, and the
-volume keeps that data across container restarts so future analyzer
-runs can read it. (The container runs as the non-root `cai` user, uid
-1000 — see Dockerfile for the rationale.)
+The container uses two Docker named volumes:
 
-Inspect the volume from outside the container:
+- **`cai_home`** (mounted at `/home/cai`) — the cai user's entire
+  home directory. Holds Claude OAuth credentials
+  (`~/.claude/.credentials.json`), Claude Code's runtime config
+  (`~/.claude.json` — a sibling file outside the `.claude/`
+  directory), session transcripts under `~/.claude/projects/`, the
+  gh CLI credential store at `~/.config/gh/`, and any other
+  claude-code or gh state under the user's home. One volume for
+  all user state.
+- **`cai_agent_memory`** (mounted at `/app/.claude/agent-memory`) —
+  per-agent durable memory accumulated by the declarative subagents.
+
+The container runs as the non-root `cai` user (uid 1000) — see
+Dockerfile for the rationale.
+
+Inspect a volume from outside the container:
 
 ```bash
-docker volume inspect cai_transcripts
-docker run --rm -v cai_transcripts:/data alpine ls -R /data
+docker volume inspect cai_home
+docker run --rm -v cai_home:/data alpine ls -R /data
 ```
 
-Wipe the volume (deletes all stored transcripts):
+Wipe everything (deletes credentials, transcripts, gh config, and
+per-agent memory — re-running `install.sh` is the easiest way):
 
 ```bash
 docker compose down --volumes        # if you used compose
-docker volume rm cai_transcripts     # standalone
+docker volume rm cai_home cai_agent_memory   # standalone
 ```
 
 ## License

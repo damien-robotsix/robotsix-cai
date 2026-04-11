@@ -75,7 +75,7 @@ startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
 clear error message in docker logs if credentials ever disappear from
-the cai_gh_config volume.
+the cai_home volume.
 
 No third-party Python dependencies — only stdlib.
 """
@@ -201,7 +201,7 @@ def check_gh_auth() -> int:
     result = _run(["gh", "auth", "status"], capture_output=True)
     if result.returncode != 0:
         print("[cai] ERROR: gh is not authenticated in this container.", file=sys.stderr)
-        print("       Credentials are expected in the cai_gh_config volume.", file=sys.stderr)
+        print("       Credentials are expected in the cai_home volume.", file=sys.stderr)
         print("       Run the installer's login step, or do it manually:", file=sys.stderr)
         print("         docker compose run --rm cai gh auth login", file=sys.stderr)
         print(file=sys.stderr)
@@ -214,8 +214,10 @@ def check_claude_auth() -> int:
     """Fail fast if `claude` is not authenticated.
 
     Two valid auth modes for the headless container:
-      1. OAuth: credentials sit in the `cai_claude` named volume
-         (under `/home/cai/.claude`). Verified by `claude auth status`.
+      1. OAuth: credentials sit in the `cai_home` named volume
+         (under `/home/cai/.claude/.credentials.json` plus the
+         `/home/cai/.claude.json` runtime config sibling file).
+         Verified by `claude auth status`.
       2. API key: `ANTHROPIC_API_KEY` is set in the env. claude-code
          uses it directly without needing the OAuth credentials file.
 
@@ -231,10 +233,12 @@ def check_claude_auth() -> int:
     result = _run(["claude", "auth", "status", "--text"], capture_output=True)
     if result.returncode != 0:
         print("[cai] ERROR: claude is not authenticated in this container.", file=sys.stderr)
-        print("       Credentials are expected in the cai_claude volume,", file=sys.stderr)
+        print("       Credentials are expected in the cai_home volume,", file=sys.stderr)
         print("       OR set ANTHROPIC_API_KEY in your .env file.", file=sys.stderr)
-        print("       Run the installer's login step, or do it manually:", file=sys.stderr)
-        print("         docker compose run --rm cai claude auth login", file=sys.stderr)
+        print("       Authenticate by opening the claude REPL — it auto-prompts", file=sys.stderr)
+        print("       for OAuth login on first start:", file=sys.stderr)
+        print("         docker compose run --rm -it cai claude", file=sys.stderr)
+        print("       Then exit the REPL gracefully (/exit or Ctrl-D).", file=sys.stderr)
         print(file=sys.stderr)
         print(result.stderr.strip() or result.stdout.strip(), file=sys.stderr)
         return 1

@@ -289,11 +289,13 @@ wget -qO- https://raw.githubusercontent.com/damien-robotsix/robotsix-cai/main/in
 
 The installer asks for the **auth mode**:
 
-1. **In-container OAuth login** — recommended. The installer runs
-   `claude auth login` inside the container automatically (interactive
-   device-code flow), and the OAuth credentials persist in the
-   `cai_claude` named volume. No static secret is stored in the
-   container env, and no host file dependency.
+1. **In-container OAuth login** — recommended. The installer opens
+   the claude REPL inside the container automatically; the REPL
+   auto-prompts for OAuth login on first start. Complete the
+   browser flow, exit the REPL gracefully (`/exit` or Ctrl-D), and
+   the credentials persist in the `cai_home` named volume. No
+   static secret is stored in the container env, and no host file
+   dependency.
 2. **Anthropic API key** — paste an `sk-ant-...` key when prompted; it's
    written to a `.env` file (chmod 600).
 
@@ -341,8 +343,10 @@ The installer then pulls the image and runs `gh auth login` inside the
 container — pick **GitHub.com → HTTPS → Authenticate via web browser**
 when prompted. gh prints a one-time code and a URL; paste the code into
 the URL from any browser (handy on a headless server). The resulting
-credentials are saved in a Docker volume named `cai_gh_config`, so
-subsequent runs don't need to re-authenticate.
+credentials are saved in the `cai_home` Docker volume, so subsequent
+runs don't need to re-authenticate. If you chose OAuth mode, the
+installer also opens the claude REPL afterwards so you can complete
+the in-container Claude login (the REPL auto-prompts on first start).
 
 After the installer finishes:
 
@@ -420,14 +424,18 @@ the `volumes:` block.
 
 ## Persistent data
 
-The container uses three Docker named volumes:
+The container uses two Docker named volumes:
 
-- **`cai_claude`** (mounted at `/home/cai/.claude`) — Claude Code's
-  state directory. Holds the OAuth credentials (after running
-  `docker compose run --rm cai claude auth login` once) and the per-session
-  transcripts under `projects/<sanitized-cwd>/<session-id>.jsonl`.
-  Both survive restarts so headless cron invocations don't need to
-  re-authenticate and the analyzer keeps historical sessions to read.
+- **`cai_home`** (mounted at `/home/cai`) — the cai user's entire
+  home directory. Holds Claude OAuth credentials
+  (`~/.claude/.credentials.json`), Claude Code's runtime config
+  (`~/.claude.json` — a sibling file outside the `.claude/`
+  directory; mounting just `.claude/` would lose it on every
+  restart), session transcripts under `~/.claude/projects/`, the gh
+  CLI credential store at `~/.config/gh/`, and anything else
+  claude-code or gh write under the user's home. Populated by the
+  installer's gh + claude login steps. One volume for all user
+  state.
 - **`cai_agent_memory`** (mounted at `/app/.claude/agent-memory`) —
   Per-agent durable memory. Each declarative subagent has
   `memory: project` in its frontmatter, which Claude Code stores at
@@ -436,9 +444,6 @@ The container uses three Docker named volumes:
   volume directly. The cloned-worktree agents (fix, revise,
   review-pr, code-audit) have their slice of memory copied in/out
   by the wrapper around each invocation.
-- **`cai_gh_config`** (mounted at `/home/cai/.config/gh`) — the `gh`
-  CLI's credential store. Populated once by the installer's
-  `gh auth login` step and reused on every subsequent run.
 
 The container runs as the non-root `cai` user (uid 1000). This is
 required by `claude-code` because the fix and revise subagents use
@@ -466,7 +471,7 @@ the same global window settings.
 
 **Troubleshooting: `cannot run ssh` errors.** If `cai.py fix` fails
 with `error: cannot run ssh: No such file or directory`, your
-`cai_gh_config` volume has `git_protocol` set to `ssh` (the container
+`cai_home` volume has `git_protocol` set to `ssh` (the container
 has no SSH client). Fix it without reinstalling:
 
 ```bash
@@ -479,8 +484,8 @@ New installs set HTTPS automatically via `--git-protocol https` in the
 Inspect a volume from outside the container:
 
 ```bash
-docker volume inspect cai_transcripts
-docker run --rm -v cai_transcripts:/data alpine ls -R /data
+docker volume inspect cai_home
+docker run --rm -v cai_home:/data alpine ls -R /data
 ```
 
 A **run log** is written to `./logs/cai.log` (bind-mounted from
@@ -492,13 +497,17 @@ watch cycle activity from the host without `docker exec`:
 tail -f ~/robotsix-cai/logs/cai.log
 ```
 
-Wipe everything (deletes transcripts and gh credentials — you'll need
-to re-authenticate afterwards):
+Wipe everything (deletes claude credentials, transcripts, gh
+credentials, and per-agent memory — you'll need to re-authenticate
+afterwards):
 
 ```bash
 docker compose down --volumes        # if you used compose
-docker volume rm cai_transcripts cai_gh_config   # standalone
+docker volume rm cai_home cai_agent_memory   # standalone
 ```
+
+The installer also wipes these volumes automatically when re-run, so
+re-running `install.sh` is the easiest way to get a clean state.
 
 ## License
 
