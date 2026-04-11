@@ -7,6 +7,7 @@
 #      - analyze:   parse own transcripts, raise findings as issues
 #      - fix:       pick an eligible issue and let the subagent fix it
 #      - refine:    turn human-filed issues into structured plans
+#      - spike:     run research/verification spikes on :needs-spike issues
 #      - review-pr: pre-merge consistency review of open PRs
 #      - revise:    iterate on open PRs based on review comments
 #      - verify:    walk pr-open issues and update labels per PR state
@@ -19,7 +20,7 @@
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #
-# 2. Do one synchronous pass of init / analyze / refine / fix / review-pr / revise / merge / verify / audit so
+# 2. Do one synchronous pass of init / analyze / refine / spike / fix / review-pr / revise / merge / verify / audit so
 #    `docker compose up -d` produces useful logs immediately rather
 #    than waiting for the first cron tick.
 #
@@ -42,6 +43,7 @@ CAI_CONFIRM_SCHEDULE="${CAI_CONFIRM_SCHEDULE:-0 2 * * *}"
 CAI_REVIEW_PR_SCHEDULE="${CAI_REVIEW_PR_SCHEDULE:-20 * * * *}"
 CAI_MERGE_SCHEDULE="${CAI_MERGE_SCHEDULE:-35 * * * *}"
 CAI_REFINE_SCHEDULE="${CAI_REFINE_SCHEDULE:-10 * * * *}"
+CAI_SPIKE_SCHEDULE="${CAI_SPIKE_SCHEDULE:-0 */2 * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -50,6 +52,7 @@ cat > "$CRONTAB_PATH" <<CRONTAB
 # Each line is an independent cron entry — add more tasks as new lines.
 $CAI_ANALYZER_SCHEDULE python /app/cai.py analyze
 $CAI_REFINE_SCHEDULE python /app/cai.py refine
+$CAI_SPIKE_SCHEDULE python /app/cai.py spike
 $CAI_FIX_SCHEDULE python /app/cai.py fix
 $CAI_REVISE_SCHEDULE python /app/cai.py revise
 $CAI_VERIFY_SCHEDULE python /app/cai.py verify
@@ -89,6 +92,9 @@ python /app/cai.py verify || echo "[entrypoint] verify exited non-zero; continui
 
 echo "[entrypoint] running initial cai.py refine"
 python /app/cai.py refine || echo "[entrypoint] refine exited non-zero; continuing"
+
+echo "[entrypoint] running initial cai.py spike"
+python /app/cai.py spike || echo "[entrypoint] spike exited non-zero; continuing"
 
 echo "[entrypoint] running initial cai.py fix"
 python /app/cai.py fix || echo "[entrypoint] fix exited non-zero; continuing"
