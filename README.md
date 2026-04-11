@@ -128,7 +128,7 @@ Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 
 There are four exceptions to "report-only": stale `:in-progress`
 rollback, stale `:no-action` rollback, stale `:merged` flagging, and
-merged-branch cleanup. If an issue has been `:in-progress` for more
+orphaned-branch cleanup. If an issue has been `:in-progress` for more
 than 6 hours with no recent fix activity in the log, the audit
 subcommand automatically rolls it back to `:raised`. Stale
 `:no-action` issues (7+ days) are rolled back to `:raised` so the fix
