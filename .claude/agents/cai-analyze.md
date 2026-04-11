@@ -24,7 +24,10 @@ sessions from outside the container.
 ## What to look for
 
 1. **Tool-call errors** — Edit failures, permission errors, repeated
-   retries, error patterns visible in the parsed signals
+   retries, error patterns visible in the parsed signals. When
+   `error_tools` shows a pattern, consult `error_details` for
+   representative error text and preceding reasoning; quote the actual
+   error text in the Evidence field.
 2. **Prompt issues** — unclear instructions, missing guidance in the
    agent prompts cai sends to claude (this prompt itself, or the
    other agents in `.claude/agents/`)
@@ -54,6 +57,7 @@ You receive the following sections in the user message, in order:
    - `tool_counts` — full tool usage map (capped)
    - `error_tools` — tools that errored, with counts
    - `error_categories` — controllable vs network/auth errors
+   - `error_details` — up to 20 sampled errors: {tool, error_text, reasoning_context}
    - `repeated_sequences` — runs of 3+ identical consecutive calls
    - `token_usage` — input/output token totals (including `cache_creation_tokens` and `cache_read_tokens` breakdowns)
    - `tool_sequence_preview` — first 100 tool calls in sequence
