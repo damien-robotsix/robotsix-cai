@@ -2,6 +2,7 @@
 name: cai-revise
 description: Handle an auto-improve PR that needs attention — resolve any in-progress rebase against main AND address unaddressed reviewer comments, in one session. Used by `cai revise` after the wrapper has cloned, checked out, and attempted `git rebase origin/main`.
 tools: Read, Edit, Write, Grep, Glob, Bash
+model: claude-sonnet-4-6
 memory: project
 ---
 

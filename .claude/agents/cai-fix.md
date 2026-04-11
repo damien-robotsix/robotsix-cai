@@ -2,6 +2,7 @@
 name: cai-fix
 description: Autonomous code-editing subagent for `robotsix-cai`. Makes the smallest targeted change that addresses an auto-improve issue handed by the wrapper. Cannot run git or gh — the wrapper handles all remote state and PR opening.
 tools: Read, Edit, Write, Grep, Glob
+model: claude-sonnet-4-6
 memory: project
 ---
 
