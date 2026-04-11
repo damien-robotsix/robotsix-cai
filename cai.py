@@ -3732,13 +3732,14 @@ def cmd_propose(args) -> int:
 
     # 3. Run the creative proposal agent.
     print(f"[cai propose] running creative agent for {work_dir}", flush=True)
-    creative = _run(
+    creative = _run_claude_p(
         ["claude", "-p", "--agent", "cai-propose",
          "--permission-mode", "acceptEdits",
          "--add-dir", str(work_dir)],
+        category="propose",
+        agent="cai-propose",
         input=user_message,
         cwd="/app",
-        capture_output=True,
     )
     if creative.stdout:
         print(creative.stdout, flush=True)
@@ -3792,13 +3793,14 @@ def cmd_propose(args) -> int:
     )
 
     print("[cai propose] running review agent", flush=True)
-    review = _run(
+    review = _run_claude_p(
         ["claude", "-p", "--agent", "cai-propose-review",
          "--permission-mode", "acceptEdits",
          "--add-dir", str(work_dir)],
+        category="propose",
+        agent="cai-propose-review",
         input=review_message,
         cwd="/app",
-        capture_output=True,
     )
     if review.stdout:
         print(review.stdout, flush=True)
