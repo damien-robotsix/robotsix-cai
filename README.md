@@ -445,8 +445,10 @@ The container uses two Docker named volumes:
   `.claude/agent-memory/<agent-name>/MEMORY.md`. The /app agents
   (analyze, audit, confirm, merge, audit-triage) read/write this
   volume directly. The cloned-worktree agents (fix, revise,
-  review-pr, code-audit, propose, propose-review) have their slice
-  of memory copied in/out by the wrapper around each invocation.
+  review-pr, code-audit, propose, propose-review) also access their
+  memory directly from `/app/.claude/agent-memory/<agent-name>/`
+  via the mounted `cai_agent_memory` volume — no copy in/out by
+  the wrapper.
 
 The container runs as the non-root `cai` user (uid 1000). This is
 required by `claude-code` because the fix and revise subagents use
