@@ -152,7 +152,7 @@ per-agent memory — re-running `install.sh` is the easiest way):
 
 ```bash
 docker compose down --volumes        # if you used compose
-docker volume rm cai_home cai_agent_memory   # standalone
+docker volume rm cai_home cai_agent_memory cai_logs   # standalone
 ```
 
 ## License

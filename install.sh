@@ -269,7 +269,7 @@ fi
 # root. Easier to wipe and start fresh than to migrate.
 echo
 echo "Wiping any existing cai volumes for a clean install..."
-for vol in cai_home cai_agent_memory cai_claude cai_gh_config cai_transcripts; do
+for vol in cai_home cai_agent_memory cai_logs cai_claude cai_gh_config cai_transcripts; do
   if docker volume inspect "$vol" >/dev/null 2>&1; then
     if docker volume rm "$vol" >/dev/null 2>&1; then
       echo "  removed: $vol"
