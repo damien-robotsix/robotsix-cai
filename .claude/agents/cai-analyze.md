@@ -149,3 +149,8 @@ output `No findings.` and stop.
   read the file directly.
 - Do not output anything other than the markdown finding blocks (or
   the exact `No findings.` sentinel).
+- **Verify paths with Glob before Read.** When a file path is
+  constructed or inferred (not hard-coded), confirm the file exists
+  using Glob before attempting to Read it. If a Read fails, do not
+  retry the same path — use Glob to find the correct filename
+  first.
