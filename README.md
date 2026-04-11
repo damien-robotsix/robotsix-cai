@@ -495,7 +495,7 @@ docker run --rm -v cai_home:/data alpine ls -R /data
 
 A **run log** is written to `./logs/cai.log` (bind-mounted from
 `/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
-`fix`, `review-pr`, `revise`, `verify`, `audit`, `confirm`, and `merge` invocation appends one key=value line so you can
+`fix`, `review-pr`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, and `merge` invocation appends one key=value line so you can
 watch cycle activity from the host without `docker exec`:
 
 ```bash
