@@ -190,10 +190,10 @@ shell's cwd is `/app`, not the clone.**
    `git -C <work_dir> diff --name-only --diff-filter=U` — it must
    be empty.
 5. **Decide continue vs skip:**
-   - Run: `git -C <work_dir> diff --cached --quiet`
-   - If exit code is `0` (no staged changes → empty commit), run:
+   - Run: `git -C <work_dir> diff --cached --stat`
+   - If the output is **empty** (no staged changes → empty commit), run:
      `git -C <work_dir> rebase --skip`
-   - Otherwise run:
+   - If the output is **non-empty** (staged changes exist), run:
      `GIT_EDITOR=true git -C <work_dir> -c core.editor=true rebase --continue`
      (the editor override prevents git from opening an interactive
      prompt for the commit message).
@@ -205,7 +205,7 @@ The rebase is fully done when neither
 exists. Confirm with:
 
 ```
-test ! -d <work_dir>/.git/rebase-merge && test ! -d <work_dir>/.git/rebase-apply && echo done
+if [ -d <work_dir>/.git/rebase-merge ] || [ -d <work_dir>/.git/rebase-apply ]; then echo REBASE_IN_PROGRESS; else echo REBASE_DONE; fi
 ```
 
 ### When you cannot resolve a conflict
