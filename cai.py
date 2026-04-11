@@ -2821,7 +2821,7 @@ def cmd_verify(args) -> int:
         if LABEL_PR_OPEN in iss_labels:
             continue
         # Issue is open, has an open PR, but missing :pr-open — recover.
-        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]
+        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]
         if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove, log_prefix="cai verify"):
             print(
                 f"[cai verify] recovered #{issue_num}: added :pr-open "
