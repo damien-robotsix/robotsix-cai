@@ -75,10 +75,8 @@ for you:
 
 Rules:
 
-  - The wrapper only applies staged files whose target already
-    exists — you CANNOT create new agent definitions via this
-    mechanism. If you need a new agent, that's a separate code
-    change to cai.py and/or a spike.
+  - Staged files are copied unconditionally — new agent definitions
+    are created if no target exists yet.
   - Write the FULL file, not a diff. The wrapper does an
     unconditional overwrite.
   - Use the exact same basename as the target
