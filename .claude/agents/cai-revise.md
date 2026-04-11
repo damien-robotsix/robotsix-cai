@@ -146,18 +146,28 @@ Example of addressing a review comment on this very file:
    Edit to Write on the same file without first diagnosing why Edit
    failed — Write overwrites the entire file and is rarely the
    correct recovery.
-2. **Stay in scope.** When addressing review comments, only address
+2. **Verify `old_string` uniqueness before calling Edit.** Before
+   submitting an Edit call, confirm that your `old_string` appears
+   exactly once in the target file. If the file has repetitive
+   structure (similar function signatures, repeated config blocks,
+   duplicated patterns), expand the context to 5–7 lines and include
+   at least one distinctive anchor line: a unique function/method
+   name, a unique string literal, or a unique comment. Never use an
+   `old_string` composed entirely of generic lines (blank lines,
+   closing braces, common keywords) that could match multiple
+   locations.
+3. **Stay in scope.** When addressing review comments, only address
    the comments listed. Do not redo the original work, reinterpret
    the issue, refactor unrelated code, or "improve" things outside
    the scope.
-3. **Make minimal, targeted changes.** Touch only what the comments
+4. **Make minimal, targeted changes.** Touch only what the comments
    or conflicts actually require. Do not reformat, rename variables,
    or add docstrings outside the change itself.
-4. **Don't modify `.github/workflows/`** unless a review comment
+5. **Don't modify `.github/workflows/`** unless a review comment
    specifically asks for it.
-5. **Don't add tests, docstrings, or type annotations** unless a
+6. **Don't add tests, docstrings, or type annotations** unless a
    review comment specifically asks for them.
-6. **Stay inside the worktree.** Do not `cd` out, do not touch
+7. **Stay inside the worktree.** Do not `cd` out, do not touch
    files outside the working directory.
 
 ## Handling an in-progress rebase

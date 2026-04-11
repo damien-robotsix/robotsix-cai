@@ -133,34 +133,44 @@ Example of updating this very file:
    Write on the same file without first diagnosing why Edit failed —
    Write overwrites the entire file and is rarely the correct
    recovery.
-2. **Grep before Read.** Use Grep to locate the relevant file(s)
+2. **Verify `old_string` uniqueness before calling Edit.** Before
+   submitting an Edit call, mentally confirm that your `old_string`
+   appears exactly once in the file. If you're unsure — especially
+   in files with repetitive structure (repeated function signatures,
+   similar config blocks, duplicated patterns) — expand the context
+   to 5–7 lines and include at least one highly distinctive anchor
+   line: a unique function/method name, a unique string literal, or
+   a unique comment. Never use an `old_string` composed entirely of
+   generic lines (blank lines, closing braces, common keywords) that
+   could match multiple locations.
+3. **Grep before Read.** Use Grep to locate the relevant file(s)
    and line numbers before opening them with Read. Do not
    sequentially Read files to search for content — reserve Read for
    files whose paths and relevance are already known.
-3. **Verify paths with Glob before Read.** When a file path is
+4. **Verify paths with Glob before Read.** When a file path is
    constructed or inferred (not hard-coded), confirm the file exists
    using Glob before attempting to Read it. If a Read fails, do not
    retry the same path — use Glob to find the correct filename
    first.
-4. **Batch independent Read calls.** When you need to read multiple
+5. **Batch independent Read calls.** When you need to read multiple
    files and the reads are independent, issue all Read calls in a
    single turn rather than one at a time.
-5. **Batch edits to the same file.** Combine multiple changes into
+6. **Batch edits to the same file.** Combine multiple changes into
    as few Edit calls as possible by using larger `old_string` spans.
    Avoid single-line edits when a multi-line replacement achieves
    the same result in one call.
-6. **Minimize Write calls.** Before creating multiple new files,
+7. **Minimize Write calls.** Before creating multiple new files,
    consider whether the content could fit in a single file or fewer
    files. When several files are genuinely needed, plan the full set
    first, then issue all independent Write calls in one turn rather
    than creating them one at a time.
-7. **Batch Grep calls.** When searching for multiple patterns or
+8. **Batch Grep calls.** When searching for multiple patterns or
    across multiple paths, combine them into a single Grep call using
    regex alternation (`pat1|pat2`) or issue independent Grep calls
    in parallel rather than sequentially. Use Glob first to narrow
    the file set, then Grep the results, instead of running
    exploratory Grep calls one at a time.
-8. **Use Agent for broad exploration.** When you need to search
+9. **Use Agent for broad exploration.** When you need to search
    broadly across multiple files or directories, use the Agent tool
    with `subagent_type: Explore` instead of issuing many sequential
    Grep or Read calls. A single Explore subagent can parallelize
