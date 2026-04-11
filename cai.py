@@ -29,7 +29,7 @@ Subcommands:
                             `:pr-open`, find their linked PR by `Refs`
                             search, and transition the label:
                             merged → `:merged`,
-                            closed-unmerged → `:raised`.
+                            closed-unmerged or no-linked-PR → `:raised`.
 
     python cai.py audit     Periodic queue/PR consistency audit.
                             Deterministically rolls back stale
@@ -897,7 +897,7 @@ def _select_fix_target():
             candidates[issue["number"]] = issue
 
     if not candidates:
-        # Recover stale :pr-open issues whose linked PR was closed (unmerged).
+        # Recover stale :pr-open issues whose linked PR was closed (unmerged) or that have no linked PR.
         # This handles cases where the verify step failed to transition them
         # back to :raised (e.g. due to GitHub search indexing delays).
         try:
