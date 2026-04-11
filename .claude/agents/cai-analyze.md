@@ -55,7 +55,7 @@ You receive the following sections in the user message, in order:
    - `error_tools` — tools that errored, with counts
    - `error_categories` — controllable vs network/auth errors
    - `repeated_sequences` — runs of 3+ identical consecutive calls
-   - `token_usage` — input/output token totals
+   - `token_usage` — input/output token totals (including `cache_creation_tokens` and `cache_read_tokens` breakdowns)
    - `tool_sequence_preview` — first 100 tool calls in sequence
    - `note` (optional) — `"empty transcript"` if there's no data yet
 2. **Currently open auto-improve issues** — number, state label, title
