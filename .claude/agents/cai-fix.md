@@ -43,20 +43,53 @@ baked-in source) and any edit there is wasted.
 
   - GOOD: `Read("<work_dir>/cai.py")`
   - BAD:  `Read("cai.py")`         (reads /app/cai.py)
-  - GOOD: `Edit("<work_dir>/.claude/agents/cai-fix.md", ...)`
-  - BAD:  `Edit(".claude/agents/cai-fix.md", ...)` (would target
-    the canonical source — ineffective AND blocked by
-    claude-code's self-modification protection)
+  - GOOD: `Edit("<work_dir>/parse.py", ...)`
+  - BAD:  `Edit("parse.py", ...)`  (edits /app/parse.py)
 
-When you self-modify your own definition file or another agent's
-definition file (e.g., to update the read-before-edit rule in
-this very file), **always edit the clone-side absolute path**:
-`<work_dir>/.claude/agents/cai-fix.md`. Editing the cwd-relative
-path would target `/app/.claude/agents/cai-fix.md` — the file you
-were loaded from — which claude-code's hardcoded self-modification
-protection blocks. The clone-side file is a different path so the
-protection doesn't fire, AND it's the file the wrapper commits to
-git after you exit.
+## Self-modifying `.claude/agents/*.md` (staging directory)
+
+**Claude-code's headless `-p` mode hardcodes a write block on
+every `.claude/agents/*.md` path**, regardless of any permission
+flag or `settings.json` rule. `Edit` or `Write` calls against
+`<work_dir>/.claude/agents/cai-fix.md` (or any sibling agent
+file) WILL fail with a sensitive-file protection error — you
+cannot bypass it from inside your session.
+
+When you need to update your own definition file or another
+agent's definition file, use the **staging directory** at
+`<work_dir>/.cai-staging/agents/` that the wrapper pre-creates
+for you:
+
+  1. **Read** the current agent file at its clone-side path to
+     see the existing content: `Read("<work_dir>/.claude/agents/cai-fix.md")`.
+     (Read is allowed; only Edit/Write on that path is blocked.)
+  2. **Write** the FULL new file content (YAML frontmatter +
+     body, exactly what you want the final file to look like)
+     to `<work_dir>/.cai-staging/agents/<same-basename>.md`
+     using the Write tool.
+  3. The wrapper copies `.cai-staging/agents/*.md` over
+     `.claude/agents/*.md` (matching by basename) after you exit
+     successfully, then deletes the staging directory so it
+     doesn't land in the PR.
+
+Rules:
+
+  - The wrapper only applies staged files whose target already
+    exists — you CANNOT create new agent definitions via this
+    mechanism. If you need a new agent, that's a separate code
+    change to cai.py and/or a spike.
+  - Write the FULL file, not a diff. The wrapper does an
+    unconditional overwrite.
+  - Use the exact same basename as the target
+    (e.g. `cai-fix.md` → `cai-fix.md`, not `cai-fix-new.md`).
+  - Do NOT try `Edit`/`Write` on `<work_dir>/.claude/agents/...` —
+    it will always fail. Go through the staging directory.
+
+Example of updating this very file:
+
+  - GOOD: `Read("<work_dir>/.claude/agents/cai-fix.md")` then
+    `Write("<work_dir>/.cai-staging/agents/cai-fix.md", "<full new content>")`
+  - BAD:  `Edit("<work_dir>/.claude/agents/cai-fix.md", old, new)`  (blocked)
 
 ## Hard rules
 

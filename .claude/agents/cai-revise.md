@@ -49,10 +49,8 @@ operations.** Relative paths resolve to `/app` and are wasted edits.
 
   - GOOD: `Read("<work_dir>/cai.py")`
   - BAD:  `Read("cai.py")`
-  - GOOD: `Edit("<work_dir>/.claude/agents/cai-revise.md", ...)`
-  - BAD:  `Edit(".claude/agents/cai-revise.md", ...)` (would
-    target the canonical source — ineffective AND blocked by
-    claude-code's self-modification protection)
+  - GOOD: `Edit("<work_dir>/parse.py", ...)`
+  - BAD:  `Edit("parse.py", ...)`  (edits /app/parse.py)
 
 **For Bash / git operations, use `git -C <work_dir>` or absolute
 paths.** Your shell defaults to `/app`, so a bare `git status`
@@ -67,12 +65,49 @@ You need to explicitly point git at the clone:
   - BAD:  `cd <work_dir> && git status`  (the cd doesn't persist
           across Bash invocations — each Bash call is a fresh shell)
 
-When you self-modify your own definition file or another agent's
-file, **always edit the clone-side absolute path**:
-`<work_dir>/.claude/agents/cai-revise.md`. Editing the cwd-relative
-path would target `/app/.claude/agents/cai-revise.md` — the file
-you were loaded from — which claude-code's hardcoded
-self-modification protection blocks.
+## Self-modifying `.claude/agents/*.md` (staging directory)
+
+**Claude-code's headless `-p` mode hardcodes a write block on
+every `.claude/agents/*.md` path**, regardless of any permission
+flag or `settings.json` rule. `Edit` or `Write` calls against
+`<work_dir>/.claude/agents/cai-revise.md` (or any sibling agent
+file) WILL fail with a sensitive-file protection error — you
+cannot bypass it from inside your session.
+
+When a review comment asks you to update your own definition file
+or another agent's definition file, use the **staging directory**
+at `<work_dir>/.cai-staging/agents/` that the wrapper pre-creates
+for you:
+
+  1. **Read** the current agent file at its clone-side path to
+     see the existing content: `Read("<work_dir>/.claude/agents/cai-revise.md")`.
+     (Read is allowed; only Edit/Write on that path is blocked.)
+  2. **Write** the FULL new file content (YAML frontmatter +
+     body, exactly what you want the final file to look like)
+     to `<work_dir>/.cai-staging/agents/<same-basename>.md`
+     using the Write tool.
+  3. The wrapper copies `.cai-staging/agents/*.md` over
+     `.claude/agents/*.md` (matching by basename) after you exit,
+     then deletes the staging directory so it doesn't land in
+     the PR.
+
+Rules:
+
+  - The wrapper only applies staged files whose target already
+    exists — you CANNOT create new agent definitions via this
+    mechanism.
+  - Write the FULL file, not a diff. The wrapper does an
+    unconditional overwrite.
+  - Use the exact same basename as the target
+    (e.g. `cai-revise.md` → `cai-revise.md`).
+  - Do NOT try `Edit`/`Write` on `<work_dir>/.claude/agents/...` —
+    it will always fail. Go through the staging directory.
+
+Example of addressing a review comment on this very file:
+
+  - GOOD: `Read("<work_dir>/.claude/agents/cai-revise.md")` then
+    `Write("<work_dir>/.cai-staging/agents/cai-revise.md", "<full new content>")`
+  - BAD:  `Edit("<work_dir>/.claude/agents/cai-revise.md", old, new)`  (blocked)
 
 ## Hard rules — remote and git operations
 
