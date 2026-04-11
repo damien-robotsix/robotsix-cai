@@ -1124,7 +1124,7 @@ def cmd_fix(args) -> int:
     issue_number = issue["number"]
     title = issue["title"]
     label_names = {lbl["name"] for lbl in issue.get("labels", [])}
-    origin_raised_label = LABEL_RAISED
+    origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_RAISED
     print(f"[cai fix] picked #{issue_number}: {title}", flush=True)
 
     # 1. Lock — set :in-progress, drop :raised and :requested.
