@@ -88,8 +88,8 @@ RUN wget -nv -O /usr/local/bin/supercronic \
 #                                    cloned-worktree agents have it
 #                                    copied in/out by the wrapper
 #                                    around each invocation)
-#   - /var/log/cai/               → cai_logs          (run log — one
-#                                    key=value line per cai invocation;
+#   - /var/log/cai/               → cai_logs          (run log, cost log,
+#                                    and review-pr finding patterns;
 #                                    named volume avoids host permission
 #                                    issues that a bind-mount causes)
 #
