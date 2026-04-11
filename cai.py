@@ -1965,6 +1965,8 @@ def _select_revise_targets() -> list[dict]:
         label_names = {lbl["name"] for lbl in issue.get("labels", [])}
         if LABEL_PR_OPEN not in label_names:
             continue
+        if LABEL_REVISING in label_names:
+            continue
 
         # Find the most recent commit date via `gh pr view`.
         try:
