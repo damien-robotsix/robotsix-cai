@@ -335,21 +335,10 @@ if [[ "$TTY" == "/dev/tty" ]]; then
     read -r _ < /dev/tty || true
     if ! docker compose run --rm -it cai claude < /dev/tty; then
       # The REPL may exit non-zero (Ctrl-C, Ctrl-D, etc.); don't
-      # treat that as an error path on its own — verify auth state
-      # afterwards instead.
+      # treat that as an error — it auto-prompts on next start.
       :
     fi
     echo
-    echo "Verifying claude auth state..."
-    if docker compose run --rm cai claude auth status --text 2>&1 | grep -q "Login method:"; then
-      echo "[OK] claude is authenticated. Credentials persisted in cai_home."
-    else
-      echo "[!] claude auth could not be verified. Try again:"
-      echo "      cd $INSTALL_DIR && docker compose run --rm -it cai claude"
-      echo "      (the REPL will auto-prompt for login on first start;"
-      echo "       exit gracefully with /exit or Ctrl-D when done)"
-      exit 1
-    fi
   fi
 
   echo
