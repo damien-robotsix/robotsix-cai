@@ -96,6 +96,8 @@ def extract_tool_calls(lines: list[str]) -> dict:
     tool_counter: Counter = Counter()
     error_tools: list[str] = []
     error_categories: list[str] = []
+    error_details: list[dict] = []
+    _last_assistant_text: str = ""
     tool_sequences: list[str] = []
     total_input_tokens = 0
     total_output_tokens = 0
@@ -132,6 +134,8 @@ def extract_tool_calls(lines: list[str]) -> dict:
 
         if role == "assistant":
             for block in content if isinstance(content, list) else []:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    _last_assistant_text = block.get("text", "")
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     name = block.get("name", "unknown")
                     tool_counter[name] += 1
@@ -148,6 +152,11 @@ def extract_tool_calls(lines: list[str]) -> dict:
                         error_text = _extract_error_text(block)
                         category = _categorize_error(error_text)
                         error_categories.append(category)
+                        if len(error_details) < TOP_N:
+                            detail: dict = {"tool": tool_sequences[-1], "error_text": error_text[:200]}
+                            if _last_assistant_text:
+                                detail["reasoning_context"] = _last_assistant_text[:150]
+                            error_details.append(detail)
 
     # Repeated consecutive-run detection: runs of 3+ identical calls in
     # a row are a strong signal that a loop could be replaced by a
@@ -185,6 +194,7 @@ def extract_tool_calls(lines: list[str]) -> dict:
             "controllable": controllable_errors,
             "network_auth": network_auth_errors,
         },
+        "error_details": error_details,
         "repeated_sequences": repeated[:TOP_N],
         "token_usage": {
             "input_tokens": total_input_tokens,
@@ -269,6 +279,7 @@ def main() -> None:
             "tool_counts": {},
             "error_tools": {},
             "error_categories": {"total": 0, "controllable": 0, "network_auth": 0},
+            "error_details": [],
             "repeated_sequences": [],
             "token_usage": {"input_tokens": 0, "output_tokens": 0, "cache_creation_tokens": 0, "cache_read_tokens": 0},
             "tool_sequence_preview": "",
