@@ -62,11 +62,11 @@ Subcommands:
                             merges when confidence meets the threshold.
 
     python cai.py refine      Pick the oldest issue labelled
-                            `auto-improve:needs-refinement`, invoke
-                            the cai-refine subagent (read-only) to
+                            `auto-improve:raised`, invoke the
+                            cai-refine subagent (read-only) to
                             produce a structured plan, update the
                             issue body, and transition the label to
-                            `auto-improve:raised`.
+                            `auto-improve:refined`.
 
     python cai.py code-audit  Weekly source-code consistency audit.
                             Clones the repo read-only, runs a Sonnet
@@ -170,6 +170,7 @@ LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_NEEDS_SPIKE = "auto-improve:needs-spike"
 LABEL_NEEDS_REFINEMENT = "auto-improve:needs-refinement"
+LABEL_REFINED = "auto-improve:refined"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
@@ -702,9 +703,10 @@ def cmd_analyze(args) -> int:
     _STATE_PRIORITY = {
         LABEL_IN_PROGRESS: 0,
         LABEL_PR_OPEN: 1,
-        LABEL_RAISED: 2,
-        LABEL_MERGED: 3,
-        LABEL_REQUESTED: 4,
+        LABEL_REFINED: 2,
+        LABEL_RAISED: 3,
+        LABEL_MERGED: 4,
+        LABEL_REQUESTED: 5,
     }
 
     def _issue_state_label(issue):
@@ -877,15 +879,16 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
 def _select_fix_target():
     """Return the oldest open issue eligible for the fix subagent.
 
-    Eligible = labelled `:raised` or `:requested`, NOT labelled
+    Eligible = labelled `:refined` or `:requested`, NOT labelled
     `:in-progress` or `:pr-open`.  `audit:raised` issues are handled
     exclusively by the audit-triage agent — only issues that triage
-    re-labels to `auto-improve:raised` enter the fix pipeline.
+    re-labels to `auto-improve:raised` (and subsequently refine to
+    `auto-improve:refined`) enter the fix pipeline.
     If no candidates are found, attempts to recover stale `:pr-open`
     issues whose linked PR was closed unmerged or that have no linked PR.
     """
     candidates: dict[int, dict] = {}
-    for label in (LABEL_RAISED, LABEL_REQUESTED):
+    for label in (LABEL_REFINED, LABEL_REQUESTED):
         try:
             issues = _gh_json([
                 "issue", "list",
@@ -1524,14 +1527,14 @@ def cmd_fix(args) -> int:
     issue_number = issue["number"]
     title = issue["title"]
     label_names = {lbl["name"] for lbl in issue.get("labels", [])}
-    origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_RAISED
+    origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_REFINED
     print(f"[cai fix] picked #{issue_number}: {title}", flush=True)
 
-    # 1. Lock — set :in-progress, drop :raised and :requested.
+    # 1. Lock — set :in-progress, drop :refined and :requested.
     if not _set_labels(
         issue_number,
         add=[LABEL_IN_PROGRESS],
-        remove=[LABEL_RAISED, LABEL_REQUESTED],
+        remove=[LABEL_REFINED, LABEL_REQUESTED],
     ):
         print(f"[cai fix] could not lock #{issue_number}", file=sys.stderr)
         log_run("fix", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
@@ -5389,7 +5392,7 @@ def cmd_merge(args) -> int:
 
 
 def cmd_refine(args) -> int:
-    """Invoke the cai-refine agent on the oldest :needs-refinement issue."""
+    """Invoke the cai-refine agent on the oldest :raised issue."""
     print("[cai refine] looking for issues to refine", flush=True)
     t0 = time.monotonic()
 
@@ -5398,7 +5401,7 @@ def cmd_refine(args) -> int:
         issues = _gh_json([
             "issue", "list",
             "--repo", REPO,
-            "--label", LABEL_NEEDS_REFINEMENT,
+            "--label", LABEL_RAISED,
             "--state", "open",
             "--json", "number,title,body,labels,createdAt,comments",
             "--limit", "100",
@@ -5412,7 +5415,7 @@ def cmd_refine(args) -> int:
         return 1
 
     if not issues:
-        print("[cai refine] no :needs-refinement issues; nothing to do", flush=True)
+        print("[cai refine] no :raised issues; nothing to do", flush=True)
         log_run("refine", repo=REPO, result="no_eligible_issues", exit=0)
         return 0
 
@@ -5450,13 +5453,13 @@ def cmd_refine(args) -> int:
     if "## No Refinement Needed" in stdout:
         print(
             f"[cai refine] #{issue_number} already structured; "
-            f"transitioning to :raised",
+            f"transitioning to :refined",
             flush=True,
         )
         _set_labels(
             issue_number,
-            add=[LABEL_RAISED],
-            remove=[LABEL_NEEDS_REFINEMENT],
+            add=[LABEL_REFINED],
+            remove=[LABEL_RAISED],
             log_prefix="cai refine",
         )
         dur = f"{int(time.monotonic() - t0)}s"
@@ -5506,17 +5509,17 @@ def cmd_refine(args) -> int:
                 duration=dur, result="edit_failed", exit=1)
         return 1
 
-    # 8. Transition labels: :needs-refinement → :raised.
+    # 8. Transition labels: :raised → :refined.
     _set_labels(
         issue_number,
-        add=[LABEL_RAISED],
-        remove=[LABEL_NEEDS_REFINEMENT],
+        add=[LABEL_REFINED],
+        remove=[LABEL_RAISED],
         log_prefix="cai refine",
     )
 
     dur = f"{int(time.monotonic() - t0)}s"
     print(
-        f"[cai refine] #{issue_number} refined and transitioned to :raised "
+        f"[cai refine] #{issue_number} refined and transitioned to :refined "
         f"in {dur}",
         flush=True,
     )
