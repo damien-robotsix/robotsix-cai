@@ -995,8 +995,9 @@ def _build_fix_user_message(issue: dict, attempt_history_block: str = "") -> str
 
     The system prompt, tool allowlist, and hard rules live in
     `.claude/agents/cai-fix.md`; durable per-agent learnings live
-    in its `memory: project` pool. The wrapper only passes the
-    issue body + any reviewer comments as stdin.
+    in its `memory: project` pool. The wrapper passes the issue
+    body, reviewer comments, and (when available) a summary of
+    prior closed PRs for this issue.
     """
     return _build_issue_block(issue) + attempt_history_block
 
