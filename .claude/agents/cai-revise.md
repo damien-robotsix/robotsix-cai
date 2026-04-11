@@ -157,9 +157,9 @@ Example of addressing a review comment on this very file:
    specifically asks for it.
 6. **Don't add tests, docstrings, or type annotations** unless a
    review comment specifically asks for them.
-6. **Stay inside the worktree.** Do not touch files outside the
+7. **Stay inside the worktree.** Do not touch files outside the
    working directory.
-7. **Verify paths with Glob before Read.** When a file path is
+8. **Verify paths with Glob before Read.** When a file path is
    constructed or inferred (not hard-coded), confirm the file exists
    using Glob before attempting to Read it. If a Read fails, do not
    retry the same path — use Glob to find the correct filename
