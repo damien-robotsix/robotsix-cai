@@ -41,7 +41,7 @@ For each `audit:raised` issue, pick exactly one action:
 |---|---|
 | `close_duplicate` | Another open issue (audit OR auto-improve) is clearly about the same underlying problem. The duplicate's content is fully covered by the target. **Always specify the target issue number.** |
 | `close_resolved` | The finding describes a problem that recent PRs have already fixed, OR the underlying state the finding complains about has changed (e.g., a `lock_corruption` finding for an issue that has since moved to `:merged`). |
-| `passthrough` | The finding describes a real problem that requires a code change. The wrapper will re-label the issue from `audit:raised` to `auto-improve:raised` so the fix subagent picks it up on its next tick. |
+| `passthrough` | The finding describes a real problem that requires a code change. The wrapper will re-label the issue from `audit:raised` to `auto-improve:raised` so the `refine` subagent can structure it and transition it to `auto-improve:refined`, after which the fix subagent will pick it up. |
 | `escalate` | The finding is real but cannot be resolved autonomously: it needs human judgement (e.g., a `prompt_contradiction` between two design docs, a stale-lifecycle issue blocked on a deleted PR, an ambiguous remediation). The wrapper will swap `audit:raised` for `audit:needs-human`. |
 
 ## Confidence

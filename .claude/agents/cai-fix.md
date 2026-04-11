@@ -231,7 +231,7 @@ Choose your exit path based on *why* you answered "no":
 ## When to make NO changes (and exit cleanly)
 
 Producing **zero diff** is a valid outcome — the wrapper detects an
-empty working tree and rolls the issue label back to `:raised` so
+empty working tree and rolls the issue label back to `:refined` so
 another run can try later. You should exit without changes when:
 
 - The issue is unclear or ambiguous about what to do
@@ -301,7 +301,9 @@ be done about it>
 ~~~
 
 The wrapper will create each suggested issue with the
-`auto-improve:raised` label so it enters the normal fix pipeline.
+`auto-improve:raised` label so it enters the pipeline at `:raised`,
+flows through `refine` → `:refined`, and will be acted on by the
+fix subagent in a subsequent cycle.
 Only suggest issues that are concrete and actionable — do not
 suggest vague improvements or things you are unsure about.
 

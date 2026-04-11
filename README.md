@@ -51,7 +51,7 @@ subprocess with no shared state.
 | Subcommand | Default schedule | What it does |
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
-| `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:needs-refinement` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:raised` |
+| `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:raised` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:refined` |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, runs 3 parallel plan agents then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state; recovers issues whose linked PR was closed without merging or where no linked PR exists (rolls back to `:raised`) |
@@ -117,7 +117,8 @@ to distinguish its findings from analyzer findings (`auto-improve:*`).
 Audit findings flag inconsistencies in the issue/PR lifecycle.
 Issues labelled `audit:raised` go through `cai.py audit-triage`
 first, which relabels eligible ones to `auto-improve:raised` so the
-fix subagent picks them up.
+`refine` subagent can structure them and transition them to
+`auto-improve:refined`, after which the fix subagent picks them up.
 
 | Label | Meaning |
 |---|---|
