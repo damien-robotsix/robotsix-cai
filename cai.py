@@ -5039,9 +5039,14 @@ def cmd_merge(args) -> int:
         # decided not to merge". Re-evaluation gating is purely
         # SHA-based (see safety filter 6 below): if the PR's HEAD SHA
         # has a prior merge-verdict comment, we skip; otherwise we
-        # re-evaluate. That way, when revise pushes a new commit (new
-        # SHA), the bot naturally re-evaluates without requiring a
-        # human to manually clear the label.
+        # re-evaluate.
+        #
+        # NOTE (issue #399): `cai revise` no longer runs on PRs that
+        # carry the `merge-blocked` or `needs-human-review` label, so
+        # the automatic SHA-based re-evaluation loop no longer applies
+        # to blocked PRs. A human must manually clear the
+        # `merge-blocked` label (and any `needs-human-review` label)
+        # to restart the merge-evaluation cycle for those PRs.
 
         # Safety filter 7: require `cai review-pr` to have reviewed
         # the current head SHA before we run a merge verdict on it.
