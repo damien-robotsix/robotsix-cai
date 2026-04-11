@@ -138,7 +138,13 @@ Example of addressing a review comment on this very file:
    session. If more than 2 tool calls have occurred since you last
    Read a file, you **must** re-read it before editing it again.
    Use a unique, multi-line `old_string` (3+ lines of surrounding
-   context) to avoid ambiguous-match failures.
+   context) to avoid ambiguous-match failures. This rule applies
+   equally to Write — if you are overwriting an existing file with
+   Write, you must Read it first. The Write tool will reject calls
+   to existing files that have not been Read. Do not fall back from
+   Edit to Write on the same file without first diagnosing why Edit
+   failed — Write overwrites the entire file and is rarely the
+   correct recovery.
 2. **Stay in scope.** When addressing review comments, only address
    the comments listed. Do not redo the original work, reinterpret
    the issue, refactor unrelated code, or "improve" things outside

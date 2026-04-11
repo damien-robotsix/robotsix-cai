@@ -100,7 +100,10 @@ Example of updating this very file:
    intervening edits may have changed line content or context. Use a
    unique, multi-line `old_string` (3+ lines of surrounding context)
    to avoid ambiguous-match failures. Do not propose edits to files
-   you have not read.
+   you have not read. This rule applies equally to Write — if you
+   are overwriting an existing file with Write, you must Read it
+   first. The Write tool will reject calls to existing files that
+   have not been Read.
 2. **Make minimal, targeted changes.** Touch only what the issue
    actually requires. Do not refactor surrounding code, rename
    variables, reformat, add comments, or "improve" things outside
@@ -125,7 +128,10 @@ Example of updating this very file:
    the same or similar error, stop retrying and diagnose the root
    cause instead of looping. After 2 consecutive Edit failures on
    the same file, re-read it to refresh your view before retrying —
-   your cached view may be stale.
+   your cached view may be stale. Do not fall back from Edit to
+   Write on the same file without first diagnosing why Edit failed —
+   Write overwrites the entire file and is rarely the correct
+   recovery.
 2. **Grep before Read.** Use Grep to locate the relevant file(s)
    and line numbers before opening them with Read. Do not
    sequentially Read files to search for content — reserve Read for
