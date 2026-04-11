@@ -64,6 +64,16 @@ ripple effects in these six categories:
 3. Check if the PR's changes are consistent with those references
 4. Only report findings where you are confident there is a real
    inconsistency — not hypothetical or stylistic concerns
+5. **Be exhaustive in a single pass.** Before returning, walk
+   through the diff one more time and, for each of the six
+   categories in the table above, ask "did I actually search the
+   codebase for this kind of ripple effect?". Do not stop at the
+   first category where you found something. Each extra round-trip
+   through the review/revise loop costs a full re-review, a revise
+   commit, and a merge verdict — so missing a finding here forces
+   the fix agent to burn another whole cycle for each category you
+   skipped. Report **all** ripple effects you can confidently
+   identify, not just one per run.
 
 ## Output format
 
