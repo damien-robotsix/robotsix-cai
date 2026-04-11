@@ -167,7 +167,7 @@ services:
       # so the durable notes each subagent accumulates across runs
       # survive container restarts.
       - cai_agent_memory:/app/.claude/agent-memory
-      - ./logs:/var/log/cai
+      - cai_logs:/var/log/cai
 ${CAI_LABEL_BLOCK}${WATCHTOWER_SERVICE}
 
 volumes:
@@ -175,6 +175,8 @@ volumes:
     name: cai_home
   cai_agent_memory:
     name: cai_agent_memory
+  cai_logs:
+    name: cai_logs
 YAML
     echo
     echo "[OK] Wrote $INSTALL_DIR/docker-compose.yml (in-container OAuth mode)"
@@ -224,7 +226,7 @@ services:
       # so the durable notes each subagent accumulates across runs
       # survive container restarts.
       - cai_agent_memory:/app/.claude/agent-memory
-      - ./logs:/var/log/cai
+      - cai_logs:/var/log/cai
 ${CAI_LABEL_BLOCK}${WATCHTOWER_SERVICE}
 
 volumes:
@@ -232,6 +234,8 @@ volumes:
     name: cai_home
   cai_agent_memory:
     name: cai_agent_memory
+  cai_logs:
+    name: cai_logs
 YAML
     cat > .env <<ENV
 ANTHROPIC_API_KEY=${API_KEY}

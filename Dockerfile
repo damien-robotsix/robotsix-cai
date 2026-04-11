@@ -63,8 +63,8 @@ RUN wget -nv -O /usr/local/bin/supercronic \
 # which we need so the fix and revise subagents can edit
 # `.claude/agents/*.md` files (auto-improve self-modifies its own
 # prompts). UID 1000 matches the typical first-host-user UID so the
-# bind-mounted `./logs:/var/log/cai` directory works without extra
-# host-side chowning.
+# named `cai_logs` volume mounted at `/var/log/cai` works without
+# extra host-side chowning.
 #
 # We pre-create the named-volume mount points with cai:cai ownership
 # so Docker's "copy image contents into a new empty named volume on
@@ -88,6 +88,10 @@ RUN wget -nv -O /usr/local/bin/supercronic \
 #                                    cloned-worktree agents have it
 #                                    copied in/out by the wrapper
 #                                    around each invocation)
+#   - /var/log/cai/               → cai_logs          (run log — one
+#                                    key=value line per cai invocation;
+#                                    named volume avoids host permission
+#                                    issues that a bind-mount causes)
 #
 # We pre-create a few subdirs under /home/cai (.config/gh and
 # .claude/projects) so they exist with cai ownership in the image,

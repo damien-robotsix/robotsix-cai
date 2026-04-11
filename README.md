@@ -493,13 +493,13 @@ docker volume inspect cai_home
 docker run --rm -v cai_home:/data alpine ls -R /data
 ```
 
-A **run log** is written to `./logs/cai.log` (bind-mounted from
-`/var/log/cai/cai.log` inside the container). Each `init`, `analyze`,
+A **run log** is written to `/var/log/cai/cai.log` inside the container
+(persisted in the `cai_logs` named volume). Each `init`, `analyze`,
 `fix`, `review-pr`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, and `merge` invocation appends one key=value line so you can
-watch cycle activity from the host without `docker exec`:
+watch cycle activity:
 
 ```bash
-tail -f ~/robotsix-cai/logs/cai.log
+docker exec -it $(docker compose ps -q cai) tail -f /var/log/cai/cai.log
 ```
 
 Wipe everything (deletes claude credentials, transcripts, gh
@@ -508,7 +508,7 @@ afterwards):
 
 ```bash
 docker compose down --volumes        # if you used compose
-docker volume rm cai_home cai_agent_memory   # standalone
+docker volume rm cai_home cai_agent_memory cai_logs   # standalone
 ```
 
 The installer also wipes these volumes automatically when re-run, so
