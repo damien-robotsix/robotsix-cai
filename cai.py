@@ -820,7 +820,7 @@ def _gh_user_identity() -> tuple[str, str]:
 
 
 def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> list[dict]:
-    """Transition :pr-open issues whose linked PR was closed (unmerged) back to :raised.
+    """Transition :pr-open issues whose linked PR was closed (unmerged) back to :refined.
 
     Also recovers issues with no linked PR at all (dangling :pr-open).
     Returns the list of issues that were successfully recovered.
@@ -2205,7 +2205,7 @@ def _recover_stuck_rebase_prs() -> int:
     revise step from spamming retry comments — but without recovery
     the PR sits stuck forever, accumulating an ever-larger conflict
     surface every time main moves. Closing it and resetting the issue
-    to `:raised` lets the fix subagent open a fresh PR against the
+    to `:refined` lets the fix subagent open a fresh PR against the
     current main on its next tick (#144 was the original symptom).
 
     Returns the number of PRs recovered.
@@ -2273,8 +2273,7 @@ def _recover_stuck_rebase_prs() -> int:
             "---\n"
             "_Closed automatically by `cai revise` recovery. The "
             "linked issue has been reset to `auto-improve:refined` and "
-            "will pass through `cai refine` before being picked up on "
-            "the next `cai fix` tick._"
+            "will be picked up on the next `cai fix` tick._"
         )
         close_res = _run(
             ["gh", "pr", "close", str(pr_number),

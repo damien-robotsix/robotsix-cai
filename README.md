@@ -137,8 +137,8 @@ rollback, stale `:no-action` rollback, stale `:merged` flagging, and
 orphaned-branch cleanup. If an issue has been `:in-progress` for more
 than 6 hours with no recent fix activity in the log, the audit
 subcommand automatically rolls it back to `:refined`. Stale
-`:no-action` issues (7+ days) are rolled back to `:raised` so the fix
-agent can retry with new context. Stale `:merged` issues (14+ days)
+`:no-action` issues (7+ days) are rolled back to `:raised` so the `refine`
+agent (and subsequently the fix agent) can retry with new context. Stale `:merged` issues (14+ days)
 are flagged with `needs-human-review` since the automation cannot
 determine whether the fix worked. Additionally, remote `auto-improve/*`
 branches with no open PR — including branches for merged/closed PRs and

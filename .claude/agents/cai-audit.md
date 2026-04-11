@@ -81,7 +81,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | A single `claude -p` invocation in the cost summary whose `cost` is >3× the mean cost of its category, OR a category whose `total cost (share)` exceeds 50% of the window total | `cost_outlier` |
 | Closed issue whose labels don't include a terminal state (`auto-improve:merged` or `auto-improve:no-action`) — may indicate manual close without proper resolution | `workflow_anomaly` |
 | Merged PR whose linked `auto-improve` issue is still open (check recent PRs for matching branch/title against open issues) | `workflow_anomaly` |
-| Closed-unmerged PR whose linked issue is not rolled back to `:raised` | `workflow_anomaly` |
+| Closed-unmerged PR whose linked issue is not rolled back to `:refined` | `workflow_anomaly` |
 
 ### Log-level patterns
 
