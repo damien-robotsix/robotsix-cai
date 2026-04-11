@@ -197,6 +197,24 @@ This is the fix step's safety net: a finding may have slipped past
 the analyze step's filters, and refusing to act on it here is the
 defense-in-depth that breaks the spin loop.
 
+## Triage the issue before exploring
+
+**Before opening any file or running any search**, answer these
+three questions by reading only the issue body:
+
+1. Does the issue name a **specific file or code path** to change?
+2. Does the remediation describe a **concrete edit** (add/remove/
+   modify specific code)?
+3. Can you state in one sentence **what the diff will look like**?
+
+If any answer is "no", the issue is likely a research task, a
+feature request, or an ambiguous finding. **Do not explore the
+codebase.** Instead, emit a `## Needs Spike` block (see below)
+and exit immediately with zero diff. Over-exploring ambiguous
+issues is the single largest source of wasted cost in the fix
+pipeline — a 30-second bail saves more than a 50-turn
+investigation that produces a speculative change.
+
 ## When to make NO changes (and exit cleanly)
 
 Producing **zero diff** is a valid outcome — the wrapper detects an
