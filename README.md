@@ -81,35 +81,46 @@ machine. The lock label (`:in-progress`) is set as the **first** gh
 action so two concurrent `fix` runs can't pick the same issue.
 
 ```
-                              raised  ◄──┐
-                                │       │ (PR closed unmerged
-                                │ fix    │  or no linked PR,
-                                ▼        │  rolled back)
-                          in-progress    │
-                                │        │
-                        ┌───────┴───────┐│
-                        │               ││
-                  empty diff      PR opened
-                        │               ▼│
-                        ▼        pr-open ─┘
-                   no-action        │
-                                    │ verify (PR merged)
-                                    ▼
-                                 merged
-                                    │
-                        ┌───────────┴───────────┐
-                        │                       │
-                  confirm (pattern       confirm (inconclusive
-                   absent)                / unsolved)
-                        ▼                       ▼
-                  solved (closed)       stays :merged
-                                     (reasoning posted)
+                              raised  ◄──────────────────────┐
+                                │                            │
+                                │ fix                        │
+                                ▼                            │
+                          in-progress  ◄──┐                  │
+                                │        │ (PR closed       │
+                   ┌────────┬───┴──────┐ │  unmerged,       │
+                   │        │          │ │  rolled back)    │
+             empty diff  needs      PR opened               │
+                   │     spike       │ ▼│                   │
+                   ▼        │     pr-open ─┘                │
+              no-action     ▼        │                      │
+                       needs-spike   │ verify (PR merged)   │
+                            │        ▼                      │
+                            │     merged                    │
+                            │        │                      │
+                       spike │  ┌────┴──────────┐           │
+                            │  │               │           │
+                            ▼  confirm      confirm        │
+                       in-progress (pattern  (inconclusive  │
+                            │      absent)   / unsolved)   │
+                       ┌────┴────┐    ▼           ▼        │
+                       │    │    │  solved    stays :merged │
+                  findings  │  blocked (closed) (reasoning  │
+                  (closed)  │  (needs-           posted)   │
+                            │  human-                      │
+                         refined review)                    │
+                            └───────────────────────────────┘
 ```
 
 `:no-action` means the fix subagent reviewed the issue and decided no
 code change was needed. The agent's reasoning is posted as a comment
 on the issue. A human can either close the issue (agreeing with the
 bot) or re-label to `:raised` to retry.
+
+`:needs-spike` means the fix subagent recognized the issue as requiring
+research or verification rather than a direct code change. The spike
+subagent picks it up, investigates, and either closes the issue with
+documented findings, rewrites it into a fix-ready issue (back to
+`:raised`), or escalates to `:needs-human-review`.
 
 ### Audit findings
 
