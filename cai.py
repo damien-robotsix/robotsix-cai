@@ -82,8 +82,8 @@ Subcommands:
                             agent to propose an ambitious improvement,
                             then a review agent to evaluate feasibility.
                             Approved proposals are filed as issues with
-                            `auto-improve:needs-refinement` for human
-                            review and normal workflow processing.
+                            `auto-improve:raised` so they flow through
+                            the refine → fix pipeline.
 
     python cai.py update-check  Periodic Claude Code release check.
                             Clones the repo, fetches the latest Claude
@@ -4054,7 +4054,7 @@ def cmd_propose(args) -> int:
         f"(`cai propose`)._\n\n"
         f"{fingerprint}\n"
     )
-    labels = ",".join(["auto-improve", LABEL_NEEDS_REFINEMENT])
+    labels = ",".join(["auto-improve", LABEL_RAISED])
     result = _run(
         ["gh", "issue", "create",
          "--repo", REPO,
