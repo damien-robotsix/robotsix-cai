@@ -2450,7 +2450,7 @@ def cmd_revise(args) -> int:
             pr_diff = diff_result.stdout if diff_result.returncode == 0 else "(could not fetch diff)"
 
             # 5. Build the user message. The system prompt, tool
-            #    allowlist (Bash + edit tools), and hard rules all
+            #    allowlist (Agent + edit tools), and hard rules all
             #    live in `.claude/agents/cai-revise.md`.
             comments_section = "## Unaddressed review comments\n\n"
             if comments:
