@@ -73,7 +73,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 |---|---|
 | `:pr-open` issue whose linked PR doesn't exist or was force-deleted | `lock_corruption` |
 | Two open issues semantically about the same pattern | `topic_duplicate` |
-| Issue with mutually exclusive labels (e.g., both `:raised` and `:in-progress`) | `lock_corruption` |
+| Issue with mutually exclusive labels (e.g., both `:raised`/`:refined` and `:in-progress`) | `lock_corruption` |
 | `:raised` or `:refined` issue older than 7 days that the bot keeps skipping | `stale_lifecycle` |
 | Analyzer producing findings but no fix PRs landing in the same window | `loop_stuck` |
 | Multiple rules in `.claude/agents/cai-fix.md` that contradict each other | `prompt_contradiction` |

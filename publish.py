@@ -76,7 +76,7 @@ UPDATE_CHECK_CATEGORIES = {
 # create` returns non-zero if the label already exists, which we ignore.
 LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
-    ("auto-improve:raised", "0e8a16", "Finding freshly raised; not yet triaged"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before fix subagent picks it up"),
     ("auto-improve:requested", "1d76db", "Human-requested fix (admin-only label)"),
     ("auto-improve:in-progress", "fbca04", "fix subagent is actively working on this issue"),
     ("auto-improve:pr-open", "5319e7", "fix subagent opened a PR"),
@@ -111,7 +111,7 @@ AUDIT_LABELS = [
 
 CODE_AUDIT_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
-    ("auto-improve:raised", "0e8a16", "Finding freshly raised; not yet triaged"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before fix subagent picks it up"),
     ("category:cross_file_inconsistency", "d73a4a", "Constant/path/label mismatch across files"),
     ("category:dead_code", "c5def5", "Unreachable or unused code"),
     ("category:missing_reference", "e11d48", "Prompt or file reference that does not exist"),
