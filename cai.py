@@ -990,7 +990,7 @@ def _build_issue_block(issue: dict) -> str:
     return block
 
 
-def _build_fix_user_message(issue: dict) -> str:
+def _build_fix_user_message(issue: dict, attempt_history_block: str = "") -> str:
     """Build the dynamic per-run user message for the cai-fix agent.
 
     The system prompt, tool allowlist, and hard rules live in
@@ -998,10 +998,94 @@ def _build_fix_user_message(issue: dict) -> str:
     in its `memory: project` pool. The wrapper only passes the
     issue body + any reviewer comments as stdin.
     """
-    return _build_issue_block(issue)
+    return _build_issue_block(issue) + attempt_history_block
 
 
-def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path) -> str:
+def _fetch_previous_fix_attempts(issue_number: int) -> list[dict]:
+    """Retrieve closed, unmerged PRs for this issue and extract merge verdicts.
+
+    Returns a list of dicts with keys: pr_number, title, merge_verdict,
+    review_summary. Entries with no extractable verdict are omitted.
+    Capped at the 3 most recently created PRs.
+    """
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "closed",
+            "--search", f'"Refs {REPO}#{issue_number}" in:body',
+            "--json", "number,title,headRefName,createdAt,mergedAt",
+            "--limit", "10",
+        ]) or []
+    except subprocess.CalledProcessError:
+        return []
+
+    # Filter to unmerged (closed without merge), sort newest-first, cap at 3.
+    unmerged = [p for p in prs if not p.get("mergedAt")]
+    unmerged.sort(key=lambda p: p["createdAt"], reverse=True)
+    unmerged = unmerged[:3]
+
+    if not unmerged:
+        return []
+
+    results = []
+    for pr in unmerged:
+        pr_number = pr["number"]
+        try:
+            pr_data = _gh_json([
+                "pr", "view", str(pr_number),
+                "--repo", REPO,
+                "--json", "comments",
+            ]) or {}
+        except subprocess.CalledProcessError:
+            continue
+
+        comments = pr_data.get("comments", [])
+
+        merge_verdict = None
+        review_summary = None
+        for comment in reversed(comments):
+            body = comment.get("body", "")
+            if merge_verdict is None and "## Merge Verdict" in body:
+                truncated = body[:500]
+                if len(body) > 500:
+                    truncated += "…"
+                merge_verdict = truncated
+            if review_summary is None and "### Finding:" in body:
+                truncated = body[:300]
+                if len(body) > 300:
+                    truncated += "…"
+                review_summary = truncated
+
+        if merge_verdict is not None:
+            results.append({
+                "pr_number": pr_number,
+                "title": pr["title"],
+                "merge_verdict": merge_verdict,
+                "review_summary": review_summary,
+            })
+
+    return results
+
+
+def _build_attempt_history_block(attempts: list[dict]) -> str:
+    """Format previous fix attempts as a markdown section.
+
+    Returns empty string when attempts is empty so callers can
+    unconditionally append without adding spurious content.
+    """
+    if not attempts:
+        return ""
+    block = "\n## Previous Fix Attempts\n\n"
+    for attempt in attempts:
+        block += f"### PR #{attempt['pr_number']}: {attempt['title']}\n\n"
+        block += f"**Merge verdict:**\n{attempt['merge_verdict']}\n\n"
+        if attempt.get("review_summary"):
+            block += f"**Review summary:**\n{attempt['review_summary']}\n\n"
+    return block
+
+
+def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_history_block: str = "") -> str:
     """Run a single cai-plan agent and return its stdout.
 
     Called in parallel (3×) by _run_plan_select_pipeline.
@@ -1014,6 +1098,7 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path) -> str:
         _work_directory_block(work_dir)
         + "\n"
         + _build_issue_block(issue)
+        + attempt_history_block
     )
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-plan",
@@ -1057,7 +1142,7 @@ def _run_select_agent(issue: dict, plans: list[str], work_dir: Path) -> str:
     return result.stdout or ""
 
 
-def _run_plan_select_pipeline(issue: dict, work_dir: Path) -> str | None:
+def _run_plan_select_pipeline(issue: dict, work_dir: Path, attempt_history_block: str = "") -> str | None:
     """Run the 3-plan → select pipeline and return the selected plan.
 
     Returns the selected plan text to prepend to the fix agent's
@@ -1070,7 +1155,7 @@ def _run_plan_select_pipeline(issue: dict, work_dir: Path) -> str | None:
     plans: list[str] = ["", "", ""]
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {
-            pool.submit(_run_plan_agent, issue, i, work_dir): i
+            pool.submit(_run_plan_agent, issue, i, work_dir, attempt_history_block): i
             for i in range(1, 4)
         }
         for future in as_completed(futures):
@@ -1497,12 +1582,23 @@ def cmd_fix(args) -> int:
         branch = f"auto-improve/{issue_number}-{_slugify(title)}"
         _git(work_dir, "checkout", "-b", branch)
 
-        # 4b. Run the plan-select pipeline: 3 plan agents in
+        # 4b. Fetch previous fix attempts (closed, unmerged PRs) and
+        #     build a history block so plan and fix agents don't repeat
+        #     rejected approaches.
+        attempts = _fetch_previous_fix_attempts(issue_number)
+        attempt_history_block = _build_attempt_history_block(attempts)
+        if attempt_history_block:
+            print(
+                f"[cai fix] injecting {len(attempts)} previous fix attempt(s) for #{issue_number}",
+                flush=True,
+            )
+
+        # 4c. Run the plan-select pipeline: 3 plan agents in
         #     parallel, then a select agent picks the best plan.
         #     The selected plan is prepended to the fix agent's
         #     user message so it has a concrete implementation
         #     strategy to follow.
-        selected_plan = _run_plan_select_pipeline(issue, work_dir)
+        selected_plan = _run_plan_select_pipeline(issue, work_dir, attempt_history_block)
 
         # 4c. Pre-create the `.cai-staging/agents/` directory so the
         #     agent has somewhere to write proposed updates to its
@@ -1533,7 +1629,7 @@ def cmd_fix(args) -> int:
         user_message = (
             _work_directory_block(work_dir)
             + "\n"
-            + _build_fix_user_message(issue)
+            + _build_fix_user_message(issue, attempt_history_block)
         )
         if selected_plan:
             user_message = (
@@ -1545,7 +1641,7 @@ def cmd_fix(args) -> int:
                 + "Follow this plan to implement the fix.\n\n"
                 + f"{selected_plan}\n\n"
                 + "---\n\n"
-                + _build_fix_user_message(issue)
+                + _build_fix_user_message(issue, attempt_history_block)
             )
         print(f"[cai fix] running cai-fix subagent for {work_dir}", flush=True)
         # `--dangerously-skip-permissions` is required for the
