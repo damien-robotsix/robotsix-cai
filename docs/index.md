@@ -124,7 +124,7 @@ docker compose up
 
 ## Persistent data
 
-The container uses two Docker named volumes:
+The container uses three Docker named volumes:
 
 - **`cai_home`** (mounted at `/home/cai`) — the cai user's entire
   home directory. Holds Claude OAuth credentials
@@ -136,6 +136,9 @@ The container uses two Docker named volumes:
   all user state.
 - **`cai_agent_memory`** (mounted at `/app/.claude/agent-memory`) —
   per-agent durable memory accumulated by the declarative subagents.
+- **`cai_logs`** (mounted at `/var/log/cai`) — run log. One
+  key=value line per `cai` invocation. Using a named volume avoids
+  the host permission issues that a bind-mount causes.
 
 The container runs as the non-root `cai` user (uid 1000) — see
 Dockerfile for the rationale.
