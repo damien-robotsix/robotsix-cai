@@ -112,7 +112,8 @@ action so two concurrent `fix` runs can't pick the same issue.
 `:no-action` means the fix subagent reviewed the issue and decided no
 code change was needed. The agent's reasoning is posted as a comment
 on the issue. A human can either close the issue (agreeing with the
-bot) or re-label to `:raised` to retry.
+bot), re-label to `:refined` to retry the fix directly, or re-label to
+`:raised` to re-run through the refine step first.
 
 ### Audit findings
 
