@@ -3425,7 +3425,7 @@ def cmd_confirm(args) -> int:
         try:
             prs = _gh_json([
                 "pr", "list", "--repo", REPO,
-                "--search", f"Refs #{num}",
+                "--search", f'"Refs {REPO}#{num}" in:body',
                 "--state", "merged",
                 "--json", "number",
                 "--limit", "1",
