@@ -4420,6 +4420,45 @@ def cmd_merge(args) -> int:
         # SHA), the bot naturally re-evaluates without requiring a
         # human to manually clear the label.
 
+        # Safety filter 7: require `cai review-pr` to have reviewed
+        # the current head SHA before we run a merge verdict on it.
+        #
+        # Without this gate, `cmd_merge` runs on every new commit — in
+        # particular, every commit that `cmd_revise` pushes in response
+        # to a prior review's findings — BEFORE the reviewer has had a
+        # chance to walk the new diff. That produces a verdict on an
+        # un-reviewed SHA (uninformed by the ripple-effect scan) and,
+        # via `_pr_label_sweep`, flips the PR to `needs-human-review`
+        # while the fix/review/revise loop is still actively making
+        # progress. The PR then flaps through the label on every cycle
+        # until the reviewer finally reports clean. Refs #351
+        # post-mortem: 5+ premature verdicts, each one flagging the PR
+        # for human triage even though revise was still addressing
+        # ripple findings one round at a time.
+        #
+        # Matches either heading variant (findings or clean) because
+        # both start with `_REVIEW_COMMENT_HEADING_FINDINGS` and both
+        # include the head SHA on the heading line. Mirrors the
+        # already-reviewed check in `cmd_review_pr`.
+        has_review_at_sha = False
+        for comment in pr.get("comments", []):
+            body = (comment.get("body") or "")
+            first_line = body.split("\n", 1)[0]
+            if (
+                first_line.startswith(_REVIEW_COMMENT_HEADING_FINDINGS)
+                and head_sha in first_line
+            ):
+                has_review_at_sha = True
+                break
+
+        if not has_review_at_sha:
+            print(
+                f"[cai merge] PR #{pr_number}: review-pr has not reviewed "
+                f"{head_sha[:8]} yet; waiting",
+                flush=True,
+            )
+            continue
+
         # Safety filter 3: unaddressed review comments → let revise handle.
         # Mirror the revise subcommand's filter logic via the shared helper
         # so a "no additional changes" reply correctly suppresses the loop.
