@@ -3083,9 +3083,9 @@ def cmd_audit(args) -> int:
     user_message = (
         f"{issues_section}\n"
         f"{prs_section}\n"
-        f"{closed_section}\n"
         f"{log_section}\n"
         f"{cost_section}\n"
+        f"{closed_section}\n"
         f"{deterministic_section}"
     )
 
