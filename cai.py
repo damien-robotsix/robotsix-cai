@@ -13,7 +13,7 @@ Subcommands:
                             publish.py.
 
     python cai.py fix       Pick the oldest issue labelled
-                            `auto-improve:raised` or `auto-improve:
+                            `auto-improve:refined` or `auto-improve:
                             requested` (audit issues reach fix via
                             triage relabelling), lock it via the `:in-progress`
                             label, clone the repo into /tmp, run 3
@@ -29,7 +29,8 @@ Subcommands:
                             `:pr-open`, find their linked PR by `Refs`
                             search, and transition the label:
                             merged → `:merged`,
-                            closed-unmerged or no-linked-PR → `:raised`.
+                            closed-unmerged → `:refined`,
+                            no-linked-PR → `:raised`.
 
     python cai.py audit     Periodic queue/PR consistency audit.
                             Deterministically rolls back stale
@@ -62,11 +63,11 @@ Subcommands:
                             merges when confidence meets the threshold.
 
     python cai.py refine      Pick the oldest issue labelled
-                            `auto-improve:needs-refinement`, invoke
-                            the cai-refine subagent (read-only) to
+                            `auto-improve:raised`, invoke the
+                            cai-refine subagent (read-only) to
                             produce a structured plan, update the
                             issue body, and transition the label to
-                            `auto-improve:raised`.
+                            `auto-improve:refined`.
 
     python cai.py code-audit  Weekly source-code consistency audit.
                             Clones the repo read-only, runs a Sonnet
@@ -81,8 +82,8 @@ Subcommands:
                             agent to propose an ambitious improvement,
                             then a review agent to evaluate feasibility.
                             Approved proposals are filed as issues with
-                            `auto-improve:needs-refinement` for human
-                            review and normal workflow processing.
+                            `auto-improve:raised` so they flow through
+                            the refine → fix pipeline.
 
     python cai.py update-check  Periodic Claude Code release check.
                             Clones the repo, fetches the latest Claude
@@ -169,7 +170,7 @@ LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_NEEDS_SPIKE = "auto-improve:needs-spike"
-LABEL_NEEDS_REFINEMENT = "auto-improve:needs-refinement"
+LABEL_REFINED = "auto-improve:refined"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
@@ -702,9 +703,10 @@ def cmd_analyze(args) -> int:
     _STATE_PRIORITY = {
         LABEL_IN_PROGRESS: 0,
         LABEL_PR_OPEN: 1,
-        LABEL_RAISED: 2,
-        LABEL_MERGED: 3,
-        LABEL_REQUESTED: 4,
+        LABEL_REFINED: 2,
+        LABEL_RAISED: 3,
+        LABEL_MERGED: 4,
+        LABEL_REQUESTED: 5,
     }
 
     def _issue_state_label(issue):
@@ -818,7 +820,7 @@ def _gh_user_identity() -> tuple[str, str]:
 
 
 def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> list[dict]:
-    """Transition :pr-open issues whose linked PR was closed (unmerged) back to :raised.
+    """Transition :pr-open issues whose linked PR was closed (unmerged) back to :refined.
 
     Also recovers issues with no linked PR at all (dangling :pr-open).
     Returns the list of issues that were successfully recovered.
@@ -837,7 +839,8 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
                 comment = (
                     "## Auto-improve: rolling back to :raised\n\n"
                     "No linked PR found for this `:pr-open` issue. "
-                    "Resetting to `:raised` so the fix subagent can attempt a fresh fix.\n\n"
+                    "Resetting to `:raised` so the refine subagent can re-structure it "
+                    "and the fix subagent can then attempt a fresh fix.\n\n"
                     f"---\n_Rolled back automatically by `{log_prefix}`._"
                 )
                 _run(["gh", "issue", "comment", str(issue["number"]),
@@ -853,12 +856,14 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
             continue
         state = (pr.get("state") or "").upper()
         if state == "CLOSED":
-            if _set_labels(issue["number"], add=[raised_label], remove=remove_labels, log_prefix=log_prefix):
+            closed_raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_REFINED
+            if _set_labels(issue["number"], add=[closed_raised_label], remove=remove_labels, log_prefix=log_prefix):
                 comment = (
-                    "## Auto-improve: rolling back to :raised\n\n"
+                    "## Auto-improve: rolling back to :refined\n\n"
                     f"Linked PR #{pr['number']} was closed without merging. "
-                    "Resetting this issue to `:raised` so the fix subagent can "
-                    "re-attempt on the next tick.\n\n"
+                    "Resetting this issue to `:refined` so the fix subagent can "
+                    "re-attempt on the next tick (bypassing the refine step since "
+                    "the issue was already structured before the previous fix attempt).\n\n"
                     f"---\n_Rolled back automatically by `{log_prefix}`._"
                 )
                 _run(["gh", "issue", "comment", str(issue["number"]),
@@ -877,15 +882,16 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
 def _select_fix_target():
     """Return the oldest open issue eligible for the fix subagent.
 
-    Eligible = labelled `:raised` or `:requested`, NOT labelled
+    Eligible = labelled `:refined` or `:requested`, NOT labelled
     `:in-progress` or `:pr-open`.  `audit:raised` issues are handled
     exclusively by the audit-triage agent — only issues that triage
-    re-labels to `auto-improve:raised` enter the fix pipeline.
+    re-labels to `auto-improve:raised` (and subsequently refine to
+    `auto-improve:refined`) enter the fix pipeline.
     If no candidates are found, attempts to recover stale `:pr-open`
     issues whose linked PR was closed unmerged or that have no linked PR.
     """
     candidates: dict[int, dict] = {}
-    for label in (LABEL_RAISED, LABEL_REQUESTED):
+    for label in (LABEL_REFINED, LABEL_REQUESTED):
         try:
             issues = _gh_json([
                 "issue", "list",
@@ -910,7 +916,7 @@ def _select_fix_target():
     if not candidates:
         # Recover stale :pr-open issues whose linked PR was closed (unmerged) or that have no linked PR.
         # This handles cases where the verify step failed to transition them
-        # back to :raised (e.g. due to GitHub search indexing delays).
+        # back to :refined (e.g. due to GitHub search indexing delays).
         try:
             pr_open_issues = _gh_json([
                 "issue", "list",
@@ -1524,14 +1530,14 @@ def cmd_fix(args) -> int:
     issue_number = issue["number"]
     title = issue["title"]
     label_names = {lbl["name"] for lbl in issue.get("labels", [])}
-    origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_RAISED
+    origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_REFINED
     print(f"[cai fix] picked #{issue_number}: {title}", flush=True)
 
-    # 1. Lock — set :in-progress, drop :raised and :requested.
+    # 1. Lock — set :in-progress, drop :refined and :requested.
     if not _set_labels(
         issue_number,
         add=[LABEL_IN_PROGRESS],
-        remove=[LABEL_RAISED, LABEL_REQUESTED],
+        remove=[LABEL_REFINED, LABEL_REQUESTED],
     ):
         print(f"[cai fix] could not lock #{issue_number}", file=sys.stderr)
         log_run("fix", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
@@ -2217,7 +2223,7 @@ def _recover_stuck_rebase_prs() -> int:
     revise step from spamming retry comments — but without recovery
     the PR sits stuck forever, accumulating an ever-larger conflict
     surface every time main moves. Closing it and resetting the issue
-    to `:raised` lets the fix subagent open a fresh PR against the
+    to `:refined` lets the fix subagent open a fresh PR against the
     current main on its next tick (#144 was the original symptom).
 
     Returns the number of PRs recovered.
@@ -2272,7 +2278,7 @@ def _recover_stuck_rebase_prs() -> int:
         print(
             f"[cai revise] PR #{pr_number}: rebase resolver gave up "
             f"and no commits since; closing and resetting issue "
-            f"#{issue_number} to :raised so fix can retry",
+            f"#{issue_number} to :refined so fix can retry",
             flush=True,
         )
 
@@ -2284,7 +2290,7 @@ def _recover_stuck_rebase_prs() -> int:
             f"fresh PR for #{issue_number} against the current `main`.\n\n"
             "---\n"
             "_Closed automatically by `cai revise` recovery. The "
-            "linked issue has been reset to `auto-improve:raised` and "
+            "linked issue has been reset to `auto-improve:refined` and "
             "will be picked up on the next `cai fix` tick._"
         )
         close_res = _run(
@@ -2303,7 +2309,7 @@ def _recover_stuck_rebase_prs() -> int:
         # Reset the linked issue back to the eligible-for-fix state.
         _set_labels(
             issue_number,
-            add=[LABEL_RAISED],
+            add=[LABEL_REFINED],
             remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING],
             log_prefix="cai revise",
         )
@@ -2833,7 +2839,7 @@ def cmd_verify(args) -> int:
         if LABEL_PR_OPEN in iss_labels:
             continue
         # Issue is open, has an open PR, but missing :pr-open — recover.
-        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]
+        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]
         if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove, log_prefix="cai verify"):
             print(
                 f"[cai verify] recovered #{issue_num}: added :pr-open "
@@ -3017,9 +3023,9 @@ def _rollback_stale_in_progress() -> list[dict]:
                 # Revising lock: just remove the lock, leave :pr-open.
                 ok = _set_labels(issue_num, remove=[LABEL_REVISING], log_prefix="cai audit")
             else:
-                # In-progress lock: roll back to :raised.
+                # In-progress lock: roll back to :refined.
                 issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-                raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
+                raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_REFINED
                 ok = _set_labels(
                     issue_num,
                     add=[raised_label],
@@ -3045,7 +3051,7 @@ def _rollback_stale_in_progress() -> list[dict]:
 
 
 def _unstuck_stale_no_action() -> list[dict]:
-    """Roll stale :no-action issues back to :raised so fix can retry with new context."""
+    """Roll stale :no-action issues back to :raised so refine (and subsequently fix) can retry with new context."""
     try:
         issues = _gh_json([
             "issue", "list",
@@ -3658,9 +3664,10 @@ def cmd_audit_triage(args) -> int:
             escalated += 1
 
         else:
-            # passthrough — relabel to auto-improve:raised so the fix
-            # subagent picks it up (fix no longer selects audit:raised
-            # directly, ensuring all audit issues go through triage first).
+            # passthrough — relabel to auto-improve:raised so the refine
+            # subagent can structure it, then transition to :refined for
+            # the fix subagent (fix no longer selects audit:raised directly,
+            # ensuring all audit issues go through triage first).
             _set_labels(
                 n,
                 add=[LABEL_RAISED],
@@ -4065,7 +4072,7 @@ def cmd_propose(args) -> int:
         f"(`cai propose`)._\n\n"
         f"{fingerprint}\n"
     )
-    labels = ",".join(["auto-improve", LABEL_NEEDS_REFINEMENT])
+    labels = ",".join(["auto-improve", LABEL_RAISED])
     result = _run(
         ["gh", "issue", "create",
          "--repo", REPO,
@@ -5411,7 +5418,7 @@ def cmd_merge(args) -> int:
 
 
 def cmd_refine(args) -> int:
-    """Invoke the cai-refine agent on the oldest :needs-refinement issue."""
+    """Invoke the cai-refine agent on the oldest :raised issue."""
     print("[cai refine] looking for issues to refine", flush=True)
     t0 = time.monotonic()
 
@@ -5420,7 +5427,7 @@ def cmd_refine(args) -> int:
         issues = _gh_json([
             "issue", "list",
             "--repo", REPO,
-            "--label", LABEL_NEEDS_REFINEMENT,
+            "--label", LABEL_RAISED,
             "--state", "open",
             "--json", "number,title,body,labels,createdAt,comments",
             "--limit", "100",
@@ -5434,7 +5441,7 @@ def cmd_refine(args) -> int:
         return 1
 
     if not issues:
-        print("[cai refine] no :needs-refinement issues; nothing to do", flush=True)
+        print("[cai refine] no :raised issues; nothing to do", flush=True)
         log_run("refine", repo=REPO, result="no_eligible_issues", exit=0)
         return 0
 
@@ -5472,13 +5479,13 @@ def cmd_refine(args) -> int:
     if "## No Refinement Needed" in stdout:
         print(
             f"[cai refine] #{issue_number} already structured; "
-            f"transitioning to :raised",
+            f"transitioning to :refined",
             flush=True,
         )
         _set_labels(
             issue_number,
-            add=[LABEL_RAISED],
-            remove=[LABEL_NEEDS_REFINEMENT],
+            add=[LABEL_REFINED],
+            remove=[LABEL_RAISED],
             log_prefix="cai refine",
         )
         dur = f"{int(time.monotonic() - t0)}s"
@@ -5528,17 +5535,17 @@ def cmd_refine(args) -> int:
                 duration=dur, result="edit_failed", exit=1)
         return 1
 
-    # 8. Transition labels: :needs-refinement → :raised.
+    # 8. Transition labels: :raised → :refined.
     _set_labels(
         issue_number,
-        add=[LABEL_RAISED],
-        remove=[LABEL_NEEDS_REFINEMENT],
+        add=[LABEL_REFINED],
+        remove=[LABEL_RAISED],
         log_prefix="cai refine",
     )
 
     dur = f"{int(time.monotonic() - t0)}s"
     print(
-        f"[cai refine] #{issue_number} refined and transitioned to :raised "
+        f"[cai refine] #{issue_number} refined and transitioned to :refined "
         f"in {dur}",
         flush=True,
     )

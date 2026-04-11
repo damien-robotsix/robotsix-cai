@@ -61,7 +61,7 @@ a soft `forgotten_backlog` finding with **low** confidence as a gentle
 reminder. This is distinct from `stale_lifecycle`, which applies only
 to issues that have entered an active state.
 
-Active states (`:raised`, `:requested`, `:in-progress`, `:pr-open`,
+Active states (`:raised`, `:refined`, `:requested`, `:in-progress`, `:pr-open`,
 `:merged`, `:no-action`, `:revising`) should continue to be checked
 normally against all the rules below. (Note: stale `:no-action`
 issues are rolled back to `:raised` before the LLM audit runs, and
@@ -73,15 +73,15 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 |---|---|
 | `:pr-open` issue whose linked PR doesn't exist or was force-deleted | `lock_corruption` |
 | Two open issues semantically about the same pattern | `topic_duplicate` |
-| Issue with mutually exclusive labels (e.g., both `:raised` and `:in-progress`) | `lock_corruption` |
-| `:raised` issue older than 7 days that the bot keeps skipping | `stale_lifecycle` |
+| Issue with mutually exclusive labels (e.g., both `:raised`/`:refined` and `:in-progress`) | `lock_corruption` |
+| `:raised` or `:refined` issue older than 7 days that the bot keeps skipping | `stale_lifecycle` |
 | Analyzer producing findings but no fix PRs landing in the same window | `loop_stuck` |
 | Multiple rules in `.claude/agents/cai-fix.md` that contradict each other | `prompt_contradiction` |
 | Tracking-only issue (no state label) older than 30 days with no human activity | `forgotten_backlog` |
 | A single `claude -p` invocation in the cost summary whose `cost` is >3× the mean cost of its category, OR a category whose `total cost (share)` exceeds 50% of the window total | `cost_outlier` |
 | Closed issue whose labels don't include a terminal state (`auto-improve:merged` or `auto-improve:no-action`) — may indicate manual close without proper resolution | `workflow_anomaly` |
 | Merged PR whose linked `auto-improve` issue is still open (check recent PRs for matching branch/title against open issues) | `workflow_anomaly` |
-| Closed-unmerged PR whose linked issue is not rolled back to `:raised` | `workflow_anomaly` |
+| Closed-unmerged PR whose linked issue is not rolled back to `:refined` | `workflow_anomaly` |
 
 ### Log-level patterns
 
@@ -95,7 +95,7 @@ did not actually succeed. Flag these as `silent_failure`.
 | `[publish] created=0 skipped=0 failed=0` after `parsed N finding(s)` where N > 0 | All findings silently lost |
 | `[fix] result=push_failed exit=1` (≥2 occurrences in window) | Recurring git push problem |
 | `[fix] result=clone_failed exit=1` (≥2 occurrences in window) | Recurring gh/git auth problem |
-| `[fix] result=no_eligible_issues` repeating ≥7 times in a row while open `:raised`/`:requested` issues exist | Bot is skipping issues it should be picking |
+| `[fix] result=no_eligible_issues` repeating ≥7 times in a row while open `:refined`/`:requested` issues exist | Bot is skipping issues it should be picking |
 | `[cai analyze] claude -p failed (exit N)` | API errors (rate limit, auth, network) |
 | `[cai analyze] parse.py failed (exit N)` | Parser crash |
 | `level=error msg="..."` lines from supercronic itself | Scheduler errors |
@@ -109,7 +109,8 @@ quiet run, but the same line right after analyzer output containing
 **Note:** stale `:in-progress` rollback is handled deterministically
 before you run — you will NOT see stale `:in-progress` issues. If a
 rollback happened, it will appear in the log tail as an
-`[audit] action=stale_in_progress_rollback` line.
+`[audit] action=stale_in_progress_rollback` line. The issue is rolled
+back to `:refined` (since it has already passed through refine).
 
 **Note:** branch cleanup is also handled deterministically before you
 run — all remote `auto-improve/*` branches with no open PR are deleted
@@ -120,8 +121,8 @@ number of branches cleaned appears in the log line as the
 
 **Note:** stale `:no-action` issues (no activity for 7+ days) are
 rolled back to `:raised` deterministically before you run, allowing
-the fix agent to retry with new context. These appear in the log as
-`[audit] action=stale_no_action_unstuck`.
+the refine agent and then the fix agent to retry with new context.
+These appear in the log as `[audit] action=stale_no_action_unstuck`.
 
 **Note:** stale `:merged` issues (no activity for 14+ days) are
 flagged with `needs-human-review` deterministically before you run.

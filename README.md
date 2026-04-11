@@ -51,15 +51,15 @@ subprocess with no shared state.
 | Subcommand | Default schedule | What it does |
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
-| `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:needs-refinement` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:raised` |
+| `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:raised` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:refined` |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, runs 3 parallel plan agents then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
-| `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state; recovers issues whose linked PR was closed without merging or where no linked PR exists (rolls back to `:raised`) |
+| `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state; recovers issues whose linked PR was closed without merging (rolls back to `:refined`) or where no linked PR exists (rolls back to `:raised`) |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` and `:no-action` issues, flags stale `:merged` issues for human review, deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
 | `cai.py review-pr` | `20 * * * *` (hourly :20) | Pre-merge consistency review of open PRs — posts ripple-effect findings as PR comments so the revise subagent can act on them |
 | `cai.py merge` | `35 * * * *` (hourly :35) | Confidence-gated auto-merge — evaluates each bot PR against its linked issue, posts a verdict, and merges when confidence meets the threshold |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
-| `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:needs-refinement` issues for human review |
+| `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the refine → fix pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
 | `cai.py cycle` | _(manual/on-demand)_ | Runs verify → fix → revise → review-pr → merge → confirm in sequence. Convenience wrapper for a full pipeline pass; not included in scheduled or startup runs |
@@ -80,9 +80,13 @@ machine. The lock label (`:in-progress`) is set as the **first** gh
 action so two concurrent `fix` runs can't pick the same issue.
 
 ```
-                              raised  ◄──┐
-                                │       │ (PR closed unmerged
-                                │ fix    │  or no linked PR,
+                              raised
+                                │
+                                │ refine
+                                ▼
+                             refined  ◄──┐
+                                │       │ (PR closed
+                                │ fix    │  unmerged,
                                 ▼        │  rolled back)
                           in-progress    │
                                 │        │
@@ -108,7 +112,8 @@ action so two concurrent `fix` runs can't pick the same issue.
 `:no-action` means the fix subagent reviewed the issue and decided no
 code change was needed. The agent's reasoning is posted as a comment
 on the issue. A human can either close the issue (agreeing with the
-bot) or re-label to `:raised` to retry.
+bot), re-label to `:refined` to retry the fix directly, or re-label to
+`:raised` to re-run through the refine step first.
 
 ### Audit findings
 
@@ -117,7 +122,8 @@ to distinguish its findings from analyzer findings (`auto-improve:*`).
 Audit findings flag inconsistencies in the issue/PR lifecycle.
 Issues labelled `audit:raised` go through `cai.py audit-triage`
 first, which relabels eligible ones to `auto-improve:raised` so the
-fix subagent picks them up.
+`refine` subagent can structure them and transition them to
+`auto-improve:refined`, after which the fix subagent picks them up.
 
 | Label | Meaning |
 |---|---|
@@ -131,9 +137,9 @@ There are four exceptions to "report-only": stale `:in-progress`
 rollback, stale `:no-action` rollback, stale `:merged` flagging, and
 orphaned-branch cleanup. If an issue has been `:in-progress` for more
 than 6 hours with no recent fix activity in the log, the audit
-subcommand automatically rolls it back to `:raised`. Stale
-`:no-action` issues (7+ days) are rolled back to `:raised` so the fix
-agent can retry with new context. Stale `:merged` issues (14+ days)
+subcommand automatically rolls it back to `:refined`. Stale
+`:no-action` issues (7+ days) are rolled back to `:raised` so the `refine`
+agent (and subsequently the fix agent) can retry with new context. Stale `:merged` issues (14+ days)
 are flagged with `needs-human-review` since the automation cannot
 determine whether the fix worked. Additionally, remote `auto-improve/*`
 branches with no open PR — including branches for merged/closed PRs and
@@ -329,9 +335,10 @@ Docker daemons (≥ API 1.44), causing watchtower to crash-loop with
 
 **Mid-fix restart caveat:** if Watchtower restarts cai while a fix
 subagent is running, the in-flight fix is killed and the issue may be
-left stuck in `auto-improve:in-progress`. Manual relabelling back to
-`:raised` is needed until the audit feature (tracked separately) lands
-to handle automatic recovery.
+left stuck in `auto-improve:in-progress`. The audit subcommand handles
+automatic recovery (rolling back to `:refined`). For manual recovery,
+relabel back to `:refined` to re-enter the fix pipeline directly, or
+to `:raised` to re-run through the refine step first.
 
 To change the polling interval, edit the `--interval` value (in
 seconds) in the `watchtower` service's `command:` block and run
