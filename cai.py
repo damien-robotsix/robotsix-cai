@@ -2088,7 +2088,7 @@ def _select_revise_targets() -> list[dict]:
             "pr", "list",
             "--repo", REPO,
             "--state", "open",
-            "--json", "number,headRefName,comments",
+            "--json", "number,headRefName,comments,labels",
             "--limit", "50",
         ]) or []
     except subprocess.CalledProcessError as e:
@@ -2118,6 +2118,23 @@ def _select_revise_targets() -> list[dict]:
         if LABEL_PR_OPEN not in label_names:
             continue
         if LABEL_REVISING in label_names:
+            continue
+
+        # Skip PRs that are blocked on a human decision — revising
+        # code won't unblock them and causes an infinite loop.
+        # Issue #399.
+        pr_label_names = {lbl["name"] for lbl in pr.get("labels", [])}
+        if LABEL_MERGE_BLOCKED in label_names or LABEL_PR_NEEDS_HUMAN in pr_label_names:
+            skip_reason = []
+            if LABEL_MERGE_BLOCKED in label_names:
+                skip_reason.append(f"issue has :{LABEL_MERGE_BLOCKED}")
+            if LABEL_PR_NEEDS_HUMAN in pr_label_names:
+                skip_reason.append(f"PR has :{LABEL_PR_NEEDS_HUMAN}")
+            print(
+                f"[cai revise] PR #{pr['number']}: skipping — "
+                f"{', '.join(skip_reason)} (needs human decision)",
+                flush=True,
+            )
             continue
 
         # Find the most recent commit date via `gh pr view`.
