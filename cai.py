@@ -915,7 +915,7 @@ def _select_fix_target():
     if not candidates:
         # Recover stale :pr-open issues whose linked PR was closed (unmerged) or that have no linked PR.
         # This handles cases where the verify step failed to transition them
-        # back to :raised (e.g. due to GitHub search indexing delays).
+        # back to :refined (e.g. due to GitHub search indexing delays).
         try:
             pr_open_issues = _gh_json([
                 "issue", "list",

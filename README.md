@@ -326,9 +326,10 @@ Docker daemons (≥ API 1.44), causing watchtower to crash-loop with
 
 **Mid-fix restart caveat:** if Watchtower restarts cai while a fix
 subagent is running, the in-flight fix is killed and the issue may be
-left stuck in `auto-improve:in-progress`. Manual relabelling back to
-`:raised` is needed until the audit feature (tracked separately) lands
-to handle automatic recovery.
+left stuck in `auto-improve:in-progress`. The audit subcommand handles
+automatic recovery (rolling back to `:refined`). For manual recovery,
+relabel back to `:refined` to re-enter the fix pipeline directly, or
+to `:raised` to re-run through the refine step first.
 
 To change the polling interval, edit the `--interval` value (in
 seconds) in the `watchtower` service's `command:` block and run
