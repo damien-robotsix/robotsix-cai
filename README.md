@@ -134,8 +134,10 @@ subcommand automatically rolls it back to `:raised`. Stale
 `:no-action` issues (7+ days) are rolled back to `:raised` so the fix
 agent can retry with new context. Stale `:merged` issues (14+ days)
 are flagged with `needs-human-review` since the automation cannot
-determine whether the fix worked. Additionally, remote branches for
-merged or closed `auto-improve/` PRs are deleted automatically.
+determine whether the fix worked. Additionally, remote `auto-improve/*`
+branches with no open PR — including branches for merged/closed PRs and
+branches pushed by the fix agent that never had a PR opened — are deleted
+automatically.
 
 ### Comment-driven PR iteration
 

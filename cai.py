@@ -2700,48 +2700,6 @@ _STALE_NO_ACTION_DAYS = 7
 _STALE_MERGED_DAYS = 14
 
 
-def _cleanup_merged_branches() -> list[str]:
-    """Delete remote branches for merged/closed PRs. Returns list of deleted branch names."""
-    deleted: list[str] = []
-    try:
-        prs = _gh_json([
-            "pr", "list",
-            "--repo", REPO,
-            "--state", "closed",
-            "--json", "headRefName,state",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError:
-        return deleted
-
-    # Also fetch the list of remote branches to confirm they still exist.
-    try:
-        branches_data = _gh_json([
-            "api", f"repos/{REPO}/branches",
-            "--paginate",
-        ]) or []
-        remote_branches = {b["name"] for b in branches_data if isinstance(b, dict)}
-    except (subprocess.CalledProcessError, Exception):
-        remote_branches = None
-
-    for pr in prs:
-        branch = pr.get("headRefName", "")
-        if not branch.startswith("auto-improve/"):
-            continue
-        # Skip if we know the branch no longer exists on the remote.
-        if remote_branches is not None and branch not in remote_branches:
-            continue
-        result = _run([
-            "gh", "api",
-            "--method", "DELETE",
-            f"repos/{REPO}/git/refs/heads/{branch}",
-        ], capture_output=True)
-        if result.returncode == 0:
-            deleted.append(branch)
-            print(f"[cai audit] deleted merged branch: {branch}", flush=True)
-
-    return deleted
-
 
 def _cleanup_orphaned_branches() -> list[str]:
     """Delete remote auto-improve/* branches with no open PR.
@@ -3053,15 +3011,8 @@ def cmd_audit(args) -> int:
     # Step 1: Deterministic rollback of stale :in-progress issues.
     rolled_back = _rollback_stale_in_progress()
 
-    # Step 1b: Delete remote branches for already-merged/closed PRs.
-    deleted_branches = _cleanup_merged_branches()
-    if deleted_branches:
-        print(
-            f"[cai audit] cleaned up {len(deleted_branches)} merged branch(es)",
-            flush=True,
-        )
-
-    # Step 1b2: Delete orphaned auto-improve/* branches with no open PR.
+    # Step 1b: Delete orphaned auto-improve/* branches with no open PR
+    #           (covers merged/closed-PR branches and branches with no PR at all).
     deleted_orphaned = _cleanup_orphaned_branches()
     if deleted_orphaned:
         print(
@@ -3206,7 +3157,7 @@ def cmd_audit(args) -> int:
         )
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("audit", repo=REPO, duration=dur,
-                branches_cleaned=len(deleted_branches) + len(deleted_orphaned),
+                branches_cleaned=len(deleted_orphaned),
                 no_action_unstuck=len(unstuck_no_action),
                 merged_flagged=len(flagged_merged),
                 exit=audit.returncode)
@@ -3220,7 +3171,7 @@ def cmd_audit(args) -> int:
     )
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("audit", repo=REPO, rollbacks=len(rolled_back),
-            branches_cleaned=len(deleted_branches) + len(deleted_orphaned),
+            branches_cleaned=len(deleted_orphaned),
             no_action_unstuck=len(unstuck_no_action),
             merged_flagged=len(flagged_merged),
             duration=dur, exit=published.returncode)
