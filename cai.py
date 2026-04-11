@@ -2995,7 +2995,7 @@ def cmd_audit(args) -> int:
             "pr", "list",
             "--repo", REPO,
             "--state", "all",
-            "--json", "number,title,state,mergedAt,createdAt,headRefName,body",
+            "--json", "number,title,state,mergedAt,createdAt,headRefName,body,labels",
             "--limit", "30",
         ]) or []
     except subprocess.CalledProcessError:
@@ -3030,14 +3030,30 @@ def cmd_audit(args) -> int:
     prs_section = "## Recent PRs\n\n"
     if recent_prs:
         for pr in recent_prs:
+            label_names = [lbl["name"] for lbl in pr.get("labels", [])]
             prs_section += (
                 f"- PR #{pr['number']}: {pr['title']} "
                 f"[{pr.get('state', 'unknown')}] "
                 f"(created {pr['createdAt']}"
-                f"{', merged ' + pr['mergedAt'] if pr.get('mergedAt') else ''})\n"
+                f"{', merged ' + pr['mergedAt'] if pr.get('mergedAt') else ''})"
+                f"{' labels: ' + ', '.join(label_names) if label_names else ''}\n"
             )
     else:
         prs_section += "(none)\n"
+
+    # 2d. Recently closed auto-improve issues.
+    closed_issues = _fetch_closed_auto_improve_issues(limit=20)
+    closed_section = "## Recently closed auto-improve issues\n\n"
+    if closed_issues:
+        for ci in closed_issues:
+            closed_section += (
+                f"- #{ci['number']}: {ci['title']} "
+                f"[labels: {', '.join(ci['labels'])}] "
+                f"(closed {ci['closedAt']}"
+                f"{', rationale by ' + ci['rationale_author'] + ': ' + ci['rationale'][:200] if ci.get('rationale') else ', no rationale'})\n"
+            )
+    else:
+        closed_section += "(none)\n"
 
     log_section = "## Log tail (last ~200 lines)\n\n```\n" + (log_tail or "(empty)") + "\n```\n"
 
@@ -3067,6 +3083,7 @@ def cmd_audit(args) -> int:
     user_message = (
         f"{issues_section}\n"
         f"{prs_section}\n"
+        f"{closed_section}\n"
         f"{log_section}\n"
         f"{cost_section}\n"
         f"{deterministic_section}"
