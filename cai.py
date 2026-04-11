@@ -809,6 +809,7 @@ def _gh_user_identity() -> tuple[str, str]:
 def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> list[dict]:
     """Transition :pr-open issues whose linked PR was closed (unmerged) back to :raised.
 
+    Also recovers issues with no linked PR at all (dangling :pr-open).
     Returns the list of issues that were successfully recovered.
     """
     recovered: list[dict] = []
@@ -816,13 +817,42 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
         if LABEL_IN_PROGRESS in {lbl["name"] for lbl in issue.get("labels", [])}:
             continue
         pr = _find_linked_pr(issue["number"])
+        issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
+        raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
+        remove_labels = [LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING]
         if pr is None:
+            if _set_labels(issue["number"], add=[raised_label], remove=remove_labels, log_prefix=log_prefix):
+                comment = (
+                    "## Auto-improve: rolling back to :raised\n\n"
+                    "No linked PR found for this `:pr-open` issue. "
+                    "Resetting to `:raised` so the fix subagent can attempt a fresh fix.\n\n"
+                    f"---\n_Rolled back automatically by `{log_prefix}`._"
+                )
+                _run(["gh", "issue", "comment", str(issue["number"]),
+                      "--repo", REPO, "--body", comment], capture_output=True)
+                log_run("verify", repo=REPO, issue=issue["number"],
+                        pr=0, result="rollback_no_pr", exit=0)
+                print(
+                    f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
+                    f"(no linked PR found)",
+                    flush=True,
+                )
+                recovered.append(issue)
             continue
         state = (pr.get("state") or "").upper()
         if state == "CLOSED":
-            issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-            raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
-            if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix=log_prefix):
+            if _set_labels(issue["number"], add=[raised_label], remove=remove_labels, log_prefix=log_prefix):
+                comment = (
+                    "## Auto-improve: rolling back to :raised\n\n"
+                    f"Linked PR #{pr['number']} was closed without merging. "
+                    "Resetting this issue to `:raised` so the fix subagent can "
+                    "re-attempt on the next tick.\n\n"
+                    f"---\n_Rolled back automatically by `{log_prefix}`._"
+                )
+                _run(["gh", "issue", "comment", str(issue["number"]),
+                      "--repo", REPO, "--body", comment], capture_output=True)
+                log_run(subcmd, repo=REPO, issue=issue["number"],
+                        pr=pr["number"], result="rollback_closed_pr", exit=0)
                 print(
                     f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
                     f"(PR #{pr['number']} closed unmerged)",
@@ -2625,7 +2655,7 @@ def cmd_verify(args) -> int:
         num = issue["number"]
         pr = _find_linked_pr(num)
         if pr is None:
-            print(f"[cai verify] #{num}: no linked PR found, leaving as-is", flush=True)
+            remaining.append(issue)
             continue
         state = (pr.get("state") or "").upper()
         if state == "MERGED":
