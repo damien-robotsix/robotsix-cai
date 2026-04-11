@@ -2954,15 +2954,17 @@ def _rollback_stale_in_progress() -> list[dict]:
 
     issues = all_issues
 
-    # Read the log tail to find the most recent [fix] line per issue.
+    # Read the log tail to find the most recent [fix]/[revise]/[spike] line per issue.
+    # Also track whether the most recent lock origin was a spike run.
     fix_timestamps: dict[int, float] = {}
+    spike_origin: set[int] = set()  # issues whose most recent lock came from [spike]
     if LOG_PATH.exists():
         try:
             lines = LOG_PATH.read_text().splitlines()[-200:]
         except Exception:
             lines = []
         for line in lines:
-            if "[fix]" not in line and "[revise]" not in line:
+            if "[fix]" not in line and "[revise]" not in line and "[spike]" not in line:
                 continue
             # Extract issue number from "issue=<N>"
             m = re.search(r"issue=(\d+)", line)
@@ -2976,7 +2978,14 @@ def _rollback_stale_in_progress() -> list[dict]:
                     ts = datetime.strptime(ts_match.group(1), "%Y-%m-%dT%H:%M:%SZ").replace(
                         tzinfo=timezone.utc
                     ).timestamp()
-                    fix_timestamps[issue_num] = max(fix_timestamps.get(issue_num, 0), ts)
+                    prev = fix_timestamps.get(issue_num, 0)
+                    if ts >= prev:
+                        fix_timestamps[issue_num] = ts
+                        # Track whether this (most recent) lock line came from spike.
+                        if "[spike]" in line:
+                            spike_origin.add(issue_num)
+                        else:
+                            spike_origin.discard(issue_num)
                 except ValueError:
                     pass
 
@@ -3005,15 +3014,25 @@ def _rollback_stale_in_progress() -> list[dict]:
                 # Revising lock: just remove the lock, leave :pr-open.
                 ok = _set_labels(issue_num, remove=[LABEL_REVISING], log_prefix="cai audit")
             else:
-                # In-progress lock: roll back to :raised.
+                # In-progress lock: roll back to the correct origin queue.
+                # If the most recent lock came from a spike run, roll back to
+                # :needs-spike so it re-enters the spike pipeline (not fix).
                 issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-                raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
-                ok = _set_labels(
-                    issue_num,
-                    add=[raised_label],
-                    remove=[LABEL_IN_PROGRESS],
-                    log_prefix="cai audit",
-                )
+                if issue_num in spike_origin:
+                    ok = _set_labels(
+                        issue_num,
+                        add=[LABEL_NEEDS_SPIKE],
+                        remove=[LABEL_IN_PROGRESS],
+                        log_prefix="cai audit",
+                    )
+                else:
+                    raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
+                    ok = _set_labels(
+                        issue_num,
+                        add=[raised_label],
+                        remove=[LABEL_IN_PROGRESS],
+                        log_prefix="cai audit",
+                    )
             if ok:
                 rolled_back.append(issue)
                 log_run(
