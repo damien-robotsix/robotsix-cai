@@ -59,7 +59,6 @@ echo "Install directory: $INSTALL_DIR"
 echo "Image:             robotsix/cai:$IMAGE_TAG"
 echo
 
-mkdir -p "$INSTALL_DIR/logs"
 cd "$INSTALL_DIR"
 
 if [[ -e docker-compose.yml ]]; then
