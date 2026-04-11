@@ -4967,13 +4967,13 @@ def cmd_merge(args) -> int:
             )
             if close_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: closed successfully", flush=True)
-                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
+                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
                     print(
                         f"[cai merge] WARNING: label transition to :no-action failed for "
                         f"#{issue_number} after closing PR #{pr_number}; retrying",
                         flush=True,
                     )
-                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
+                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
                         print(
                             f"[cai merge] WARNING: label transition to :no-action failed twice for "
                             f"#{issue_number} — issue may be stuck without a lifecycle label",
@@ -5010,13 +5010,13 @@ def cmd_merge(args) -> int:
             )
             if merge_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: merged successfully", flush=True)
-                if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
+                if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
                     print(
                         f"[cai merge] WARNING: label transition to :merged failed for "
                         f"#{issue_number} after merging PR #{pr_number}; retrying",
                         flush=True,
                     )
-                    if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
+                    if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
                         print(
                             f"[cai merge] WARNING: label transition to :merged failed twice for "
                             f"#{issue_number} — issue may be stuck without a lifecycle label",
