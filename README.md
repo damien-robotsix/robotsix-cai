@@ -80,9 +80,13 @@ machine. The lock label (`:in-progress`) is set as the **first** gh
 action so two concurrent `fix` runs can't pick the same issue.
 
 ```
-                              raised  ◄──┐
-                                │       │ (PR closed unmerged
-                                │ fix    │  or no linked PR,
+                              raised
+                                │
+                                │ refine
+                                ▼
+                             refined  ◄──┐
+                                │       │ (PR closed
+                                │ fix    │  unmerged,
                                 ▼        │  rolled back)
                           in-progress    │
                                 │        │
@@ -132,7 +136,7 @@ There are four exceptions to "report-only": stale `:in-progress`
 rollback, stale `:no-action` rollback, stale `:merged` flagging, and
 orphaned-branch cleanup. If an issue has been `:in-progress` for more
 than 6 hours with no recent fix activity in the log, the audit
-subcommand automatically rolls it back to `:raised`. Stale
+subcommand automatically rolls it back to `:refined`. Stale
 `:no-action` issues (7+ days) are rolled back to `:raised` so the fix
 agent can retry with new context. Stale `:merged` issues (14+ days)
 are flagged with `needs-human-review` since the automation cannot

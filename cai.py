@@ -854,12 +854,14 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
             continue
         state = (pr.get("state") or "").upper()
         if state == "CLOSED":
-            if _set_labels(issue["number"], add=[raised_label], remove=remove_labels, log_prefix=log_prefix):
+            closed_raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_REFINED
+            if _set_labels(issue["number"], add=[closed_raised_label], remove=remove_labels, log_prefix=log_prefix):
                 comment = (
-                    "## Auto-improve: rolling back to :raised\n\n"
+                    "## Auto-improve: rolling back to :refined\n\n"
                     f"Linked PR #{pr['number']} was closed without merging. "
-                    "Resetting this issue to `:raised` so the fix subagent can "
-                    "re-attempt on the next tick.\n\n"
+                    "Resetting this issue to `:refined` so the fix subagent can "
+                    "re-attempt on the next tick (bypassing the refine step since "
+                    "the issue was already structured before the previous fix attempt).\n\n"
                     f"---\n_Rolled back automatically by `{log_prefix}`._"
                 )
                 _run(["gh", "issue", "comment", str(issue["number"]),
@@ -2288,7 +2290,7 @@ def _recover_stuck_rebase_prs() -> int:
         # Reset the linked issue back to the eligible-for-fix state.
         _set_labels(
             issue_number,
-            add=[LABEL_RAISED],
+            add=[LABEL_REFINED],
             remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING],
             log_prefix="cai revise",
         )
@@ -3002,9 +3004,9 @@ def _rollback_stale_in_progress() -> list[dict]:
                 # Revising lock: just remove the lock, leave :pr-open.
                 ok = _set_labels(issue_num, remove=[LABEL_REVISING], log_prefix="cai audit")
             else:
-                # In-progress lock: roll back to :raised.
+                # In-progress lock: roll back to :refined.
                 issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-                raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
+                raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_REFINED
                 ok = _set_labels(
                     issue_num,
                     add=[raised_label],
