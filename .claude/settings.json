@@ -1,13 +1,3 @@
 {
-  "$schema": "https://code.claude.com/schemas/settings.json",
-  "permissions": {
-    "deny": [
-      "Bash(git push:*)",
-      "Bash(git push)",
-      "Bash(git remote:*)",
-      "Bash(git remote)",
-      "Bash(gh:*)",
-      "Bash(gh)"
-    ]
-  }
+  "$schema": "https://code.claude.com/schemas/settings.json"
 }
