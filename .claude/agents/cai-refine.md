@@ -90,3 +90,8 @@ file Z looks like ...">
   Problem section.
 - **Keep it short.** The fix agent reads this plan as context. A
   wall of text is counterproductive.
+- **Verify paths with Glob before Read.** When a file path is
+  constructed or inferred (not hard-coded), confirm the file exists
+  using Glob before attempting to Read it. If a Read fails, do not
+  retry the same path — use Glob to find the correct filename
+  first.

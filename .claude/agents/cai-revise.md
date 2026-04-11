@@ -159,6 +159,11 @@ Example of addressing a review comment on this very file:
    review comment specifically asks for them.
 6. **Stay inside the worktree.** Do not `cd` out, do not touch
    files outside the working directory.
+7. **Verify paths with Glob before Read.** When a file path is
+   constructed or inferred (not hard-coded), confirm the file exists
+   using Glob before attempting to Read it. If a Read fails, do not
+   retry the same path — use Glob to find the correct filename
+   first.
 
 ## Handling an in-progress rebase
 

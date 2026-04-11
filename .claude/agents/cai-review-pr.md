@@ -104,3 +104,8 @@ No ripple effects found.
 4. **Do not comment on the quality of the PR itself.** Only flag
    ripple effects on the rest of the codebase.
 5. **Keep it short.** Each finding should be 3–5 sentences max.
+6. **Verify paths with Glob before Read.** When a file path is
+   constructed or inferred (not hard-coded), confirm the file exists
+   using Glob before attempting to Read it. If a Read fails, do not
+   retry the same path — use Glob to find the correct filename
+   first.

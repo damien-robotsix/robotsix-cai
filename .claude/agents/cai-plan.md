@@ -54,6 +54,14 @@ The user message contains:
 4. **Consider risks.** Note any edge cases, potential regressions,
    or dependencies that the fix agent should be aware of.
 
+## Hard rules
+
+1. **Verify paths with Glob before Read.** When a file path is
+   constructed or inferred (not hard-coded), confirm the file exists
+   using Glob before attempting to Read it. If a Read fails, do not
+   retry the same path — use Glob to find the correct filename
+   first.
+
 ## Output format
 
 Produce your plan in exactly this structure:

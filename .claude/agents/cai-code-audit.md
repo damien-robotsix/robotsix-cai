@@ -135,3 +135,8 @@ so the next run knows what you covered:
   inconsistencies or bugs.
 - Do not output anything other than the finding blocks, `No
   findings.`, and the memory update block.
+- **Verify paths with Glob before Read.** When a file path is
+  constructed or inferred (not hard-coded), confirm the file exists
+  using Glob before attempting to Read it. If a Read fails, do not
+  retry the same path — use Glob to find the correct filename
+  first.

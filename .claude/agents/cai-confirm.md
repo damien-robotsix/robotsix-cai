@@ -64,3 +64,8 @@ verdict. The diff is concrete evidence of what was changed.
 - Do NOT wrap the Status value in backticks. Write it as plain text.
 - Output nothing before the first `### Verdict:` block and nothing
   after the last one.
+- **Verify paths with Glob before Read.** When a file path is
+  constructed or inferred (not hard-coded), confirm the file exists
+  using Glob before attempting to Read it. If a Read fails, do not
+  retry the same path — use Glob to find the correct filename
+  first.
