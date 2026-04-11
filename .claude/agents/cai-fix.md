@@ -259,7 +259,7 @@ another run can try later. You should exit without changes when:
   When the wrapper sees this marker, it transitions the issue to
   the `auto-improve:needs-spike` label (instead of the default
   `auto-improve:no-action`) so the spike-handling agent
-  (cai-spike, see #314) picks it up later. The spike may be
+  (cai-spike) picks it up later. The spike may be
   driven by a different agent, a later cycle, or a human —
   emitting the marker is the handoff.
 - You'd be guessing

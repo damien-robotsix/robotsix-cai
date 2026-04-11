@@ -1728,8 +1728,8 @@ def cmd_fix(args) -> int:
                 comment_footer = (
                     "_Set by `cai fix` after the subagent recognised "
                     "this issue as spike-shaped (research / verification "
-                    "/ evaluation). The cai-spike subagent (#314) will "
-                    "pick this up once it ships. Re-label to "
+                    "/ evaluation). The cai-spike subagent will pick "
+                    "this up on the next scheduled run. Re-label to "
                     f"`{origin_raised_label}` to retry as a routine "
                     "fix instead._"
                 )

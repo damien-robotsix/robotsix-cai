@@ -82,7 +82,7 @@ LABELS = [
     ("auto-improve:pr-open", "5319e7", "fix subagent opened a PR"),
     ("auto-improve:merged", "0e8a16", "PR was merged; awaiting verify"),
     ("auto-improve:no-action", "c5def5", "Fix subagent reviewed and decided no code change is needed; awaiting human triage"),
-    ("auto-improve:needs-spike", "e99695", "Issue needs a research spike before code changes (handled by cai-spike, see #314)"),
+    ("auto-improve:needs-spike", "e99695", "Issue needs a research spike before code changes (handled by cai-spike)"),
     ("auto-improve:needs-refinement", "d4a017", "Human-filed issue awaiting refinement into a structured plan"),
     ("auto-improve:revising", "d4c5f9", "Revise subagent is actively iterating on a PR"),
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
