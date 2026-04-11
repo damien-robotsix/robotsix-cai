@@ -1600,7 +1600,7 @@ def cmd_fix(args) -> int:
         #     strategy to follow.
         selected_plan = _run_plan_select_pipeline(issue, work_dir, attempt_history_block)
 
-        # 4c. Pre-create the `.cai-staging/agents/` directory so the
+        # 4d. Pre-create the `.cai-staging/agents/` directory so the
         #     agent has somewhere to write proposed updates to its
         #     own `.claude/agents/*.md` file(s). Claude-code's
         #     headless `-p` mode hardcodes a protection on every
