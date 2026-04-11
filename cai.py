@@ -13,7 +13,7 @@ Subcommands:
                             publish.py.
 
     python cai.py fix       Pick the oldest issue labelled
-                            `auto-improve:raised` or `auto-improve:
+                            `auto-improve:refined` or `auto-improve:
                             requested` (audit issues reach fix via
                             triage relabelling), lock it via the `:in-progress`
                             label, clone the repo into /tmp, run 3
@@ -29,7 +29,8 @@ Subcommands:
                             `:pr-open`, find their linked PR by `Refs`
                             search, and transition the label:
                             merged → `:merged`,
-                            closed-unmerged or no-linked-PR → `:raised`.
+                            closed-unmerged → `:refined`,
+                            no-linked-PR → `:raised`.
 
     python cai.py audit     Periodic queue/PR consistency audit.
                             Deterministically rolls back stale
@@ -2271,8 +2272,9 @@ def _recover_stuck_rebase_prs() -> int:
             f"fresh PR for #{issue_number} against the current `main`.\n\n"
             "---\n"
             "_Closed automatically by `cai revise` recovery. The "
-            "linked issue has been reset to `auto-improve:raised` and "
-            "will be picked up on the next `cai fix` tick._"
+            "linked issue has been reset to `auto-improve:refined` and "
+            "will pass through `cai refine` before being picked up on "
+            "the next `cai fix` tick._"
         )
         close_res = _run(
             ["gh", "pr", "close", str(pr_number),
@@ -3032,7 +3034,7 @@ def _rollback_stale_in_progress() -> list[dict]:
 
 
 def _unstuck_stale_no_action() -> list[dict]:
-    """Roll stale :no-action issues back to :raised so fix can retry with new context."""
+    """Roll stale :no-action issues back to :raised so refine (and subsequently fix) can retry with new context."""
     try:
         issues = _gh_json([
             "issue", "list",
