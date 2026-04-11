@@ -1409,7 +1409,7 @@ def _work_directory_block(work_dir: Path) -> str:
 
     All cloned-worktree subagents (cai-fix, cai-revise, cai-review-pr,
     cai-code-audit, cai-propose, cai-propose-review, cai-update-check,
-    cai-plan, cai-select) are invoked with `cwd=/app`
+    cai-plan, cai-select, cai-spike) are invoked with `cwd=/app`
     rather than `cwd=<clone>`. This makes their canonical agent
     definition (`/app/.claude/agents/<name>.md`) and per-agent memory
     (`/app/.claude/agent-memory/<name>/`) directly available via
