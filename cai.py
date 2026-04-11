@@ -553,7 +553,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
         if state == "CLOSED":
             issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
             raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
-            if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
+            if _set_labels(issue["number"], add=[raised_label], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix=log_prefix):
                 print(
                     f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
                     f"(PR #{pr['number']} closed unmerged)",
@@ -620,7 +620,7 @@ def _select_fix_target():
     return min(candidates.values(), key=lambda i: i["createdAt"])
 
 
-def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = ()) -> bool:
+def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (), log_prefix: str = "cai fix") -> bool:
     """Add and/or remove labels on an issue. Returns True on success."""
     # Auto-add the base label for any state-prefixed label being added.
     # This is defensive: create_issue already applies base labels, but
@@ -642,7 +642,7 @@ def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (
     result = _run(["gh"] + args, capture_output=True)
     if result.returncode != 0:
         print(
-            f"[cai fix] failed to update labels on #{issue_number}:\n{result.stderr}",
+            f"[{log_prefix}] failed to update labels on #{issue_number}:\n{result.stderr}",
             file=sys.stderr,
         )
         return False
@@ -1873,6 +1873,7 @@ def _recover_stuck_rebase_prs() -> int:
             issue_number,
             add=[LABEL_RAISED],
             remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING],
+            log_prefix="cai revise",
         )
         log_run("revise", repo=REPO, pr=pr_number, issue=issue_number,
                 result="recovered_stuck_rebase", exit=0)
@@ -1917,7 +1918,7 @@ def cmd_revise(args) -> int:
         )
 
         # 1. Lock — add :revising label.
-        if not _set_labels(issue_number, add=[LABEL_REVISING]):
+        if not _set_labels(issue_number, add=[LABEL_REVISING], log_prefix="cai revise"):
             print(
                 f"[cai revise] could not lock #{issue_number}",
                 file=sys.stderr,
@@ -1946,7 +1947,7 @@ def cmd_revise(args) -> int:
                     f"[cai revise] clone failed:\n{clone.stderr}",
                     file=sys.stderr,
                 )
-                _set_labels(issue_number, remove=[LABEL_REVISING])
+                _set_labels(issue_number, remove=[LABEL_REVISING], log_prefix="cai revise")
                 log_run("revise", repo=REPO, pr=pr_number,
                         result="clone_failed", exit=1)
                 had_failure = True
@@ -2008,7 +2009,7 @@ def cmd_revise(args) -> int:
                     f"{rebase.stderr}",
                     file=sys.stderr,
                 )
-                _set_labels(issue_number, remove=[LABEL_REVISING])
+                _set_labels(issue_number, remove=[LABEL_REVISING], log_prefix="cai revise")
                 log_run("revise", repo=REPO, pr=pr_number,
                         result="rebase_weird_failure", exit=1)
                 had_failure = True
@@ -2180,7 +2181,7 @@ def cmd_revise(args) -> int:
                     "posted comment",
                     flush=True,
                 )
-                _set_labels(issue_number, remove=[LABEL_REVISING])
+                _set_labels(issue_number, remove=[LABEL_REVISING], log_prefix="cai revise")
                 log_run("revise", repo=REPO, pr=pr_number,
                         result="rebase_failed", exit=0)
                 continue
@@ -2209,7 +2210,7 @@ def cmd_revise(args) -> int:
                      "--repo", REPO, "--body", comment_body],
                     capture_output=True,
                 )
-                _set_labels(issue_number, remove=[LABEL_REVISING])
+                _set_labels(issue_number, remove=[LABEL_REVISING], log_prefix="cai revise")
                 print(
                     f"[cai revise] no changes for PR #{pr_number}; "
                     "posted comment",
@@ -2239,7 +2240,7 @@ def cmd_revise(args) -> int:
                     f"[cai revise] git push failed:\n{push.stderr}",
                     file=sys.stderr,
                 )
-                _set_labels(issue_number, remove=[LABEL_REVISING])
+                _set_labels(issue_number, remove=[LABEL_REVISING], log_prefix="cai revise")
                 log_run("revise", repo=REPO, pr=pr_number,
                         result="push_failed", exit=1)
                 had_failure = True
@@ -2276,13 +2277,13 @@ def cmd_revise(args) -> int:
             )
 
             # 12. Remove lock label.
-            _set_labels(issue_number, remove=[LABEL_REVISING])
+            _set_labels(issue_number, remove=[LABEL_REVISING], log_prefix="cai revise")
             log_run("revise", repo=REPO, pr=pr_number,
                     comments_addressed=len(comments), exit=0)
 
         except Exception as e:
             print(f"[cai revise] unexpected failure: {e!r}", file=sys.stderr)
-            _set_labels(issue_number, remove=[LABEL_REVISING])
+            _set_labels(issue_number, remove=[LABEL_REVISING], log_prefix="cai revise")
             log_run("revise", repo=REPO, pr=pr_number,
                     result="unexpected_error", exit=1)
             had_failure = True
@@ -2351,7 +2352,7 @@ def cmd_verify(args) -> int:
             continue
         state = (pr.get("state") or "").upper()
         if state == "MERGED":
-            _set_labels(num, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED])
+            _set_labels(num, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai verify")
             print(f"[cai verify] #{num}: PR #{pr['number']} merged → :merged", flush=True)
             transitioned += 1
         elif state == "CLOSED":
@@ -2400,7 +2401,7 @@ def cmd_verify(args) -> int:
             continue
         # Issue is open, has an open PR, but missing :pr-open — recover.
         remove = [l for l in (LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]
-        if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove):
+        if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove, log_prefix="cai verify"):
             print(
                 f"[cai verify] recovered #{issue_num}: added :pr-open "
                 f"(open PR #{opr['number']} on branch {branch})",
@@ -2545,7 +2546,7 @@ def _rollback_stale_in_progress() -> list[dict]:
             lock_label = issue.get("_lock_label", LABEL_IN_PROGRESS)
             if lock_label == LABEL_REVISING:
                 # Revising lock: just remove the lock, leave :pr-open.
-                ok = _set_labels(issue_num, remove=[LABEL_REVISING])
+                ok = _set_labels(issue_num, remove=[LABEL_REVISING], log_prefix="cai audit")
             else:
                 # In-progress lock: roll back to :raised.
                 issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
@@ -2554,6 +2555,7 @@ def _rollback_stale_in_progress() -> list[dict]:
                     issue_num,
                     add=[raised_label],
                     remove=[LABEL_IN_PROGRESS],
+                    log_prefix="cai audit",
                 )
             if ok:
                 rolled_back.append(issue)
@@ -2610,6 +2612,7 @@ def _unstuck_stale_no_action() -> list[dict]:
             issue_num,
             add=[LABEL_RAISED],
             remove=[LABEL_NO_ACTION],
+            log_prefix="cai audit",
         )
         if ok:
             unstuck.append(issue)
@@ -2669,7 +2672,7 @@ def _flag_stale_merged() -> list[dict]:
         if age <= threshold:
             continue
         issue_num = issue["number"]
-        ok = _set_labels(issue_num, add=[LABEL_PR_NEEDS_HUMAN])
+        ok = _set_labels(issue_num, add=[LABEL_PR_NEEDS_HUMAN], log_prefix="cai audit")
         if ok:
             flagged.append(issue)
             log_run(
@@ -3150,6 +3153,7 @@ def cmd_audit_triage(args) -> int:
                 n,
                 add=[LABEL_AUDIT_NEEDS_HUMAN],
                 remove=[LABEL_AUDIT_RAISED],
+                log_prefix="cai audit-triage",
             )
             print(
                 f"[cai audit-triage] #{n}: escalated to audit:needs-human",
@@ -3165,6 +3169,7 @@ def cmd_audit_triage(args) -> int:
                 n,
                 add=[LABEL_RAISED],
                 remove=[LABEL_AUDIT_RAISED],
+                log_prefix="cai audit-triage",
             )
             print(
                 f"[cai audit-triage] #{n}: passthrough → auto-improve:raised "
@@ -3495,7 +3500,7 @@ def cmd_confirm(args) -> int:
         if issue_num not in merged_nums:
             continue
         if status == "solved":
-            _set_labels(issue_num, add=[LABEL_SOLVED], remove=[LABEL_MERGED])
+            _set_labels(issue_num, add=[LABEL_SOLVED], remove=[LABEL_MERGED], log_prefix="cai confirm")
             _run(
                 ["gh", "issue", "close", str(issue_num),
                  "--repo", REPO,
@@ -4224,13 +4229,13 @@ def cmd_merge(args) -> int:
             )
             if close_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: closed successfully", flush=True)
-                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
+                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
                     print(
                         f"[cai merge] WARNING: label transition to :no-action failed for "
                         f"#{issue_number} after closing PR #{pr_number}; retrying",
                         flush=True,
                     )
-                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
+                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
                         print(
                             f"[cai merge] WARNING: label transition to :no-action failed twice for "
                             f"#{issue_number} — issue may be stuck without a lifecycle label",
@@ -4246,7 +4251,7 @@ def cmd_merge(args) -> int:
                     file=sys.stderr,
                 )
                 if not _issue_has_label(issue_number, LABEL_MERGED):
-                    if not _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED]):
+                    if not _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
                         print(
                             f"[cai merge] WARNING: failed to add :merge-blocked label to "
                             f"#{issue_number} after close failure on PR #{pr_number}",
@@ -4267,13 +4272,13 @@ def cmd_merge(args) -> int:
             )
             if merge_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: merged successfully", flush=True)
-                if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
+                if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
                     print(
                         f"[cai merge] WARNING: label transition to :merged failed for "
                         f"#{issue_number} after merging PR #{pr_number}; retrying",
                         flush=True,
                     )
-                    if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED]):
+                    if not _set_labels(issue_number, add=[LABEL_MERGED], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
                         print(
                             f"[cai merge] WARNING: label transition to :merged failed twice for "
                             f"#{issue_number} — issue may be stuck without a lifecycle label",
@@ -4299,7 +4304,7 @@ def cmd_merge(args) -> int:
             # Set merge-blocked label on the issue, unless already merged.
             # Re-fetch to avoid race with a concurrent merge run.
             if not _issue_has_label(issue_number, LABEL_MERGED):
-                if not _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED]):
+                if not _set_labels(issue_number, add=[LABEL_MERGE_BLOCKED], log_prefix="cai merge"):
                     print(
                         f"[cai merge] WARNING: failed to add :merge-blocked label to "
                         f"#{issue_number} for held PR #{pr_number}",
@@ -4406,6 +4411,7 @@ def cmd_refine(args) -> int:
             issue_number,
             add=[LABEL_RAISED],
             remove=[LABEL_NEEDS_REFINEMENT],
+            log_prefix="cai refine",
         )
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("refine", repo=REPO, issue=issue_number,
@@ -4459,6 +4465,7 @@ def cmd_refine(args) -> int:
         issue_number,
         add=[LABEL_RAISED],
         remove=[LABEL_NEEDS_REFINEMENT],
+        log_prefix="cai refine",
     )
 
     dur = f"{int(time.monotonic() - t0)}s"
