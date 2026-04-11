@@ -52,6 +52,7 @@ subprocess with no shared state.
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:needs-refinement` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:raised` |
+| `cai.py spike` | `0 */2 * * *` (every 2 hours) | Picks the oldest `:needs-spike` issue, clones the repo, invokes the cai-spike subagent (opus, full tool surface) to run a research/verification spike, and parses the output: close with findings, rewrite as a fix-ready issue, or escalate to human review |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, runs 3 parallel plan agents then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state; recovers issues whose linked PR was closed without merging or where no linked PR exists (rolls back to `:raised`) |
@@ -69,7 +70,7 @@ the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
 `CAI_REFINE_SCHEDULE`, `CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`,
 `CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
 `CAI_AUDIT_TRIAGE_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`,
-`CAI_PROPOSE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
+`CAI_PROPOSE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`, `CAI_SPIKE_SCHEDULE`), runs each
 scheduled subcommand once synchronously so logs show immediate results, then execs
 supercronic. (`cycle` is on-demand only and is not part of scheduled or startup runs.)
 
