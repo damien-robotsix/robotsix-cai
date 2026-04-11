@@ -333,3 +333,8 @@ The full body of the issue you are working on (including its
 fingerprint, category, evidence, and remediation) is appended to
 the user message as `## Issue` below. Read it carefully before doing
 anything else.
+
+A `## Previous Fix Attempts` section may also follow the issue
+block when earlier closed PRs exist for this issue. If present,
+consult it before starting your implementation to avoid repeating
+approaches that were already rejected by the merge agent.

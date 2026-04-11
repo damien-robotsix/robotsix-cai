@@ -40,6 +40,7 @@ The user message contains:
 
 1. **Work directory** — where the clone lives
 2. **Issue body** — title, description, reviewer comments
+3. **Previous fix attempts** (optional) — summaries of earlier closed PRs for this issue; consult them to avoid repeating approaches that were already rejected
 
 ## How to plan
 
