@@ -78,6 +78,66 @@ file Z looks like ...">
 <best-guess list of files based on the repo state>
 ~~~
 
+## Multi-step issues
+
+If the human's request involves a major rework that would require
+multiple independent PRs (e.g., "refactor X across the entire
+codebase", "add feature Y requiring schema + API + UI changes"),
+decompose it into ordered steps.
+
+Each step must be independently implementable and testable — the
+codebase must be in a working state after each step.
+
+Produce a `## Multi-Step Decomposition` block **instead of**
+`## Refined Issue`:
+
+~~~
+## Multi-Step Decomposition
+
+### Step 1: <title>
+
+### Problem
+<what this step fixes or adds>
+
+### Plan
+1. <concrete step — name files and functions>
+2. ...
+
+### Verification
+<how to confirm this step worked>
+
+### Scope guardrails
+<what NOT to touch in this step>
+
+### Files likely to touch
+<file list for this step>
+
+### Step 2: <title>
+
+### Problem
+<what this step fixes or adds>
+
+### Plan
+1. ...
+
+### Verification
+...
+
+### Scope guardrails
+...
+
+### Files likely to touch
+...
+~~~
+
+Multi-step guidelines:
+- Each step must be a standalone change (own PR, own tests)
+- Later steps may depend on earlier steps being merged first
+- 2–5 steps is typical; if you need more, the scope may be too
+  large even for multi-step
+- Do NOT decompose single-PR issues — only use this for work that
+  genuinely requires multiple independent changes
+
 ## Guidelines
 
 - **Be concrete.** Each plan step should name specific files,

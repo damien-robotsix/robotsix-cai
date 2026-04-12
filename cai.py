@@ -195,6 +195,7 @@ LABEL_NEEDS_EXPLORATION = "auto-improve:needs-exploration"
 LABEL_EXPLORATION_DONE = "auto-improve:exploration-done"
 LABEL_REFINED = "auto-improve:refined"
 LABEL_REVISING = "auto-improve:revising"
+LABEL_PARENT = "auto-improve:parent"
 LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
 LABEL_AUDIT_NEEDS_HUMAN = "audit:needs-human"
@@ -1134,6 +1135,32 @@ def _select_fix_target():
     if not candidates:
         return None
 
+    # Enforce step ordering for multi-step sub-issues.
+    # Group by parent, keep only the lowest-step candidate per parent,
+    # and only if its prior step is done (closed).
+    parent_groups: dict[int, list[tuple[int, int, dict]]] = {}
+    regular: dict[int, dict] = {}
+    for num, issue in candidates.items():
+        body = issue.get("body") or ""
+        pm = re.search(r"<!-- parent: #(\d+) -->", body)
+        sm = re.search(r"<!-- step: (\d+) -->", body)
+        if pm and sm:
+            parent_groups.setdefault(int(pm.group(1)), []).append(
+                (int(sm.group(1)), num, issue)
+            )
+        else:
+            regular[num] = issue
+    for parent_num, group in parent_groups.items():
+        group.sort()  # sort by step number (lowest first)
+        step_num, num, issue = group[0]
+        if step_num > 1 and not _check_parent_step_done(parent_num, step_num - 1):
+            continue  # prior step not done; skip entire group
+        regular[num] = issue
+    candidates = regular
+
+    if not candidates:
+        return None
+
     # Score candidates by age, category success rate, and prior fix attempts.
     outcome_stats = _load_outcome_stats()
     default_rate = 0.60
@@ -1477,6 +1504,218 @@ def _create_suggested_issues(
                 file=sys.stderr,
             )
     return created
+
+
+# ---------------------------------------------------------------------------
+# Multi-step issue helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_decomposition(agent_output: str) -> list[dict]:
+    """Extract ordered steps from a ``## Multi-Step Decomposition`` block.
+
+    Expected format in *agent_output*::
+
+        ## Multi-Step Decomposition
+
+        ### Step 1: <title>
+        <body>
+
+        ### Step 2: <title>
+        <body>
+
+    Returns a list of ``{"step": int, "title": str, "body": str}`` dicts,
+    sorted by step number.  Returns an empty list when the marker is
+    missing or the output is malformed.
+    """
+    marker = "## Multi-Step Decomposition"
+    marker_pos = agent_output.find(marker)
+    if marker_pos == -1:
+        return []
+
+    text = agent_output[marker_pos + len(marker):]
+    parts = re.split(r"^### Step (\d+):\s*", text, flags=re.MULTILINE)
+    # parts[0] is preamble (before first step), then alternating
+    # (step_number, body) pairs.
+    steps: list[dict] = []
+    i = 1
+    while i + 1 < len(parts):
+        step_num = int(parts[i])
+        raw = parts[i + 1].strip()
+        # The title is the first non-empty line; the rest is the body.
+        lines = raw.split("\n", 1)
+        title = lines[0].strip()
+        body = lines[1].strip() if len(lines) > 1 else ""
+        if title:
+            steps.append({"step": step_num, "title": title, "body": body})
+        i += 2
+
+    steps.sort(key=lambda s: s["step"])
+    return steps
+
+
+def _create_sub_issues(
+    steps: list[dict], parent_number: int, parent_title: str,
+) -> list[int]:
+    """Create GitHub sub-issues for a multi-step decomposition.
+
+    Each sub-issue gets HTML-comment markers for parent and step number,
+    enabling the ordering gate in ``_select_fix_target``.
+
+    Returns list of created issue numbers (may be shorter than *steps*
+    if some creations fail).
+    """
+    total = len(steps)
+    created: list[int] = []
+    for s in steps:
+        body = (
+            f"<!-- parent: #{parent_number} -->\n"
+            f"<!-- step: {s['step']} -->\n\n"
+            f"{s['body']}\n\n"
+            f"---\n"
+            f"_Sub-issue of #{parent_number} ({parent_title}). "
+            f"Step {s['step']} of {total}._\n"
+        )
+        title = f"[Step {s['step']}/{total}] {s['title']}"
+        labels = ",".join(["auto-improve", LABEL_RAISED])
+        result = _run(
+            [
+                "gh", "issue", "create",
+                "--repo", REPO,
+                "--title", title,
+                "--body", body,
+                "--label", labels,
+            ],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            # Extract issue number from URL (last path segment).
+            try:
+                num = int(url.rstrip("/").rsplit("/", 1)[-1])
+            except (ValueError, IndexError):
+                num = 0
+            if num:
+                created.append(num)
+            print(f"[cai refine] created sub-issue: {url}", flush=True)
+        else:
+            print(
+                f"[cai refine] failed to create sub-issue "
+                f"'Step {s['step']}': {result.stderr}",
+                file=sys.stderr,
+            )
+    return created
+
+
+def _update_parent_checklist(
+    parent_number: int,
+    sub_issue_numbers: list[int],
+    steps: list[dict],
+) -> bool:
+    """Append a ``## Sub-issues`` checklist to the parent issue body.
+
+    Returns True on success.
+    """
+    try:
+        parent = _gh_json([
+            "issue", "view", str(parent_number),
+            "--repo", REPO,
+            "--json", "body",
+        ])
+    except subprocess.CalledProcessError:
+        return False
+
+    original_body = (parent or {}).get("body") or ""
+
+    # Build checklist lines.
+    checklist_lines = []
+    for s, num in zip(steps, sub_issue_numbers):
+        checklist_lines.append(f"- [ ] #{num} — Step {s['step']}: {s['title']}")
+    checklist = "\n".join(checklist_lines)
+
+    new_body = f"{original_body}\n\n## Sub-issues\n\n{checklist}\n"
+
+    result = _run(
+        ["gh", "issue", "edit", str(parent_number),
+         "--repo", REPO, "--body", new_body],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"[cai refine] failed to update parent #{parent_number} checklist: "
+            f"{result.stderr}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _issue_is_closed(issue_number: int) -> bool:
+    """Return True if the issue is in CLOSED state."""
+    try:
+        issue = _gh_json([
+            "issue", "view", str(issue_number),
+            "--repo", REPO,
+            "--json", "state",
+        ])
+    except subprocess.CalledProcessError:
+        return False
+    return (issue or {}).get("state", "").upper() == "CLOSED"
+
+
+def _check_parent_step_done(parent_number: int, step: int) -> bool:
+    """Return True if the sub-issue for *step* of *parent_number* is closed.
+
+    Searches open+closed issues for the parent/step markers.
+    """
+    search_query = f'"<!-- parent: #{parent_number} -->" "<!-- step: {step} -->" in:body'
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--search", search_query,
+            "--state", "all",
+            "--json", "number,state",
+            "--limit", "5",
+        ]) or []
+    except subprocess.CalledProcessError:
+        return False
+    # Any closed match means the step is done.
+    return any(
+        (i.get("state") or "").upper() == "CLOSED"
+        for i in issues
+    )
+
+
+def _update_parent_checklist_item(
+    parent_number: int, sub_issue_number: int, *, checked: bool,
+) -> bool:
+    """Toggle a single checkbox in the parent's ``## Sub-issues`` checklist.
+
+    Returns True on success.
+    """
+    try:
+        parent = _gh_json([
+            "issue", "view", str(parent_number),
+            "--repo", REPO,
+            "--json", "body",
+        ])
+    except subprocess.CalledProcessError:
+        return False
+
+    body = (parent or {}).get("body") or ""
+    old = f"- [ ] #{sub_issue_number}" if checked else f"- [x] #{sub_issue_number}"
+    new = f"- [x] #{sub_issue_number}" if checked else f"- [ ] #{sub_issue_number}"
+    if old not in body:
+        return False  # nothing to update
+
+    new_body = body.replace(old, new, 1)
+    result = _run(
+        ["gh", "issue", "edit", str(parent_number),
+         "--repo", REPO, "--body", new_body],
+        capture_output=True,
+    )
+    return result.returncode == 0
 
 
 # ---------------------------------------------------------------------------
@@ -3145,6 +3384,39 @@ def cmd_verify(args) -> int:
                 flush=True,
             )
             transitioned += 1
+
+    # Check parent issues for completion: close parents whose
+    # sub-issues are all closed.
+    try:
+        parent_issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_PARENT,
+            "--state", "open",
+            "--json", "number,body",
+            "--limit", "50",
+        ]) or []
+    except subprocess.CalledProcessError:
+        parent_issues = []
+
+    for parent in parent_issues:
+        body = parent.get("body") or ""
+        sub_nums = re.findall(r"- \[[ x]\] #(\d+)", body)
+        if not sub_nums:
+            continue
+        if all(_issue_is_closed(int(sn)) for sn in sub_nums):
+            _run(
+                ["gh", "issue", "close", str(parent["number"]),
+                 "--repo", REPO,
+                 "--comment",
+                 "All sub-issues completed. Closing parent."],
+                capture_output=True,
+            )
+            print(
+                f"[cai verify] parent #{parent['number']}: "
+                f"all sub-issues done — closed",
+                flush=True,
+            )
 
     print(f"[cai verify] done ({transitioned} transitioned)", flush=True)
     log_run("verify", repo=REPO, checked=len(issues), transitioned=transitioned, exit=0)
@@ -4961,6 +5233,13 @@ def cmd_confirm(args) -> int:
                 capture_output=True,
             )
             print(f"[cai confirm] #{issue_num}: solved — closed", flush=True)
+            # Update parent checklist if this is a sub-issue.
+            sub_body = mi.get("body") or ""
+            parent_match = re.search(r"<!-- parent: #(\d+) -->", sub_body)
+            if parent_match:
+                _update_parent_checklist_item(
+                    int(parent_match.group(1)), issue_num, checked=True,
+                )
             solved += 1
         elif status == "unsolved":
             cat = _get_issue_category(mi)
@@ -5993,6 +6272,39 @@ def cmd_refine(args) -> int:
         log_run("refine", repo=REPO, issue=issue_number,
                 duration=dur, result="already_structured", exit=0)
         return 0
+
+    # 4b. Check for multi-step decomposition.
+    if "## Multi-Step Decomposition" in stdout:
+        steps = _parse_decomposition(stdout)
+        if steps and len(steps) >= 2:
+            print(
+                f"[cai refine] #{issue_number} decomposed into "
+                f"{len(steps)} steps",
+                flush=True,
+            )
+            sub_nums = _create_sub_issues(steps, issue_number, title)
+            if sub_nums:
+                _update_parent_checklist(issue_number, sub_nums, steps)
+            _set_labels(
+                issue_number,
+                add=[LABEL_PARENT],
+                remove=[LABEL_RAISED],
+                log_prefix="cai refine",
+            )
+            dur = f"{int(time.monotonic() - t0)}s"
+            log_run(
+                "refine", repo=REPO, issue=issue_number,
+                duration=dur, result="decomposed",
+                sub_issues=len(sub_nums), steps=len(steps), exit=0,
+            )
+            return 0
+        # Malformed decomposition (< 2 steps) — fall through to normal
+        # refinement.
+        print(
+            f"[cai refine] #{issue_number} decomposition had "
+            f"{len(steps)} step(s); falling through to normal refinement",
+            flush=True,
+        )
 
     # 5. Parse the refined issue block.
     marker = "## Refined Issue"
