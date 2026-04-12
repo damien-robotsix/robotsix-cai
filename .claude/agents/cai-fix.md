@@ -310,6 +310,71 @@ fix subagent in a subsequent cycle.
 Only suggest issues that are concrete and actionable — do not
 suggest vague improvements or things you are unsure about.
 
+## Before you exit: write the PR context dossier
+
+If (and only if) you are making code changes, write a short dossier
+to `<work_dir>/.cai/pr-context.md` **before** emitting your
+`## PR Summary` block. The wrapper's `git add -A` step picks it up
+automatically and it lands in the PR alongside your code changes.
+
+The dossier exists for one reason: the `cai-revise` agent reads it
+at the start of every revise cycle so it does not have to Grep/Glob
+its way to the same understanding of the PR you already have. A
+`.github/workflows/cleanup-pr-context.yml` workflow deletes the
+file from `main` automatically after the PR is merged, so it never
+lands on `main` — you do not need to worry about cleanup.
+
+**Skip the dossier entirely when you are exiting with zero diff**
+(ambiguous issue, `## Needs Spike` bail, memory-overlap bail, etc.).
+A dossier with no accompanying code change is noise, not signal.
+
+Write the file with a single `Write` call using this exact template:
+
+~~~
+# PR Context Dossier
+Refs: <ORG>/<REPO>#<issue_number>
+
+## Files touched
+- <relative/path>:<line> — <what changed, one line>
+
+## Files read (not touched) that matter
+- <relative/path> — <why it's relevant to understanding the change>
+
+## Key symbols
+- `<symbol_name>` (<relative/path>:<line>) — <role in the change>
+
+## Design decisions
+- <decision> — <reason>
+- Rejected: <alternative> — <why not>
+
+## Out of scope / known gaps
+- <what you deliberately did not touch and why>
+
+## Invariants this change relies on
+- <assumption the edit depends on>
+~~~
+
+Rules:
+
+  - Use paths **relative to the clone root** — e.g. `cai.py:1493`,
+    NOT `<work_dir>/cai.py:1493`. The revise agent resolves them
+    against its own work directory.
+  - Keep each bullet to one line when possible. The dossier is a
+    cost-saver, not a design document — a bloated dossier defeats
+    the purpose.
+  - Do not duplicate the `## PR Summary` block. The summary is for
+    humans reading the PR; the dossier is for downstream agents.
+  - Do not paste code excerpts longer than one or two lines. Point
+    to `file:line` instead.
+  - Do not list every file you Read — only the ones that materially
+    shaped the fix.
+  - Be truthful about **out-of-scope gaps**: the revise agent uses
+    that section to decide what NOT to touch when addressing review
+    comments.
+  - Be truthful about **invariants**: if a reviewer later asks for
+    something that would break an invariant you listed here, the
+    revise agent will know to flag it instead of silently obeying.
+
 ## Final output
 
 When you are done — whether you made changes or not — **end your

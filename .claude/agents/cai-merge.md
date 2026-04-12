@@ -73,6 +73,28 @@ When in doubt, output **medium** or **low**. The default merge
 threshold is `high`, so a `high` verdict should reflect genuine
 certainty — not optimism or best-effort guessing.
 
+### Exemption: `.cai/pr-context.md`
+
+The file `.cai/pr-context.md` is an auto-generated dossier that the
+`cai-fix` and `cai-revise` agents use to share PR context across
+runs. It is expected in every auto-improve PR, and a
+`.github/workflows/cleanup-pr-context.yml` workflow deletes it from
+`main` right after the PR is merged, so it never ends up in the
+main branch tree.
+
+When walking the diff, **evaluate the PR as if this file were not
+present**:
+
+- Do not count its addition as "new files not mentioned in the
+  issue" or as scope creep.
+- Do not count it against the "PR adds tests or docstrings unless
+  the issue asked for them" rule.
+- Do not trace its contents back to the issue remediation — it is
+  not part of the fix, it is metadata about the fix.
+
+All other files in the diff must still meet the usual completeness,
+scope, and correctness criteria.
+
 ## Output format
 
 Emit exactly this structured block — nothing else:
