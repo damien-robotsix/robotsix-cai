@@ -25,6 +25,22 @@ Refs: robotsix-cai/robotsix-cai#459
 ## Out of scope / known gaps
 - `cai-select.md` agent definition does not hardcode "3 plans" — no change needed
 
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:25` — module docstring: "3 parallel plan agents" → "2 parallel plan agents"
+- `cai.py:2258` — cmd_fix comment: "3 plan agents in parallel" → "2 plan agents in parallel"
+- `README.md:56` — fix table row: "runs 3 parallel plan agents" → "runs 2 parallel plan agents"
+
+### Decisions this revision
+- All three were straightforward stale references — updated to match the implementation change
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `plans[idx - 1]` indexing is safe: `range(1, 3)` produces indices 1 and 2, `plans` has length 2
 - `_run_select_agent` iterates with `enumerate(plans, 1)` — list-length agnostic

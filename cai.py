@@ -22,7 +22,7 @@ Subcommands:
                             ambiguous issues are returned to their origin
                             label without cloning; if actionable, lock it
                             via the `:in-progress` label, clone the repo
-                            into /tmp, run 3 parallel plan agents to
+                            into /tmp, run 2 parallel plan agents to
                             generate candidate fix plans, run a select
                             agent to pick the best plan, then run the fix
                             subagent (full tool permissions) with the
@@ -2255,7 +2255,7 @@ def cmd_fix(args) -> int:
                 flush=True,
             )
 
-        # 4c. Run the plan-select pipeline: 3 plan agents in
+        # 4c. Run the plan-select pipeline: 2 plan agents in
         #     parallel, then a select agent picks the best plan.
         #     The selected plan is prepended to the fix agent's
         #     user message so it has a concrete implementation
