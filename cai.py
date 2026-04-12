@@ -1629,6 +1629,34 @@ def _parse_decomposition(agent_output: str) -> list[dict]:
     return steps
 
 
+def _find_sub_issue(parent_number: int, step: int) -> int | None:
+    """Return the issue number of an existing sub-issue for *parent_number*
+    / *step* (open or closed), or None if none exists.
+
+    Matches sub-issues via the HTML-comment markers embedded in their
+    body by ``_create_sub_issues``. Used to make refine idempotent.
+    """
+    search_query = (
+        f'"<!-- parent: #{parent_number} -->" '
+        f'"<!-- step: {step} -->" in:body'
+    )
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--search", search_query,
+            "--state", "all",
+            "--json", "number",
+            "--limit", "5",
+        ]) or []
+    except subprocess.CalledProcessError:
+        return None
+    if not issues:
+        return None
+    # Return the lowest (earliest-created) matching number for stability.
+    return min(int(i["number"]) for i in issues)
+
+
 def _create_sub_issues(
     steps: list[dict], parent_number: int, parent_title: str,
 ) -> list[int]:
@@ -1643,6 +1671,20 @@ def _create_sub_issues(
     total = len(steps)
     created: list[int] = []
     for s in steps:
+        # Guard against duplicate creation: if a sub-issue for this
+        # parent+step already exists (open or closed), reuse it instead
+        # of spawning another. This makes refine idempotent across
+        # re-runs (e.g. after rollback from :no-action to :raised).
+        existing = _find_sub_issue(parent_number, s["step"])
+        if existing is not None:
+            print(
+                f"[cai refine] sub-issue for parent #{parent_number} "
+                f"step {s['step']} already exists as #{existing}; "
+                f"skipping creation",
+                flush=True,
+            )
+            created.append(existing)
+            continue
         body = (
             f"<!-- parent: #{parent_number} -->\n"
             f"<!-- step: {s['step']} -->\n\n"
@@ -1702,13 +1744,23 @@ def _update_parent_checklist(
 
     original_body = (parent or {}).get("body") or ""
 
+    # Strip any pre-existing ``## Sub-issues`` section(s) so re-running
+    # refine on the same parent (e.g. after rollback from :no-action)
+    # replaces the checklist rather than appending a duplicate.
+    stripped_body = re.sub(
+        r"\n*## Sub-issues\n.*?(?=\n## |\Z)",
+        "",
+        original_body,
+        flags=re.DOTALL,
+    ).rstrip()
+
     # Build checklist lines.
     checklist_lines = []
     for s, num in zip(steps, sub_issue_numbers):
         checklist_lines.append(f"- [ ] #{num} — Step {s['step']}: {s['title']}")
     checklist = "\n".join(checklist_lines)
 
-    new_body = f"{original_body}\n\n## Sub-issues\n\n{checklist}\n"
+    new_body = f"{stripped_body}\n\n## Sub-issues\n\n{checklist}\n"
 
     result = _run(
         ["gh", "issue", "edit", str(parent_number),
