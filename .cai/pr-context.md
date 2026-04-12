@@ -55,3 +55,17 @@ Refs: robotsix-cai/robotsix-cai#463
 
 ### New gaps / deferred
 - none
+
+## Revision 3 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-revise.md:259,278 — changed "< 3 files" to "3 or fewer files" in both Explore fallback thresholds
+
+### Decisions this revision
+- Aligned cai-revise's Explore delegation threshold with cai-plan/review-pr/review-docs: "3 or fewer files → direct Read" is equivalent to "more than 3 distinct files → delegate", resolving the 1-file boundary discrepancy the reviewer caught
+
+### New gaps / deferred
+- none
