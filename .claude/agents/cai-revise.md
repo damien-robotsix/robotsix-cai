@@ -415,6 +415,49 @@ dossier already answers the question. Reading the dossier first is
 the cheapest way to do this — do it before anything else in the
 review-comment phase.
 
+## Delegate bulk reading to a haiku Explore subagent
+
+Most of cai-revise's output tokens are spent on file reading and
+symbol search — operations that do not require sonnet-level
+reasoning. Delegating these to a haiku Explore subagent trades
+expensive sonnet output tokens for ~10× cheaper haiku tokens.
+
+**Use `Agent(subagent_type="Explore", model="haiku", ...)` for:**
+
+- Reading the PR context dossier and summarising it (if not already
+  summarised in this session)
+- Reading files referenced by review comments, returning only the
+  relevant sections
+- Grepping for symbols or patterns across the worktree
+- Checking whether paths exist and returning their content
+
+**Concrete example** — batching dossier read, file reads, and a
+symbol search into a single Explore call:
+
+```
+Agent(
+  subagent_type="Explore",
+  model="haiku",
+  description="Gather PR context",
+  prompt="In <work_dir>: (1) Read .cai/pr-context.md and summarise the files touched, key symbols, and design decisions in under 200 words. (2) Read <file1> lines 50-120 and <file2> lines 1-80, returning only the function signatures and surrounding context. (3) Grep for 'symbol_name' across the worktree and report matching files and line numbers."
+)
+```
+
+**Fall back to direct Read** only for small, single-file lookups
+where the subagent overhead is not worthwhile (fewer than 3 files,
+known paths, under 100 lines total). For anything larger — multiple
+files, large files, broad symbol searches — use the Explore subagent.
+
+**Hard rule: Do NOT delegate edits or decisions.** Only reading and
+search tasks go to the Explore subagent. All Edit/Write calls and
+all judgment about what to change stay in this sonnet session.
+
+**Note on cai-git vs Explore:** The Explore subagent handles
+read/search delegation only. Git operations (rebase, staging,
+status checks) must still go through the `cai-git` subagent as
+described in the rebase section above — never use Explore for git
+commands.
+
 ## Addressing review comments
 
 Once the rebase is complete (or was already clean), move on to the
@@ -425,7 +468,13 @@ one:
    (general), others are line-by-line review comments anchored to
    a specific file and line (these are prefixed with a
    `(line comment on path:line)` marker).
-2. **Read the referenced file(s)** before editing.
+2. **Gather context via Explore** — delegate a single Explore call
+   that reads the dossier (if not already summarised in this
+   session), referenced files, and mentioned symbols. See "Delegate
+   bulk reading to a haiku Explore subagent" above. Fall back to
+   direct Read only for small, single-file lookups where the
+   subagent overhead isn't worthwhile (< 3 files, known paths,
+   < 100 lines total).
 3. **Make the minimal change** that addresses what the reviewer
    asked for. Do not guess at scope — if a comment is unclear or
    out of scope, note it briefly in your stdout output and skip
