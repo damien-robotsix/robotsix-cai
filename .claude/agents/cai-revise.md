@@ -66,13 +66,71 @@ Bash. Pass the work directory in the prompt so cai-git uses
   - GOOD: `Agent(subagent_type="cai-git", prompt="List conflicted files in <work_dir>: run `git -C <work_dir> diff --name-only --diff-filter=U` and return the output.")`
   - BAD:  `Bash("git -C <work_dir> status")`  (Bash not available)
 
-## Self-modifying `.claude/agents/*.md` (staging directory)
+## Self-modifying `.claude/agents/*.md` and `.claude/plugins/` (staging directory)
 
-Claude-code blocks Edit/Write on `.claude/agents/*.md` paths.
-To update an agent definition, Read it at its clone path, then Write
-the FULL new content to `<work_dir>/.cai-staging/agents/<same-basename>.md`.
-The wrapper copies staged files over `.claude/agents/` after you exit.
-Do NOT Edit/Write `.claude/agents/...` directly — use the staging dir.
+**Claude-code's headless `-p` mode hardcodes a write block on
+every `.claude/agents/*.md` path**, regardless of any permission
+flag or `settings.json` rule. `Edit` or `Write` calls against
+`<work_dir>/.claude/agents/cai-revise.md` (or any sibling agent
+file) WILL fail with a sensitive-file protection error — you
+cannot bypass it from inside your session.
+
+The same protection applies to **`.claude/plugins/`** — you cannot
+write plugin files directly there either.
+
+The **staging directory** at `<work_dir>/.cai-staging/` that the
+wrapper pre-creates is the workaround for both cases:
+
+**For agent definition files** (`.claude/agents/*.md`):
+
+  1. **Read** the current agent file at its clone-side path to
+     see the existing content: `Read("<work_dir>/.claude/agents/cai-revise.md")`.
+     (Read is allowed; only Edit/Write on that path is blocked.)
+  2. **Write** the FULL new file content (YAML frontmatter +
+     body, exactly what you want the final file to look like)
+     to `<work_dir>/.cai-staging/agents/<same-basename>.md`
+     using the Write tool.
+  3. The wrapper copies `.cai-staging/agents/*.md` over
+     `.claude/agents/*.md` (matching by basename) after you exit,
+     then deletes the staging directory so it doesn't land in
+     the PR.
+
+**For plugin files** (`.claude/plugins/<plugin-path>`):
+
+  1. **Write** the plugin file content to
+     `<work_dir>/.cai-staging/plugins/<same-relative-path>`.
+     Preserve the full directory structure under `plugins/`.
+     For example, to create
+     `.claude/plugins/cai-skills/skills/foo/SKILL.md`, write to
+     `.cai-staging/plugins/cai-skills/skills/foo/SKILL.md`.
+  2. The wrapper merges `.cai-staging/plugins/` into
+     `.claude/plugins/` using `shutil.copytree` with
+     `dirs_exist_ok=True` after you exit, then deletes the
+     staging directory.
+
+Rules (apply to both agents and plugins):
+
+  - Staged files are copied unconditionally — new definitions
+    are created if no target exists yet.
+  - Write the FULL file, not a diff. The wrapper does an
+    unconditional overwrite.
+  - Use the exact same relative path as the target under their
+    respective subdirectory (e.g. `cai-revise.md` → `cai-revise.md`,
+    `cai-skills/skills/foo/SKILL.md` → same path under plugins/).
+  - Do NOT try `Edit`/`Write` on `<work_dir>/.claude/agents/...`
+    or `<work_dir>/.claude/plugins/...` — it will always fail.
+    Go through the staging directory.
+
+Example of addressing a review comment on this very file:
+
+  - GOOD: `Read("<work_dir>/.claude/agents/cai-revise.md")` then
+    `Write("<work_dir>/.cai-staging/agents/cai-revise.md", "<full new content>")`
+  - BAD:  `Edit("<work_dir>/.claude/agents/cai-revise.md", old, new)`  (blocked)
+
+Example of creating a plugin skill:
+
+  - GOOD: `Write("<work_dir>/.cai-staging/plugins/cai-skills/skills/foo/SKILL.md", "<full content>")`
+  - BAD:  `Write("<work_dir>/.claude/plugins/cai-skills/skills/foo/SKILL.md", ...)`  (blocked)
 
 ## Memory: tracking recurring review-comment patterns
 

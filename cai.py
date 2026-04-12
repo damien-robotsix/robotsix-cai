@@ -497,9 +497,14 @@ def _run_claude_p(
     # array of stream events instead of a single envelope dict.
     if len(cmd) < 2 or cmd[0] != "claude" or cmd[1] != "-p":
         raise ValueError("_run_claude_p requires cmd[:2] == ['claude', '-p']")
+    plugin_dir = Path(".claude/plugins/cai-skills")
+    plugin_flags: list[str] = (
+        ["--plugin-dir", str(plugin_dir)] if plugin_dir.is_dir() else []
+    )
     full_cmd = (
         cmd[:2]
         + ["--output-format", "json", "--verbose"]
+        + plugin_flags
         + cmd[2:]
     )
 
@@ -760,39 +765,6 @@ def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
     return result
 
 
-def _closed_issues_block(closed: list[dict]) -> str:
-    """Format closed issues + their rationales as a prompt section."""
-    if not closed:
-        return ""
-    lines = [
-        "\n\n## Previously closed auto-improve issues",
-        "",
-        "These auto-improve issues have already been considered and "
-        "closed. Before raising any new finding, check the rationale "
-        "for each closed issue below. If your proposed finding "
-        "overlaps with one of these by topic, do NOT re-raise it — "
-        "the supervisor's reasoning still applies. The only exception: "
-        "you have concrete new evidence that the prior reasoning is "
-        "wrong, in which case raise a finding that explicitly "
-        "references the prior issue number and explains what changed.",
-        "",
-    ]
-    for ci in closed:
-        labels_str = ", ".join(ci["labels"]) if ci["labels"] else "(none)"
-        lines.append(f"### #{ci['number']} — {ci['title']}")
-        lines.append(f"- **Closed:** {ci['closedAt']}")
-        lines.append(f"- **Labels:** {labels_str}")
-        if ci["rationale"]:
-            lines.append(
-                f"- **Closing rationale (@{ci['rationale_author']}):** "
-                f"{ci['rationale']}"
-            )
-        else:
-            lines.append("- **Closing rationale:** (none recorded)")
-        lines.append("")
-    return "\n".join(lines)
-
-
 def _review_pr_pattern_summary() -> str:
     """Read the review-pr pattern log and return a markdown summary block.
 
@@ -963,18 +935,13 @@ def cmd_analyze(args) -> int:
             + "\n"
         )
 
-    # Closed-issue rationales — so the analyzer doesn't re-raise
-    # findings the supervisor has already reasoned through and
-    # rejected. See #260.
-    closed_issues = _fetch_closed_auto_improve_issues(limit=50)
-    closed_block = _closed_issues_block(closed_issues)
-
     # The system prompt, tool allowlist, and model choice all live
     # in `.claude/agents/cai-analyze.md`. Durable per-agent learnings
     # live in its `memory: project` pool. The wrapper only passes
-    # dynamic per-run context (parsed signals, open issues,
-    # closed-issue rationales, and review-pr pattern history) via
-    # stdin as the user message.
+    # dynamic per-run context (parsed signals, open issues, and
+    # review-pr pattern history) via stdin as the user message.
+    # Closed-issue rationale lookup is now on-demand via the
+    # skill:look-up-closed-finding plugin skill.
     review_pr_block = _review_pr_pattern_summary()
     user_message = (
         "## Parsed signals\n\n"
@@ -982,7 +949,6 @@ def cmd_analyze(args) -> int:
         f"{parsed_signals}\n"
         "```\n"
         f"{issues_block}"
-        f"{closed_block}"
         f"{review_pr_block}"
     )
 
@@ -1743,7 +1709,8 @@ def _update_parent_checklist_item(
 
 
 # ---------------------------------------------------------------------------
-# Wrapper-side `.claude/agents/*.md` writes (staging-directory pattern)
+# Wrapper-side `.claude/agents/*.md` and `.claude/plugins/` writes
+# (staging-directory pattern)
 # ---------------------------------------------------------------------------
 #
 # Background: claude-code's headless `claude -p` mode hardcodes a
@@ -1763,24 +1730,36 @@ def _update_parent_checklist_item(
 #
 # Workaround: a "staging directory" pattern.
 #
-#   1. Before invoking the agent, the wrapper creates an empty dir
-#      at `<work_dir>/.cai-staging/agents/`. This path is NOT under
-#      `.claude/agents/`, so claude-code's protection doesn't fire
-#      on writes to it.
+#   1. Before invoking the agent, the wrapper creates empty dirs
+#      at `<work_dir>/.cai-staging/agents/` and
+#      `<work_dir>/.cai-staging/plugins/`. These paths are NOT under
+#      `.claude/`, so claude-code's protection doesn't fire on
+#      writes to them.
 #
-#   2. The agent's prompt instructs it: when you need to update an
-#      `.claude/agents/<name>.md` file, do not Edit the protected
-#      path directly. Instead, use the Write tool to write the FULL
-#      new content to `<work_dir>/.cai-staging/agents/<name>.md`.
+#   2a. The agent's prompt instructs it: when you need to update an
+#       `.claude/agents/<name>.md` file, do not Edit the protected
+#       path directly. Instead, use the Write tool to write the FULL
+#       new content to `<work_dir>/.cai-staging/agents/<name>.md`.
 #
-#   3. After the agent exits successfully, the wrapper iterates the
-#      staging directory. For each file `<name>.md` found, it
-#      copies the contents to `<work_dir>/.claude/agents/<name>.md`
-#      via plain `pathlib.write_text` (the wrapper isn't a claude
-#      session and isn't subject to the protection).
+#   2b. To create or update plugin files under `.claude/plugins/`,
+#       write to `<work_dir>/.cai-staging/plugins/<plugin-path>`
+#       preserving the same relative directory structure. For example,
+#       to create `.claude/plugins/cai-skills/skills/foo/SKILL.md`,
+#       write to `.cai-staging/plugins/cai-skills/skills/foo/SKILL.md`.
+#
+#   3. After the agent exits successfully, the wrapper:
+#      - For each `<name>.md` in `.cai-staging/agents/`: copies it to
+#        `<work_dir>/.claude/agents/<name>.md` via `pathlib.write_text`.
+#      - For the tree at `.cai-staging/plugins/`: merges it into
+#        `<work_dir>/.claude/plugins/` using `shutil.copytree` with
+#        `dirs_exist_ok=True`.
+#      (The wrapper isn't a claude session and isn't subject to the
+#      protection.)
 #
 #   4. The wrapper removes the staging directory before committing
-#      so it doesn't land in the PR.
+#      so it doesn't land in the PR. If plugin staging fails, the
+#      staging directory is preserved for inspection rather than
+#      silently deleted.
 #
 # Full-file writes (not Edit-style old/new diffs) by design: the
 # agent writes the whole replacement content; the wrapper does an
@@ -1791,87 +1770,120 @@ def _update_parent_checklist_item(
 # hundred lines max).
 
 
-# Path of the staging directory inside a cloned worktree, relative
+# Paths of the staging directories inside a cloned worktree, relative
 # to the clone root.
 AGENT_EDIT_STAGING_REL = Path(".cai-staging") / "agents"
+PLUGIN_STAGING_REL = Path(".cai-staging") / "plugins"
 
 
 def _setup_agent_edit_staging(work_dir: Path) -> Path:
-    """Create the staging directory where the agent writes proposed
-    `.claude/agents/*.md` updates. Idempotent.
+    """Create the staging directories where agents write proposed
+    `.claude/agents/*.md` and `.claude/plugins/` updates. Idempotent.
 
-    Returns the absolute staging directory path so the caller can
+    Returns the absolute agent-staging directory path so the caller can
     pass it to the agent via the user message.
     """
     staging = work_dir / AGENT_EDIT_STAGING_REL
     staging.mkdir(parents=True, exist_ok=True)
+    plugin_staging = work_dir / PLUGIN_STAGING_REL
+    plugin_staging.mkdir(parents=True, exist_ok=True)
     return staging
 
 
 def _apply_agent_edit_staging(work_dir: Path) -> int:
     """Copy any files staged at `<work_dir>/.cai-staging/agents/`
-    back to `<work_dir>/.claude/agents/`, then remove the staging
-    directory so it doesn't land in the PR.
+    back to `<work_dir>/.claude/agents/`, copy any plugin tree staged
+    at `<work_dir>/.cai-staging/plugins/` to `<work_dir>/.claude/plugins/`,
+    then remove the staging directory so it doesn't land in the PR.
 
     Security boundaries:
 
-      1. Each staged file is copied to `<work_dir>/.claude/agents/`
+      1. Each staged agent file is copied to `<work_dir>/.claude/agents/`
          using the same basename. If no target exists a new file is
          created; if one exists it is overwritten.
-      2. The staging dir lives entirely inside `work_dir` so escapes
+      2. Staged plugin trees are merged into `<work_dir>/.claude/plugins/`
+         using shutil.copytree with dirs_exist_ok=True.
+      3. The staging dir lives entirely inside `work_dir` so escapes
          via `..` are not possible (the wrapper iterates one
          directory level via `iterdir()` and copies whole files).
-      3. The staging dir is removed unconditionally before commit.
+      4. The staging dir is removed before commit if all staging
+         operations succeeded. If plugin staging fails, the staging
+         dir is preserved for inspection and the function returns
+         early so staged content is not silently lost.
 
     Returns the count of files successfully applied. If the staging
     dir doesn't exist or is empty, returns 0 with no side effects.
     """
     staging = work_dir / AGENT_EDIT_STAGING_REL
-    if not staging.exists() or not staging.is_dir():
-        return 0
-
-    target_dir = work_dir / ".claude" / "agents"
     applied = 0
-    for staged_file in sorted(staging.iterdir()):
-        if not staged_file.is_file():
-            continue
 
-        target = target_dir / staged_file.name
-        if not target.exists():
-            print(
-                f"[cai] agent edit staging: creating new agent file "
-                f".claude/agents/{staged_file.name}",
-                flush=True,
-            )
+    if staging.exists() and staging.is_dir():
+        target_dir = work_dir / ".claude" / "agents"
+        for staged_file in sorted(staging.iterdir()):
+            if not staged_file.is_file():
+                continue
 
+            target = target_dir / staged_file.name
+            if not target.exists():
+                print(
+                    f"[cai] agent edit staging: creating new agent file "
+                    f".claude/agents/{staged_file.name}",
+                    flush=True,
+                )
+
+            try:
+                content = staged_file.read_text()
+                target.write_text(content)
+                print(
+                    f"[cai] applied staged agent file: "
+                    f".claude/agents/{staged_file.name} "
+                    f"({len(content)} bytes)",
+                    flush=True,
+                )
+                applied += 1
+            except OSError as exc:
+                print(
+                    f"[cai] agent edit staging: failed to apply "
+                    f"{staged_file.name}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+
+    # Apply any plugin staging: .cai-staging/plugins/ → .claude/plugins/
+    plugin_staging = work_dir / PLUGIN_STAGING_REL
+    if plugin_staging.exists() and plugin_staging.is_dir():
+        plugin_target = work_dir / ".claude" / "plugins"
         try:
-            content = staged_file.read_text()
-            target.write_text(content)
+            shutil.copytree(str(plugin_staging), str(plugin_target),
+                            dirs_exist_ok=True)
             print(
-                f"[cai] applied staged agent file: "
-                f".claude/agents/{staged_file.name} "
-                f"({len(content)} bytes)",
+                f"[cai] applied staged plugin tree: .claude/plugins/ "
+                f"(merged from .cai-staging/plugins/)",
                 flush=True,
             )
             applied += 1
         except OSError as exc:
             print(
-                f"[cai] agent edit staging: failed to apply "
-                f"{staged_file.name}: {exc}",
+                f"[cai] agent edit staging: failed to apply plugin tree: {exc}",
                 file=sys.stderr,
             )
-            continue
+            # Preserve .cai-staging so staged plugin files are not
+            # silently lost when the copy fails — caller can inspect
+            # or retry. Do not fall through to shutil.rmtree below.
+            return applied
 
     # Clean up the entire .cai-staging tree (one level above the
     # agents/ subdir) so nothing leaks into the PR.
-    try:
-        shutil.rmtree(work_dir / ".cai-staging")
-    except OSError as exc:
-        print(
-            f"[cai] agent edit staging: cleanup of "
-            f"{work_dir / '.cai-staging'} failed: {exc}",
-            file=sys.stderr,
-        )
+    cai_staging_root = work_dir / ".cai-staging"
+    if cai_staging_root.exists():
+        try:
+            shutil.rmtree(cai_staging_root)
+        except OSError as exc:
+            print(
+                f"[cai] agent edit staging: cleanup of "
+                f"{cai_staging_root} failed: {exc}",
+                file=sys.stderr,
+            )
 
     return applied
 
