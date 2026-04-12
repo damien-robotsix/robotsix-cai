@@ -35,3 +35,17 @@ Refs: robotsix/robotsix-cai#312
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- README.md:136 — added new "### Filing issues with multi-step plans" section between the issue lifecycle `:no-action` paragraph and the "### Audit findings" heading
+
+### Decisions this revision
+- Added user-facing documentation for the `### Plan` / `### Verification` issue format per reviewer finding; placed in the issue lifecycle section since that's where users learn how issues flow through the system
+
+### New gaps / deferred
+- None
