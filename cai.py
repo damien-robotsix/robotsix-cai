@@ -189,6 +189,7 @@ LABEL_PR_NEEDS_HUMAN = "needs-human-review"
 LOG_PATH = Path("/var/log/cai/cai.log")
 COST_LOG_PATH = Path("/var/log/cai/cai-cost.jsonl")
 REVIEW_PR_PATTERN_LOG = Path("/var/log/cai/review-pr-patterns.jsonl")
+OUTCOME_LOG_PATH = Path("/var/log/cai/cai-outcomes.jsonl")
 
 
 def log_run(category: str, **fields) -> None:
@@ -222,6 +223,80 @@ def log_cost(row: dict) -> None:
             f.flush()
     except Exception:
         pass
+
+
+def _log_outcome(issue_number: int, category: str, outcome: str, fix_attempt_count: int) -> None:
+    """Append one JSON record to the outcome log. Never raises."""
+    try:
+        OUTCOME_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        row = {
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "issue_number": issue_number,
+            "category": category,
+            "outcome": outcome,
+            "fix_attempt_count": fix_attempt_count,
+        }
+        with OUTCOME_LOG_PATH.open("a") as f:
+            f.write(json.dumps(row, separators=(",", ":")) + "\n")
+            f.flush()
+    except Exception:
+        pass
+
+
+def _load_outcome_counts(days: int = 90) -> dict:
+    """Read OUTCOME_LOG_PATH and return per-category {total, solved} counts.
+
+    Filters to trailing `days` days. Malformed lines are skipped silently.
+    Returns an empty dict if the file is missing or unreadable.
+    """
+    if not OUTCOME_LOG_PATH.exists():
+        return {}
+    cutoff_ts = datetime.now(timezone.utc).timestamp() - days * 86400
+    counts: dict = {}  # category -> {"total": N, "solved": N}
+    try:
+        with OUTCOME_LOG_PATH.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                ts = row.get("ts", "")
+                try:
+                    row_ts = datetime.strptime(
+                        ts, "%Y-%m-%dT%H:%M:%SZ"
+                    ).replace(tzinfo=timezone.utc).timestamp()
+                except ValueError:
+                    continue
+                if row_ts < cutoff_ts:
+                    continue
+                cat = row.get("category") or "(unknown)"
+                outcome = row.get("outcome", "")
+                bucket = counts.setdefault(cat, {"total": 0, "solved": 0})
+                bucket["total"] += 1
+                if outcome == "solved":
+                    bucket["solved"] += 1
+    except OSError:
+        return {}
+    return counts
+
+
+def _load_outcome_stats(days: int = 90) -> dict:
+    """Load per-category success rates from the trailing `days` days of outcome data.
+
+    Returns a dict mapping category name to success rate (0.0–1.0).
+    Categories with fewer than 3 observations get a neutral prior of 0.60.
+    """
+    counts = _load_outcome_counts(days)
+    rates: dict = {}
+    for cat, c in counts.items():
+        if c["total"] < 3:
+            rates[cat] = 0.60
+        else:
+            rates[cat] = c["solved"] / c["total"]
+    return rates
 
 
 def _load_cost_log(days: int = 7) -> list[dict]:
@@ -1008,7 +1083,32 @@ def _select_fix_target():
     if not candidates:
         return None
 
-    return min(candidates.values(), key=lambda i: i["createdAt"])
+    # Score candidates by age, category success rate, and prior fix attempts.
+    outcome_stats = _load_outcome_stats()
+    default_rate = 0.60
+
+    def _score(issue: dict) -> float:
+        # Age in days (older = higher base score).
+        try:
+            created = datetime.strptime(
+                issue["createdAt"], "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc)
+            age_days = max(1.0, (datetime.now(timezone.utc) - created).total_seconds() / 86400)
+        except (ValueError, KeyError):
+            age_days = 1.0
+        # Category success rate.
+        label_names = {lbl["name"] for lbl in issue.get("labels", [])}
+        cat = "(unknown)"
+        for ln in label_names:
+            if ln.startswith("category:"):
+                cat = ln.split(":", 1)[1]
+                break
+        rate = outcome_stats.get(cat, default_rate)
+        # Prior fix attempts (from closed unmerged PRs).
+        prior = len(_fetch_previous_fix_attempts(issue["number"]))
+        return age_days * rate * (1.0 / max(1, prior))
+
+    return max(candidates.values(), key=_score)
 
 
 def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (), log_prefix: str = "cai fix") -> bool:
@@ -4041,6 +4141,28 @@ def cmd_cost_report(args) -> int:
                 f"${mean:>9.4f}  {b['in']:>10}  {b['out']:>10}"
             )
     print()
+
+    # Category success rates from outcome log.
+    print("--- Category Success Rates (trailing 90 days) ---\n")
+    cat_counts = _load_outcome_counts(days=90)
+    if cat_counts:
+        cat_width = max(12, max(len(k) for k in cat_counts))
+        cat_header = (
+            f"{'category':<{cat_width}}  {'attempts':>8}  "
+            f"{'solved':>6}  {'rate':>7}  {'flag':>6}"
+        )
+        print(cat_header)
+        print("-" * len(cat_header))
+        for cat, c in sorted(cat_counts.items(), key=lambda kv: kv[1]["total"], reverse=True):
+            rate = c["solved"] / c["total"] if c["total"] else 0.0
+            flag = "⚠ LOW" if rate < 0.40 else ""
+            print(
+                f"{cat:<{cat_width}}  {c['total']:>8}  "
+                f"{c['solved']:>6}  {rate:>6.0%}  {flag:>6}"
+            )
+    else:
+        print("(no outcome data yet)")
+    print()
     return 0
 
 
@@ -4736,15 +4858,26 @@ def cmd_confirm(args) -> int:
     # 5. Parse verdicts.
     verdicts = _parse_verdicts(confirm.stdout)
     merged_nums = {mi["number"] for mi in merged_issues}
+    merged_by_num = {mi["number"]: mi for mi in merged_issues}
 
     solved = 0
     unsolved = 0
     inconclusive = 0
 
+    def _extract_category(issue: dict) -> str:
+        for ln in (lbl["name"] for lbl in issue.get("labels", [])):
+            if ln.startswith("category:"):
+                return ln.split(":", 1)[1]
+        return "(unknown)"
+
     for issue_num, status, reasoning in verdicts:
         if issue_num not in merged_nums:
             continue
+        mi = merged_by_num[issue_num]
         if status == "solved":
+            cat = _extract_category(mi)
+            prior_attempts = len(_fetch_previous_fix_attempts(issue_num))
+            _log_outcome(issue_num, cat, "solved", prior_attempts)
             _set_labels(issue_num, add=[LABEL_SOLVED], remove=[LABEL_MERGED], log_prefix="cai confirm")
             _run(
                 ["gh", "issue", "close", str(issue_num),
@@ -4756,16 +4889,67 @@ def cmd_confirm(args) -> int:
             print(f"[cai confirm] #{issue_num}: solved — closed", flush=True)
             solved += 1
         elif status == "unsolved":
-            _run(
-                ["gh", "issue", "comment", str(issue_num),
-                 "--repo", REPO,
-                 "--body",
-                 "Confirm check: fix did not eliminate the pattern in the recent window."],
-                capture_output=True,
+            cat = _extract_category(mi)
+            prior_attempts = len(_fetch_previous_fix_attempts(issue_num))
+            _log_outcome(issue_num, cat, "unsolved", prior_attempts)
+
+            # Parse re-queue count from issue body (use findall to handle
+            # multiple appended blocks; take the last match's count).
+            issue_body = mi.get("body") or ""
+            requeue_matches = re.findall(
+                r"## Confirm re-queue \(attempt (\d+)\)", issue_body
             )
-            print(f"[cai confirm] #{issue_num}: unsolved — left as :merged", flush=True)
+            requeue_count = int(requeue_matches[-1]) if requeue_matches else 0
+
+            if requeue_count < 3:
+                new_count = requeue_count + 1
+                requeue_block = (
+                    f"\n\n## Confirm re-queue (attempt {new_count})\n\n"
+                    f"Fix confirmed unsolved. Re-queued for another attempt."
+                )
+                _run(
+                    ["gh", "issue", "edit", str(issue_num),
+                     "--repo", REPO,
+                     "--body", issue_body + requeue_block],
+                    capture_output=True,
+                )
+                _set_labels(
+                    issue_num,
+                    add=[LABEL_REFINED],
+                    remove=[LABEL_MERGED],
+                    log_prefix="cai confirm",
+                )
+                _run(
+                    ["gh", "issue", "comment", str(issue_num),
+                     "--repo", REPO,
+                     "--body",
+                     f"Confirm check: fix did not resolve the issue. "
+                     f"Re-queued as `auto-improve:refined` (attempt {new_count}/3)."],
+                    capture_output=True,
+                )
+                print(f"[cai confirm] #{issue_num}: unsolved — re-queued (attempt {new_count}/3)", flush=True)
+            else:
+                # Cap reached — escalate to human.
+                _set_labels(
+                    issue_num,
+                    add=[LABEL_PR_NEEDS_HUMAN],
+                    remove=[LABEL_MERGED],
+                    log_prefix="cai confirm",
+                )
+                _run(
+                    ["gh", "issue", "comment", str(issue_num),
+                     "--repo", REPO,
+                     "--body",
+                     "Confirm check: fix did not resolve the issue after 3 re-queue attempts. "
+                     "Escalating to `needs-human-review`."],
+                    capture_output=True,
+                )
+                print(f"[cai confirm] #{issue_num}: unsolved — max re-queues reached, needs-human", flush=True)
             unsolved += 1
         elif status == "inconclusive":
+            cat = _extract_category(mi)
+            prior_attempts = len(_fetch_previous_fix_attempts(issue_num))
+            _log_outcome(issue_num, cat, "inconclusive", prior_attempts)
             # Post reasoning to the issue so humans can see why, but
             # avoid duplicate comments if the same reasoning was already
             # posted in the most recent comment.
