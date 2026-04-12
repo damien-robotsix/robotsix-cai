@@ -78,6 +78,23 @@ Refs: robotsix/robotsix-cai#454
 ### New gaps / deferred
 - None
 
+## Revision 4 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:181` — added `cai-review-docs` to cloned-worktree agents list in AGENT_MEMORY_DIR comment
+- `cai.py:1903` — added `cai-review-docs` to cloned-worktree agents list in `_work_directory_block` docstring
+- `docker-compose.yml:82` — added `review-docs` to cloned-worktree agents list in volume comment
+- `README.md:494` — added `review-docs` to cloned-worktree agents list in volumes section
+
+### Decisions this revision
+- All four missing_co_change locations updated to include `cai-review-docs` / `review-docs` after `review-pr`
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `_BOT_COMMENT_MARKERS` clean-heading match suppresses revise re-processing; findings heading absence ensures revise acts on docs gaps
 - The `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` prefix (`"## cai docs review"`) is distinct from `"## cai pre-merge review"` — no collision
