@@ -65,7 +65,8 @@ ripple effects in these six categories:
    find other references in the codebase. When you need to search
    broadly across many files or directories, use
    `Agent(subagent_type="Explore", model="haiku", ...)` instead of
-   issuing many sequential Grep or Read calls.
+   issuing many sequential Grep or Read calls. **Do NOT delegate
+   decisions** — only reading and search.
 3. Check if the PR's changes are consistent with those references
 4. Only report findings where you are confident there is a real
    inconsistency — not hypothetical or stylistic concerns

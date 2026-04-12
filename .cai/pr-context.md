@@ -26,3 +26,17 @@ Refs: robotsix-cai#484
 ## Invariants this change relies on
 - The Agent tool's `model` parameter is respected by the runtime and overrides the parent agent's model for the subagent invocation
 - Haiku Explore preserves 100% retrieval quality for read/search tasks (per spike findings in issue #443)
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-review-pr.md:68 — Added "Do NOT delegate decisions — only reading and search." guard to "How to work" item 2 (first Explore reference), matching the guard already present at the second Explore reference in "Agent-specific efficiency guidance"
+
+### Decisions this revision
+- Guard added verbatim inline (same wording as efficiency section) — reviewer explicitly requested matching consistency with other agents and with the second reference in the same file
+
+### New gaps / deferred
+- None
