@@ -40,4 +40,18 @@ Refs: robotsix-cai/robotsix-cai#463
 - Removed item 9 from cai-fix efficiency guidance rather than promoting it — cai-fix has no Agent tool and receives a ready-made plan from cai-plan, so broad exploration is not its job
 
 ### New gaps / deferred
-- cai-plan.md has a duplicate numbering bug (two items labeled "2" in Hard rules); noted but not fixed as it's outside the scope of this review comment
+- none
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-plan.md:68 — renumbered duplicate hard rule "2" to "3" to restore sequential ordering
+
+### Decisions this revision
+- Single-character fix: `2. **Delegate broad exploration` → `3. **Delegate broad exploration` — no other changes
+
+### New gaps / deferred
+- none

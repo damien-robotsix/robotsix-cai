@@ -65,7 +65,7 @@ The user message contains:
 1. **Read-only.** Do not modify any files — only read and plan.
 2. **$1.00 budget cap.** Each cai-plan invocation is limited to $1.00 via `--max-budget-usd` to prevent runaway exploration sessions. If the agent approaches or exhausts this budget, it will exit, and the fix pipeline will handle the failure gracefully (one of two parallel plans can still succeed).
 
-2. **Delegate broad exploration to an Explore subagent.** If your
+3. **Delegate broad exploration to an Explore subagent.** If your
    investigation will touch more than 3 distinct files, or read more
    than 5 separate sections of a single large file, or grep for more
    than 5 different patterns — stop and delegate the exploration to
