@@ -220,6 +220,29 @@ LOG_PATH = Path("/var/log/cai/cai.log")
 COST_LOG_PATH = Path("/var/log/cai/cai-cost.jsonl")
 REVIEW_PR_PATTERN_LOG = Path("/var/log/cai/review-pr-patterns.jsonl")
 OUTCOME_LOG_PATH = Path("/var/log/cai/cai-outcomes.jsonl")
+ACTIVE_JOB_PATH = Path("/var/log/cai/cai-active.json")
+
+
+def _write_active_job(cmd: str, issue: int) -> None:
+    """Write active-job state for observability. Never raises."""
+    try:
+        ACTIVE_JOB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ACTIVE_JOB_PATH.write_text(json.dumps({
+            "pid": os.getpid(),
+            "cmd": cmd,
+            "issue": issue,
+            "start_ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }))
+    except OSError:
+        pass
+
+
+def _clear_active_job() -> None:
+    """Clear active-job state file. Never raises."""
+    try:
+        ACTIVE_JOB_PATH.write_text("{}")
+    except OSError:
+        pass
 
 
 def log_run(category: str, **fields) -> None:
@@ -2162,6 +2185,7 @@ def cmd_fix(args) -> int:
         log_run("fix", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
         return 1
     print(f"[cai fix] locked #{issue_number} (label {LABEL_IN_PROGRESS})", flush=True)
+    _write_active_job("fix", issue_number)
 
     # Make sure git can authenticate over HTTPS via the gh token. This
     # is also done in entrypoint.sh, but redoing it here is cheap and
@@ -2190,6 +2214,7 @@ def cmd_fix(args) -> int:
             capture_output=True,
         )
         log_run("fix", repo=REPO, issue=issue_number, result="pre_screen_spike", exit=0)
+        _clear_active_job()
         return 0
 
     if ps_verdict == "ambiguous":
@@ -2209,6 +2234,7 @@ def cmd_fix(args) -> int:
             capture_output=True,
         )
         log_run("fix", repo=REPO, issue=issue_number, result="pre_screen_ambiguous", exit=0)
+        _clear_active_job()
         return 0
 
     _uid = uuid.uuid4().hex[:8]
@@ -2589,6 +2615,7 @@ def cmd_fix(args) -> int:
                 result=f"unexpected_error", exit=1)
         return 1
     finally:
+        _clear_active_job()
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -3116,6 +3143,7 @@ def cmd_revise(args) -> int:
             continue
 
         _run(["gh", "auth", "setup-git"], capture_output=True)
+        _write_active_job("revise", issue_number)
 
         _uid = uuid.uuid4().hex[:8]
         work_dir = Path(f"/tmp/cai-revise-{issue_number}-{_uid}")
@@ -3587,6 +3615,7 @@ def cmd_revise(args) -> int:
                     result="unexpected_error", exit=1)
             had_failure = True
         finally:
+            _clear_active_job()
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -3835,8 +3864,12 @@ def _cleanup_orphaned_branches() -> list[str]:
     return deleted
 
 
-def _rollback_stale_in_progress() -> list[dict]:
+def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
     """Deterministic rollback: :in-progress or :revising issues with no recent activity.
+
+    When ``immediate=True`` every locked issue is rolled back regardless of age
+    (used by ``cmd_cycle`` on container restart where all in-flight locks are
+    guaranteed to be orphaned).
 
     Returns the list of issues that were rolled back.
     """
@@ -3899,7 +3932,7 @@ def _rollback_stale_in_progress() -> list[dict]:
         issue_num = issue["number"]
         lock_label = issue.get("_lock_label", LABEL_IN_PROGRESS)
         ttl_hours = _STALE_REVISING_HOURS if lock_label == LABEL_REVISING else _STALE_IN_PROGRESS_HOURS
-        threshold = ttl_hours * 3600
+        threshold = 0 if immediate else ttl_hours * 3600
         last_fix = fix_timestamps.get(issue_num)
         if last_fix is not None:
             age = now - last_fix
@@ -7294,6 +7327,7 @@ def cmd_spike(args) -> int:
         log_run("spike", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
         return 1
 
+    _write_active_job("spike", issue_number)
     _uid = uuid.uuid4().hex[:8]
     work_dir = Path(f"/tmp/cai-spike-{issue_number}-{_uid}")
 
@@ -7483,6 +7517,7 @@ def cmd_spike(args) -> int:
         log_run("spike", repo=REPO, issue=issue_number, result="error", exit=1)
         return 1
     finally:
+        _clear_active_job()
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -7926,7 +7961,7 @@ def cmd_cycle(args) -> int:
             had_failure = True
 
     # --- Phase 1.5: recover stale locks ----------------------------------
-    rolled_back = _rollback_stale_in_progress()
+    rolled_back = _rollback_stale_in_progress(immediate=True)
     if rolled_back:
         nums = ", ".join(f"#{i['number']}" for i in rolled_back)
         print(f"[cai cycle] recovered {len(rolled_back)} stale lock(s): {nums}",
