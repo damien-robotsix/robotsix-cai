@@ -3340,6 +3340,20 @@ def cmd_audit(args) -> int:
     # Step 1d: Flag stale :merged issues for human review.
     flagged_merged = _flag_stale_merged()
 
+    # Step 1e: Recover :pr-open issues whose linked PR was closed (unmerged).
+    try:
+        pr_open_issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_PR_OPEN,
+            "--state", "open",
+            "--json", "number,title,body,labels,createdAt,comments",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError:
+        pr_open_issues = []
+    recovered_pr_open = _recover_stale_pr_open(pr_open_issues, log_prefix="cai audit")
+
     # Step 2: Gather GitHub state for the claude-driven semantic checks.
 
     # 2a. Open auto-improve issues (full detail).
@@ -3443,6 +3457,11 @@ def cmd_audit(args) -> int:
         for ci in flagged_merged:
             deterministic_section += f"- #{ci['number']}: {ci['title']}\n"
         deterministic_section += "\n"
+    if recovered_pr_open:
+        deterministic_section += "## Stale :pr-open issues recovered (closed-unmerged PR) this run\n\n"
+        for ri in recovered_pr_open:
+            deterministic_section += f"- #{ri['number']}: {ri['title']}\n"
+        deterministic_section += "\n"
 
     # Cost summary so the audit agent can flag cost outliers — same
     # window as the run-log tail (last 7 days, top 10 invocations).
@@ -3475,6 +3494,7 @@ def cmd_audit(args) -> int:
         )
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("audit", repo=REPO, duration=dur,
+                pr_open_recovered=len(recovered_pr_open),
                 branches_cleaned=len(deleted_orphaned),
                 no_action_unstuck=len(unstuck_no_action),
                 merged_flagged=len(flagged_merged),
@@ -3489,6 +3509,7 @@ def cmd_audit(args) -> int:
     )
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("audit", repo=REPO, rollbacks=len(rolled_back),
+            pr_open_recovered=len(recovered_pr_open),
             branches_cleaned=len(deleted_orphaned),
             no_action_unstuck=len(unstuck_no_action),
             merged_flagged=len(flagged_merged),
