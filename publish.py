@@ -84,7 +84,6 @@ LABELS = [
     ("auto-improve:no-action", "c5def5", "Fix subagent reviewed and decided no code change is needed; awaiting human triage"),
     ("auto-improve:needs-spike", "e99695", "Issue needs a research spike before code changes (handled by cai-spike, see #314)"),
     ("auto-improve:needs-exploration", "c2e0c6", "Issue needs autonomous exploration/benchmarking (handled by cai-explore)"),
-    ("auto-improve:exploration-done", "0e8a16", "Exploration complete; awaiting human decision before follow-up issues are created"),
     ("auto-improve:refined", "0e8a16", "Issue has been reviewed/refined and is ready for the fix subagent"),
     ("auto-improve:revising", "d4c5f9", "Revise subagent is actively iterating on a PR"),
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),

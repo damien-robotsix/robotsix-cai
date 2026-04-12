@@ -198,7 +198,6 @@ LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_NEEDS_SPIKE = "auto-improve:needs-spike"
 LABEL_NEEDS_EXPLORATION = "auto-improve:needs-exploration"
-LABEL_EXPLORATION_DONE = "auto-improve:exploration-done"
 LABEL_REFINED = "auto-improve:refined"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_PARENT = "auto-improve:parent"
@@ -7526,216 +7525,17 @@ def cmd_spike(args) -> int:
 # Explore (autonomous exploration / benchmarking)
 # ---------------------------------------------------------------------------
 
-def _find_exploration_report_comment(comments: list[dict]) -> dict | None:
-    """Return the bot comment containing '## Exploration Report', or None."""
-    for c in reversed(comments or []):
-        body = c.get("body", "")
-        if "## Exploration Report" in body:
-            return c
-    return None
-
-
-def _has_human_comment_after(comments: list[dict], bot_comment: dict) -> dict | None:
-    """Return the first human comment posted after *bot_comment*, or None."""
-    bot_time = bot_comment.get("createdAt", "")
-    bot_login = bot_comment.get("author", {}).get("login", "")
-    for c in comments or []:
-        if c.get("createdAt", "") > bot_time:
-            author = c.get("author", {}).get("login", "")
-            if author != bot_login and author != "github-actions[bot]":
-                return c
-    return None
-
-
 def cmd_explore(args) -> int:
-    """Two-phase exploration command.
+    """Run the cai-explore agent on the oldest :needs-exploration issue.
 
-    Phase 1 (follow-up): check :exploration-done issues for human feedback
-    and create follow-up issues.
-    Phase 2 (exploration): pick up :needs-exploration issues and run the
-    cai-explore agent.
+    Outcomes mirror cmd_spike:
+    - ## Exploration Findings + ### Recommendation close_documented/close_wont_do → close
+    - ## Exploration Findings + ### Recommendation refine_and_retry → :raised
+    - ## Refined Issue → :refined (direct hand-off to fix)
+    - ## Exploration Blocked → :needs-human-review
+    - No marker → rollback to :needs-exploration
     """
-    print("[cai explore] starting", flush=True)
-
-    # ------------------------------------------------------------------
-    # Phase 1: Follow-up — check :exploration-done issues for human reply
-    # ------------------------------------------------------------------
-    print("[cai explore] phase 1: checking for human decisions on exploration-done issues", flush=True)
-    try:
-        done_issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_EXPLORATION_DONE,
-            "--state", "open",
-            "--json", "number,title,body,labels,createdAt,comments",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(f"[cai explore] gh issue list failed:\n{e.stderr}", file=sys.stderr)
-        done_issues = []
-
-    for issue in done_issues:
-        issue_number = issue["number"]
-        comments = issue.get("comments") or []
-
-        report_comment = _find_exploration_report_comment(comments)
-        if not report_comment:
-            continue
-
-        human_reply = _has_human_comment_after(comments, report_comment)
-        if not human_reply:
-            continue
-
-        # Human has replied — parse their decision and create follow-up issues.
-        print(f"[cai explore] #{issue_number}: human replied, creating follow-up issues", flush=True)
-        t0 = time.monotonic()
-
-        _uid = uuid.uuid4().hex[:8]
-        work_dir = Path(f"/tmp/cai-explore-followup-{issue_number}-{_uid}")
-
-        try:
-            if work_dir.exists():
-                shutil.rmtree(work_dir)
-
-            _run(["gh", "auth", "setup-git"], capture_output=True)
-            clone = _run(
-                ["git", "clone", "--depth", "1",
-                 f"https://github.com/{REPO}.git", str(work_dir)],
-                capture_output=True,
-            )
-            if clone.returncode != 0:
-                print(f"[cai explore] clone failed for follow-up on #{issue_number}", file=sys.stderr)
-                continue
-
-            human_body = human_reply.get("body", "")
-            human_author = human_reply.get("author", {}).get("login", "unknown")
-            report_body = report_comment.get("body", "")
-
-            user_message = (
-                _work_directory_block(work_dir)
-                + "\n"
-                + _build_issue_block(issue)
-                + "\n## Exploration Report (posted earlier)\n\n"
-                + report_body
-                + f"\n\n## Human Decision\n\n"
-                + f"**{human_author}** replied:\n\n{human_body}\n\n"
-                + "## Your task\n\n"
-                + "Based on the human's decision above, create follow-up issues.\n"
-                + "For each issue to create, emit a block:\n\n"
-                + "```\n"
-                + "## Follow-up Issue\n\n"
-                + "### Title\n<issue title>\n\n"
-                + "### Body\n<issue body in markdown — include problem, plan, "
-                + "verification, scope guardrails, and files likely to touch>\n"
-                + "```\n\n"
-                + "You may emit multiple `## Follow-up Issue` blocks.\n"
-                + "If the human decided no action is needed, emit:\n\n"
-                + "```\n## No Follow-up\n\n<reason>\n```\n"
-            )
-
-            result = _run_claude_p(
-                ["claude", "-p", "--agent", "cai-explore",
-                 "--dangerously-skip-permissions",
-                 "--add-dir", str(work_dir)],
-                category="explore-followup",
-                agent="cai-explore",
-                input=user_message,
-                cwd="/app",
-                timeout=600,  # 10 min for follow-up
-            )
-            if result.stdout:
-                print(result.stdout, flush=True)
-
-            stdout = result.stdout or ""
-
-            # Parse follow-up issues from output.
-            created = 0
-            issue_blocks = re.split(r"(?=## Follow-up Issue\b)", stdout)
-            for block in issue_blocks:
-                if not block.startswith("## Follow-up Issue"):
-                    continue
-                title_match = re.search(r"###\s*Title\s*\n+(.+)", block)
-                body_match = re.search(
-                    r"###\s*Body\s*\n+([\s\S]+?)(?=\n## |\Z)", block,
-                )
-                if not title_match:
-                    continue
-                fu_title = title_match.group(1).strip()
-                fu_body = body_match.group(1).strip() if body_match else ""
-                fu_body += (
-                    f"\n\n---\n"
-                    f"_Created from exploration on #{issue_number}._\n"
-                )
-                labels = ",".join(["auto-improve", LABEL_RAISED])
-                cr = _run(
-                    ["gh", "issue", "create",
-                     "--repo", REPO,
-                     "--title", fu_title,
-                     "--body", fu_body,
-                     "--label", labels],
-                    capture_output=True,
-                )
-                if cr.returncode == 0:
-                    url = cr.stdout.strip()
-                    print(f"[cai explore] created follow-up: {url}", flush=True)
-                    created += 1
-                else:
-                    print(
-                        f"[cai explore] failed to create '{fu_title}': {cr.stderr}",
-                        file=sys.stderr,
-                    )
-
-            # Close the exploration issue.
-            close_body = (
-                f"Exploration complete. Human decision received from @{human_author}.\n\n"
-            )
-            if created:
-                close_body += f"Created {created} follow-up issue(s).\n"
-            else:
-                no_followup_pos = stdout.find("## No Follow-up")
-                if no_followup_pos != -1:
-                    close_body += "Decision: no follow-up needed.\n"
-                else:
-                    close_body += "No follow-up issues were created.\n"
-            close_body += "\n---\n_Closed by `cai explore` (follow-up phase)._"
-
-            _run(
-                ["gh", "issue", "comment", str(issue_number),
-                 "--repo", REPO,
-                 "--body", close_body],
-                capture_output=True,
-            )
-            _run(
-                ["gh", "issue", "close", str(issue_number),
-                 "--repo", REPO],
-                capture_output=True,
-            )
-            _set_labels(
-                issue_number,
-                remove=[LABEL_EXPLORATION_DONE],
-                log_prefix="cai explore",
-            )
-
-            dur = f"{int(time.monotonic() - t0)}s"
-            print(
-                f"[cai explore] #{issue_number} follow-up done "
-                f"({created} issues created) in {dur}",
-                flush=True,
-            )
-            log_run("explore-followup", repo=REPO, issue=issue_number,
-                    duration=dur, issues_created=created, exit=0)
-
-        except Exception as exc:
-            print(f"[cai explore] follow-up error on #{issue_number}: {exc}", file=sys.stderr)
-            log_run("explore-followup", repo=REPO, issue=issue_number, result="error", exit=1)
-        finally:
-            if work_dir.exists():
-                shutil.rmtree(work_dir, ignore_errors=True)
-
-    # ------------------------------------------------------------------
-    # Phase 2: Exploration — run the cai-explore agent on oldest candidate
-    # ------------------------------------------------------------------
-    print("[cai explore] phase 2: looking for :needs-exploration issues", flush=True)
+    print("[cai explore] looking for issues to explore", flush=True)
     t0 = time.monotonic()
 
     if getattr(args, "issue", None) is not None:
@@ -7750,6 +7550,10 @@ def cmd_explore(args) -> int:
             print(f"[cai explore] gh issue view #{args.issue} failed:\n{e.stderr}", file=sys.stderr)
             log_run("explore", repo=REPO, result="issue_lookup_failed", exit=1)
             return 1
+        if issue.get("state", "").upper() == "CLOSED":
+            print(f"[cai explore] issue #{args.issue} is closed; nothing to do", flush=True)
+            log_run("explore", repo=REPO, issue=args.issue, result="not_open", exit=0)
+            return 0
         issue_number = issue["number"]
         title = issue["title"]
         print(f"[cai explore] targeting #{issue_number}: {title}", flush=True)
@@ -7789,6 +7593,7 @@ def cmd_explore(args) -> int:
         log_run("explore", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
         return 1
 
+    _write_active_job("explore", issue_number)
     _uid = uuid.uuid4().hex[:8]
     work_dir = Path(f"/tmp/cai-explore-{issue_number}-{_uid}")
 
@@ -7849,30 +7654,93 @@ def cmd_explore(args) -> int:
 
         stdout = result.stdout or ""
 
-        # Outcome 1: Exploration Report
-        report_pos = stdout.find("## Exploration Report")
-        if report_pos != -1:
-            report_block = stdout[report_pos:].strip()
+        # Outcome 1: Exploration Findings
+        findings_pos = stdout.find("## Exploration Findings")
+        if findings_pos != -1:
+            findings_block = stdout[findings_pos:].strip()
+            rec_match = re.search(
+                r"###\s*Recommendation\s*\n+\s*(\S+)",
+                findings_block,
+            )
+            recommendation = rec_match.group(1).strip() if rec_match else ""
+
+            if recommendation in ("close_documented", "close_wont_do"):
+                _run(
+                    ["gh", "issue", "comment", str(issue_number),
+                     "--repo", REPO,
+                     "--body", f"## Exploration findings\n\n{findings_block}\n\n---\n_Closed by `cai explore`._"],
+                    capture_output=True,
+                )
+                _run(
+                    ["gh", "issue", "close", str(issue_number),
+                     "--repo", REPO],
+                    capture_output=True,
+                )
+                _set_labels(issue_number, remove=[LABEL_IN_PROGRESS], log_prefix="cai explore")
+                dur = f"{int(time.monotonic() - t0)}s"
+                print(f"[cai explore] #{issue_number} closed ({recommendation}) in {dur}", flush=True)
+                log_run("explore", repo=REPO, issue=issue_number,
+                        duration=dur, result=recommendation, exit=0)
+                return 0
+
+            elif recommendation == "refine_and_retry":
+                original_body = issue.get("body") or "(no body)"
+                quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
+                new_body = (
+                    f"{findings_block}\n\n"
+                    f"---\n\n"
+                    f"> **Original issue text:**\n>\n"
+                    f"{quoted_original}\n"
+                )
+                _run(
+                    ["gh", "issue", "edit", str(issue_number),
+                     "--repo", REPO, "--body", new_body],
+                    capture_output=True,
+                )
+                _set_labels(
+                    issue_number,
+                    add=[LABEL_RAISED],
+                    remove=[LABEL_IN_PROGRESS],
+                    log_prefix="cai explore",
+                )
+                dur = f"{int(time.monotonic() - t0)}s"
+                print(f"[cai explore] #{issue_number} refined-and-retried in {dur}", flush=True)
+                log_run("explore", repo=REPO, issue=issue_number,
+                        duration=dur, result="refine_and_retry", exit=0)
+                return 0
+
+            # Unrecognised recommendation — fall through to no_marker
+
+        # Outcome 2: Refined Issue
+        refined_pos = stdout.find("## Refined Issue")
+        if refined_pos != -1:
+            refined_body = stdout[refined_pos:].strip()
+            original_body = issue.get("body") or "(no body)"
+            quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
+            new_body = (
+                f"{refined_body}\n\n"
+                f"---\n\n"
+                f"> **Original issue text:**\n>\n"
+                f"{quoted_original}\n"
+            )
             _run(
-                ["gh", "issue", "comment", str(issue_number),
-                 "--repo", REPO,
-                 "--body", f"{report_block}\n\n---\n_Posted by `cai explore`. "
-                          f"Reply with your decision to trigger follow-up issue creation._"],
+                ["gh", "issue", "edit", str(issue_number),
+                 "--repo", REPO, "--body", new_body],
                 capture_output=True,
             )
             _set_labels(
                 issue_number,
-                add=[LABEL_EXPLORATION_DONE],
+                add=[LABEL_REFINED],
                 remove=[LABEL_IN_PROGRESS],
                 log_prefix="cai explore",
             )
             dur = f"{int(time.monotonic() - t0)}s"
-            print(f"[cai explore] #{issue_number} report posted, awaiting decision in {dur}", flush=True)
+            print(f"[cai explore] #{issue_number} refined and handed to fix in {dur}", flush=True)
             log_run("explore", repo=REPO, issue=issue_number,
-                    duration=dur, result="report_posted", exit=0)
+                    duration=dur, result="refined", exit=0)
             return 0
 
-        # Outcome 2: Exploration Blocked
+        # Outcome 3: Exploration Blocked
         blocked_pos = stdout.find("## Exploration Blocked")
         if blocked_pos != -1:
             blocked_block = stdout[blocked_pos:].strip()
@@ -7894,7 +7762,7 @@ def cmd_explore(args) -> int:
                     duration=dur, result="blocked", exit=0)
             return 0
 
-        # No recognised marker — rollback.
+        # No recognised marker — rollback to :needs-exploration.
         rollback()
         dur = f"{int(time.monotonic() - t0)}s"
         print(f"[cai explore] #{issue_number} no outcome marker; rolling back in {dur}", flush=True)
@@ -7908,6 +7776,7 @@ def cmd_explore(args) -> int:
         log_run("explore", repo=REPO, issue=issue_number, result="error", exit=1)
         return 1
     finally:
+        _clear_active_job()
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -8035,9 +7904,25 @@ def cmd_cycle(args) -> int:
             except subprocess.CalledProcessError:
                 pass
 
+        # Check for :needs-exploration issues.
+        has_exploration = False
+        if not has_fix_target:
+            try:
+                exploration_issues = _gh_json([
+                    "issue", "list",
+                    "--repo", REPO,
+                    "--label", LABEL_NEEDS_EXPLORATION,
+                    "--state", "open",
+                    "--json", "number",
+                    "--limit", "1",
+                ]) or []
+                has_exploration = len(exploration_issues) > 0
+            except subprocess.CalledProcessError:
+                pass
+
         # Check for :raised issues that still need refining.
         has_raised = False
-        if not has_fix_target and not has_pending_prs and not has_spike:
+        if not has_fix_target and not has_pending_prs and not has_spike and not has_exploration:
             try:
                 raised = _gh_json([
                     "issue", "list",
@@ -8051,7 +7936,7 @@ def cmd_cycle(args) -> int:
             except subprocess.CalledProcessError:
                 pass
 
-        if not has_fix_target and not has_pending_prs and not has_spike and not has_raised:
+        if not has_fix_target and not has_pending_prs and not has_spike and not has_exploration and not has_raised:
             print("[cai cycle] no eligible issues and no pending PRs; exiting loop",
                   flush=True)
             break
@@ -8090,6 +7975,15 @@ def cmd_cycle(args) -> int:
         if not has_fix_target and has_spike:
             rc = _run_step("spike", cmd_spike, args)
             all_results[f"spike.{iteration}"] = rc
+            if rc != 0:
+                had_failure = True
+
+        # Run explore if no fix target but :needs-exploration issues exist.
+        # Explore outcomes feed back: refine_and_retry → :raised,
+        # refined → :refined, blocked → :needs-human, close → done.
+        if not has_fix_target and has_exploration:
+            rc = _run_step("explore", cmd_explore, args)
+            all_results[f"explore.{iteration}"] = rc
             if rc != 0:
                 had_failure = True
 
