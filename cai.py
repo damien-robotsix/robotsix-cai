@@ -3818,6 +3818,67 @@ def cmd_cost_report(args) -> int:
             f"{ts:<20}  {cat:<14}  {ag:<20}  ${cost:>9.4f}  "
             f"{turns:>5}  {in_t:>10}  {out_t:>10}"
         )
+
+    # Last-hour snapshot — cost per agent. Useful for spotting a
+    # runaway subagent right now, independent of the `--days` window.
+    hour_cutoff = datetime.now(timezone.utc).timestamp() - 3600
+    hour_groups: dict[str, dict] = {}
+    hour_total = 0.0
+    hour_calls = 0
+    for r in rows:
+        ts = r.get("ts") or ""
+        try:
+            row_ts = datetime.strptime(
+                ts, "%Y-%m-%dT%H:%M:%SZ",
+            ).replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            continue
+        if row_ts < hour_cutoff:
+            continue
+        try:
+            cost = float(r.get("cost_usd") or 0.0)
+        except (TypeError, ValueError):
+            cost = 0.0
+        in_t = int(r.get("input_tokens") or 0)
+        out_t = int(r.get("output_tokens") or 0)
+        ag = r.get("agent") or "(none)"
+        bucket = hour_groups.setdefault(
+            ag, {"calls": 0, "cost": 0.0, "in": 0, "out": 0},
+        )
+        bucket["calls"] += 1
+        bucket["cost"] += cost
+        bucket["in"] += in_t
+        bucket["out"] += out_t
+        hour_total += cost
+        hour_calls += 1
+
+    print(
+        f"\n--- Last hour snapshot — {hour_calls} invocations, "
+        f"total ${hour_total:.4f} ---\n"
+    )
+    if not hour_groups:
+        print("(no invocations in the last hour)")
+    else:
+        hour_key_width = max(
+            len("agent"), max(len(k) for k in hour_groups),
+        )
+        hour_key_width = max(hour_key_width, 12)
+        hour_header = (
+            f"{'agent':<{hour_key_width}}  {'calls':>6}  {'cost':>10}  "
+            f"{'share':>7}  {'mean':>10}  {'in_tok':>10}  {'out_tok':>10}"
+        )
+        print(hour_header)
+        print("-" * len(hour_header))
+        for key, b in sorted(
+            hour_groups.items(), key=lambda kv: -kv[1]["cost"],
+        ):
+            share = (b["cost"] / hour_total * 100.0) if hour_total else 0.0
+            mean = b["cost"] / b["calls"] if b["calls"] else 0.0
+            print(
+                f"{key:<{hour_key_width}}  {b['calls']:>6}  "
+                f"${b['cost']:>9.4f}  {share:>6.1f}%  "
+                f"${mean:>9.4f}  {b['in']:>10}  {b['out']:>10}"
+            )
     print()
     return 0
 
