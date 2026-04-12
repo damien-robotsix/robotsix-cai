@@ -3027,10 +3027,10 @@ def cmd_revise(args) -> int:
 
             # 3b. Deterministically attempt the rebase onto main.
             #     We always rebase — if main hasn't moved, it's a
-            #     no-op. The unified cai-revise subagent handles both
-            #     conflict resolution AND review-comment addressing
-            #     in one session, so the wrapper doesn't need to
-            #     branch on `needs_rebase` anymore.
+            #     no-op. Depending on what's needed, the wrapper
+            #     routes to: (a) early exit if clean + no comments,
+            #     (b) cai-rebase (haiku) if conflicts + no comments,
+            #     or (c) cai-revise (sonnet) if comments ± conflicts.
             _git(work_dir, "fetch", "origin", "main")
             pre_agent_head = _git(
                 work_dir, "rev-parse", "HEAD", check=False,

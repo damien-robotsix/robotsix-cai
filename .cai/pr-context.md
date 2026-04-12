@@ -80,6 +80,21 @@ Refs: robotsix-cai/robotsix-cai#446
 - `comments` at line 2964 contains only unaddressed comments (filtered by `_select_revise_targets`)
 - `rebase_in_progress` is accurate — set immediately after the rebase attempt with no intervening git ops
 
+## Revision 6 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- cai.py:3028-3033 — updated comment from "unified cai-revise subagent handles both" to three-case routing description matching actual logic
+- .cai-staging/agents/cai-revise.md — updated frontmatter description and opening paragraph to clarify cai-revise is only invoked when there are unaddressed review comments; added explicit note that conflict-only runs go to cai-rebase
+
+### Decisions this revision
+- Kept the safety-net paragraph ("If the rebase was already clean … print a short confirmation sentence and exit") in cai-revise.md — it handles edge cases where all comments are filtered as already-addressed after context analysis
+
+### New gaps / deferred
+- None
+
 ## Revision 4 (2026-04-12)
 
 ### Rebase
