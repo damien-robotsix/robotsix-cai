@@ -135,6 +135,33 @@ on the issue. A human can either close the issue (agreeing with the
 bot), re-label to `:refined` to retry the fix directly, or re-label to
 `:raised` to re-run through the refine step first.
 
+### Filing issues with multi-step plans
+
+When filing an auto-improve issue, you can optionally include a
+`### Plan` section with numbered steps. The fix agent will execute
+the steps **sequentially**, verifying each one before proceeding to
+the next. You can also include a `### Verification` section with
+explicit checks the fix agent should run after each step.
+
+Example of a well-structured multi-step issue:
+
+```markdown
+### Plan
+
+1. Read `src/foo.py` and locate the `process()` function.
+2. Add a null-check for the `data` parameter at the top of `process()`.
+3. Update the docstring to document the new guard.
+
+### Verification
+
+- `process(None)` no longer raises `AttributeError`
+- Docstring mentions the null-check behaviour
+```
+
+Each step should be a distinct, atomic action. If an issue has no
+`### Plan` section, the fix agent uses its standard single-pass
+approach and this guidance does not apply.
+
 ### Audit findings
 
 The `audit` subcommand uses a **separate label namespace** (`audit:*`)
