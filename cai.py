@@ -355,6 +355,21 @@ def _load_cost_log(days: int = 7) -> list[dict]:
     return rows
 
 
+def _row_ts(row: dict) -> float:
+    """Parse a cost-log row's 'ts' field to a Unix timestamp.
+
+    Returns 0.0 on any parse failure so callers can safely compare
+    against numeric boundaries without extra error handling.
+    """
+    ts = row.get("ts") or ""
+    try:
+        return datetime.strptime(
+            ts, "%Y-%m-%dT%H:%M:%SZ",
+        ).replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return 0.0
+
+
 def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
     """Build a markdown cost summary for the cai-audit user message.
 
@@ -6307,6 +6322,386 @@ def cmd_cycle(args) -> int:
     return 1 if failed else 0
 
 
+def cmd_health_report(args) -> int:
+    """Automated pipeline health report with anomaly detection.
+
+    Gathers cost trends, issue throughput, pipeline stalls, and fix
+    quality metrics from existing data sources (_load_cost_log,
+    _gh_json), formats them as GitHub-flavored markdown with
+    traffic-light anomaly indicators, and optionally posts the report
+    as a GitHub issue.
+
+    With --dry-run the report is printed to stdout without posting.
+    """
+    t0 = time.monotonic()
+    now_ts = datetime.now(timezone.utc).timestamp()
+    sections: list[str] = []
+    anomalies: list[str] = []
+
+    # ------------------------------------------------------------------ #
+    # 1. Cost Trends                                                       #
+    # ------------------------------------------------------------------ #
+    cost_status = "🟢"
+    try:
+        rows_14d = _load_cost_log(days=14)
+        boundary = now_ts - 7 * 86400
+        last_7d = [r for r in rows_14d if _row_ts(r) >= boundary]
+        prior_7d = [r for r in rows_14d if _row_ts(r) < boundary]
+
+        def _cost(r: dict) -> float:
+            try:
+                return float(r.get("cost_usd") or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        last_7d_total = sum(_cost(r) for r in last_7d)
+        prior_7d_total = sum(_cost(r) for r in prior_7d)
+
+        if not rows_14d:
+            cost_section_body = "_No cost data available._"
+        elif not prior_7d:
+            cost_section_body = (
+                f"- Last 7d total: **${last_7d_total:.4f}**\n"
+                "- Prior 7d: _Insufficient history (need ≥2 weeks of cost data)_"
+            )
+        else:
+            wow_pct = (
+                ((last_7d_total - prior_7d_total) / prior_7d_total * 100)
+                if prior_7d_total > 0 else 0.0
+            )
+            if prior_7d_total > 0 and last_7d_total > 1.5 * prior_7d_total:
+                cost_status = "🔴"
+                anomalies.append(
+                    f"🔴 **Cost spike**: last-7d ${last_7d_total:.4f} is "
+                    f"{wow_pct:+.1f}% vs prior-7d ${prior_7d_total:.4f}"
+                )
+
+            # Per-agent breakdown
+            def _by_agent(rows: list[dict]) -> dict:
+                agg: dict[str, float] = {}
+                for r in rows:
+                    agent = r.get("agent") or "(none)"
+                    agg[agent] = agg.get(agent, 0.0) + _cost(r)
+                return agg
+
+            last_by_agent = _by_agent(last_7d)
+            prior_by_agent = _by_agent(prior_7d)
+            all_agents = sorted(
+                set(last_by_agent) | set(prior_by_agent),
+                key=lambda a: -last_by_agent.get(a, 0.0),
+            )
+
+            rows_md = []
+            for agent in all_agents:
+                l = last_by_agent.get(agent, 0.0)
+                p = prior_by_agent.get(agent, 0.0)
+                delta = ((l - p) / p * 100) if p > 0 else float("nan")
+                delta_str = f"{delta:+.1f}%" if p > 0 else "n/a"
+                rows_md.append(
+                    f"| `{agent}` | ${l:.4f} | ${p:.4f} | {delta_str} |"
+                )
+
+            agent_table = (
+                "| Agent | Last 7d | Prior 7d | WoW Δ |\n"
+                "|-------|---------|----------|-------|\n"
+                + "\n".join(rows_md)
+            )
+            wow_line = f"{wow_pct:+.1f}%"
+            cost_section_body = (
+                f"- **Last 7d total**: ${last_7d_total:.4f}\n"
+                f"- **Prior 7d total**: ${prior_7d_total:.4f}\n"
+                f"- **WoW Δ**: {wow_line}\n\n"
+                f"{agent_table}"
+            )
+    except Exception as exc:
+        cost_section_body = f"⚠️ Data unavailable ({exc})"
+        cost_status = "🟡"
+
+    sections.append(
+        f"## {cost_status} Cost Trends\n\n{cost_section_body}"
+    )
+
+    # ------------------------------------------------------------------ #
+    # 2. Issue Throughput                                                  #
+    # ------------------------------------------------------------------ #
+    throughput_status = "🟢"
+    label_states = [
+        ("raised", LABEL_RAISED),
+        ("refined", LABEL_REFINED),
+        ("in-progress", LABEL_IN_PROGRESS),
+        ("pr-open", LABEL_PR_OPEN),
+        ("merged", LABEL_MERGED),
+        ("no-action", LABEL_NO_ACTION),
+        ("revising", LABEL_REVISING),
+    ]
+    counts: dict[str, int] = {}
+    try:
+        for name, label in label_states:
+            items = _gh_json(
+                ["issue", "list", "--repo", REPO,
+                 "--label", label, "--state", "open",
+                 "--json", "number", "--limit", "200"]
+            )
+            counts[name] = len(items) if items else 0
+    except Exception as exc:
+        throughput_status = "🟡"
+        counts = {name: -1 for name, _ in label_states}
+
+    header_row = "| " + " | ".join(n for n, _ in label_states) + " |"
+    sep_row = "|" + "|".join("---" for _ in label_states) + "|"
+    val_row = "| " + " | ".join(
+        str(counts.get(n, "?")) for n, _ in label_states
+    ) + " |"
+    throughput_table = "\n".join([header_row, sep_row, val_row])
+
+    sections.append(
+        f"## {throughput_status} Issue Queue\n\n{throughput_table}"
+    )
+
+    # ------------------------------------------------------------------ #
+    # 3. Pipeline Stalls                                                   #
+    # ------------------------------------------------------------------ #
+    stall_status = "🟢"
+    stall_lines: list[str] = []
+
+    def _parse_gh_ts(ts_str: str) -> float:
+        """Parse a GitHub updatedAt/createdAt timestamp to Unix time."""
+        if not ts_str:
+            return 0.0
+        # Strip fractional seconds if present
+        ts_str = ts_str.split(".")[0].rstrip("Z") + "Z"
+        try:
+            return datetime.strptime(
+                ts_str, "%Y-%m-%dT%H:%M:%SZ",
+            ).replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            return 0.0
+
+    # In-progress stalls (>2h since update)
+    try:
+        ip_items = _gh_json(
+            ["issue", "list", "--repo", REPO,
+             "--label", LABEL_IN_PROGRESS, "--state", "open",
+             "--json", "number,title,updatedAt", "--limit", "200"]
+        ) or []
+        stalled_ip = [
+            i for i in ip_items
+            if now_ts - _parse_gh_ts(i.get("updatedAt", "")) > 7200
+        ]
+        if stalled_ip:
+            stall_status = "🟡"
+            shown = stalled_ip[:10]
+            for i in shown:
+                stall_lines.append(
+                    f"- `:in-progress` stall >2h: #{i['number']} {i.get('title', '')[:60]}"
+                )
+            remainder = len(stalled_ip) - len(shown)
+            if remainder > 0:
+                stall_lines.append(f"  _…and {remainder} more_")
+    except Exception as exc:
+        stall_lines.append(f"⚠️ `:in-progress` data unavailable ({exc})")
+
+    # Refined stalls (>5 days since update)
+    try:
+        ref_items = _gh_json(
+            ["issue", "list", "--repo", REPO,
+             "--label", LABEL_REFINED, "--state", "open",
+             "--json", "number,title,updatedAt", "--limit", "200"]
+        ) or []
+        stalled_ref = [
+            i for i in ref_items
+            if now_ts - _parse_gh_ts(i.get("updatedAt", "")) > 5 * 86400
+        ]
+        if stalled_ref:
+            if stall_status == "🟢":
+                stall_status = "🟡"
+            shown = stalled_ref[:10]
+            for i in shown:
+                stall_lines.append(
+                    f"- `:refined` stall >5d: #{i['number']} {i.get('title', '')[:60]}"
+                )
+            remainder = len(stalled_ref) - len(shown)
+            if remainder > 0:
+                stall_lines.append(f"  _…and {remainder} more_")
+    except Exception as exc:
+        stall_lines.append(f"⚠️ `:refined` data unavailable ({exc})")
+
+    # Merged stalls (>14 days since update — confirm not run)
+    try:
+        merged_items = _gh_json(
+            ["issue", "list", "--repo", REPO,
+             "--label", LABEL_MERGED, "--state", "open",
+             "--json", "number,title,updatedAt", "--limit", "200"]
+        ) or []
+        stalled_merged = [
+            i for i in merged_items
+            if now_ts - _parse_gh_ts(i.get("updatedAt", "")) > 14 * 86400
+        ]
+        if len(stalled_merged) > 5:
+            stall_status = "🟡"
+            anomalies.append(
+                f"🟡 **Confirm backlog**: {len(stalled_merged)} issues in "
+                "`:merged` state >14d without confirmation"
+            )
+        if stalled_merged:
+            shown = stalled_merged[:10]
+            for i in shown:
+                stall_lines.append(
+                    f"- `:merged` stall >14d: #{i['number']} {i.get('title', '')[:60]}"
+                )
+            remainder = len(stalled_merged) - len(shown)
+            if remainder > 0:
+                stall_lines.append(f"  _…and {remainder} more_")
+    except Exception as exc:
+        stall_lines.append(f"⚠️ `:merged` data unavailable ({exc})")
+
+    # Complete pipeline stall detection — no PRs opened in >72h?
+    try:
+        all_prs = _gh_json(
+            ["pr", "list", "--repo", REPO, "--state", "all",
+             "--json", "number,createdAt", "--limit", "200"]
+        ) or []
+        recent_prs = [
+            pr for pr in all_prs
+            if now_ts - _parse_gh_ts(pr.get("createdAt", "")) < 72 * 3600
+        ]
+        raised_count = counts.get("raised", 0)
+        refined_count = counts.get("refined", 0)
+        if not recent_prs and (raised_count + refined_count) > 0:
+            stall_status = "🔴"
+            anomalies.append(
+                "🔴 **Pipeline stall**: no PRs opened in the last 72h, "
+                f"but {raised_count + refined_count} issues are queued "
+                "(`:raised` + `:refined`)"
+            )
+            stall_lines.append(
+                "⚠️ No PRs opened in the last 72h — pipeline may be stalled"
+            )
+    except Exception as exc:
+        stall_lines.append(f"⚠️ PR stall check unavailable ({exc})")
+
+    stall_body = "\n".join(stall_lines) if stall_lines else "_No stalls detected._"
+    sections.append(
+        f"## {stall_status} Pipeline Stalls\n\n{stall_body}"
+    )
+
+    # ------------------------------------------------------------------ #
+    # 4. Fix Quality (last 7 days)                                        #
+    # ------------------------------------------------------------------ #
+    quality_status = "🟢"
+    try:
+        prs = _gh_json(
+            ["pr", "list", "--repo", REPO, "--state", "all",
+             "--json", "number,state,mergedAt,closedAt,createdAt",
+             "--limit", "200"]
+        ) or []
+        # Filter to PRs created in the last 7 days
+        recent = [
+            pr for pr in prs
+            if now_ts - _parse_gh_ts(pr.get("createdAt", "")) <= 7 * 86400
+        ]
+        merged_prs = [p for p in recent if p.get("mergedAt")]
+        # gh CLI returns "CLOSED" or "OPEN" (uppercase) for state
+        closed_no_merge = [
+            p for p in recent
+            if p.get("state", "").upper() == "CLOSED" and not p.get("mergedAt")
+        ]
+        open_prs = [
+            p for p in recent
+            if p.get("state", "").upper() == "OPEN"
+        ]
+
+        denom = len(merged_prs) + len(closed_no_merge)
+        if denom > 0:
+            rate = len(merged_prs) / denom * 100
+            rate_str = f"{rate:.1f}%"
+            if rate < 60:
+                quality_status = "🟡"
+                anomalies.append(
+                    f"🟡 **Fix success rate drop**: {rate_str} merge rate "
+                    f"({len(merged_prs)} merged / {denom} resolved)"
+                )
+        else:
+            rate_str = "n/a (no resolved PRs)"
+
+        quality_body = (
+            f"| Merged | Closed w/o merge | Still open | Merge rate |\n"
+            f"|--------|-----------------|------------|------------|\n"
+            f"| {len(merged_prs)} | {len(closed_no_merge)} | {len(open_prs)} | {rate_str} |"
+        )
+    except Exception as exc:
+        quality_body = f"⚠️ Data unavailable ({exc})"
+        quality_status = "🟡"
+
+    sections.append(
+        f"## {quality_status} Fix Quality (last 7d)\n\n{quality_body}"
+    )
+
+    # ------------------------------------------------------------------ #
+    # 5. Assemble the report                                               #
+    # ------------------------------------------------------------------ #
+    overall = "🟢 healthy"
+    if any("🔴" in a for a in anomalies):
+        overall = "🔴 critical"
+    elif any("🟡" in a for a in anomalies):
+        overall = "🟡 warning"
+
+    run_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    if anomalies:
+        anomaly_block = (
+            "### Anomalies\n\n"
+            + "\n".join(f"- {a}" for a in anomalies)
+        )
+    else:
+        anomaly_block = "### Anomalies\n\n_None detected._"
+
+    narrative = (
+        f"Pipeline status as of **{run_date}**: **{overall}**. "
+        f"{len(anomalies)} anomaly(ies) detected across cost, throughput, "
+        f"stalls, and fix quality."
+    )
+
+    report = "\n\n".join(
+        [
+            f"# 🤖 Pipeline Health Report — {run_date}",
+            narrative,
+            anomaly_block,
+        ]
+        + sections
+    )
+
+    # ------------------------------------------------------------------ #
+    # 6. Post or print                                                     #
+    # ------------------------------------------------------------------ #
+    if args.dry_run:
+        print(report)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("health-report", repo=REPO, result="dry-run", duration=dur, exit=0)
+        return 0
+
+    result = _run(
+        ["gh", "issue", "create",
+         "--repo", REPO,
+         "--title", f"Health Report — {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+         "--body", report,
+         "--label", "health-report"],
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        url = result.stdout.strip()
+        print(f"[cai health-report] created report issue: {url}", flush=True)
+    else:
+        print(
+            f"[cai health-report] failed to create issue: {result.stderr}",
+            file=sys.stderr, flush=True,
+        )
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("health-report", repo=REPO, duration=dur, exit=result.returncode)
+    return result.returncode
+
+
 def cmd_test(args) -> int:
     """Run the project test suite."""
     result = _run(
@@ -6368,6 +6763,15 @@ def main() -> int:
         help="Aggregation grouping (default: category)",
     )
 
+    health_parser = sub.add_parser(
+        "health-report",
+        help="Automated pipeline health report with anomaly detection",
+    )
+    health_parser.add_argument(
+        "--dry-run", action="store_true", default=False,
+        help="Print report to stdout without posting a GitHub issue",
+    )
+
     args = parser.parse_args()
 
     auth_rc = check_gh_auth()
@@ -6396,6 +6800,7 @@ def main() -> int:
         "spike": cmd_spike,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
+        "health-report": cmd_health_report,
         "test": cmd_test,
     }
     return handlers[args.command](args)

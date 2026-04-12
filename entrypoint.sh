@@ -48,6 +48,7 @@ CAI_REVIEW_PR_SCHEDULE="${CAI_REVIEW_PR_SCHEDULE:-20 * * * *}"
 CAI_MERGE_SCHEDULE="${CAI_MERGE_SCHEDULE:-35 * * * *}"
 CAI_REFINE_SCHEDULE="${CAI_REFINE_SCHEDULE:-10 * * * *}"
 CAI_SPIKE_SCHEDULE="${CAI_SPIKE_SCHEDULE:-0 */2 * * *}"
+CAI_HEALTH_REPORT_SCHEDULE="${CAI_HEALTH_REPORT_SCHEDULE:-0 7 * * 1}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -68,6 +69,7 @@ $CAI_UPDATE_CHECK_SCHEDULE python /app/cai.py update-check
 $CAI_CONFIRM_SCHEDULE python /app/cai.py confirm
 $CAI_REVIEW_PR_SCHEDULE python /app/cai.py review-pr
 $CAI_MERGE_SCHEDULE python /app/cai.py merge
+$CAI_HEALTH_REPORT_SCHEDULE python /app/cai.py health-report
 CRONTAB
 
 echo "[entrypoint] crontab:"
