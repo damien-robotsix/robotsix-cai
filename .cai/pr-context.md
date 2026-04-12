@@ -1,0 +1,36 @@
+# PR Context Dossier
+Refs: damien-robotsix/robotsix-cai#308
+
+## Files touched
+- cai.py:470-480 — added `plugin_dir`/`plugin_flags` injection in `_run_claude_p` to pass `--plugin-dir` when the plugin directory exists
+- cai.py:1522-1617 — extended `_apply_agent_edit_staging` to also copy `.cai-staging/plugins/` → `.claude/plugins/` using `shutil.copytree(dirs_exist_ok=True)` before the existing cleanup
+- cai.py:915-936 — removed `_fetch_closed_auto_improve_issues` call and `closed_block` variable from `cmd_analyze`; updated surrounding comment to reference the new skill
+- .cai-staging/plugins/cai-skills/.claude-plugin/plugin.json — new plugin manifest (wrapper moves to .claude/plugins/)
+- .cai-staging/plugins/cai-skills/skills/look-up-closed-finding/SKILL.md — new skill definition (wrapper moves to .claude/plugins/)
+- .cai-staging/agents/cai-analyze.md — updated agent: added Bash to tools; removed item 3 (closed issues) from Input format; updated Filter item 3 to use skill:look-up-closed-finding on-demand
+
+## Files read (not touched) that matter
+- .claude/agents/cai-analyze.md — current agent definition, used as base for staged update
+- cai.py (lines 460-490, 905-950, 1505-1590, 2820-2840) — staging mechanism, _run_claude_p, cmd_analyze, cmd_revise
+
+## Key symbols
+- `_run_claude_p` (cai.py:451) — central helper for all `claude -p` invocations; plugin-dir flag injected here
+- `_apply_agent_edit_staging` (cai.py:1522) — now also handles plugin staging at `.cai-staging/plugins/`
+- `_fetch_closed_auto_improve_issues` (cai.py:663) — function kept (not deleted), only call site in `cmd_analyze` removed
+- `skill:look-up-closed-finding` (.claude/plugins/cai-skills/skills/look-up-closed-finding/SKILL.md) — new on-demand skill replacing bulk closed-issues injection
+
+## Design decisions
+- Plugin files written to `.cai-staging/plugins/` (not directly to `.claude/plugins/`) because all `.claude/` writes are blocked by Claude Code's sensitive-file protection in headless mode
+- Extended `_apply_agent_edit_staging` rather than adding a separate function to keep staging cleanup logic in one place
+- `--plugin-dir` uses a relative path `Path(".claude/plugins/cai-skills")` — valid because `_run_claude_p` is called with the repo root as cwd
+- Rejected: writing plugin files directly to `.claude/plugins/` — blocked by headless mode sensitive-file protection
+
+## Out of scope / known gaps
+- `_fetch_closed_auto_improve_issues` and `_closed_issues_block` function definitions left intact (not deleted) per scope guardrails
+- `--plugin-dir` is injected for ALL `claude -p` calls, not just cai-analyze — intentional (future skills may be useful to other agents)
+- No changes to publish.py, fingerprinting, or label lifecycle (ruled out as skill candidates)
+
+## Invariants this change relies on
+- `_run_claude_p` callers use repo root as cwd (so relative plugin path resolves correctly)
+- `shutil.copytree` with `dirs_exist_ok=True` is available (Python 3.8+)
+- The wrapper's `_apply_agent_edit_staging` is called after the fix agent exits in both `cmd_fix` and `cmd_revise`

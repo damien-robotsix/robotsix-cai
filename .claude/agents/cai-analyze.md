@@ -1,7 +1,7 @@
 ---
 name: cai-analyze
 description: Analyze parsed signals from the cai container's own Claude Code session transcripts and raise auto-improve findings for code, prompt, or workflow issues. Read-only — the wrapper publishes findings as GitHub issues after the agent exits.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, Bash
 model: claude-sonnet-4-6
 memory: project
 ---
@@ -75,9 +75,7 @@ You receive the following sections in the user message, in order:
    - `tool_sequence_preview` — first 100 tool calls in sequence
    - `note` (optional) — `"empty transcript"` if there's no data yet
 2. **Currently open auto-improve issues** — number, state label, title
-3. **Previously closed auto-improve issues** (if any) — number,
-   closing timestamp, labels, closing rationale
-4. **Review-PR finding patterns** (if present) — a markdown table
+3. **Review-PR finding patterns** (if present) — a markdown table
    summarising the ripple-effect categories found across recent PR
    reviews (last 30 days), with per-category counts and recent PR
    numbers. Use this to detect recurrent patterns and propose upstream
@@ -133,19 +131,17 @@ Before raising any new finding, check **all three** of the following:
    historical sessions predate the fix. An issue is only considered
    fully resolved once it is **closed**, not when its PR merges.
 
-3. **Previously closed auto-improve issues** — closed issues carry
-   the supervisor's reasoning for closure (the "Closing rationale"
-   field). If your proposed finding overlaps with a closed issue's
-   rationale, do NOT re-raise it. The supervisor has already thought
-   about this signal and decided not to act on it.
-
-   The only exception: you have **concrete new evidence** that the
-   prior reasoning is wrong (for example, a precondition stated in
-   the rationale has changed, or a bug the rationale blamed has
-   been fixed). In that case, output a finding that **explicitly
-   names the prior issue number**, quotes the rationale, and
-   explains what changed. Do not silently re-raise under a fresh
-   slug.
+3. **Previously closed auto-improve issues** — before raising any
+   finding, invoke `skill:look-up-closed-finding` with the finding's
+   key slug or topic as the search query. If the skill returns a
+   closed issue whose rationale overlaps with your proposed finding,
+   do NOT re-raise it — the supervisor has already reasoned through
+   this signal. The only exception: you have **concrete new evidence**
+   that the prior reasoning is wrong (a precondition stated in the
+   rationale has changed, or a bug the rationale blamed has been
+   fixed). In that case, output a finding that **explicitly names the
+   prior issue number**, quotes the rationale, and explains what
+   changed. Do not silently re-raise under a fresh slug.
 
 Only raise findings whose pattern has no related open issue, no
 related closed-issue rationale, and no overlap with your memory.
