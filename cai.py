@@ -152,6 +152,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from publish import ensure_all_labels
+
 
 REPO = "damien-robotsix/robotsix-cai"
 SMOKE_PROMPT = "Say hello in one short sentence."
@@ -8717,6 +8719,8 @@ def main() -> int:
     auth_rc = check_claude_auth()
     if auth_rc != 0:
         return auth_rc
+
+    ensure_all_labels()
 
     handlers = {
         "init": cmd_init,
