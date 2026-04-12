@@ -17,15 +17,18 @@ Subcommands:
                             the highest scorer labelled `auto-improve:
                             refined` or `auto-improve:
                             requested` (audit issues reach fix via
-                            triage relabelling), lock it via the `:in-progress`
-                            label, clone the repo into /tmp, run 3
-                            parallel plan agents to generate candidate
-                            fix plans, run a select agent to pick the
-                            best plan, then run the fix subagent (full
-                            tool permissions) with the selected plan,
-                            and open a PR if the agent produced a diff.
-                            Rolls back the label on empty diff or any
-                            failure.
+                            triage relabelling), run a cheap Haiku
+                            pre-screen to classify the issue; spike/
+                            ambiguous issues are returned to their origin
+                            label without cloning; if actionable, lock it
+                            via the `:in-progress` label, clone the repo
+                            into /tmp, run 3 parallel plan agents to
+                            generate candidate fix plans, run a select
+                            agent to pick the best plan, then run the fix
+                            subagent (full tool permissions) with the
+                            selected plan, and open a PR if the agent
+                            produced a diff. Rolls back the label on
+                            empty diff or any failure.
 
     python cai.py verify    Mechanical, no-LLM. Walk issues with
                             `:pr-open`, find their linked PR by `Refs`
