@@ -1779,7 +1779,7 @@ def _pre_screen_issue_actionability(issue: dict) -> tuple[str, str]:
         # avoids the overhead of an agent file for a call that never needs one.
         proc = _run_claude_p(
             ["claude", "-p", "--model", "claude-haiku-4-5", prompt_text],
-            category="fix/pre-screen",
+            category="fix.pre-screen",
         )
 
         raw = (proc.stdout or "").strip()
