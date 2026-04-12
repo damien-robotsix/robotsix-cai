@@ -25,3 +25,20 @@ Refs: robotsix-cai/robotsix-cai#377
 ## Invariants this change relies on
 - cai-revise already uses haiku delegation pattern — this mirrors proven behavior
 - Sonnet-class agents (cai-fix, cai-refine, cai-revise) produce acceptable quality for planning tasks
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-fix.md:204-208 — updated efficiency item 9 to specify `model="haiku"` for Explore subagents
+- .claude/agents/cai-review-pr.md:141-145 — updated efficiency item 5 to specify `model="haiku"` for Explore subagents
+- .claude/agents/cai-review-docs.md:117-119 — updated efficiency item 3 to specify `model="haiku"` for Explore subagents
+
+### Decisions this revision
+- Applied same haiku optimization pattern to cai-fix, cai-review-pr, cai-review-docs — aligns all agents with cai-plan and cai-revise
+- cai-review-pr and cai-review-docs already run on haiku themselves but guidance still applies when they spawn Explore subagents
+
+### New gaps / deferred
+- None
