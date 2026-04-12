@@ -52,7 +52,7 @@ subprocess with no shared state.
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:raised` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:refined` |
-| `cai.py fix` | `15 * * * *` (hourly :15) | Picks the oldest eligible issue, runs 3 parallel plan agents then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
+| `cai.py fix` | `15 * * * *` (hourly :15) | Scores eligible issues by age, category success rate, and prior fix attempts; picks the highest scorer, runs 3 parallel plan agents then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state; recovers issues whose linked PR was closed without merging (rolls back to `:refined`) or where no linked PR exists (rolls back to `:raised`) |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` and `:no-action` issues, flags stale `:merged` issues for human review, deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
@@ -61,7 +61,7 @@ subprocess with no shared state.
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the refine → fix pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
-| `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
+| `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → re-queued to `:refined` (up to 3 attempts), then escalated to `:needs-human-review` (Sonnet) |
 | `cai.py cycle` | _(startup + manual/on-demand)_ | Runs verify → fix → revise → review-pr → merge → confirm in sequence. The entrypoint runs this once synchronously at `docker compose up -d` so the issue-solving pipeline produces immediate logs; not scheduled via cron (the individual steps have their own cron lines) |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
@@ -109,8 +109,9 @@ action so two concurrent `fix` runs can't pick the same issue.
                   confirm (pattern       confirm (inconclusive
                    absent)                / unsolved)
                         ▼                       ▼
-                  solved (closed)       stays :merged
-                                     (reasoning posted)
+                  solved (closed)    re-queued :refined
+                                     (up to 3 attempts,
+                                      then :needs-human-review)
 ```
 
 `:no-action` means the fix subagent reviewed the issue and decided no
@@ -267,7 +268,7 @@ just-trying-things-out from the terminal would use:
 
 ```bash
 docker compose exec cai python /app/cai.py analyze
-docker compose exec cai python /app/cai.py fix              # oldest eligible
+docker compose exec cai python /app/cai.py fix              # automatic scoring-based selection
 docker compose exec cai python /app/cai.py fix --issue 12   # specific issue
 docker compose exec cai python /app/cai.py review-pr
 docker compose exec cai python /app/cai.py revise
