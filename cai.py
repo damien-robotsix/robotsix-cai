@@ -2771,11 +2771,12 @@ def _select_revise_targets() -> list[dict]:
             continue
 
         # Find the most recent commit date via `gh pr view`.
+        pr_detail = None
         try:
             pr_detail = _gh_json([
                 "pr", "view", str(pr["number"]),
                 "--repo", REPO,
-                "--json", "commits,mergeable,mergeStateStatus",
+                "--json", "commits,mergeable,mergeStateStatus,labels",
             ])
             commits = pr_detail.get("commits", [])
             if commits:
@@ -2784,6 +2785,20 @@ def _select_revise_targets() -> list[dict]:
                 last_commit_date = ""
         except Exception:
             last_commit_date = ""
+
+        # Secondary per-PR label check (issue #432): gh pr list may
+        # return stale label data for recently-modified PRs.  The
+        # per-PR gh pr view call above gives a fresh snapshot.
+        if pr_detail:
+            detail_label_names = {lbl["name"] for lbl in pr_detail.get("labels", [])}
+            if LABEL_PR_NEEDS_HUMAN in detail_label_names:
+                print(
+                    f"[cai revise] PR #{pr['number']}: skipping — "
+                    f"PR has :{LABEL_PR_NEEDS_HUMAN} (fresh per-PR check, "
+                    f"needs human decision)",
+                    flush=True,
+                )
+                continue
 
         if not last_commit_date:
             continue
@@ -2934,10 +2949,16 @@ def _recover_stuck_rebase_prs() -> int:
             continue
 
         # Reset the linked issue back to the eligible-for-fix state.
+        # NOTE: LABEL_MERGE_BLOCKED is intentionally NOT removed here.
+        # If cmd_fix opens a fresh PR for this issue, the revise guard
+        # in _select_revise_targets() must still see merge-blocked until
+        # cmd_merge re-evaluates the new PR and removes it.  cmd_merge
+        # explicitly does NOT skip on merge-blocked, so it will evaluate
+        # the new PR regardless.  Issue #432.
         _set_labels(
             issue_number,
             add=[LABEL_REFINED],
-            remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING],
+            remove=[LABEL_PR_OPEN, LABEL_REVISING],
             log_prefix="cai revise",
         )
         log_run("revise", repo=REPO, pr=pr_number, issue=issue_number,
