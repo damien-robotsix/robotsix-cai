@@ -84,10 +84,12 @@ RUN wget -nv -O /usr/local/bin/supercronic \
 #   - /app/.claude/agent-memory/  → cai_agent_memory  (per-agent
 #                                    durable memory across container
 #                                    restarts; the /app agents
-#                                    read/write it directly, the
-#                                    cloned-worktree agents have it
-#                                    copied in/out by the wrapper
-#                                    around each invocation)
+#                                    read/write it directly, as do
+#                                    the cloned-worktree agents that
+#                                    have memory tracking via the
+#                                    mounted volume; cai-rebase is
+#                                    excluded — it has no memory
+#                                    tracking by design)
 #   - /var/log/cai/               → cai_logs          (run log — one
 #                                    key=value line per cai invocation;
 #                                    named volume avoids host permission

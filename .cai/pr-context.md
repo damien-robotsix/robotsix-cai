@@ -45,6 +45,23 @@ Refs: robotsix-cai/robotsix-cai#446
 ### New gaps / deferred
 - None
 
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- Dockerfile:84-92 — updated cloned-worktree memory comment from "copied in/out by wrapper" to "direct volume access; cai-rebase excluded"
+- docker-compose.yml:76-86 — dropped `rebase` from the memory-tracking agent list; added note that cai-rebase is excluded
+- README.md:481-492 — dropped `rebase` from the memory-tracking agent list; added note that cai-rebase is excluded
+
+### Decisions this revision
+- Qualified all three documentation sites to note cai-rebase is an exception (no `memory: project`, no memory tracking) rather than adding memory tracking to cai-rebase — the design decision to keep it lightweight is intentional
+- Dockerfile comment updated to match docker-compose.yml/README.md wording established in Revision 1
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `comments` at line 2964 contains only unaddressed comments (filtered by `_select_revise_targets`)
 - `rebase_in_progress` is accurate — set immediately after the rebase attempt with no intervening git ops
