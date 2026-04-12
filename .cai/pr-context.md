@@ -63,6 +63,21 @@ Refs: robotsix/robotsix-cai#454
 ### New gaps / deferred
 - None
 
+## Revision 3 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `entrypoint.sh:24` — cycle comment: added `review-docs` between `review-pr` and `merge`
+- `cai.py:122` — module docstring subcommand list: added `review-docs` between `review-pr` and `merge`
+
+### Decisions this revision
+- Both locations are pure documentation; no logic changed
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `_BOT_COMMENT_MARKERS` clean-heading match suppresses revise re-processing; findings heading absence ensures revise acts on docs gaps
 - The `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` prefix (`"## cai docs review"`) is distinct from `"## cai pre-merge review"` — no collision

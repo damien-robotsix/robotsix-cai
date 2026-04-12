@@ -119,7 +119,7 @@ Subcommands:
                             --dry-run to print to stdout without posting.
 
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`verify`, `refine`, `spike`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
+`verify`, `refine`, `spike`, `fix`, `revise`, `review-pr`, `review-docs`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
