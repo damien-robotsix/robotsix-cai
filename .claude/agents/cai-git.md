@@ -48,11 +48,17 @@ git -C <work_dir> add -A
 # Check for staged changes
 git -C <work_dir> diff --cached --stat
 
-# Continue a rebase (with editor suppressed)
-GIT_EDITOR=true git -C <work_dir> -c core.editor=true rebase --continue
+# Continue a rebase (with editor suppressed). The trailing `|| true`
+# is deliberate: `git rebase --continue` exits non-zero whenever the
+# NEXT replayed commit hits a conflict, which is an expected state in
+# the revise loop, not a failure. Without `|| true`, every mid-rebase
+# conflict-hit inflates the Bash error metric (see #382). The caller
+# distinguishes success from mid-rebase-conflict via the rebase-state
+# one-liner below, not via the exit code.
+GIT_EDITOR=true git -C <work_dir> -c core.editor=true rebase --continue || true
 
-# Skip an empty rebase commit
-git -C <work_dir> rebase --skip
+# Skip an empty rebase commit (same `|| true` rationale as --continue)
+git -C <work_dir> rebase --skip || true
 
 # Abort a rebase
 git -C <work_dir> rebase --abort
