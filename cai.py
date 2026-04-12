@@ -1777,14 +1777,16 @@ PLUGIN_STAGING_REL = Path(".cai-staging") / "plugins"
 
 
 def _setup_agent_edit_staging(work_dir: Path) -> Path:
-    """Create the staging directory where the agent writes proposed
-    `.claude/agents/*.md` updates. Idempotent.
+    """Create the staging directories where agents write proposed
+    `.claude/agents/*.md` and `.claude/plugins/` updates. Idempotent.
 
-    Returns the absolute staging directory path so the caller can
+    Returns the absolute agent-staging directory path so the caller can
     pass it to the agent via the user message.
     """
     staging = work_dir / AGENT_EDIT_STAGING_REL
     staging.mkdir(parents=True, exist_ok=True)
+    plugin_staging = work_dir / PLUGIN_STAGING_REL
+    plugin_staging.mkdir(parents=True, exist_ok=True)
     return staging
 
 

@@ -101,3 +101,17 @@ Refs: damien-robotsix/robotsix-cai#308
 
 ### New gaps / deferred
 - None — reviewer finding addressed
+
+## Revision 5 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- cai.py:1779-1792 — updated `_setup_agent_edit_staging` to also create `.cai-staging/plugins/` directory; updated docstring to reflect both staging dirs
+
+### Decisions this revision
+- Added `plugin_staging.mkdir(parents=True, exist_ok=True)` alongside the existing agents staging mkdir — matches documentation stating the wrapper creates both dirs; prevents Write-tool failures when agents try to create plugin files under `.cai-staging/plugins/`
+
+### New gaps / deferred
+- None — all reviewer findings addressed
