@@ -3251,7 +3251,7 @@ def _rollback_stale_in_progress() -> list[dict]:
         except Exception:
             lines = []
         for line in lines:
-            if "[fix]" not in line and "[revise]" not in line:
+            if "[fix]" not in line and "[revise]" not in line and "[spike]" not in line:
                 continue
             # Extract issue number from "issue=<N>"
             m = re.search(r"issue=(\d+)", line)
@@ -3294,9 +3294,17 @@ def _rollback_stale_in_progress() -> list[dict]:
                 # Revising lock: just remove the lock, leave :pr-open.
                 ok = _set_labels(issue_num, remove=[LABEL_REVISING], log_prefix="cai audit")
             else:
-                # In-progress lock: roll back to :refined.
+                # In-progress lock: roll back to the appropriate label.
+                # Check originating label: spike-provenance issues go back to
+                # :needs-spike; audit-raised go back to :audit-raised; all
+                # others go back to :refined.
                 issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-                raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_REFINED
+                if LABEL_AUDIT_RAISED in issue_labels:
+                    raised_label = LABEL_AUDIT_RAISED
+                elif LABEL_NEEDS_SPIKE in issue_labels:
+                    raised_label = LABEL_NEEDS_SPIKE
+                else:
+                    raised_label = LABEL_REFINED
                 ok = _set_labels(
                     issue_num,
                     add=[raised_label],
