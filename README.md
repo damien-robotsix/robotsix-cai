@@ -52,6 +52,7 @@ subprocess with no shared state.
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:raised` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:refined` |
+| `cai.py spike` | `0 */2 * * *` (every 2 hours) | Picks the oldest `:needs-spike` issue and runs the cai-spike agent to investigate unanswered research questions; transitions the issue to closed (findings), `:refined` (actionable plan), or `needs-human-review` (blocked) |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Scores eligible issues by age, category success rate, and prior fix attempts; picks the highest scorer, runs 3 parallel plan agents then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state; recovers issues whose linked PR was closed without merging (rolls back to `:refined`) or where no linked PR exists (rolls back to `:raised`) |
@@ -70,12 +71,12 @@ the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
 `CAI_REFINE_SCHEDULE`, `CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`,
 `CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
 `CAI_AUDIT_TRIAGE_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`,
-`CAI_PROPOSE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`),
+`CAI_PROPOSE_SCHEDULE`, `CAI_SPIKE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. Analysis, audit,
-proposal, refine, and update-check agents are **not** run at startup
-— they wait for their own cron ticks so container restarts don't
-re-trigger token-heavy analysis passes.
+proposal, refine, spike, and update-check agents are **not** run at
+startup — they wait for their own cron ticks so container restarts
+don't re-trigger token-heavy analysis passes.
 
 ### Issue lifecycle
 

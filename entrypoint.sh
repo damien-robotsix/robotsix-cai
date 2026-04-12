@@ -24,9 +24,9 @@
 #    review-pr → merge → confirm) so `docker compose up -d` produces
 #    useful logs immediately rather than waiting for the first cron
 #    tick. Only the issue-solving cycle runs at startup; analysis,
-#    audit, proposal, and update-check agents wait for their cron
-#    ticks so container restarts don't burn tokens re-running them.
-#    spike runs separately since it's not part of the cycle.
+#    audit, proposal, spike, refine, and update-check agents wait for
+#    their cron ticks so container restarts don't burn tokens
+#    re-running them.
 #
 # 3. Exec supercronic as PID 1. supercronic handles SIGTERM gracefully
 #    (lets in-flight tasks finish) and streams child stdout/stderr to
@@ -84,9 +84,6 @@ if gh auth status >/dev/null 2>&1; then
 else
   echo "[entrypoint] gh not yet authenticated; skipping git credential setup"
 fi
-
-echo "[entrypoint] running initial cai.py spike"
-python /app/cai.py spike || echo "[entrypoint] spike exited non-zero; continuing"
 
 echo "[entrypoint] running initial cai.py cycle"
 python /app/cai.py cycle || echo "[entrypoint] cycle exited non-zero; continuing"
