@@ -7,6 +7,7 @@
 #      - analyze:   parse own transcripts, raise findings as issues
 #      - fix:       pick an eligible issue and let the subagent fix it
 #      - refine:    turn human-filed issues into structured plans
+#      - spike:     research/verification spikes for :needs-spike issues
 #      - review-pr: pre-merge consistency review of open PRs
 #      - revise:    iterate on open PRs based on review comments
 #      - verify:    walk pr-open issues and update labels per PR state
@@ -25,6 +26,7 @@
 #    tick. Only the issue-solving cycle runs at startup; analysis,
 #    audit, proposal, and update-check agents wait for their cron
 #    ticks so container restarts don't burn tokens re-running them.
+#    spike runs separately since it's not part of the cycle.
 #
 # 3. Exec supercronic as PID 1. supercronic handles SIGTERM gracefully
 #    (lets in-flight tasks finish) and streams child stdout/stderr to
@@ -45,6 +47,7 @@ CAI_CONFIRM_SCHEDULE="${CAI_CONFIRM_SCHEDULE:-0 2 * * *}"
 CAI_REVIEW_PR_SCHEDULE="${CAI_REVIEW_PR_SCHEDULE:-20 * * * *}"
 CAI_MERGE_SCHEDULE="${CAI_MERGE_SCHEDULE:-35 * * * *}"
 CAI_REFINE_SCHEDULE="${CAI_REFINE_SCHEDULE:-10 * * * *}"
+CAI_SPIKE_SCHEDULE="${CAI_SPIKE_SCHEDULE:-0 */2 * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -53,6 +56,7 @@ cat > "$CRONTAB_PATH" <<CRONTAB
 # Each line is an independent cron entry — add more tasks as new lines.
 $CAI_ANALYZER_SCHEDULE python /app/cai.py analyze
 $CAI_REFINE_SCHEDULE python /app/cai.py refine
+$CAI_SPIKE_SCHEDULE python /app/cai.py spike
 $CAI_FIX_SCHEDULE python /app/cai.py fix
 $CAI_REVISE_SCHEDULE python /app/cai.py revise
 $CAI_VERIFY_SCHEDULE python /app/cai.py verify
@@ -80,6 +84,9 @@ if gh auth status >/dev/null 2>&1; then
 else
   echo "[entrypoint] gh not yet authenticated; skipping git credential setup"
 fi
+
+echo "[entrypoint] running initial cai.py spike"
+python /app/cai.py spike || echo "[entrypoint] spike exited non-zero; continuing"
 
 echo "[entrypoint] running initial cai.py cycle"
 python /app/cai.py cycle || echo "[entrypoint] cycle exited non-zero; continuing"

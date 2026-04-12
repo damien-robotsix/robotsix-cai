@@ -72,6 +72,15 @@ Subcommands:
                             issue body, and transition the label to
                             `auto-improve:refined`.
 
+    python cai.py spike     Pick the oldest issue labelled
+                            `auto-improve:needs-spike`, clone the
+                            repo into /tmp, and run the cai-spike
+                            subagent to investigate the open
+                            research question. Transitions labels
+                            based on the outcome: close (findings),
+                            :refined (refined issue), or
+                            needs-human-review (blocked).
+
     python cai.py code-audit  Weekly source-code consistency audit.
                             Clones the repo read-only, runs a Sonnet
                             agent that checks for cross-file
@@ -98,7 +107,7 @@ Subcommands:
                             the `update-check` namespace.
 
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`verify`, `refine`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
+`verify`, `refine`, `spike`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
 
 The gh auth check is done once per subcommand invocation. We want a
@@ -5991,6 +6000,245 @@ def cmd_refine(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Spike (research / verification)
+# ---------------------------------------------------------------------------
+
+def cmd_spike(args) -> int:
+    """Run the cai-spike agent on the oldest :needs-spike issue."""
+    print("[cai spike] looking for issues to spike", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Find candidates.
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_NEEDS_SPIKE,
+            "--state", "open",
+            "--json", "number,title,body,labels,createdAt,comments",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai spike] gh issue list failed:\n{e.stderr}", file=sys.stderr)
+        log_run("spike", repo=REPO, result="list_failed", exit=1)
+        return 1
+
+    if not issues:
+        print("[cai spike] no :needs-spike issues; nothing to do", flush=True)
+        log_run("spike", repo=REPO, result="no_eligible_issues", exit=0)
+        return 0
+
+    # 2. Pick the oldest.
+    issue = min(issues, key=lambda i: i["createdAt"])
+    issue_number = issue["number"]
+    title = issue["title"]
+    print(f"[cai spike] picked #{issue_number}: {title}", flush=True)
+
+    # 3. Lock: :needs-spike → :in-progress.
+    if not _set_labels(
+        issue_number,
+        add=[LABEL_IN_PROGRESS],
+        remove=[LABEL_NEEDS_SPIKE],
+        log_prefix="cai spike",
+    ):
+        print(f"[cai spike] could not lock #{issue_number}", file=sys.stderr)
+        log_run("spike", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
+        return 1
+
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-spike-{issue_number}-{_uid}")
+
+    def rollback() -> None:
+        _set_labels(
+            issue_number,
+            add=[LABEL_NEEDS_SPIKE],
+            remove=[LABEL_IN_PROGRESS],
+            log_prefix="cai spike",
+        )
+
+    try:
+        if work_dir.exists():
+            shutil.rmtree(work_dir)
+
+        # 4. Clone (no branch needed — spikes don't commit).
+        _run(["gh", "auth", "setup-git"], capture_output=True)
+        clone = _run(
+            ["git", "clone", "--depth", "1",
+             f"https://github.com/{REPO}.git", str(work_dir)],
+            capture_output=True,
+        )
+        if clone.returncode != 0:
+            print(f"[cai spike] git clone failed:\n{clone.stderr}", file=sys.stderr)
+            rollback()
+            log_run("spike", repo=REPO, issue=issue_number, result="clone_failed", exit=1)
+            return 1
+
+        # 5. Build user message and invoke cai-spike.
+        user_message = (
+            _work_directory_block(work_dir)
+            + "\n"
+            + _build_issue_block(issue)
+        )
+        print(f"[cai spike] running cai-spike subagent for {work_dir}", flush=True)
+        result = _run_claude_p(
+            ["claude", "-p", "--agent", "cai-spike",
+             "--dangerously-skip-permissions",
+             "--add-dir", str(work_dir)],
+            category="spike",
+            agent="cai-spike",
+            input=user_message,
+            cwd="/app",
+            timeout=900,  # 15 min cap
+        )
+        if result.stdout:
+            print(result.stdout, flush=True)
+
+        if result.returncode != 0:
+            print(
+                f"[cai spike] subagent failed (exit {result.returncode}):\n"
+                f"{result.stderr}",
+                file=sys.stderr,
+            )
+            rollback()
+            dur = f"{int(time.monotonic() - t0)}s"
+            log_run("spike", repo=REPO, issue=issue_number,
+                    duration=dur, result="agent_failed", exit=result.returncode)
+            return result.returncode
+
+        stdout = result.stdout or ""
+
+        # 6. Parse outcome markers (in priority order).
+
+        # Outcome 1: Spike Findings
+        findings_pos = stdout.find("## Spike Findings")
+        if findings_pos != -1:
+            findings_block = stdout[findings_pos:].strip()
+            # Extract recommendation
+            rec_match = re.search(
+                r"###\s*Recommendation\s*\n+\s*(\S+)",
+                findings_block,
+            )
+            recommendation = rec_match.group(1).strip() if rec_match else ""
+
+            if recommendation in ("close_documented", "close_wont_do"):
+                # Post findings as comment and close
+                _run(
+                    ["gh", "issue", "comment", str(issue_number),
+                     "--repo", REPO,
+                     "--body", f"## Spike findings\n\n{findings_block}\n\n---\n_Closed by `cai spike`._"],
+                    capture_output=True,
+                )
+                _run(
+                    ["gh", "issue", "close", str(issue_number),
+                     "--repo", REPO],
+                    capture_output=True,
+                )
+                _set_labels(issue_number, remove=[LABEL_IN_PROGRESS], log_prefix="cai spike")
+                dur = f"{int(time.monotonic() - t0)}s"
+                print(f"[cai spike] #{issue_number} closed ({recommendation}) in {dur}", flush=True)
+                log_run("spike", repo=REPO, issue=issue_number,
+                        duration=dur, result=recommendation, exit=0)
+                return 0
+
+            elif recommendation == "refine_and_retry":
+                # Update body with findings + original, relabel to :raised
+                original_body = issue.get("body") or "(no body)"
+                quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
+                new_body = (
+                    f"{findings_block}\n\n"
+                    f"---\n\n"
+                    f"> **Original issue text:**\n>\n"
+                    f"{quoted_original}\n"
+                )
+                _run(
+                    ["gh", "issue", "edit", str(issue_number),
+                     "--repo", REPO, "--body", new_body],
+                    capture_output=True,
+                )
+                _set_labels(
+                    issue_number,
+                    add=[LABEL_RAISED],
+                    remove=[LABEL_IN_PROGRESS],
+                    log_prefix="cai spike",
+                )
+                dur = f"{int(time.monotonic() - t0)}s"
+                print(f"[cai spike] #{issue_number} refined-and-retried in {dur}", flush=True)
+                log_run("spike", repo=REPO, issue=issue_number,
+                        duration=dur, result="refine_and_retry", exit=0)
+                return 0
+
+            # Unrecognised recommendation — fall through to no_marker
+
+        # Outcome 2: Refined Issue
+        refined_pos = stdout.find("## Refined Issue")
+        if refined_pos != -1:
+            refined_body = stdout[refined_pos:].strip()
+            original_body = issue.get("body") or "(no body)"
+            quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
+            new_body = (
+                f"{refined_body}\n\n"
+                f"---\n\n"
+                f"> **Original issue text:**\n>\n"
+                f"{quoted_original}\n"
+            )
+            _run(
+                ["gh", "issue", "edit", str(issue_number),
+                 "--repo", REPO, "--body", new_body],
+                capture_output=True,
+            )
+            _set_labels(
+                issue_number,
+                add=[LABEL_REFINED],
+                remove=[LABEL_IN_PROGRESS],
+                log_prefix="cai spike",
+            )
+            dur = f"{int(time.monotonic() - t0)}s"
+            print(f"[cai spike] #{issue_number} refined and handed to fix in {dur}", flush=True)
+            log_run("spike", repo=REPO, issue=issue_number,
+                    duration=dur, result="refined", exit=0)
+            return 0
+
+        # Outcome 3: Spike Blocked
+        blocked_pos = stdout.find("## Spike Blocked")
+        if blocked_pos != -1:
+            blocked_block = stdout[blocked_pos:].strip()
+            _run(
+                ["gh", "issue", "comment", str(issue_number),
+                 "--repo", REPO,
+                 "--body", f"{blocked_block}\n\n---\n_Escalated by `cai spike`._"],
+                capture_output=True,
+            )
+            _set_labels(
+                issue_number,
+                add=[LABEL_PR_NEEDS_HUMAN],
+                remove=[LABEL_IN_PROGRESS],
+                log_prefix="cai spike",
+            )
+            dur = f"{int(time.monotonic() - t0)}s"
+            print(f"[cai spike] #{issue_number} blocked/escalated in {dur}", flush=True)
+            log_run("spike", repo=REPO, issue=issue_number,
+                    duration=dur, result="blocked", exit=0)
+            return 0
+
+        # No recognised marker — rollback to :needs-spike.
+        rollback()
+        dur = f"{int(time.monotonic() - t0)}s"
+        print(f"[cai spike] #{issue_number} no outcome marker; rolling back in {dur}", flush=True)
+        log_run("spike", repo=REPO, issue=issue_number,
+                duration=dur, result="no_marker", exit=0)
+        return 0
+
+    except Exception as exc:
+        print(f"[cai spike] unexpected error: {exc}", file=sys.stderr)
+        rollback()
+        log_run("spike", repo=REPO, issue=issue_number, result="error", exit=1)
+        return 1
+    finally:
+        if work_dir.exists():
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Cycle (full pipeline without analyze)
 # ---------------------------------------------------------------------------
 
@@ -6069,6 +6317,7 @@ def main() -> int:
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
     sub.add_parser("refine", help="Refine human-filed issues into structured plans")
+    sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
     sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
     sub.add_parser("test", help="Run the project test suite")
 
@@ -6114,6 +6363,7 @@ def main() -> int:
         "review-pr": cmd_review_pr,
         "merge": cmd_merge,
         "refine": cmd_refine,
+        "spike": cmd_spike,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
         "test": cmd_test,
