@@ -34,3 +34,17 @@ Refs: robotsix-cai/robotsix-cai#309
 ## Invariants this change relies on
 - Claude Code headless mode (`claude -p --agent`) loads project-root CLAUDE.md (confirmed at v2.1.101)
 - The 4 shared rules are byte-for-byte identical across all 10 agents (verified before extraction)
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-review-docs.md`:111-119 — renamed `## Efficiency guidance` to `## Agent-specific efficiency guidance`, removed shared rules 1 ("Grep before Read") and 2 ("Batch independent Read calls"), kept rule 3 ("Use Agent for broad exploration") renumbered as rule 1
+
+### Decisions this revision
+- Applied same pattern as cai-plan.md and cai-review-pr.md — the dossier noted cai-review-docs.md was "not touched" (scope guardrail: "3-rule condensed version") but reviewer correctly caught that 2 of those 3 rules are shared and should be deduplicated
+
+### New gaps / deferred
+- None
