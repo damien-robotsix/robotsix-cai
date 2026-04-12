@@ -7191,6 +7191,11 @@ def cmd_cycle(args) -> int:
         had_failure = True
 
     # --- Phase 3: fix loop — pick → fix → drain → refine → repeat ------
+    # The loop also handles pr-open issues that need further
+    # revise/review/merge passes, not just new fix targets.
+    drain_only_passes = 0
+    _MAX_DRAIN_ONLY_PASSES = 3  # cap drain-only iterations to avoid infinite loops
+
     while True:
         iteration += 1
         print(f"\n[cai cycle] ---- iteration {iteration} ----", flush=True)
@@ -7198,23 +7203,58 @@ def cmd_cycle(args) -> int:
         # Sync labels before each fix attempt so we see freshly-merged PRs.
         _run_step("verify", cmd_verify, args)
 
-        # Check up front whether there is an issue to fix.
-        if _select_fix_target() is None:
-            print("[cai cycle] no eligible issues; exiting loop", flush=True)
+        has_fix_target = _select_fix_target() is not None
+
+        # Check for pr-open issues that still need drain passes.
+        has_pending_prs = False
+        if not has_fix_target:
+            try:
+                pending = _gh_json([
+                    "issue", "list",
+                    "--repo", REPO,
+                    "--label", LABEL_PR_OPEN,
+                    "--state", "open",
+                    "--json", "number",
+                    "--limit", "1",
+                ]) or []
+                has_pending_prs = len(pending) > 0
+            except subprocess.CalledProcessError:
+                pass
+
+        if not has_fix_target and not has_pending_prs:
+            print("[cai cycle] no eligible issues and no pending PRs; exiting loop",
+                  flush=True)
             break
 
-        rc = _run_step("fix", cmd_fix, args)
-        key = f"fix.{iteration}"
-        all_results[key] = rc
+        if not has_fix_target and has_pending_prs:
+            drain_only_passes += 1
+            if drain_only_passes > _MAX_DRAIN_ONLY_PASSES:
+                print(
+                    f"[cai cycle] {drain_only_passes - 1} drain-only passes with PRs "
+                    "still open; exiting (PRs likely need human attention)",
+                    flush=True,
+                )
+                break
+            print(
+                f"[cai cycle] no fix targets but {len(pending)} PR(s) still open; "
+                f"draining (pass {drain_only_passes}/{_MAX_DRAIN_ONLY_PASSES})",
+                flush=True,
+            )
+        else:
+            drain_only_passes = 0  # reset when we have fix work
 
-        if rc != 0:
-            had_failure = True
-            # fix failed (error) — stop looping.
-            print("[cai cycle] fix step failed; stopping loop", flush=True)
-            break
+        if has_fix_target:
+            rc = _run_step("fix", cmd_fix, args)
+            key = f"fix.{iteration}"
+            all_results[key] = rc
 
-        # Drain the PR that fix just opened (plus any others that
-        # became eligible in the meantime).
+            if rc != 0:
+                had_failure = True
+                # fix failed (error) — stop looping.
+                print("[cai cycle] fix step failed; stopping loop", flush=True)
+                break
+
+        # Drain pending PRs (from fix or pre-existing).
         pr_results = _drain_pending_prs(args)
         for step, step_rc in pr_results.items():
             all_results[f"{step}.{iteration}"] = step_rc
