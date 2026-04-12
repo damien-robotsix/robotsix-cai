@@ -155,7 +155,7 @@ UPDATE_CHECK_MEMORY = Path("/var/log/cai/update-check-memory.md")
 # agents) now read/write this path directly because they're all
 # invoked with `cwd=/app`. The cloned-worktree agents
 # (cai-fix, cai-revise, cai-review-pr, cai-code-audit, cai-propose,
-# cai-propose-review, cai-update-check, cai-plan, cai-select) operate
+# cai-propose-review, cai-update-check, cai-plan, cai-select, cai-git) operate
 # on a clone elsewhere via absolute paths —
 # see `_work_directory_block` for the user-message section that
 # tells them where the clone is.
@@ -1332,10 +1332,9 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
 
     Security boundaries:
 
-      1. Each staged file is matched ONLY against an existing file
-         at `<work_dir>/.claude/agents/<same-name>`. We do not
-         create new agent definitions via this mechanism — staged
-         files with no corresponding target are logged and ignored.
+      1. Each staged file is copied to `<work_dir>/.claude/agents/`
+         using the same basename. If no target exists a new file is
+         created; if one exists it is overwritten.
       2. The staging dir lives entirely inside `work_dir` so escapes
          via `..` are not possible (the wrapper iterates one
          directory level via `iterdir()` and copies whole files).
@@ -1357,13 +1356,10 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
         target = target_dir / staged_file.name
         if not target.exists():
             print(
-                f"[cai] agent edit staging: {staged_file.name} has no "
-                f"corresponding .claude/agents/{staged_file.name} — "
-                f"skipping (we don't create new agent files via this "
-                f"mechanism)",
-                file=sys.stderr,
+                f"[cai] agent edit staging: creating new agent file "
+                f".claude/agents/{staged_file.name}",
+                flush=True,
             )
-            continue
 
         try:
             content = staged_file.read_text()
@@ -1410,7 +1406,7 @@ def _work_directory_block(work_dir: Path) -> str:
 
     All cloned-worktree subagents (cai-fix, cai-revise, cai-review-pr,
     cai-code-audit, cai-propose, cai-propose-review, cai-update-check,
-    cai-plan, cai-select) are invoked with `cwd=/app`
+    cai-plan, cai-select, cai-git) are invoked with `cwd=/app`
     rather than `cwd=<clone>`. This makes their canonical agent
     definition (`/app/.claude/agents/<name>.md`) and per-agent memory
     (`/app/.claude/agent-memory/<name>/`) directly available via
@@ -1476,8 +1472,8 @@ def _work_directory_block(work_dir: Path) -> str:
         "`.claude/agents/<same-name>.md` in the clone, then deletes "
         "the staging directory so it never lands in the PR.\n\n"
         "Rules:\n"
-        "  - Stage only files whose target already exists — we do "
-        "not create new agent definitions via this mechanism.\n"
+        "  - Staged files are copied unconditionally — new agent "
+        "definitions are created if no target exists yet.\n"
         "  - Write the FULL file, not a diff or patch. The wrapper "
         "does an unconditional full-file overwrite.\n"
         "  - Use the same basename as the target "
@@ -2477,7 +2473,7 @@ def cmd_revise(args) -> int:
             pr_diff = diff_result.stdout if diff_result.returncode == 0 else "(could not fetch diff)"
 
             # 5. Build the user message. The system prompt, tool
-            #    allowlist (Bash + edit tools), and hard rules all
+            #    allowlist (Agent + edit tools), and hard rules all
             #    live in `.claude/agents/cai-revise.md`.
             comments_section = "## Unaddressed review comments\n\n"
             if comments:
@@ -2526,11 +2522,10 @@ def cmd_revise(args) -> int:
             #    self-modifications through the staging directory
             #    instead (see _work_directory_block).
             #
-            #    cai-revise has Bash for git rebase ops; the agent
-            #    must use `git -C <work_dir>` for any git operation
-            #    that targets the clone — see the work-directory
-            #    block for guidance and cai-revise.md for the hard
-            #    rule.
+            #    cai-revise delegates git rebase ops to the cai-git
+            #    haiku subagent via the Agent tool instead of running
+            #    git commands directly — see cai-revise.md and the
+            #    cai-git agent definition for details.
             print(
                 f"[cai revise] running cai-revise subagent for {work_dir}",
                 flush=True,
