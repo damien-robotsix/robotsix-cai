@@ -6756,6 +6756,7 @@ def cmd_review_docs(args) -> int:
             agent = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-review-docs",
                  "--permission-mode", "acceptEdits",
+                 "--max-budget-usd", "0.50",
                  "--add-dir", str(work_dir)],
                 category="review-docs",
                 agent="cai-review-docs",

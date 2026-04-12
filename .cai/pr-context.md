@@ -22,8 +22,24 @@ Refs: robotsix/robotsix-cai#461
 - Items 1–4 of efficiency guidance retained — Grep/Glob/batch-Read patterns are still valid and encourage efficient direct tool use
 
 ## Out of scope / known gaps
-- `cai-review-docs` has a similar structure but was deliberately not changed in this PR per scope guardrails
 - Did not change review categories or SHA-idempotency logic
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-review-docs.md`:4 — removed `Agent` from `tools:` frontmatter
+- `.claude/agents/cai-review-docs.md`:14 — removed "and the `Agent` tool" from body description
+- `.claude/agents/cai-review-docs.md`:117-119 — replaced "Use Agent for broad exploration" item 3 with "Batch independent Grep calls" item 3
+- `cai.py`:5987-5989 — added `--max-budget-usd 0.50` to cai-review-docs invocation
+
+### Decisions this revision
+- Applied identical Agent-removal + budget-cap fix to cai-review-docs — same root cause (nested sub-agent turns) as cai-review-pr; reviewer's finding was valid
+
+### New gaps / deferred
+- None
 
 ## Invariants this change relies on
 - `--max-budget-usd` is a valid Claude CLI flag supported by the current claude-code version
