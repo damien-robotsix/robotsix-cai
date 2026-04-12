@@ -765,39 +765,6 @@ def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
     return result
 
 
-def _closed_issues_block(closed: list[dict]) -> str:
-    """Format closed issues + their rationales as a prompt section."""
-    if not closed:
-        return ""
-    lines = [
-        "\n\n## Previously closed auto-improve issues",
-        "",
-        "These auto-improve issues have already been considered and "
-        "closed. Before raising any new finding, check the rationale "
-        "for each closed issue below. If your proposed finding "
-        "overlaps with one of these by topic, do NOT re-raise it — "
-        "the supervisor's reasoning still applies. The only exception: "
-        "you have concrete new evidence that the prior reasoning is "
-        "wrong, in which case raise a finding that explicitly "
-        "references the prior issue number and explains what changed.",
-        "",
-    ]
-    for ci in closed:
-        labels_str = ", ".join(ci["labels"]) if ci["labels"] else "(none)"
-        lines.append(f"### #{ci['number']} — {ci['title']}")
-        lines.append(f"- **Closed:** {ci['closedAt']}")
-        lines.append(f"- **Labels:** {labels_str}")
-        if ci["rationale"]:
-            lines.append(
-                f"- **Closing rationale (@{ci['rationale_author']}):** "
-                f"{ci['rationale']}"
-            )
-        else:
-            lines.append("- **Closing rationale:** (none recorded)")
-        lines.append("")
-    return "\n".join(lines)
-
-
 def _review_pr_pattern_summary() -> str:
     """Read the review-pr pattern log and return a markdown summary block.
 

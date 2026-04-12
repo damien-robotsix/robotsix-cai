@@ -26,7 +26,8 @@ Refs: damien-robotsix/robotsix-cai#308
 - Rejected: writing plugin files directly to `.claude/plugins/` — blocked by headless mode sensitive-file protection
 
 ## Out of scope / known gaps
-- `_fetch_closed_auto_improve_issues` and `_closed_issues_block` function definitions left intact (not deleted) per scope guardrails
+- `_fetch_closed_auto_improve_issues` function definition left intact (not deleted) per scope guardrails; still called at line 4040
+- `_closed_issues_block` removed in Revision 3 (orphaned dead code — its only call site in `cmd_analyze` was removed by the initial commit)
 - `--plugin-dir` is injected for ALL `claude -p` calls, not just cai-analyze — intentional (future skills may be useful to other agents)
 - No changes to publish.py, fingerprinting, or label lifecycle (ruled out as skill candidates)
 
@@ -66,3 +67,21 @@ Refs: damien-robotsix/robotsix-cai#308
 
 ### New gaps / deferred
 - None — reviewer finding addressed
+
+## Revision 3 (2026-04-12)
+
+### Rebase
+- resolved: cai.py — conflict between main's new "Multi-step issue helpers" section and PR commit updating the staging comment title; kept both (all helper functions + updated title)
+
+### Files touched this revision
+- cai.py:768-799 — deleted orphaned `_closed_issues_block()` function (only call site was removed in initial commit; dead code)
+- .cai-staging/plugins/cai-skills/.claude-plugin/plugin.json — created plugin manifest (wrapper moves to .claude/plugins/)
+- .cai-staging/plugins/cai-skills/skills/look-up-closed-finding/SKILL.md — created skill definition (wrapper moves to .claude/plugins/)
+
+### Decisions this revision
+- Deleted `_closed_issues_block` per reviewer request; scope guardrails said not to delete `_fetch_closed_auto_improve_issues` (still called elsewhere), but `_closed_issues_block` had no remaining callers
+- Plugin files created in `.cai-staging/plugins/` (wrapper applies to `.claude/plugins/` after session); this is the correct flow for agent sessions
+- Finding 3 (cross_cutting_ref) was already resolved — `.claude/agents/cai-analyze.md` in the clone has `skill:look-up-closed-finding` reference at line 135; no changes needed
+
+### New gaps / deferred
+- None — all three reviewer findings addressed
