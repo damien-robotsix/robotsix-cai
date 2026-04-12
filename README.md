@@ -293,13 +293,24 @@ just-trying-things-out from the terminal would use:
 docker compose exec cai python /app/cai.py analyze
 docker compose exec cai python /app/cai.py fix              # automatic scoring-based selection
 docker compose exec cai python /app/cai.py fix --issue 12   # specific issue
-docker compose exec cai python /app/cai.py review-pr
-docker compose exec cai python /app/cai.py review-docs
-docker compose exec cai python /app/cai.py revise
+docker compose exec cai python /app/cai.py review-pr        # automatic queue-based selection
+docker compose exec cai python /app/cai.py review-pr --pr 45  # specific PR
+docker compose exec cai python /app/cai.py review-docs      # automatic queue-based selection
+docker compose exec cai python /app/cai.py review-docs --pr 45  # specific PR
+docker compose exec cai python /app/cai.py revise           # automatic queue-based selection
+docker compose exec cai python /app/cai.py revise --pr 45   # specific PR
 docker compose exec cai python /app/cai.py verify
 docker compose exec cai python /app/cai.py audit
-docker compose exec cai python /app/cai.py confirm
-docker compose exec cai python /app/cai.py merge
+docker compose exec cai python /app/cai.py confirm          # automatic queue-based selection
+docker compose exec cai python /app/cai.py confirm --issue 12  # specific issue
+docker compose exec cai python /app/cai.py merge            # automatic queue-based selection
+docker compose exec cai python /app/cai.py merge --pr 45    # specific PR
+docker compose exec cai python /app/cai.py refine           # automatic queue-based selection
+docker compose exec cai python /app/cai.py refine --issue 12  # specific issue
+docker compose exec cai python /app/cai.py spike            # automatic queue-based selection
+docker compose exec cai python /app/cai.py spike --issue 12   # specific issue
+docker compose exec cai python /app/cai.py explore          # automatic queue-based selection
+docker compose exec cai python /app/cai.py explore --issue 12  # specific issue
 ```
 
 A short alias makes this trivial:
@@ -307,13 +318,16 @@ A short alias makes this trivial:
 ```bash
 alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /app/cai.py'
 cai fix --issue 12
-cai review-pr
-cai review-docs
-cai revise
+cai review-pr --pr 45
+cai review-docs --pr 45
+cai revise --pr 45
 cai verify
 cai audit
-cai confirm
-cai merge
+cai confirm --issue 12
+cai merge --pr 45
+cai refine --issue 12
+cai spike --issue 12
+cai explore --issue 12
 ```
 
 See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
