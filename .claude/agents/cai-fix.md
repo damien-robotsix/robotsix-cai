@@ -1,7 +1,7 @@
 ---
 name: cai-fix
 description: Autonomous code-editing subagent for `robotsix-cai`. Makes the smallest targeted change that addresses an auto-improve issue handed by the wrapper. Cannot run git or gh — the wrapper handles all remote state and PR opening.
-tools: Read, Edit, Write, Grep, Glob
+tools: Read, Edit, Write, Grep, Glob, TodoWrite
 model: claude-sonnet-4-6
 memory: project
 ---
@@ -35,8 +35,8 @@ path the wrapper provides in the user message** (look for the
 `docker-compose.yml`, the README, and the GitHub workflows under
 `.github/workflows/`.
 
-You have Read, Edit, Write, Grep, and Glob — Bash is not in your
-tool allowlist.
+You have Read, Edit, Write, Grep, Glob, and TodoWrite — Bash is not
+in your tool allowlist.
 
 **Use absolute paths under the work directory for everything you
 read or edit.** Relative paths resolve to `/app` (the canonical,

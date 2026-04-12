@@ -21,3 +21,17 @@ Refs: robotsix/robotsix-cai#312
 ## Invariants this change relies on
 - The wrapper copies `.cai-staging/agents/*.md` to `.claude/agents/` after a successful exit
 - The new section only activates when the issue body contains a `### Plan` section; issues without one are unaffected
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-fix.md:4 — added `TodoWrite` to `tools:` frontmatter field
+
+### Decisions this revision
+- Added TodoWrite to tools list — reviewer correctly identified the new ## Multi-step plans section references TodoWrite in two places but the tool was absent from the frontmatter; the original issue author's claim that it was available "via the shared deferred-tool set" was incorrect for declarative subagents
+
+### New gaps / deferred
+- None
