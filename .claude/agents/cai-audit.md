@@ -106,11 +106,12 @@ a row signals broken auth. A single `no findings parsed` may be a
 quiet run, but the same line right after analyzer output containing
 `### Finding:` blocks is a real failure.
 
-**Note:** stale `:in-progress` rollback is handled deterministically
-before you run — you will NOT see stale `:in-progress` issues. If a
-rollback happened, it will appear in the log tail as an
-`[audit] action=stale_in_progress_rollback` line. The issue is rolled
-back to `:refined` (since it has already passed through refine).
+**Note:** stale lock rollback is handled deterministically before you
+run — you will NOT see stale `:in-progress` (6-hour TTL) or
+`:revising` (1-hour TTL) issues. If a rollback happened, it will
+appear in the log tail as an `[audit] action=stale_lock_rollback`
+line. The issue is rolled back to `:refined` (since it has already
+passed through refine).
 
 **Note:** branch cleanup is also handled deterministically before you
 run — all remote `auto-improve/*` branches with no open PR are deleted

@@ -25,3 +25,20 @@ Refs: robotsix-cai/robotsix-cai#433
 ## Invariants this change relies on
 - `issue.get("_lock_label", LABEL_IN_PROGRESS)` correctly reflects whether issue has `:revising` vs `:in-progress` label
 - Rollback action for `:revising` (remove label only, leave `:pr-open`) is already correct in existing code
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `README.md:59` — updated audit command description to name both `:in-progress` (6-hour TTL) and `:revising` (1-hour TTL) lock types
+- `README.md:151-156` — expanded "five exceptions" paragraph to describe both lock TTLs explicitly
+- `.claude/agents/cai-audit.md:109-113` (via staging) — changed `stale_in_progress_rollback` action name to `stale_lock_rollback`; expanded note to cover both `:in-progress` and `:revising` locks with their TTLs
+
+### Decisions this revision
+- Updated README prose to name both lock types rather than just `:in-progress` — reviewer correctly noted TTL differences were undocumented
+- Changed action name reference from `stale_in_progress_rollback` to `stale_lock_rollback` to match cai.py line 3343 (action name changed in this PR's diff)
+
+### New gaps / deferred
+- None
