@@ -203,7 +203,7 @@ defense-in-depth that breaks the spin loop.
 ## Triage the issue before exploring
 
 **Before opening any file or running any search**, answer these
-three questions by reading only the issue body:
+three questions without opening any code files:
 
 1. Does the issue name a **specific file or code path** to change?
 2. Does the remediation describe a **concrete edit** (add/remove/
@@ -403,6 +403,16 @@ The full body of the issue you are working on (including its
 fingerprint, category, evidence, and remediation) is appended to
 the user message as `## Issue` below. Read it carefully before doing
 anything else.
+
+A `## Selected Implementation Plan` section may also precede the
+`## Issue` block when the plan-select pipeline ran successfully.
+If present, it contains a detailed implementation plan selected
+from multiple independently generated candidates. **Read and
+follow this plan** — it has already identified the files, functions,
+and specific edits needed. You should still triage the issue (the
+plan does not exempt you from the triage gate), but once past
+triage, use the plan as your primary guide rather than exploring
+from scratch.
 
 A `## Previous Fix Attempts` section may also follow the issue
 block when earlier closed PRs exist for this issue. If present,
