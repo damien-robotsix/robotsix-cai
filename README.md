@@ -174,8 +174,14 @@ instead of closing it. The `revise` subcommand (default: hourly at
 `:30`) picks up any PR comment posted **after the most recent commit**
 on the branch and feeds it to the revise subagent. It also
 auto-rebases unmergeable PRs onto current main before processing
-comments; if the rebase has conflicts it posts a comment for human
-triage instead.
+comments. Clean rebases with no unaddressed comments are pushed
+automatically with no agent invocation. Rebases with conflicts but
+no unaddressed comments are handled by the lightweight `cai-rebase`
+haiku agent for automatic conflict resolution. Rebases (clean or
+conflicted) with unaddressed comments are handled by `cai-revise`
+which resolves any rebase and addresses the comments in one session.
+If a conflict is genuinely ambiguous, the agent aborts and posts a
+comment for human triage instead.
 
 How it works:
 

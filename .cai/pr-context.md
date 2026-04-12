@@ -62,6 +62,20 @@ Refs: robotsix-cai/robotsix-cai#446
 ### New gaps / deferred
 - None
 
+## Revision 3 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- README.md:176-178 — updated revise workflow description to reflect new routing: clean+no-comments auto-push, conflicts+no-comments → cai-rebase, any-rebase+comments → cai-revise; kept human-triage fallback for ambiguous conflicts
+
+### Decisions this revision
+- Expanded description to three cases (no-op, cai-rebase, cai-revise) as suggested by reviewer
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `comments` at line 2964 contains only unaddressed comments (filtered by `_select_revise_targets`)
 - `rebase_in_progress` is accurate — set immediately after the rebase attempt with no intervening git ops
