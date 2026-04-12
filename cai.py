@@ -22,7 +22,7 @@ Subcommands:
                             ambiguous issues are returned to their origin
                             label without cloning; if actionable, lock it
                             via the `:in-progress` label, clone the repo
-                            into /tmp, run 3 parallel plan agents to
+                            into /tmp, run 2 parallel plan agents to
                             generate candidate fix plans, run a select
                             agent to pick the best plan, then run the fix
                             subagent (full tool permissions) with the
@@ -1380,7 +1380,7 @@ def _build_attempt_history_block(attempts: list[dict]) -> str:
 def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_history_block: str = "") -> str:
     """Run a single cai-plan agent and return its stdout.
 
-    Called in parallel (3×) by _run_plan_select_pipeline.
+    Called in parallel (2×) by _run_plan_select_pipeline.
 
     Runs with `cwd=/app` and `--add-dir <work_dir>` so the agent
     reads its definition from the canonical location while
@@ -1435,20 +1435,20 @@ def _run_select_agent(issue: dict, plans: list[str], work_dir: Path) -> str:
 
 
 def _run_plan_select_pipeline(issue: dict, work_dir: Path, attempt_history_block: str = "") -> str | None:
-    """Run the 3-plan → select pipeline and return the selected plan.
+    """Run the 2-plan → select pipeline and return the selected plan.
 
     Returns the selected plan text to prepend to the fix agent's
     user message, or None if the pipeline fails.
     """
     issue_number = issue["number"]
 
-    # Step 1: Run 3 plan agents in parallel.
-    print(f"[cai fix] running 3 plan agents in parallel for #{issue_number}", flush=True)
-    plans: list[str] = ["", "", ""]
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    # Step 1: Run 2 plan agents in parallel.
+    print(f"[cai fix] running 2 plan agents in parallel for #{issue_number}", flush=True)
+    plans: list[str] = ["", ""]
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {
             pool.submit(_run_plan_agent, issue, i, work_dir, attempt_history_block): i
-            for i in range(1, 4)
+            for i in range(1, 3)
         }
         for future in as_completed(futures):
             idx = futures[future]
@@ -2255,7 +2255,7 @@ def cmd_fix(args) -> int:
                 flush=True,
             )
 
-        # 4c. Run the plan-select pipeline: 3 plan agents in
+        # 4c. Run the plan-select pipeline: 2 plan agents in
         #     parallel, then a select agent picks the best plan.
         #     The selected plan is prepended to the fix agent's
         #     user message so it has a concrete implementation
