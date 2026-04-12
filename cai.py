@@ -3156,6 +3156,7 @@ def cmd_verify(args) -> int:
 # ---------------------------------------------------------------------------
 
 _STALE_IN_PROGRESS_HOURS = 6
+_STALE_REVISING_HOURS = 1
 _STALE_NO_ACTION_DAYS = 7
 _STALE_MERGED_DAYS = 14
 
@@ -3297,11 +3298,13 @@ def _rollback_stale_in_progress() -> list[dict]:
                     pass
 
     now = datetime.now(timezone.utc).timestamp()
-    threshold = _STALE_IN_PROGRESS_HOURS * 3600
     rolled_back = []
 
     for issue in issues:
         issue_num = issue["number"]
+        lock_label = issue.get("_lock_label", LABEL_IN_PROGRESS)
+        ttl_hours = _STALE_REVISING_HOURS if lock_label == LABEL_REVISING else _STALE_IN_PROGRESS_HOURS
+        threshold = ttl_hours * 3600
         last_fix = fix_timestamps.get(issue_num)
         if last_fix is not None:
             age = now - last_fix
@@ -3316,7 +3319,6 @@ def _rollback_stale_in_progress() -> list[dict]:
             age = now - updated
 
         if age > threshold:
-            lock_label = issue.get("_lock_label", LABEL_IN_PROGRESS)
             if lock_label == LABEL_REVISING:
                 # Revising lock: just remove the lock, leave :pr-open.
                 ok = _set_labels(issue_num, remove=[LABEL_REVISING], log_prefix="cai audit")
@@ -3597,7 +3599,7 @@ def cmd_audit(args) -> int:
 
     deterministic_section = ""
     if rolled_back:
-        deterministic_section += "## Stale in-progress rollbacks performed this run\n\n"
+        deterministic_section += "## Stale lock rollbacks performed this run\n\n"
         for rb in rolled_back:
             deterministic_section += f"- #{rb['number']}: {rb['title']}\n"
         deterministic_section += "\n"
