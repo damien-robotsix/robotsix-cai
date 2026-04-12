@@ -46,6 +46,23 @@ Refs: robotsix/robotsix-cai#454
 ### New gaps / deferred
 - None
 
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `README.md:67` — cycle table row pipeline description: added `review-docs` between `review-pr` and `merge`
+- `README.md:290` — ad-hoc docker compose example: added `review-docs` after `review-pr`
+- `README.md:303` — alias convenience example: added `cai review-docs` after `cai review-pr`
+- `README.md:540` — run log description: added `review-docs` to the command list
+
+### Decisions this revision
+- All four stale README locations updated per reviewer findings
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `_BOT_COMMENT_MARKERS` clean-heading match suppresses revise re-processing; findings heading absence ensures revise acts on docs gaps
 - The `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` prefix (`"## cai docs review"`) is distinct from `"## cai pre-merge review"` — no collision
