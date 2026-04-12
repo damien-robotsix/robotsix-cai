@@ -27,3 +27,20 @@ Refs: robotsix/robotsix-cai#424
 ## Invariants this change relies on
 - `_recover_stale_pr_open` is idempotent: if verify already rolled back an issue, audit will not see it with `LABEL_PR_OPEN` and will skip it
 - `_recover_stale_pr_open` already skips issues with `LABEL_IN_PROGRESS` (line 905), so active fix runs are not disrupted
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-audit.md` (via staging) — added **Note:** block after stale_merged_flag note documenting deterministic `:pr-open` recovery before audit runs
+- `README.md:58` — added `:pr-open` recovery to `cai.py audit` table row description
+- `README.md:140` — updated "four exceptions" to "five exceptions", added `:pr-open` recovery sentence to the exceptions paragraph
+
+### Decisions this revision
+- Updated both the table row and the exceptions paragraph in README to keep them consistent with each other
+- Used staging directory for cai-audit.md as required by write-block on `.claude/agents/*.md`
+
+### New gaps / deferred
+- None
