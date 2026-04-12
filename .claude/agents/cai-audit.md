@@ -130,6 +130,13 @@ The PR was merged but confirm has not resolved the issue within the
 threshold — human intervention is needed. These appear in the log as
 `[audit] action=stale_merged_flag`.
 
+**Note:** `:pr-open` issues whose linked PR was closed without merging
+are recovered deterministically before you run — they are transitioned
+back to `:refined` so the fix agent can re-attempt. This recovery
+appears in the log as the `pr_open_recovered` field on the `[audit]`
+log line. You will NOT see these issues as `:pr-open`; they have
+already been rolled back before your context is assembled.
+
 ## Categories
 
 | Category | Description |

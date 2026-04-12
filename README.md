@@ -56,7 +56,7 @@ subprocess with no shared state.
 | `cai.py fix` | `15 * * * *` (hourly :15) | Scores eligible issues by age, category success rate, and prior fix attempts; picks the highest scorer, runs 3 parallel plan agents then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
 | `cai.py verify` | `45 * * * *` (hourly :45) | Mechanical, no LLM. Walks `auto-improve:pr-open` issues and updates labels based on PR merge state; recovers issues whose linked PR was closed without merging (rolls back to `:refined`) or where no linked PR exists (rolls back to `:raised`) |
-| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` and `:no-action` issues, flags stale `:merged` issues for human review, deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
+| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` and `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
 | `cai.py review-pr` | `20 * * * *` (hourly :20) | Pre-merge consistency review of open PRs — posts ripple-effect findings as PR comments so the revise subagent can act on them |
 | `cai.py merge` | `35 * * * *` (hourly :35) | Confidence-gated auto-merge — evaluates each bot PR against its linked issue, posts a verdict, and merges when confidence meets the threshold |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
@@ -147,18 +147,19 @@ first, which relabels eligible ones to `auto-improve:raised` so the
 Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 `prompt_contradiction`, `topic_duplicate`, `silent_failure`.
 
-There are four exceptions to "report-only": stale `:in-progress`
-rollback, stale `:no-action` rollback, stale `:merged` flagging, and
-orphaned-branch cleanup. If an issue has been `:in-progress` for more
-than 6 hours with no recent fix activity in the log, the audit
-subcommand automatically rolls it back to `:refined`. Stale
+There are five exceptions to "report-only": stale `:in-progress`
+rollback, stale `:no-action` rollback, stale `:merged` flagging,
+orphaned-branch cleanup, and `:pr-open` recovery. If an issue has been
+`:in-progress` for more than 6 hours with no recent fix activity in the
+log, the audit subcommand automatically rolls it back to `:refined`. Stale
 `:no-action` issues (7+ days) are rolled back to `:raised` so the `refine`
 agent (and subsequently the fix agent) can retry with new context. Stale `:merged` issues (14+ days)
 are flagged with `needs-human-review` since the automation cannot
 determine whether the fix worked. Additionally, remote `auto-improve/*`
 branches with no open PR — including branches for merged/closed PRs and
 branches pushed by the fix agent that never had a PR opened — are deleted
-automatically.
+automatically. Finally, `:pr-open` issues whose linked PR was closed without
+merging are rolled back to `:refined` so the fix agent can re-attempt.
 
 ### Comment-driven PR iteration
 
