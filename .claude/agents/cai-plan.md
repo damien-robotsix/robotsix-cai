@@ -1,6 +1,6 @@
 ---
 name: cai-plan
-description: Generate a detailed fix plan for an auto-improve issue. Read-only — examines the codebase and produces a structured plan that the fix agent will implement. One of three parallel planners whose output is evaluated by cai-select.
+description: Generate a detailed fix plan for an auto-improve issue. Read-only — examines the codebase and produces a structured plan that the fix agent will implement. One of two parallel planners whose output is evaluated by cai-select.
 tools: Read, Grep, Glob, Agent
 model: claude-opus-4-6
 ---
