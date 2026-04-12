@@ -3036,7 +3036,53 @@ def cmd_revise(args) -> int:
             flush=True,
         )
 
-    targets = _select_revise_targets()
+    if getattr(args, "pr", None) is not None:
+        # Direct targeting: look up the specified PR and build a single-item target list.
+        try:
+            pr_detail = _gh_json([
+                "pr", "view", str(args.pr),
+                "--repo", REPO,
+                "--json", "number,headRefName,comments,labels,commits,mergeable,mergeStateStatus",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[cai revise] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("revise", repo=REPO, pr=args.pr, result="pr_lookup_failed", exit=1)
+            return 1
+        branch = pr_detail.get("headRefName", "")
+        m = re.match(r"^auto-improve/(\d+)-", branch)
+        if not m:
+            print(f"[cai revise] PR #{args.pr} branch '{branch}' is not an auto-improve branch", file=sys.stderr)
+            log_run("revise", repo=REPO, pr=args.pr, result="not_auto_improve", exit=1)
+            return 1
+        issue_number = int(m.group(1))
+        # Collect comments (issue-level + line-by-line review).
+        issue_comments = pr_detail.get("comments", [])
+        line_comments = _fetch_review_comments(pr_detail["number"])
+        all_comments = issue_comments + line_comments
+        # Use commit timestamp to filter unaddressed comments.
+        commits = pr_detail.get("commits", [])
+        if commits:
+            last_commit_date = commits[-1].get("committedDate", "")
+            try:
+                commit_ts = datetime.strptime(
+                    last_commit_date, "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
+            except ValueError:
+                commit_ts = datetime.min.replace(tzinfo=timezone.utc)
+        else:
+            commit_ts = datetime.min.replace(tzinfo=timezone.utc)
+        unaddressed = _filter_unaddressed_comments(all_comments, commit_ts)
+        needs_rebase = pr_detail.get("mergeable") == "CONFLICTING" or \
+            pr_detail.get("mergeStateStatus") == "DIRTY"
+        targets = [{
+            "pr_number": pr_detail["number"],
+            "issue_number": issue_number,
+            "branch": branch,
+            "comments": unaddressed,
+            "needs_rebase": needs_rebase,
+        }]
+    else:
+        targets = _select_revise_targets()
     if not targets:
         print("[cai revise] no PRs need revision; nothing to do", flush=True)
         log_run("revise", repo=REPO, result="no_targets",
@@ -5602,19 +5648,34 @@ def cmd_confirm(args) -> int:
     t0 = time.monotonic()
 
     # 1. Query open :merged issues.
-    try:
-        merged_issues = _gh_json([
-            "issue", "list", "--repo", REPO,
-            "--label", LABEL_MERGED,
-            "--state", "open",
-            "--json", "number,title,body,labels",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(f"[cai confirm] gh issue list failed:\n{e.stderr}", file=sys.stderr)
-        log_run("confirm", repo=REPO, merged_checked=0, solved=0,
-                unsolved=0, inconclusive=0, exit=1)
-        return 1
+    if getattr(args, "issue", None) is not None:
+        # Direct targeting: look up the specified issue.
+        try:
+            target_issue = _gh_json([
+                "issue", "view", str(args.issue),
+                "--repo", REPO,
+                "--json", "number,title,body,labels",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[cai confirm] gh issue view #{args.issue} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("confirm", repo=REPO, merged_checked=0, solved=0,
+                    unsolved=0, inconclusive=0, exit=1)
+            return 1
+        merged_issues = [target_issue]
+    else:
+        try:
+            merged_issues = _gh_json([
+                "issue", "list", "--repo", REPO,
+                "--label", LABEL_MERGED,
+                "--state", "open",
+                "--json", "number,title,body,labels",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(f"[cai confirm] gh issue list failed:\n{e.stderr}", file=sys.stderr)
+            log_run("confirm", repo=REPO, merged_checked=0, solved=0,
+                    unsolved=0, inconclusive=0, exit=1)
+            return 1
 
     if not merged_issues:
         print("[cai confirm] no merged issues; nothing to do", flush=True)
@@ -5916,19 +5977,33 @@ def cmd_review_pr(args) -> int:
     print("[cai review-pr] checking open PRs against main", flush=True)
     t0 = time.monotonic()
 
-    try:
-        prs = _gh_json([
-            "pr", "list",
-            "--repo", REPO,
-            "--state", "open",
-            "--base", "main",
-            "--json", "number,title,author,headRefOid,comments",
-            "--limit", "50",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(f"[cai review-pr] gh pr list failed:\n{e.stderr}", file=sys.stderr)
-        log_run("review_pr", repo=REPO, result="pr_list_failed", exit=1)
-        return 1
+    if getattr(args, "pr", None) is not None:
+        # Direct targeting: look up the specified PR.
+        try:
+            target_pr = _gh_json([
+                "pr", "view", str(args.pr),
+                "--repo", REPO,
+                "--json", "number,title,author,headRefOid,comments",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[cai review-pr] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("review_pr", repo=REPO, result="pr_lookup_failed", exit=1)
+            return 1
+        prs = [target_pr]
+    else:
+        try:
+            prs = _gh_json([
+                "pr", "list",
+                "--repo", REPO,
+                "--state", "open",
+                "--base", "main",
+                "--json", "number,title,author,headRefOid,comments",
+                "--limit", "50",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(f"[cai review-pr] gh pr list failed:\n{e.stderr}", file=sys.stderr)
+            log_run("review_pr", repo=REPO, result="pr_list_failed", exit=1)
+            return 1
 
     if not prs:
         print("[cai review-pr] no open PRs; nothing to do", flush=True)
@@ -6136,19 +6211,33 @@ def cmd_review_docs(args) -> int:
     print("[cai review-docs] checking open PRs against main", flush=True)
     t0 = time.monotonic()
 
-    try:
-        prs = _gh_json([
-            "pr", "list",
-            "--repo", REPO,
-            "--state", "open",
-            "--base", "main",
-            "--json", "number,title,author,headRefOid,comments",
-            "--limit", "50",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(f"[cai review-docs] gh pr list failed:\n{e.stderr}", file=sys.stderr)
-        log_run("review_docs", repo=REPO, result="pr_list_failed", exit=1)
-        return 1
+    if getattr(args, "pr", None) is not None:
+        # Direct targeting: look up the specified PR.
+        try:
+            target_pr = _gh_json([
+                "pr", "view", str(args.pr),
+                "--repo", REPO,
+                "--json", "number,title,author,headRefOid,comments",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[cai review-docs] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("review_docs", repo=REPO, result="pr_lookup_failed", exit=1)
+            return 1
+        prs = [target_pr]
+    else:
+        try:
+            prs = _gh_json([
+                "pr", "list",
+                "--repo", REPO,
+                "--state", "open",
+                "--base", "main",
+                "--json", "number,title,author,headRefOid,comments",
+                "--limit", "50",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(f"[cai review-docs] gh pr list failed:\n{e.stderr}", file=sys.stderr)
+            log_run("review_docs", repo=REPO, result="pr_list_failed", exit=1)
+            return 1
 
     if not prs:
         print("[cai review-docs] no open PRs; nothing to do", flush=True)
@@ -6480,19 +6569,33 @@ def cmd_merge(args) -> int:
     threshold_rank = _CONFIDENCE_RANKS.get(_MERGE_THRESHOLD, _CONFIDENCE_RANKS["high"])
 
     # Fetch open PRs.
-    try:
-        prs = _gh_json([
-            "pr", "list",
-            "--repo", REPO,
-            "--state", "open",
-            "--base", "main",
-            "--json", "number,title,headRefName,headRefOid,comments,mergeable",
-            "--limit", "50",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(f"[cai merge] gh pr list failed:\n{e.stderr}", file=sys.stderr)
-        log_run("merge", repo=REPO, result="pr_list_failed", exit=1)
-        return 1
+    if getattr(args, "pr", None) is not None:
+        # Direct targeting: look up the specified PR.
+        try:
+            target_pr = _gh_json([
+                "pr", "view", str(args.pr),
+                "--repo", REPO,
+                "--json", "number,title,headRefName,headRefOid,comments,mergeable",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[cai merge] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("merge", repo=REPO, result="pr_lookup_failed", exit=1)
+            return 1
+        prs = [target_pr]
+    else:
+        try:
+            prs = _gh_json([
+                "pr", "list",
+                "--repo", REPO,
+                "--state", "open",
+                "--base", "main",
+                "--json", "number,title,headRefName,headRefOid,comments,mergeable",
+                "--limit", "50",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(f"[cai merge] gh pr list failed:\n{e.stderr}", file=sys.stderr)
+            log_run("merge", repo=REPO, result="pr_list_failed", exit=1)
+            return 1
 
     if not prs:
         print("[cai merge] no open PRs; nothing to do", flush=True)
@@ -6945,33 +7048,49 @@ def cmd_refine(args) -> int:
     t0 = time.monotonic()
 
     # 1. Find candidates.
-    try:
-        issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_RAISED,
-            "--state", "open",
-            "--json", "number,title,body,labels,createdAt,comments",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(
-            f"[cai refine] gh issue list failed:\n{e.stderr}",
-            file=sys.stderr,
-        )
-        log_run("refine", repo=REPO, result="list_failed", exit=1)
-        return 1
+    if getattr(args, "issue", None) is not None:
+        # Direct targeting: look up the specified issue.
+        try:
+            issue = _gh_json([
+                "issue", "view", str(args.issue),
+                "--repo", REPO,
+                "--json", "number,title,body,labels,createdAt,comments",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[cai refine] gh issue view #{args.issue} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("refine", repo=REPO, result="issue_lookup_failed", exit=1)
+            return 1
+        issue_number = issue["number"]
+        title = issue["title"]
+        print(f"[cai refine] targeting #{issue_number}: {title}", flush=True)
+    else:
+        try:
+            issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", LABEL_RAISED,
+                "--state", "open",
+                "--json", "number,title,body,labels,createdAt,comments",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(
+                f"[cai refine] gh issue list failed:\n{e.stderr}",
+                file=sys.stderr,
+            )
+            log_run("refine", repo=REPO, result="list_failed", exit=1)
+            return 1
 
-    if not issues:
-        print("[cai refine] no :raised issues; nothing to do", flush=True)
-        log_run("refine", repo=REPO, result="no_eligible_issues", exit=0)
-        return 0
+        if not issues:
+            print("[cai refine] no :raised issues; nothing to do", flush=True)
+            log_run("refine", repo=REPO, result="no_eligible_issues", exit=0)
+            return 0
 
-    # 2. Pick the oldest.
-    issue = min(issues, key=lambda i: i["createdAt"])
-    issue_number = issue["number"]
-    title = issue["title"]
-    print(f"[cai refine] picked #{issue_number}: {title}", flush=True)
+        # 2. Pick the oldest.
+        issue = min(issues, key=lambda i: i["createdAt"])
+        issue_number = issue["number"]
+        title = issue["title"]
+        print(f"[cai refine] picked #{issue_number}: {title}", flush=True)
 
     # 3. Build user message and invoke cai-refine (read-only, no clone needed).
     user_message = _build_issue_block(issue)
@@ -7119,30 +7238,50 @@ def cmd_spike(args) -> int:
     t0 = time.monotonic()
 
     # 1. Find candidates.
-    try:
-        issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_NEEDS_SPIKE,
-            "--state", "open",
-            "--json", "number,title,body,labels,createdAt,comments",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(f"[cai spike] gh issue list failed:\n{e.stderr}", file=sys.stderr)
-        log_run("spike", repo=REPO, result="list_failed", exit=1)
-        return 1
+    if getattr(args, "issue", None) is not None:
+        # Direct targeting: look up the specified issue.
+        try:
+            issue = _gh_json([
+                "issue", "view", str(args.issue),
+                "--repo", REPO,
+                "--json", "number,title,body,labels,createdAt,comments",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[cai spike] gh issue view #{args.issue} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("spike", repo=REPO, result="issue_lookup_failed", exit=1)
+            return 1
+        if issue.get("state", "").upper() == "CLOSED":
+            print(f"[cai spike] issue #{args.issue} is closed; nothing to do", flush=True)
+            log_run("spike", repo=REPO, issue=args.issue, result="not_open", exit=0)
+            return 0
+        issue_number = issue["number"]
+        title = issue["title"]
+        print(f"[cai spike] targeting #{issue_number}: {title}", flush=True)
+    else:
+        try:
+            issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", LABEL_NEEDS_SPIKE,
+                "--state", "open",
+                "--json", "number,title,body,labels,createdAt,comments",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(f"[cai spike] gh issue list failed:\n{e.stderr}", file=sys.stderr)
+            log_run("spike", repo=REPO, result="list_failed", exit=1)
+            return 1
 
-    if not issues:
-        print("[cai spike] no :needs-spike issues; nothing to do", flush=True)
-        log_run("spike", repo=REPO, result="no_eligible_issues", exit=0)
-        return 0
+        if not issues:
+            print("[cai spike] no :needs-spike issues; nothing to do", flush=True)
+            log_run("spike", repo=REPO, result="no_eligible_issues", exit=0)
+            return 0
 
-    # 2. Pick the oldest.
-    issue = min(issues, key=lambda i: i["createdAt"])
-    issue_number = issue["number"]
-    title = issue["title"]
-    print(f"[cai spike] picked #{issue_number}: {title}", flush=True)
+        # 2. Pick the oldest.
+        issue = min(issues, key=lambda i: i["createdAt"])
+        issue_number = issue["number"]
+        title = issue["title"]
+        print(f"[cai spike] picked #{issue_number}: {title}", flush=True)
 
     # 3. Lock: :needs-spike → :in-progress.
     if not _set_labels(
@@ -7564,29 +7703,45 @@ def cmd_explore(args) -> int:
     print("[cai explore] phase 2: looking for :needs-exploration issues", flush=True)
     t0 = time.monotonic()
 
-    try:
-        issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_NEEDS_EXPLORATION,
-            "--state", "open",
-            "--json", "number,title,body,labels,createdAt,comments",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(f"[cai explore] gh issue list failed:\n{e.stderr}", file=sys.stderr)
-        log_run("explore", repo=REPO, result="list_failed", exit=1)
-        return 1
+    if getattr(args, "issue", None) is not None:
+        # Direct targeting: look up the specified issue.
+        try:
+            issue = _gh_json([
+                "issue", "view", str(args.issue),
+                "--repo", REPO,
+                "--json", "number,title,body,labels,createdAt,comments",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[cai explore] gh issue view #{args.issue} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("explore", repo=REPO, result="issue_lookup_failed", exit=1)
+            return 1
+        issue_number = issue["number"]
+        title = issue["title"]
+        print(f"[cai explore] targeting #{issue_number}: {title}", flush=True)
+    else:
+        try:
+            issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", LABEL_NEEDS_EXPLORATION,
+                "--state", "open",
+                "--json", "number,title,body,labels,createdAt,comments",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(f"[cai explore] gh issue list failed:\n{e.stderr}", file=sys.stderr)
+            log_run("explore", repo=REPO, result="list_failed", exit=1)
+            return 1
 
-    if not issues:
-        print("[cai explore] no :needs-exploration issues; nothing to do", flush=True)
-        log_run("explore", repo=REPO, result="no_eligible_issues", exit=0)
-        return 0
+        if not issues:
+            print("[cai explore] no :needs-exploration issues; nothing to do", flush=True)
+            log_run("explore", repo=REPO, result="no_eligible_issues", exit=0)
+            return 0
 
-    issue = min(issues, key=lambda i: i["createdAt"])
-    issue_number = issue["number"]
-    title = issue["title"]
-    print(f"[cai explore] picked #{issue_number}: {title}", flush=True)
+        issue = min(issues, key=lambda i: i["createdAt"])
+        issue_number = issue["number"]
+        title = issue["title"]
+        print(f"[cai explore] picked #{issue_number}: {title}", flush=True)
 
     # Lock: :needs-exploration → :in-progress.
     if not _set_labels(
@@ -8336,7 +8491,11 @@ def main() -> int:
         help="Target a specific issue number instead of using automatic scoring-based selection",
     )
 
-    sub.add_parser("revise", help="Iterate on open PRs based on review comments")
+    revise_parser = sub.add_parser("revise", help="Iterate on open PRs based on review comments")
+    revise_parser.add_argument(
+        "--pr", type=int, default=None,
+        help="Target a specific PR number instead of using queue-based selection",
+    )
     sub.add_parser("verify", help="Update labels based on PR merge state")
     sub.add_parser("audit", help="Run the queue/PR consistency audit")
     sub.add_parser(
@@ -8346,13 +8505,41 @@ def main() -> int:
     sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
     sub.add_parser("propose", help="Weekly creative improvement proposal")
     sub.add_parser("update-check", help="Check Claude Code releases for workspace improvements")
-    sub.add_parser("confirm", help="Verify merged issues are actually solved")
-    sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
-    sub.add_parser("review-docs", help="Pre-merge documentation review of open PRs")
-    sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
-    sub.add_parser("refine", help="Refine human-filed issues into structured plans")
-    sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
-    sub.add_parser("explore", help="Autonomous exploration/benchmarking of :needs-exploration issues")
+    confirm_parser = sub.add_parser("confirm", help="Verify merged issues are actually solved")
+    confirm_parser.add_argument(
+        "--issue", type=int, default=None,
+        help="Target a specific issue number instead of using queue-based selection",
+    )
+    review_pr_parser = sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
+    review_pr_parser.add_argument(
+        "--pr", type=int, default=None,
+        help="Target a specific PR number instead of using queue-based selection",
+    )
+    review_docs_parser = sub.add_parser("review-docs", help="Pre-merge documentation review of open PRs")
+    review_docs_parser.add_argument(
+        "--pr", type=int, default=None,
+        help="Target a specific PR number instead of using queue-based selection",
+    )
+    merge_parser = sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
+    merge_parser.add_argument(
+        "--pr", type=int, default=None,
+        help="Target a specific PR number instead of using queue-based selection",
+    )
+    refine_parser = sub.add_parser("refine", help="Refine human-filed issues into structured plans")
+    refine_parser.add_argument(
+        "--issue", type=int, default=None,
+        help="Target a specific issue number instead of using queue-based selection",
+    )
+    spike_parser = sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
+    spike_parser.add_argument(
+        "--issue", type=int, default=None,
+        help="Target a specific issue number instead of using queue-based selection",
+    )
+    explore_parser = sub.add_parser("explore", help="Autonomous exploration/benchmarking of :needs-exploration issues")
+    explore_parser.add_argument(
+        "--issue", type=int, default=None,
+        help="Target a specific issue number instead of using queue-based selection",
+    )
     sub.add_parser("cost-optimize", help="Weekly cost-reduction proposal or evaluation")
     sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, review-docs, merge, confirm")
     sub.add_parser("test", help="Run the project test suite")
