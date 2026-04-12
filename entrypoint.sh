@@ -19,9 +19,12 @@
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #
-# 2. Do one synchronous pass of init / analyze / refine / fix / review-pr / revise / merge / verify / audit so
-#    `docker compose up -d` produces useful logs immediately rather
-#    than waiting for the first cron tick.
+# 2. Do one synchronous `cai.py cycle` pass (verify → fix → revise →
+#    review-pr → merge → confirm) so `docker compose up -d` produces
+#    useful logs immediately rather than waiting for the first cron
+#    tick. Only the issue-solving cycle runs at startup; analysis,
+#    audit, proposal, and update-check agents wait for their cron
+#    ticks so container restarts don't burn tokens re-running them.
 #
 # 3. Exec supercronic as PID 1. supercronic handles SIGTERM gracefully
 #    (lets in-flight tasks finish) and streams child stdout/stderr to
@@ -78,47 +81,8 @@ else
   echo "[entrypoint] gh not yet authenticated; skipping git credential setup"
 fi
 
-echo "[entrypoint] running initial cai.py init"
-python /app/cai.py init || echo "[entrypoint] init exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py analyze"
-python /app/cai.py analyze || echo "[entrypoint] analyze exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py verify"
-python /app/cai.py verify || echo "[entrypoint] verify exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py refine"
-python /app/cai.py refine || echo "[entrypoint] refine exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py fix"
-python /app/cai.py fix || echo "[entrypoint] fix exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py review-pr"
-python /app/cai.py review-pr || echo "[entrypoint] review-pr exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py revise"
-python /app/cai.py revise || echo "[entrypoint] revise exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py merge"
-python /app/cai.py merge || echo "[entrypoint] merge exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py audit"
-python /app/cai.py audit || echo "[entrypoint] audit exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py audit-triage"
-python /app/cai.py audit-triage || echo "[entrypoint] audit-triage exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py code-audit"
-python /app/cai.py code-audit || echo "[entrypoint] code-audit exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py propose"
-python /app/cai.py propose || echo "[entrypoint] propose exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py update-check"
-python /app/cai.py update-check || echo "[entrypoint] update-check exited non-zero; continuing"
-
-echo "[entrypoint] running initial cai.py confirm"
-python /app/cai.py confirm || echo "[entrypoint] confirm exited non-zero; continuing"
+echo "[entrypoint] running initial cai.py cycle"
+python /app/cai.py cycle || echo "[entrypoint] cycle exited non-zero; continuing"
 
 echo "[entrypoint] handing off to supercronic"
 exec supercronic "$CRONTAB_PATH"

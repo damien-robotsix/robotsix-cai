@@ -62,7 +62,7 @@ subprocess with no shared state.
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the refine → fix pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
-| `cai.py cycle` | _(manual/on-demand)_ | Runs verify → fix → revise → review-pr → merge → confirm in sequence. Convenience wrapper for a full pipeline pass; not included in scheduled or startup runs |
+| `cai.py cycle` | _(startup + manual/on-demand)_ | Runs verify → fix → revise → review-pr → merge → confirm in sequence. The entrypoint runs this once synchronously at `docker compose up -d` so the issue-solving pipeline produces immediate logs; not scheduled via cron (the individual steps have their own cron lines) |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
@@ -70,9 +70,12 @@ the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
 `CAI_REFINE_SCHEDULE`, `CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`,
 `CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
 `CAI_AUDIT_TRIAGE_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`,
-`CAI_PROPOSE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`), runs each
-scheduled subcommand once synchronously so logs show immediate results, then execs
-supercronic. (`cycle` is on-demand only and is not part of scheduled or startup runs.)
+`CAI_PROPOSE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`),
+runs `cai.py cycle` once synchronously so the issue-solving pipeline
+produces immediate logs, then execs supercronic. Analysis, audit,
+proposal, refine, and update-check agents are **not** run at startup
+— they wait for their own cron ticks so container restarts don't
+re-trigger token-heavy analysis passes.
 
 ### Issue lifecycle
 
