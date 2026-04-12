@@ -239,7 +239,15 @@ not git ops).
    Delegate both steps in one cai-git call:
    `Agent(subagent_type="cai-git", prompt="In <work_dir>: (1) run `git -C <work_dir> add -A`, then (2) run `git -C <work_dir> diff --name-only --diff-filter=U` and report whether output is empty.")`
 4. **Decide continue vs skip:** Delegate to cai-git:
-   `Agent(subagent_type="cai-git", prompt="In <work_dir>: (1) run `git -C <work_dir> diff --cached --stat` and report output. (2) If output is non-empty, run `GIT_EDITOR=true git -C <work_dir> -c core.editor=true rebase --continue`. If output is empty (no staged changes), run `git -C <work_dir> rebase --skip`. Report which branch was taken and the output.")`
+   `Agent(subagent_type="cai-git", prompt="In <work_dir>: (1) run `git -C <work_dir> diff --cached --stat` and report output. (2) If output is non-empty, run `GIT_EDITOR=true git -C <work_dir> -c core.editor=true rebase --continue || true`. If output is empty (no staged changes), run `git -C <work_dir> rebase --skip || true`. Report which branch was taken and the output.")`
+   The trailing `|| true` on both rebase commands is deliberate:
+   `git rebase --continue` / `--skip` exits non-zero whenever the
+   NEXT replayed commit hits a conflict — an expected state in this
+   loop, not a failure (step 5 handles it). Without `|| true`, every
+   mid-rebase conflict-hit inflates the Bash error metric tracked in
+   parse.py (see #382 / #323). Success vs mid-rebase-conflict is
+   distinguished via the rebase-state one-liner below, not via the
+   exit code.
 5. **If new conflicts surface** on the next replayed commit, loop
    back to step 1.
 
