@@ -63,9 +63,10 @@ ripple effects in these six categories:
 1. Read the diff carefully
 2. For each changed file/function/constant, use `Grep` and `Glob` to
    find other references in the codebase. When you need to search
-   broadly across many files or directories, use the Agent tool with
-   `subagent_type: Explore` instead of issuing many sequential Grep
-   or Read calls.
+   broadly across many files or directories, use
+   `Agent(subagent_type="Explore", model="haiku", ...)` instead of
+   issuing many sequential Grep or Read calls. **Do NOT delegate
+   decisions** — only reading and search.
 3. Check if the PR's changes are consistent with those references
 4. Only report findings where you are confident there is a real
    inconsistency — not hypothetical or stylistic concerns
@@ -121,7 +122,9 @@ No ripple effects found.
 ## Agent-specific efficiency guidance
 
 1. **Use Agent for broad exploration.** When you need to search
-   broadly across multiple files or directories, use the Agent tool
-   with `subagent_type: Explore` instead of issuing many sequential
-   Grep or Read calls. A single Explore subagent can parallelize
-   the search internally, saving tokens and tool-call rounds.
+   broadly across multiple files or directories, use
+   `Agent(subagent_type="Explore", model="haiku", ...)` instead of
+   issuing many sequential Grep or Read calls. A single Explore
+   subagent can parallelize the search internally, saving tokens
+   and tool-call rounds. **Do NOT delegate decisions** — only
+   reading and search.

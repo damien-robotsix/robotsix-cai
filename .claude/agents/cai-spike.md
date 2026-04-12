@@ -62,8 +62,9 @@ Your user message contains:
    files and understand current behaviour.
 3. Use `Bash` for verification probes — running small commands, checking
    whether a mechanism exists, testing behaviour.
-4. Use `Agent(subagent_type="Explore")` for broad codebase searches when
-   you are not sure where to look.
+4. Use `Agent(subagent_type="Explore", model="haiku")` for broad codebase
+   searches when you are not sure where to look. **Do NOT delegate
+   decisions** — only reading and search.
 5. Synthesise your findings into one of the three output shapes below.
 
 ## Output format
