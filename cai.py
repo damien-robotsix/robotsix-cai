@@ -22,9 +22,10 @@ Subcommands:
                             ambiguous issues are returned to their origin
                             label without cloning; if actionable, lock it
                             via the `:in-progress` label, clone the repo
-                            into /tmp, run 2 parallel plan agents (each
-                            capped at $1.00) to generate candidate fix
-                            plans, run a select
+                            into /tmp, run 2 serial plan agents (each
+                            capped at $1.00; the second sees the first
+                            plan and proposes an alternative) to generate
+                            candidate fix plans, run a select
                             agent to pick the best plan, then run the fix
                             subagent (full tool permissions) with the
                             selected plan, and open a PR if the agent
@@ -139,7 +140,7 @@ import subprocess
 import sys
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -1402,10 +1403,11 @@ def _build_attempt_history_block(attempts: list[dict]) -> str:
     return block
 
 
-def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_history_block: str = "") -> str:
+def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_history_block: str = "", first_plan: str = "") -> str:
     """Run a single cai-plan agent and return its stdout.
 
-    Called in parallel (2×) by _run_plan_select_pipeline.
+    Called serially (2×) by _run_plan_select_pipeline — the second call
+    receives the first plan to produce an alternative approach.
 
     Runs with `cwd=/app` and `--add-dir <work_dir>` so the agent
     reads its definition from the canonical location while
@@ -1420,6 +1422,15 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
         + _build_issue_block(issue)
         + attempt_history_block
     )
+    if first_plan:
+        user_message += (
+            "\n## First Plan (for reference)\n\n"
+            "Another planning agent produced the following plan. "
+            "Your job is to find an **alternative approach** that solves "
+            "the same issue differently. Do NOT repeat the same strategy — "
+            "propose a meaningfully different solution.\n\n"
+            f"{first_plan}\n"
+        )
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-plan",
          "--dangerously-skip-permissions",
@@ -1464,32 +1475,29 @@ def _run_select_agent(issue: dict, plans: list[str], work_dir: Path) -> str:
 
 
 def _run_plan_select_pipeline(issue: dict, work_dir: Path, attempt_history_block: str = "") -> str | None:
-    """Run the 2-plan → select pipeline and return the selected plan.
+    """Run the serial 2-plan → select pipeline and return the selected plan.
+
+    Plan 1 runs first; Plan 2 receives Plan 1's output and is asked
+    to find an alternative approach. The select agent then picks the best.
 
     Returns the selected plan text to prepend to the fix agent's
     user message, or None if the pipeline fails.
     """
     issue_number = issue["number"]
 
-    # Step 1: Run 2 plan agents in parallel (each limited to $1.00 budget).
-    print(f"[cai fix] running 2 plan agents in parallel for #{issue_number}", flush=True)
-    plans: list[str] = ["", ""]
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {
-            pool.submit(_run_plan_agent, issue, i, work_dir, attempt_history_block): i
-            for i in range(1, 3)
-        }
-        for future in as_completed(futures):
-            idx = futures[future]
-            try:
-                plans[idx - 1] = future.result()
-            except Exception as exc:
-                plans[idx - 1] = f"(Plan {idx} raised an exception: {exc!r})"
+    # Step 1: Run Plan 1.
+    print(f"[cai fix] running plan agent 1/2 for #{issue_number}", flush=True)
+    plan1 = _run_plan_agent(issue, 1, work_dir, attempt_history_block)
+    print(f"[cai fix] plan 1: {len(plan1)} chars", flush=True)
 
-    for i, plan in enumerate(plans, 1):
-        print(f"[cai fix] plan {i}: {len(plan)} chars", flush=True)
+    # Step 2: Run Plan 2 with knowledge of Plan 1, asking for an alternative.
+    print(f"[cai fix] running plan agent 2/2 for #{issue_number}", flush=True)
+    plan2 = _run_plan_agent(issue, 2, work_dir, attempt_history_block, first_plan=plan1)
+    print(f"[cai fix] plan 2: {len(plan2)} chars", flush=True)
 
-    # Step 2: Run the select agent to pick the best plan.
+    plans = [plan1, plan2]
+
+    # Step 3: Run the select agent to pick the best plan.
     print(f"[cai fix] running select agent for #{issue_number}", flush=True)
     selection = _run_select_agent(issue, plans, work_dir)
     if not selection.strip():
@@ -2287,8 +2295,9 @@ def cmd_fix(args) -> int:
                 flush=True,
             )
 
-        # 4c. Run the plan-select pipeline: 2 plan agents in
-        #     parallel (each capped at $1.00), then a select agent
+        # 4c. Run the plan-select pipeline: 2 plan agents in serial
+        #     (each capped at $1.00), where the second sees the first's
+        #     output and proposes an alternative. A select agent then
         #     picks the best plan. The selected plan is prepended
         #     to the fix agent's user message so it has a concrete
         #     implementation strategy to follow.
@@ -2331,7 +2340,7 @@ def cmd_fix(args) -> int:
                 + "\n"
                 + "## Selected Implementation Plan\n\n"
                 + "The following plan was selected by the plan-select "
-                + "pipeline from 3 independently generated candidates. "
+                + "pipeline from 2 serially generated candidates. "
                 + "Follow this plan to implement the fix.\n\n"
                 + f"{selected_plan}\n\n"
                 + "---\n\n"

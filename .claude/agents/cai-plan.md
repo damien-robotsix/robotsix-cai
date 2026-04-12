@@ -1,6 +1,6 @@
 ---
 name: cai-plan
-description: Generate a detailed fix plan for an auto-improve issue. Read-only — examines the codebase and produces a structured plan that the fix agent will implement. One of two parallel planners whose output is evaluated by cai-select.
+description: Generate a detailed fix plan for an auto-improve issue. Read-only — examines the codebase and produces a structured plan that the fix agent will implement. First of two serial planners — the second receives this plan and proposes an alternative. Output is evaluated by cai-select.
 tools: Read, Grep, Glob, Agent
 model: claude-opus-4-6
 ---
@@ -46,6 +46,7 @@ The user message contains:
 1. **Work directory** — where the clone lives
 2. **Issue body** — title, description, reviewer comments
 3. **Previous fix attempts** (optional) — summaries of earlier closed PRs for this issue; consult them to avoid repeating approaches that were already rejected
+4. **First plan** (optional) — if present, another planning agent already produced a plan. You must propose a **meaningfully different alternative** approach. Do not repeat the same strategy.
 
 ## How to plan
 
@@ -63,7 +64,7 @@ The user message contains:
 ## Hard rules
 
 1. **Read-only.** Do not modify any files — only read and plan.
-2. **$1.00 budget cap.** Each cai-plan invocation is limited to $1.00 via `--max-budget-usd` to prevent runaway exploration sessions. If the agent approaches or exhausts this budget, it will exit, and the fix pipeline will handle the failure gracefully (one of two parallel plans can still succeed).
+2. **$1.00 budget cap.** Each cai-plan invocation is limited to $1.00 via `--max-budget-usd` to prevent runaway exploration sessions. If the agent approaches or exhausts this budget, it will exit, and the fix pipeline will handle the failure gracefully.
 
 ## Agent-specific efficiency guidance
 

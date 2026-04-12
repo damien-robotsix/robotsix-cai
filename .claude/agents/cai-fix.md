@@ -453,7 +453,7 @@ anything else.
 A `## Selected Implementation Plan` section may also precede the
 `## Issue` block when the plan-select pipeline ran successfully.
 If present, it contains a detailed implementation plan selected
-from multiple independently generated candidates. **Read and
+from 2 serially generated candidates. **Read and
 follow this plan** — it has already identified the files, functions,
 and specific edits needed. You should still triage the issue (the
 plan does not exempt you from the triage gate), but once past
