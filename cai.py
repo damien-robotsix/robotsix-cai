@@ -517,16 +517,18 @@ def _run_claude_p(
     #      JSON array of stream events; the cost data lives on the
     #      element with `"type": "result"`.
     envelope: dict | None = None
+    subagent_results: list[dict] = []
     if isinstance(parsed, dict):
         envelope = parsed
     elif isinstance(parsed, list):
-        envelope = next(
-            (
-                e for e in parsed
-                if isinstance(e, dict) and e.get("type") == "result"
-            ),
-            None,
-        )
+        result_events = [
+            e for e in parsed
+            if isinstance(e, dict) and e.get("type") == "result"
+        ]
+        # The last result event is the parent (top-level) result;
+        # earlier ones are subagent results.
+        envelope = result_events[-1] if result_events else None
+        subagent_results = result_events[:-1] if len(result_events) > 1 else []
 
     if envelope is None:
         # Don't fail the caller, but make the silent-drop loud so a
@@ -557,6 +559,20 @@ def _run_claude_p(
             if isinstance(v, dict) and any(fk in v for fk in flat_keys)
         }
 
+        # -- Subagent token aggregation --
+        subagent_rows: list[dict] = []
+        combined = dict(flat)  # start with parent tokens
+        for sr in subagent_results:
+            sr_usage = sr.get("usage") or {}
+            sr_flat = {k: sr_usage[k] for k in flat_keys if isinstance(sr_usage.get(k), (int, float))}
+            if sr_flat:
+                for k in flat_keys:
+                    if k in sr_flat:
+                        combined[k] = combined.get(k, 0) + sr_flat[k]
+                sr_entry: dict = dict(sr_flat)
+                sr_entry["cost_usd"] = sr.get("total_cost_usd")
+                subagent_rows.append(sr_entry)
+
         row = {
             "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "category": category,
@@ -569,9 +585,14 @@ def _run_claude_p(
             "exit": proc.returncode,
             "is_error": bool(envelope.get("is_error", proc.returncode != 0)),
         }
-        row.update(flat)
+        row.update(combined)
         if models:
             row["models"] = models
+        if subagent_rows:
+            sub_cost_sum = sum(float(s.get("cost_usd") or 0.0) for s in subagent_rows)
+            total = float(envelope.get("total_cost_usd") or 0.0)
+            row["parent_cost_usd"] = round(total - sub_cost_sum, 6)
+            row["subagents"] = subagent_rows
         log_cost(row)
 
         # Rewrite stdout to the result text so existing callers stay
