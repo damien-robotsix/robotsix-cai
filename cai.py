@@ -191,6 +191,8 @@ LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
 LABEL_NEEDS_SPIKE = "auto-improve:needs-spike"
+LABEL_NEEDS_EXPLORATION = "auto-improve:needs-exploration"
+LABEL_EXPLORATION_DONE = "auto-improve:exploration-done"
 LABEL_REFINED = "auto-improve:refined"
 LABEL_REVISING = "auto-improve:revising"
 LABEL_MERGE_BLOCKED = "merge-blocked"
@@ -6293,6 +6295,380 @@ def cmd_spike(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Explore (autonomous exploration / benchmarking)
+# ---------------------------------------------------------------------------
+
+def _find_exploration_report_comment(comments: list[dict]) -> dict | None:
+    """Return the bot comment containing '## Exploration Report', or None."""
+    for c in reversed(comments or []):
+        body = c.get("body", "")
+        if "## Exploration Report" in body:
+            return c
+    return None
+
+
+def _has_human_comment_after(comments: list[dict], bot_comment: dict) -> dict | None:
+    """Return the first human comment posted after *bot_comment*, or None."""
+    bot_time = bot_comment.get("createdAt", "")
+    bot_login = bot_comment.get("author", {}).get("login", "")
+    for c in comments or []:
+        if c.get("createdAt", "") > bot_time:
+            author = c.get("author", {}).get("login", "")
+            if author != bot_login and author != "github-actions[bot]":
+                return c
+    return None
+
+
+def cmd_explore(args) -> int:
+    """Two-phase exploration command.
+
+    Phase 1 (follow-up): check :exploration-done issues for human feedback
+    and create follow-up issues.
+    Phase 2 (exploration): pick up :needs-exploration issues and run the
+    cai-explore agent.
+    """
+    print("[cai explore] starting", flush=True)
+
+    # ------------------------------------------------------------------
+    # Phase 1: Follow-up — check :exploration-done issues for human reply
+    # ------------------------------------------------------------------
+    print("[cai explore] phase 1: checking for human decisions on exploration-done issues", flush=True)
+    try:
+        done_issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_EXPLORATION_DONE,
+            "--state", "open",
+            "--json", "number,title,body,labels,createdAt,comments",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai explore] gh issue list failed:\n{e.stderr}", file=sys.stderr)
+        done_issues = []
+
+    for issue in done_issues:
+        issue_number = issue["number"]
+        comments = issue.get("comments") or []
+
+        report_comment = _find_exploration_report_comment(comments)
+        if not report_comment:
+            continue
+
+        human_reply = _has_human_comment_after(comments, report_comment)
+        if not human_reply:
+            continue
+
+        # Human has replied — parse their decision and create follow-up issues.
+        print(f"[cai explore] #{issue_number}: human replied, creating follow-up issues", flush=True)
+        t0 = time.monotonic()
+
+        _uid = uuid.uuid4().hex[:8]
+        work_dir = Path(f"/tmp/cai-explore-followup-{issue_number}-{_uid}")
+
+        try:
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+
+            _run(["gh", "auth", "setup-git"], capture_output=True)
+            clone = _run(
+                ["git", "clone", "--depth", "1",
+                 f"https://github.com/{REPO}.git", str(work_dir)],
+                capture_output=True,
+            )
+            if clone.returncode != 0:
+                print(f"[cai explore] clone failed for follow-up on #{issue_number}", file=sys.stderr)
+                continue
+
+            human_body = human_reply.get("body", "")
+            human_author = human_reply.get("author", {}).get("login", "unknown")
+            report_body = report_comment.get("body", "")
+
+            user_message = (
+                _work_directory_block(work_dir)
+                + "\n"
+                + _build_issue_block(issue)
+                + "\n## Exploration Report (posted earlier)\n\n"
+                + report_body
+                + f"\n\n## Human Decision\n\n"
+                + f"**{human_author}** replied:\n\n{human_body}\n\n"
+                + "## Your task\n\n"
+                + "Based on the human's decision above, create follow-up issues.\n"
+                + "For each issue to create, emit a block:\n\n"
+                + "```\n"
+                + "## Follow-up Issue\n\n"
+                + "### Title\n<issue title>\n\n"
+                + "### Body\n<issue body in markdown — include problem, plan, "
+                + "verification, scope guardrails, and files likely to touch>\n"
+                + "```\n\n"
+                + "You may emit multiple `## Follow-up Issue` blocks.\n"
+                + "If the human decided no action is needed, emit:\n\n"
+                + "```\n## No Follow-up\n\n<reason>\n```\n"
+            )
+
+            result = _run_claude_p(
+                ["claude", "-p", "--agent", "cai-explore",
+                 "--dangerously-skip-permissions",
+                 "--add-dir", str(work_dir)],
+                category="explore-followup",
+                agent="cai-explore",
+                input=user_message,
+                cwd="/app",
+                timeout=600,  # 10 min for follow-up
+            )
+            if result.stdout:
+                print(result.stdout, flush=True)
+
+            stdout = result.stdout or ""
+
+            # Parse follow-up issues from output.
+            created = 0
+            issue_blocks = re.split(r"(?=## Follow-up Issue\b)", stdout)
+            for block in issue_blocks:
+                if not block.startswith("## Follow-up Issue"):
+                    continue
+                title_match = re.search(r"###\s*Title\s*\n+(.+)", block)
+                body_match = re.search(
+                    r"###\s*Body\s*\n+([\s\S]+?)(?=\n## |\Z)", block,
+                )
+                if not title_match:
+                    continue
+                fu_title = title_match.group(1).strip()
+                fu_body = body_match.group(1).strip() if body_match else ""
+                fu_body += (
+                    f"\n\n---\n"
+                    f"_Created from exploration on #{issue_number}._\n"
+                )
+                labels = ",".join(["auto-improve", LABEL_RAISED])
+                cr = _run(
+                    ["gh", "issue", "create",
+                     "--repo", REPO,
+                     "--title", fu_title,
+                     "--body", fu_body,
+                     "--label", labels],
+                    capture_output=True,
+                )
+                if cr.returncode == 0:
+                    url = cr.stdout.strip()
+                    print(f"[cai explore] created follow-up: {url}", flush=True)
+                    created += 1
+                else:
+                    print(
+                        f"[cai explore] failed to create '{fu_title}': {cr.stderr}",
+                        file=sys.stderr,
+                    )
+
+            # Close the exploration issue.
+            close_body = (
+                f"Exploration complete. Human decision received from @{human_author}.\n\n"
+            )
+            if created:
+                close_body += f"Created {created} follow-up issue(s).\n"
+            else:
+                no_followup_pos = stdout.find("## No Follow-up")
+                if no_followup_pos != -1:
+                    close_body += "Decision: no follow-up needed.\n"
+                else:
+                    close_body += "No follow-up issues were created.\n"
+            close_body += "\n---\n_Closed by `cai explore` (follow-up phase)._"
+
+            _run(
+                ["gh", "issue", "comment", str(issue_number),
+                 "--repo", REPO,
+                 "--body", close_body],
+                capture_output=True,
+            )
+            _run(
+                ["gh", "issue", "close", str(issue_number),
+                 "--repo", REPO],
+                capture_output=True,
+            )
+            _set_labels(
+                issue_number,
+                remove=[LABEL_EXPLORATION_DONE],
+                log_prefix="cai explore",
+            )
+
+            dur = f"{int(time.monotonic() - t0)}s"
+            print(
+                f"[cai explore] #{issue_number} follow-up done "
+                f"({created} issues created) in {dur}",
+                flush=True,
+            )
+            log_run("explore-followup", repo=REPO, issue=issue_number,
+                    duration=dur, issues_created=created, exit=0)
+
+        except Exception as exc:
+            print(f"[cai explore] follow-up error on #{issue_number}: {exc}", file=sys.stderr)
+            log_run("explore-followup", repo=REPO, issue=issue_number, result="error", exit=1)
+        finally:
+            if work_dir.exists():
+                shutil.rmtree(work_dir, ignore_errors=True)
+
+    # ------------------------------------------------------------------
+    # Phase 2: Exploration — run the cai-explore agent on oldest candidate
+    # ------------------------------------------------------------------
+    print("[cai explore] phase 2: looking for :needs-exploration issues", flush=True)
+    t0 = time.monotonic()
+
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_NEEDS_EXPLORATION,
+            "--state", "open",
+            "--json", "number,title,body,labels,createdAt,comments",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai explore] gh issue list failed:\n{e.stderr}", file=sys.stderr)
+        log_run("explore", repo=REPO, result="list_failed", exit=1)
+        return 1
+
+    if not issues:
+        print("[cai explore] no :needs-exploration issues; nothing to do", flush=True)
+        log_run("explore", repo=REPO, result="no_eligible_issues", exit=0)
+        return 0
+
+    issue = min(issues, key=lambda i: i["createdAt"])
+    issue_number = issue["number"]
+    title = issue["title"]
+    print(f"[cai explore] picked #{issue_number}: {title}", flush=True)
+
+    # Lock: :needs-exploration → :in-progress.
+    if not _set_labels(
+        issue_number,
+        add=[LABEL_IN_PROGRESS],
+        remove=[LABEL_NEEDS_EXPLORATION],
+        log_prefix="cai explore",
+    ):
+        print(f"[cai explore] could not lock #{issue_number}", file=sys.stderr)
+        log_run("explore", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
+        return 1
+
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-explore-{issue_number}-{_uid}")
+
+    def rollback() -> None:
+        _set_labels(
+            issue_number,
+            add=[LABEL_NEEDS_EXPLORATION],
+            remove=[LABEL_IN_PROGRESS],
+            log_prefix="cai explore",
+        )
+
+    try:
+        if work_dir.exists():
+            shutil.rmtree(work_dir)
+
+        _run(["gh", "auth", "setup-git"], capture_output=True)
+        clone = _run(
+            ["git", "clone", "--depth", "1",
+             f"https://github.com/{REPO}.git", str(work_dir)],
+            capture_output=True,
+        )
+        if clone.returncode != 0:
+            print(f"[cai explore] git clone failed:\n{clone.stderr}", file=sys.stderr)
+            rollback()
+            log_run("explore", repo=REPO, issue=issue_number, result="clone_failed", exit=1)
+            return 1
+
+        user_message = (
+            _work_directory_block(work_dir)
+            + "\n"
+            + _build_issue_block(issue)
+        )
+        print(f"[cai explore] running cai-explore subagent for {work_dir}", flush=True)
+        result = _run_claude_p(
+            ["claude", "-p", "--agent", "cai-explore",
+             "--dangerously-skip-permissions",
+             "--add-dir", str(work_dir)],
+            category="explore",
+            agent="cai-explore",
+            input=user_message,
+            cwd="/app",
+            timeout=1800,  # 30 min cap
+        )
+        if result.stdout:
+            print(result.stdout, flush=True)
+
+        if result.returncode != 0:
+            print(
+                f"[cai explore] subagent failed (exit {result.returncode}):\n"
+                f"{result.stderr}",
+                file=sys.stderr,
+            )
+            rollback()
+            dur = f"{int(time.monotonic() - t0)}s"
+            log_run("explore", repo=REPO, issue=issue_number,
+                    duration=dur, result="agent_failed", exit=result.returncode)
+            return result.returncode
+
+        stdout = result.stdout or ""
+
+        # Outcome 1: Exploration Report
+        report_pos = stdout.find("## Exploration Report")
+        if report_pos != -1:
+            report_block = stdout[report_pos:].strip()
+            _run(
+                ["gh", "issue", "comment", str(issue_number),
+                 "--repo", REPO,
+                 "--body", f"{report_block}\n\n---\n_Posted by `cai explore`. "
+                          f"Reply with your decision to trigger follow-up issue creation._"],
+                capture_output=True,
+            )
+            _set_labels(
+                issue_number,
+                add=[LABEL_EXPLORATION_DONE],
+                remove=[LABEL_IN_PROGRESS],
+                log_prefix="cai explore",
+            )
+            dur = f"{int(time.monotonic() - t0)}s"
+            print(f"[cai explore] #{issue_number} report posted, awaiting decision in {dur}", flush=True)
+            log_run("explore", repo=REPO, issue=issue_number,
+                    duration=dur, result="report_posted", exit=0)
+            return 0
+
+        # Outcome 2: Exploration Blocked
+        blocked_pos = stdout.find("## Exploration Blocked")
+        if blocked_pos != -1:
+            blocked_block = stdout[blocked_pos:].strip()
+            _run(
+                ["gh", "issue", "comment", str(issue_number),
+                 "--repo", REPO,
+                 "--body", f"{blocked_block}\n\n---\n_Escalated by `cai explore`._"],
+                capture_output=True,
+            )
+            _set_labels(
+                issue_number,
+                add=[LABEL_PR_NEEDS_HUMAN],
+                remove=[LABEL_IN_PROGRESS],
+                log_prefix="cai explore",
+            )
+            dur = f"{int(time.monotonic() - t0)}s"
+            print(f"[cai explore] #{issue_number} blocked/escalated in {dur}", flush=True)
+            log_run("explore", repo=REPO, issue=issue_number,
+                    duration=dur, result="blocked", exit=0)
+            return 0
+
+        # No recognised marker — rollback.
+        rollback()
+        dur = f"{int(time.monotonic() - t0)}s"
+        print(f"[cai explore] #{issue_number} no outcome marker; rolling back in {dur}", flush=True)
+        log_run("explore", repo=REPO, issue=issue_number,
+                duration=dur, result="no_marker", exit=0)
+        return 0
+
+    except Exception as exc:
+        print(f"[cai explore] unexpected error: {exc}", file=sys.stderr)
+        rollback()
+        log_run("explore", repo=REPO, issue=issue_number, result="error", exit=1)
+        return 1
+    finally:
+        if work_dir.exists():
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Cycle (full pipeline without analyze)
 # ---------------------------------------------------------------------------
 
@@ -6752,6 +7128,7 @@ def main() -> int:
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
     sub.add_parser("refine", help="Refine human-filed issues into structured plans")
     sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
+    sub.add_parser("explore", help="Autonomous exploration/benchmarking of :needs-exploration issues")
     sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
     sub.add_parser("test", help="Run the project test suite")
 
@@ -6807,6 +7184,7 @@ def main() -> int:
         "merge": cmd_merge,
         "refine": cmd_refine,
         "spike": cmd_spike,
+        "explore": cmd_explore,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
         "health-report": cmd_health_report,
