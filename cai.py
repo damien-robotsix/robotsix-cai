@@ -8455,6 +8455,117 @@ def cmd_health_report(args) -> int:
     return result.returncode
 
 
+def cmd_check_workflows(args) -> int:
+    """Check GitHub Actions for recent workflow failures and raise findings."""
+    print("[cai check-workflows] running workflow check", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Fetch recent failed runs from GitHub Actions.
+    try:
+        runs = _gh_json([
+            "run", "list",
+            "--repo", REPO,
+            "--status", "failure",
+            "--json", "databaseId,name,headBranch,conclusion,createdAt,url,event,headSha",
+            "--limit", "20",
+        ]) or []
+    except subprocess.CalledProcessError as exc:
+        print(
+            f"[cai check-workflows] gh run list failed: {exc}",
+            file=sys.stderr, flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("check-workflows", repo=REPO, result="gh_failed", duration=dur, exit=1)
+        return 1
+
+    # 2. Filter: last 24 hours only, skip bot branches.
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    recent_runs = []
+    for r in runs:
+        try:
+            created = datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if created < cutoff:
+            continue
+        if r.get("headBranch", "").startswith("auto-improve/"):
+            continue
+        recent_runs.append(r)
+
+    if not recent_runs:
+        dur = f"{int(time.monotonic() - t0)}s"
+        print("[cai check-workflows] no recent failures found", flush=True)
+        log_run("check-workflows", repo=REPO, failures=0, duration=dur, exit=0)
+        return 0
+
+    # 3. Fetch existing open check-workflows issues for dedup context.
+    try:
+        existing = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", "check-workflows",
+            "--state", "open",
+            "--json", "number,title,body",
+            "--limit", "50",
+        ]) or []
+    except subprocess.CalledProcessError:
+        existing = []
+
+    # 4. Build user message.
+    runs_section = "## Recent failed workflow runs\n\n"
+    runs_section += json.dumps(recent_runs, indent=2) + "\n\n"
+
+    existing_section = "## Existing open check-workflows issues\n\n"
+    if existing:
+        for iss in existing:
+            existing_section += f"- #{iss['number']}: {iss['title']}\n"
+            body_snippet = (iss.get("body") or "")[:300]
+            existing_section += f"  Body: {body_snippet}\n"
+    else:
+        existing_section += "(none)\n"
+
+    user_message = runs_section + existing_section
+
+    # 5. Invoke the declared cai-check-workflows agent.
+    print(
+        f"[cai check-workflows] running agent on {len(recent_runs)} failure(s)",
+        flush=True,
+    )
+    agent = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-check-workflows",
+         "--max-turns", "3",
+         "--permission-mode", "acceptEdits"],
+        category="check-workflows",
+        agent="cai-check-workflows",
+        input=user_message,
+        cwd="/app",
+    )
+    if agent.stdout:
+        print(agent.stdout, flush=True)
+    if agent.returncode != 0:
+        print(
+            f"[cai check-workflows] agent failed (exit {agent.returncode}):\n"
+            f"{agent.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("check-workflows", repo=REPO, result="agent_failed",
+                duration=dur, exit=agent.returncode)
+        return agent.returncode
+
+    # 6. Publish findings via publish.py with check-workflows namespace.
+    print("[cai check-workflows] publishing findings", flush=True)
+    published = _run(
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "check-workflows"],
+        input=agent.stdout,
+    )
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("check-workflows", repo=REPO, failures=len(recent_runs),
+            duration=dur, exit=published.returncode)
+    return published.returncode
+
+
 def cmd_test(args) -> int:
     """Run the project test suite."""
     result = _run(
@@ -8531,6 +8642,7 @@ def main() -> int:
         help="Target a specific issue number instead of using queue-based selection",
     )
     sub.add_parser("cost-optimize", help="Weekly cost-reduction proposal or evaluation")
+    sub.add_parser("check-workflows", help="Check GitHub Actions for recent workflow failures and raise findings")
     sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, review-docs, merge, confirm")
     sub.add_parser("test", help="Run the project test suite")
 
@@ -8592,6 +8704,7 @@ def main() -> int:
         "cost-report": cmd_cost_report,
         "health-report": cmd_health_report,
         "cost-optimize": cmd_cost_optimize,
+        "check-workflows": cmd_check_workflows,
         "test": cmd_test,
     }
     return handlers[args.command](args)
