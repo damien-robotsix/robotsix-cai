@@ -1731,6 +1731,75 @@ def _work_directory_block(work_dir: Path) -> str:
     )
 
 
+def _pre_screen_issue_actionability(issue: dict) -> tuple[str, str]:
+    """Cheap Haiku pre-screen to classify an issue before running plan-select.
+
+    Returns a tuple of (verdict, reason) where verdict is one of:
+      "actionable" — proceed to clone + plan-select pipeline
+      "spike"      — issue needs research before code can be written
+      "ambiguous"  — issue is too vague to identify any concrete change
+
+    On any error (network failure, JSON parse error, unexpected format),
+    falls through to ("actionable", "pre-screen error: <msg>") so the
+    pipeline is never blocked.
+    """
+    try:
+        title = issue.get("title", "")
+        body = issue.get("body", "") or ""
+        labels = ", ".join(lbl["name"] for lbl in issue.get("labels", []))
+
+        prompt_text = (
+            "You are a triage classifier for GitHub issues in an automated "
+            "code-improvement pipeline.\n\n"
+            "Given the issue below, classify it as one of:\n"
+            '- "actionable": A concrete code change can be identified. '
+            "This is the DEFAULT — use it when in doubt.\n"
+            '- "spike": The issue clearly requires research, investigation, '
+            "or evaluation before any code can be written. No specific file "
+            "or function is identifiable.\n"
+            '- "ambiguous": The issue is so vague that no file, function, '
+            "or specific change can be identified, AND it does not describe "
+            "a research task.\n\n"
+            "IMPORTANT: Strongly bias toward \"actionable\". Only use "
+            '"spike" or "ambiguous" when you are highly confident. If the '
+            "issue mentions any specific file, function, code pattern, or "
+            'error, classify as "actionable".\n\n'
+            "Respond with ONLY a JSON object (no markdown fencing):\n"
+            '{"verdict": "actionable"|"spike"|"ambiguous", '
+            '"reason": "<one sentence explanation>"}\n\n'
+            "## Issue\n"
+            f"**Title:** {title}\n"
+            f"**Labels:** {labels}\n\n"
+            f"{body}"
+        )
+
+        proc = _run_claude_p(
+            ["claude", "-p", "--model", "claude-haiku-4-5", prompt_text],
+            category="fix/pre-screen",
+        )
+
+        raw = (proc.stdout or "").strip()
+        # Strip markdown code fences if the model ignored the instruction
+        if raw.startswith("```"):
+            raw = raw.removeprefix("```json").removeprefix("```")
+            raw = raw.removesuffix("```").strip()
+
+        parsed = json.loads(raw)
+        verdict = parsed.get("verdict", "actionable")
+        reason = parsed.get("reason", "")
+        if verdict not in ("actionable", "spike", "ambiguous"):
+            return ("actionable", f"unexpected verdict {verdict!r}")
+        return (verdict, reason)
+
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"[cai fix] pre-screen error (falling through to actionable): {e}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return ("actionable", f"pre-screen error: {e}")
+
+
 def cmd_fix(args) -> int:
     """Run the fix subagent against one eligible issue."""
     if getattr(args, "issue", None) is not None:
@@ -1785,6 +1854,49 @@ def cmd_fix(args) -> int:
     # is also done in entrypoint.sh, but redoing it here is cheap and
     # idempotent and lets ad-hoc `docker run` invocations work too.
     _run(["gh", "auth", "setup-git"], capture_output=True)
+
+    # Pre-screen: cheap Haiku call to triage obvious non-actionable issues
+    # before the expensive clone + plan-select pipeline.
+    ps_verdict, ps_reason = _pre_screen_issue_actionability(issue)
+    print(f"[cai fix] pre-screen: verdict={ps_verdict} reason={ps_reason}", flush=True)
+
+    if ps_verdict == "spike":
+        _set_labels(
+            issue_number,
+            add=[LABEL_NEEDS_SPIKE],
+            remove=[LABEL_IN_PROGRESS],
+        )
+        _run(
+            ["gh", "issue", "comment", str(issue_number),
+             "--repo", REPO,
+             "--body",
+             f"## Pre-screen: needs a spike\n\n"
+             f"{ps_reason}\n\n---\n"
+             f"_Flagged by `cai fix` pre-screen (Haiku). Re-label to "
+             f"`{origin_raised_label}` to retry._"],
+            capture_output=True,
+        )
+        log_run("fix", repo=REPO, issue=issue_number, result="pre_screen_spike", exit=0)
+        return 0
+
+    if ps_verdict == "ambiguous":
+        _set_labels(
+            issue_number,
+            add=[origin_raised_label],
+            remove=[LABEL_IN_PROGRESS],
+        )
+        _run(
+            ["gh", "issue", "comment", str(issue_number),
+             "--repo", REPO,
+             "--body",
+             f"## Pre-screen: ambiguous issue\n\n"
+             f"{ps_reason}\n\n---\n"
+             f"_Flagged by `cai fix` pre-screen (Haiku). The issue "
+             f"was returned to `{origin_raised_label}` for refinement._"],
+            capture_output=True,
+        )
+        log_run("fix", repo=REPO, issue=issue_number, result="pre_screen_ambiguous", exit=0)
+        return 0
 
     _uid = uuid.uuid4().hex[:8]
     work_dir = Path(f"/tmp/cai-fix-{issue_number}-{_uid}")
