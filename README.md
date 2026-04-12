@@ -95,24 +95,32 @@ action so two concurrent `fix` runs can't pick the same issue.
                                 ▼        │  rolled back)
                           in-progress    │
                                 │        │
-                        ┌───────┴───────┐│
-                        │               ││
-                  empty diff      PR opened
-                        │               ▼│
-                        ▼        pr-open ─┘
-                   no-action        │
-                                    │ verify (PR merged)
-                                    ▼
-                                 merged
-                                    │
-                        ┌───────────┴───────────┐
-                        │                       │
-                  confirm (pattern       confirm (inconclusive
-                   absent)                / unsolved)
-                        ▼                       ▼
-                  solved (closed)    re-queued :refined
-                                     (up to 3 attempts,
-                                      then :needs-human-review)
+                  ┌─────────────┼───────┐│
+                  │             │       ││
+           needs-spike    empty diff  PR opened
+                  │             │       ▼│
+                  │             ▼  pr-open ─┘
+                  │        no-action    │
+                  │                     │ verify (PR merged)
+                  │                     ▼
+                  │                  merged
+                  │                     │
+                  │         ┌───────────┴───────────┐
+                  │         │                       │
+                  │   confirm (pattern       confirm (inconclusive
+                  │    absent)                / unsolved)
+                  │         ▼                       ▼
+                  │   solved (closed)    re-queued :refined
+                  │                      (up to 3 attempts,
+                  │                       then :needs-human-review)
+                  │
+                  │ spike
+                  ▼
+           ┌──────┴────────────────┐
+           │                       │
+     findings/refined         blocked
+           │                       │
+    (close or :refined)   needs-human-review
 ```
 
 `:no-action` means the fix subagent reviewed the issue and decided no

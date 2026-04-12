@@ -869,10 +869,11 @@ def cmd_analyze(args) -> int:
     _STATE_PRIORITY = {
         LABEL_IN_PROGRESS: 0,
         LABEL_PR_OPEN: 1,
-        LABEL_REFINED: 2,
-        LABEL_RAISED: 3,
-        LABEL_MERGED: 4,
-        LABEL_REQUESTED: 5,
+        LABEL_NEEDS_SPIKE: 2,
+        LABEL_REFINED: 3,
+        LABEL_RAISED: 4,
+        LABEL_MERGED: 5,
+        LABEL_REQUESTED: 6,
     }
 
     def _issue_state_label(issue):
