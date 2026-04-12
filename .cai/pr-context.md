@@ -23,3 +23,20 @@ Refs: robotsix-cai/robotsix-cai#460
 ## Invariants this change relies on
 - Claude CLI accepts `--max-budget-usd` as a float string flag
 - The 3-plan parallel pipeline provides redundancy if one plan is cut short
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- cai.py:1381 — added $1.00 budget cap mention to `_run_plan_agent()` docstring
+- cai.py:1446 — updated Step 1 comment to note "$1.00 budget" per agent
+- cai.py:2259 — updated plan-select pipeline comment to note "$1.00 cap" per plan agent
+- README.md:56 — updated fix row to note "each capped at $1.00"
+
+### Decisions this revision
+- Addressed all four stale_docs locations flagged by reviewer (cai-review-pr)
+
+### New gaps / deferred
+- None

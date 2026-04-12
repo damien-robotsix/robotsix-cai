@@ -1385,6 +1385,9 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
     Runs with `cwd=/app` and `--add-dir <work_dir>` so the agent
     reads its definition from the canonical location while
     operating on the clone via absolute paths (#342).
+
+    Each invocation is capped at $1.00 via --max-budget-usd to
+    prevent runaway exploration sessions (typical run ~$0.60).
     """
     user_message = (
         _work_directory_block(work_dir)
@@ -1443,7 +1446,7 @@ def _run_plan_select_pipeline(issue: dict, work_dir: Path, attempt_history_block
     """
     issue_number = issue["number"]
 
-    # Step 1: Run 2 plan agents in parallel.
+    # Step 1: Run 2 plan agents in parallel (each limited to $1.00 budget).
     print(f"[cai fix] running 2 plan agents in parallel for #{issue_number}", flush=True)
     plans: list[str] = ["", ""]
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -2257,10 +2260,10 @@ def cmd_fix(args) -> int:
             )
 
         # 4c. Run the plan-select pipeline: 2 plan agents in
-        #     parallel, then a select agent picks the best plan.
-        #     The selected plan is prepended to the fix agent's
-        #     user message so it has a concrete implementation
-        #     strategy to follow.
+        #     parallel (each capped at $1.00), then a select agent
+        #     picks the best plan. The selected plan is prepended
+        #     to the fix agent's user message so it has a concrete
+        #     implementation strategy to follow.
         selected_plan = _run_plan_select_pipeline(issue, work_dir, attempt_history_block)
 
         # 4d. Pre-create the `.cai-staging/agents/` directory so the
