@@ -1,0 +1,19 @@
+name: Check codebase index
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regenerate index
+        run: bash scripts/generate-index.sh
+      - name: Check for drift
+        run: |
+          if ! git diff --exit-code CODEBASE_INDEX.md; then
+            echo "::error::CODEBASE_INDEX.md is stale. Run 'bash scripts/generate-index.sh' and commit."
+            exit 1
+          fi

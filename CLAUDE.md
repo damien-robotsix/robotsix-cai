@@ -4,6 +4,10 @@ This file is loaded by all Claude Code subagents in headless mode.
 
 ## Efficiency guidance (all agents)
 
+0. **Consult `CODEBASE_INDEX.md` first.** Before using Glob or
+   Grep for file discovery, check `CODEBASE_INDEX.md` at the repo
+   root — it lists every tracked file with a one-line description
+   and eliminates the need for an initial discovery round.
 1. **Grep before Read.** Use Grep to locate the relevant file(s)
    and line numbers before opening them with Read. Do not
    sequentially Read files to search for content — reserve Read for
