@@ -42,3 +42,19 @@ Refs: robotsix-cai/robotsix-cai#377
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-review-pr.md:62-65 — updated "How to work" item 2 to specify `model="haiku"` for Explore subagents (matched efficiency guidance section)
+- .claude/agents/cai-spike.md:65 — updated process step 4 to specify `model="haiku"` for Explore subagents
+
+### Decisions this revision
+- Both changes use the same wording pattern as efficiency guidance sections in each file — minimal targeted fix
+- cai-review-pr.md "How to work" item 2 now consistent with its own efficiency guidance item 5
+
+### New gaps / deferred
+- None

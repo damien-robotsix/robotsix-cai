@@ -38,8 +38,8 @@ that directory for all `Read`, `Grep`, `Glob`, and `Bash` calls that target
 the clone.
 
 - GOOD: `Read("<work_dir>/cai.py")`
-- BAD:  `Read("cai.py")`  (reads /app/cai.py, the read-only image copy)
 - GOOD: `Bash("grep -n 'cmd_spike' <work_dir>/cai.py")`
+- BAD:  `Read("cai.py")`  (reads /app/cai.py, the read-only image copy)
 - BAD:  `Bash("grep -n 'cmd_spike' cai.py")`
 
 If you have Bash in your tool allowlist, use `git -C <work_dir>` (or absolute
