@@ -257,7 +257,7 @@ Use `Agent(subagent_type="Explore", model="haiku", ...)` for reading
 the dossier, files referenced by review comments, and symbol searches
 — this trades expensive sonnet output tokens for ~10× cheaper haiku tokens.
 Fall back to direct Read only for small lookups (3 or fewer files, < 100 lines).
-**Do NOT delegate edits or decisions** — only reading and search.
+**Do NOT delegate decisions** — only reading and search.
 Git operations still go through `cai-git`, not Explore.
 
 ## Addressing review comments

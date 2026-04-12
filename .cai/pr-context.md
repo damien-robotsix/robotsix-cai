@@ -40,3 +40,17 @@ Refs: robotsix-cai#484
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-revise.md:260 — Changed "Do NOT delegate edits or decisions" to "Do NOT delegate decisions" to match the four updated agents
+
+### Decisions this revision
+- Dropped "edits or" from the guard clause in cai-revise.md — reviewer requested consistency with the standardized wording used in the four other agents; "decisions" alone is the canonical form
+
+### New gaps / deferred
+- None
