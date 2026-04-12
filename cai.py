@@ -1395,6 +1395,7 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-plan",
          "--dangerously-skip-permissions",
+         "--max-budget-usd", "1.00",
          "--add-dir", str(work_dir)],
         category="fix.plan",
         agent="cai-plan",
