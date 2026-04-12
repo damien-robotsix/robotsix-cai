@@ -17,6 +17,7 @@
 #      - update-check:  periodic Claude Code release checks
 #      - confirm:       verify merged fixes are actually solved
 #      - merge:         confidence-gated auto-merge for bot PRs
+#      - health-report: automated pipeline health report with anomaly detection
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #

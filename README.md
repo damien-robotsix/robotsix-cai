@@ -63,6 +63,7 @@ subprocess with no shared state.
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the refine → fix pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → re-queued to `:refined` (up to 3 attempts), then escalated to `:needs-human-review` (Sonnet) |
+| `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
 | `cai.py cycle` | _(startup + manual/on-demand)_ | Runs verify → fix → revise → review-pr → merge → confirm in sequence. The entrypoint runs this once synchronously at `docker compose up -d` so the issue-solving pipeline produces immediate logs; not scheduled via cron (the individual steps have their own cron lines) |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
@@ -71,7 +72,7 @@ the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
 `CAI_REFINE_SCHEDULE`, `CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`,
 `CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
 `CAI_AUDIT_TRIAGE_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`,
-`CAI_PROPOSE_SCHEDULE`, `CAI_SPIKE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`),
+`CAI_PROPOSE_SCHEDULE`, `CAI_SPIKE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. Analysis, audit,
 proposal, refine, spike, and update-check agents are **not** run at
@@ -531,7 +532,7 @@ docker run --rm -v cai_home:/data alpine ls -R /data
 
 A **run log** is written to `/var/log/cai/cai.log` inside the container
 (persisted in the `cai_logs` named volume). Each `init`, `analyze`,
-`fix`, `review-pr`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, and `merge` invocation appends one key=value line so you can
+`fix`, `review-pr`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, `merge`, and `health-report` invocation appends one key=value line so you can
 watch cycle activity:
 
 ```bash

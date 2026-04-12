@@ -106,6 +106,15 @@ Subcommands:
                             practices) are published via publish.py with
                             the `update-check` namespace.
 
+    python cai.py health-report  Automated pipeline health report with
+                            anomaly detection. Aggregates cost trends
+                            (last 7d vs prior 7d), issue queue counts,
+                            pipeline stalls, and fix quality metrics.
+                            Flags anomalies with 🔴/🟡/🟢 traffic-light
+                            indicators and posts the report as a GitHub
+                            issue with the `health-report` label. Use
+                            --dry-run to print to stdout without posting.
+
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
 `verify`, `refine`, `spike`, `fix`, `revise`, `review-pr`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.

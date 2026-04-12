@@ -38,3 +38,21 @@ Refs: robotsix/robotsix-cai#430
 - `_gh_json` raises `subprocess.CalledProcessError` on non-zero exit (so bare except catches it)
 - `LABEL_*` constants are defined at module level (lines 165-174)
 - `log_run` is importable and available at module scope
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- resolved: entrypoint.sh (kept both CAI_SPIKE_SCHEDULE from main and CAI_HEALTH_REPORT_SCHEDULE from PR)
+
+### Files touched this revision
+- `entrypoint.sh`:17 — added `health-report` to header comment task list
+- `cai.py`:109 — added `health-report` entry to module docstring
+- `README.md`:66 — added `health-report` row to command reference table
+- `README.md`:74 — added `CAI_HEALTH_REPORT_SCHEDULE` to env vars list
+- `README.md`:534 — added `health-report` to run log commands list
+
+### Decisions this revision
+- All five stale_docs findings from review-pr addressed with minimal targeted changes
+
+### New gaps / deferred
+- None
