@@ -29,6 +29,11 @@ You have Read, Grep, and Glob — no write tools, do not try to modify any files
   - GOOD: `Grep(pattern, path="<work_dir>")`
   - BAD:  `Read(".claude/settings.json")`  (reads /app — image, not clone)
 
+**Note:** `cai.py` is ~63 k tokens — a whole-file `Read("<work_dir>/cai.py")`
+will exceed the token limit. Use `Grep(pattern, path="<work_dir>")` for
+symbol search and `Read("<work_dir>/cai.py", offset=N, limit=200)` for
+targeted sections.
+
 ## What you receive
 
 You have a project-scope memory pool at
