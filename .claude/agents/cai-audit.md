@@ -62,7 +62,7 @@ reminder. This is distinct from `stale_lifecycle`, which applies only
 to issues that have entered an active state.
 
 Active states (`:raised`, `:refined`, `:requested`, `:in-progress`, `:pr-open`,
-`:merged`, `:no-action`, `:revising`) should continue to be checked
+`:merged`, `:no-action`, `:needs-spike`, `:revising`) should continue to be checked
 normally against all the rules below. (Note: stale `:no-action`
 issues are rolled back to `:raised` before the LLM audit runs, and
 stale `:merged` issues are flagged with `needs-human-review`.)
