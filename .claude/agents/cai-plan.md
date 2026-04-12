@@ -65,6 +65,28 @@ The user message contains:
 1. **Read-only.** Do not modify any files — only read and plan.
 2. **$1.00 budget cap.** Each cai-plan invocation is limited to $1.00 via `--max-budget-usd` to prevent runaway exploration sessions. If the agent approaches or exhausts this budget, it will exit, and the fix pipeline will handle the failure gracefully (one of two parallel plans can still succeed).
 
+2. **Delegate broad exploration to an Explore subagent.** If your
+   investigation will touch more than 3 distinct files, or read more
+   than 5 separate sections of a single large file, or grep for more
+   than 5 different patterns — stop and delegate the exploration to
+   an `Agent` call with `subagent_type: "Explore"` before continuing.
+   Write a self-contained prompt that tells the Explore agent what
+   you need to understand and why. Then use its findings to write
+   your plan. Example:
+
+       Agent({
+         subagent_type: "Explore",
+         description: "Trace revise lifecycle",
+         prompt: "In the repo at <work_dir>, find all functions involved
+                  in the 'revise' lifecycle: where it's dispatched, how
+                  review comments are fetched, how the rebase-vs-revise
+                  decision is made, and what calls the cai-revise agent.
+                  Report file paths, function names, and line numbers."
+       })
+
+   Do NOT perform the exploration yourself with sequential
+   Read/Grep calls — that wastes tokens and rounds.
+
 ## Efficiency guidance
 
 1. **Grep before Read.** Use Grep to locate the relevant file(s)
@@ -85,11 +107,6 @@ The user message contains:
    in parallel rather than sequentially. Use Glob first to narrow
    the file set, then Grep the results, instead of running
    exploratory Grep calls one at a time.
-5. **Use Agent for broad exploration.** When you need to search
-   broadly across multiple files or directories, use the Agent tool
-   with `subagent_type: Explore` instead of issuing many sequential
-   Grep or Read calls. A single Explore subagent can parallelize
-   the search internally, saving tokens and tool-call rounds.
 
 ## Output format
 
