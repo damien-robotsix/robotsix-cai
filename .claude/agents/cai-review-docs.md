@@ -107,29 +107,9 @@ No documentation updates needed.
 4. **Do not flag `.cai/pr-context.md`.** This is auto-generated metadata —
    skip it entirely.
 5. **Keep it short.** Each finding should be 3–5 sentences max.
-6. **Delegate broad exploration to an Explore subagent.** If your review will
-   touch more than 3 distinct files, or read more than 5 separate sections of
-   a single large file, or grep for more than 5 different patterns — stop and
-   delegate the exploration to an `Agent` call with
-   `subagent_type: "Explore"` before continuing. Write a self-contained prompt
-   that tells the Explore agent what you need to verify and why. Then use its
-   findings to identify documentation gaps. Example:
 
-       Agent({
-         subagent_type: "Explore",
-         description: "Check docs coverage for changed behavior",
-         prompt: "In the repo at <work_dir>, find every place the
-                  '<feature>' behavior is documented: docs/ files,
-                  README sections, and inline comments. Report file
-                  paths, section headings, and line numbers."
-       })
+## Agent-specific efficiency guidance
 
-   Do NOT perform the exploration yourself with sequential
-   Read/Grep calls — that wastes tokens and rounds.
-
-## Efficiency guidance
-
-1. **Grep before Read.** Use Grep to locate relevant sections before reading
-   full files.
-2. **Batch independent Read calls.** When you need to read multiple files and
-   the reads are independent, issue all Read calls in a single turn.
+1. **Use Agent for broad exploration.** When you need to search broadly, use
+   the Agent tool with `subagent_type: Explore` rather than many sequential
+   Grep or Read calls.
