@@ -6672,39 +6672,100 @@ def cmd_explore(args) -> int:
 # Cycle (full pipeline without analyze)
 # ---------------------------------------------------------------------------
 
+def _run_step(name: str, handler, args) -> int:
+    """Run a single cycle step, catching exceptions."""
+    print(f"\n[cai cycle] === {name} ===", flush=True)
+    try:
+        return handler(args)
+    except Exception as exc:
+        print(f"[cai cycle] {name} raised {exc!r}", file=sys.stderr, flush=True)
+        return 1
+
+
+def _drain_pending_prs(args) -> dict:
+    """Revise → review-pr → merge all pending PRs. Returns step results."""
+    results: dict[str, int] = {}
+    results["revise"] = _run_step("revise", cmd_revise, args)
+    results["review-pr"] = _run_step("review-pr", cmd_review_pr, args)
+    results["merge"] = _run_step("merge", cmd_merge, args)
+    return results
+
+
 def cmd_cycle(args) -> int:
-    """Run verify → fix → revise → review-pr → merge → confirm in order."""
-    print("[cai cycle] starting full cycle (no analyze)", flush=True)
+    """Continuously fix issues and merge PRs until nothing is left to do.
+
+    Flow per iteration:
+      1. verify + confirm  (sync label state)
+      2. drain pending PRs (revise → review-pr → merge)
+      3. fix one issue
+      4. if fix opened a PR → drain that PR immediately
+      5. loop back to (1) while fix found work
+    """
+    print("[cai cycle] starting continuous cycle", flush=True)
     t0 = time.monotonic()
+    iteration = 0
+    all_results: dict[str, int] = {}
+    had_failure = False
 
-    steps = [
-        ("verify", cmd_verify),
-        ("fix", cmd_fix),
-        ("revise", cmd_revise),
-        ("review-pr", cmd_review_pr),
-        ("merge", cmd_merge),
-        ("confirm", cmd_confirm),
-    ]
-
-    results = {}
-    failed = False
-    for name, handler in steps:
-        print(f"\n[cai cycle] === running step: {name} ===", flush=True)
-        try:
-            rc = handler(args)
-        except Exception as exc:
-            print(f"[cai cycle] step {name} raised {exc!r}", file=sys.stderr, flush=True)
-            rc = 1
-        results[name] = rc
+    # --- Phase 1: verify + confirm (initial state sync) -----------------
+    for step_name, handler in [("verify", cmd_verify), ("confirm", cmd_confirm)]:
+        rc = _run_step(step_name, handler, args)
+        all_results[step_name] = rc
         if rc != 0:
-            print(f"[cai cycle] step {name} returned {rc}; continuing", flush=True)
-            failed = True
+            had_failure = True
+
+    # --- Phase 2: drain any already-pending PRs -------------------------
+    print("\n[cai cycle] draining pending PRs before starting fix loop",
+          flush=True)
+    pr_results = _drain_pending_prs(args)
+    all_results.update(pr_results)
+    if any(v != 0 for v in pr_results.values()):
+        had_failure = True
+
+    # --- Phase 3: fix loop — pick → fix → drain → repeat ---------------
+    while True:
+        iteration += 1
+        print(f"\n[cai cycle] ---- iteration {iteration} ----", flush=True)
+
+        # Sync labels before each fix attempt so we see freshly-merged PRs.
+        _run_step("verify", cmd_verify, args)
+
+        # Check up front whether there is an issue to fix.
+        if _select_fix_target() is None:
+            print("[cai cycle] no eligible issues; exiting loop", flush=True)
+            break
+
+        rc = _run_step("fix", cmd_fix, args)
+        key = f"fix.{iteration}"
+        all_results[key] = rc
+
+        if rc != 0:
+            had_failure = True
+            # fix failed (error) — stop looping.
+            print("[cai cycle] fix step failed; stopping loop", flush=True)
+            break
+
+        # Drain the PR that fix just opened (plus any others that
+        # became eligible in the meantime).
+        pr_results = _drain_pending_prs(args)
+        for step, step_rc in pr_results.items():
+            all_results[f"{step}.{iteration}"] = step_rc
+            if step_rc != 0:
+                had_failure = True
+
+    # --- Phase 4: final confirm -----------------------------------------
+    rc = _run_step("confirm-final", cmd_confirm, args)
+    all_results["confirm-final"] = rc
+    if rc != 0:
+        had_failure = True
 
     dur = f"{time.monotonic() - t0:.1f}s"
-    summary = " ".join(f"{k}={v}" for k, v in results.items())
-    print(f"\n[cai cycle] done in {dur} — {summary}", flush=True)
-    log_run("cycle", repo=REPO, results=summary, duration=dur, exit=1 if failed else 0)
-    return 1 if failed else 0
+    summary = " ".join(f"{k}={v}" for k, v in all_results.items())
+    print(f"\n[cai cycle] done in {dur} ({iteration} iterations) — {summary}",
+          flush=True)
+    log_run("cycle", repo=REPO, results=summary, iterations=iteration,
+            duration=dur, exit=1 if had_failure else 0)
+    return 1 if had_failure else 0
 
 
 def cmd_health_report(args) -> int:
