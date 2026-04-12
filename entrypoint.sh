@@ -18,6 +18,7 @@
 #      - confirm:       verify merged fixes are actually solved
 #      - merge:         confidence-gated auto-merge for bot PRs
 #      - health-report: automated pipeline health report with anomaly detection
+#      - cost-optimize: weekly cost-reduction proposal or evaluation
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #
@@ -50,6 +51,7 @@ CAI_MERGE_SCHEDULE="${CAI_MERGE_SCHEDULE:-35 * * * *}"
 CAI_REFINE_SCHEDULE="${CAI_REFINE_SCHEDULE:-10 * * * *}"
 CAI_SPIKE_SCHEDULE="${CAI_SPIKE_SCHEDULE:-0 */2 * * *}"
 CAI_HEALTH_REPORT_SCHEDULE="${CAI_HEALTH_REPORT_SCHEDULE:-0 7 * * 1}"
+CAI_COST_OPTIMIZE_SCHEDULE="${CAI_COST_OPTIMIZE_SCHEDULE:-0 5 * * 0}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -71,6 +73,7 @@ $CAI_CONFIRM_SCHEDULE python /app/cai.py confirm
 $CAI_REVIEW_PR_SCHEDULE python /app/cai.py review-pr
 $CAI_MERGE_SCHEDULE python /app/cai.py merge
 $CAI_HEALTH_REPORT_SCHEDULE python /app/cai.py health-report
+$CAI_COST_OPTIMIZE_SCHEDULE python /app/cai.py cost-optimize
 CRONTAB
 
 echo "[entrypoint] crontab:"
