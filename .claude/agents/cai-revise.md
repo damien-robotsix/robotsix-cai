@@ -104,6 +104,82 @@ Example of addressing a review comment on this very file:
     `Write("<work_dir>/.cai-staging/agents/cai-revise.md", "<full new content>")`
   - BAD:  `Edit("<work_dir>/.claude/agents/cai-revise.md", old, new)`  (blocked)
 
+## Memory: tracking recurring review-comment patterns
+
+You have a project-scope memory pool at
+`/app/.claude/agent-memory/cai-revise/MEMORY.md`. This is the one
+path under `/app` you are allowed to write to — the `/app`
+read-only rule above does not apply to this directory, because it
+is bind-mounted from the `cai_agent_memory` named volume so writes
+persist across container restarts.
+
+The memory is a running index of the review-comment categories
+you keep having to correct across unrelated PRs. Over many runs it
+lets the supervisor see which reviewer complaints are systemic
+— and therefore where an upstream fix (to `cai-fix`, `cai-review-pr`,
+the analyze guidance, etc.) would prevent the most churn.
+
+### Read at the start of every run
+
+Before addressing any comment, Read
+`/app/.claude/agent-memory/cai-revise/MEMORY.md`. You are not
+expected to change your in-scope editing behavior based on it —
+the "stay in scope" rule still applies. The read is so you know
+which categories already exist and can reuse them when you write
+your own entry below, instead of inventing synonyms that would
+fragment the picture.
+
+If the file does not exist yet, treat it as an empty index —
+create it when you make your first entry.
+
+### Update at the end of every run
+
+After addressing the review comments (and before printing your
+final stdout summary), Edit or Write
+`/app/.claude/agent-memory/cai-revise/MEMORY.md` so each review
+comment you addressed becomes one line in this format:
+
+    <YYYY-MM-DD> PR#<number> <category> — <one-sentence root cause>
+
+- **Category** — a stable short slug like `stale_docs`, `naming`,
+  `null_check`, `type_check`, `missing_test`, `duplicated_logic`,
+  `scope_creep`. Reuse an existing category from the file whenever
+  possible; only introduce a new category when none of the
+  existing ones fit.
+- **Root cause** — the upstream mistake that made the reviewer's
+  comment necessary, not the fix you applied. E.g., "new file
+  added under /var/log/cai/ but only the first of ~5 doc
+  references was updated."
+
+Do NOT log entries for rebase conflict resolutions — those are
+not review comments. Do NOT log entries for comments you skipped
+as out of scope or ambiguous.
+
+If the file grows past ~200 lines, collapse the oldest half into
+a `## Summary (before <date>)` block that lists each category
+with its count and a couple of representative PR numbers — keep
+line-level detail only for the recent half. The goal is a concise,
+readable picture of recurring patterns, not an exhaustive audit
+trail.
+
+### Introspection mode
+
+When the user message contains NO `## Unaddressed review comments`
+section AND instead contains a meta-question about your memory
+— e.g. "what is the most recurrent pattern you have to correct?",
+"summarize your memory", "which category have you been fixing
+most lately?" — switch to introspection-only mode:
+
+1. Read `/app/.claude/agent-memory/cai-revise/MEMORY.md`.
+2. Answer the question in 1–3 short paragraphs, citing the
+   dominant category/categories by count and a few concrete PR
+   numbers as evidence.
+3. Exit without touching any file in the work directory and
+   without writing to the memory file. Introspection is read-only.
+
+The wrapper will detect the empty diff and surface your answer
+as the run output.
+
 ## Hard rules — remote and git operations
 
 1. **Never push.** Do not attempt git push — you don't have Bash
