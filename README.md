@@ -92,11 +92,15 @@ action so two concurrent `fix` runs can't pick the same issue.
                                 ▼
                              refined  ◄──┐
                                 │       │ (PR closed
-                                │ fix    │  unmerged,
-                                ▼        │  rolled back)
-                          in-progress    │
-                                │        │
+                                │ fix    │  unmerged, or
+                                ▼        │  pre-screen ambiguous
+                          in-progress    │  → rolled back to
+                                │        │    origin label)
+                          pre-screen     │
+                            (Haiku)      │
                   ┌─────────────┼───────┐│
+                  │             │       ││
+               (spike)   (actionable)   ││
                   │             │       ││
            needs-spike    empty diff  PR opened
                   │             │       ▼│
