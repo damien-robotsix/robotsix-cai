@@ -39,3 +39,17 @@ Refs: robotsix/robotsix-cai#456
 - `args` namespace always has the new attribute when the subparser is invoked (argparse guarantees this)
 - `getattr(args, "pr", None)` returns `None` when the command is invoked via `cmd_cycle` (no `--pr` arg passed)
 - `_gh_json` raises `subprocess.CalledProcessError` on failure — all bypass paths handle this
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `README.md:292-317` — expanded "Triggering tasks ad-hoc" section to show `--pr` and `--issue` options for all 8 newly targeted commands (revise, confirm, review-pr, review-docs, merge, refine, spike, explore); also updated alias convenience block
+
+### Decisions this revision
+- Used reviewer's suggested concrete examples (with `--pr 45` / `--issue 12`) rather than a prose note — more scannable for operators
+
+### New gaps / deferred
+- None
