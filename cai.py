@@ -1805,19 +1805,9 @@ def cmd_fix(args) -> int:
         )
         _git(work_dir, "commit", "-m", commit_msg)
 
-        # 8. Push.
-        push = _run(
-            ["git", "-C", str(work_dir), "push", "-u", "origin", branch],
-            capture_output=True,
-        )
-        if push.returncode != 0:
-            print(f"[cai fix] git push failed:\n{push.stderr}", file=sys.stderr)
-            rollback()
-            log_run("fix", repo=REPO, issue=issue_number,
-                    result="push_failed", exit=1)
-            return 1
-
-        # 8b. Run regression tests against the clone's working tree.
+        # 7b. Run regression tests against the clone's working tree before
+        # pushing, so a test failure can be rolled back without leaving any
+        # remote state (orphaned branch with no PR).
         test_result = _run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
             cwd=str(work_dir),
@@ -1832,6 +1822,18 @@ def cmd_fix(args) -> int:
             rollback()
             log_run("fix", repo=REPO, issue=issue_number,
                     result="tests_failed", exit=1)
+            return 1
+
+        # 8. Push.
+        push = _run(
+            ["git", "-C", str(work_dir), "push", "-u", "origin", branch],
+            capture_output=True,
+        )
+        if push.returncode != 0:
+            print(f"[cai fix] git push failed:\n{push.stderr}", file=sys.stderr)
+            rollback()
+            log_run("fix", repo=REPO, issue=issue_number,
+                    result="push_failed", exit=1)
             return 1
 
         # 9. Open the PR.
