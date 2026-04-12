@@ -1,0 +1,52 @@
+name: Cleanup PR context dossier
+
+# Deletes `.cai/pr-context.md` from the default branch whenever an
+# auto-improve PR that carried one is merged in. The dossier is an
+# auto-generated file that `cai-fix` creates and `cai-revise` updates
+# so the revise agent does not have to re-explore the repo at the
+# start of every cycle. It is meant to live only on the PR branch —
+# once the PR is merged, the file has no purpose on `main` and is
+# removed by this workflow.
+#
+# The workflow runs on every push to `main`, but it is a no-op when
+# the file is not present, so the cost is tiny. GitHub's default
+# policy — pushes made with GITHUB_TOKEN do not re-trigger workflows
+# — prevents the cleanup commit from retriggering this job.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Delete `.cai/pr-context.md` if present
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f .cai/pr-context.md ]; then
+            echo "No .cai/pr-context.md on main; nothing to do."
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git rm .cai/pr-context.md
+          # `.cai/` is dossier-only today; remove the directory if it
+          # became empty so we don't leave a stray tracked placeholder.
+          if [ -d .cai ] && [ -z "$(ls -A .cai)" ]; then
+            rmdir .cai
+          fi
+
+          git commit -m "cleanup: remove auto-improve PR context dossier from main"
+          git push origin main

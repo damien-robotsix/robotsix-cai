@@ -356,6 +356,60 @@ judgement about how to merge the two sides:
 Bailing is a valid outcome — it is much better than merging wrong
 code.
 
+## Read the PR context dossier first
+
+Before looking at any review comment, Read
+`<work_dir>/.cai/pr-context.md` if it exists. The `cai-fix` agent
+writes this dossier when it opens the PR (and earlier revise cycles
+append to it), and it is the single most valuable context you have
+for this PR. It lists:
+
+- **Files touched** — the exact files already edited, with line
+  anchors, so you do not have to re-discover them via Grep/Glob.
+- **Files read (not touched) that matter** — adjacent context the
+  fix agent considered.
+- **Key symbols** — the functions/constants/labels the change
+  hinges on, with file:line anchors.
+- **Design decisions** — what was chosen and what was explicitly
+  rejected, so you do not revisit dead-ends.
+- **Out of scope / known gaps** — things the fix agent deliberately
+  did not touch. Use this to judge whether a review comment is
+  asking you to cross a gap boundary (usually out of scope for
+  revise; flag in your stdout summary if you choose to).
+- **Invariants this change relies on** — assumptions a review
+  comment's suggested edit must not break.
+
+**Treat the dossier as ground truth for the PR's intent**, NOT for
+its current state. It is a hint, not an assertion:
+
+  - If the dossier lists a `<path>:<line>` that does not match the
+    current file (because of a rebase, or because an earlier revise
+    round already touched that file), re-verify with Read before
+    editing.
+  - If the dossier file does not exist, the user message's
+    **`## Current PR state`** block will contain only a `git diff
+    origin/main..HEAD --stat` summary (no unified diff — the
+    wrapper no longer includes one). Use the stat as your entry
+    point: Read the listed files in the clone directly, use
+    Grep/Glob or the Explore subagent for broader context, and
+    treat the clone itself as ground truth. Legacy PRs opened
+    before the dossier was introduced, or PRs where `cai-fix`
+    exited with zero diff, will have no dossier file — this is
+    expected, and you must create a minimal dossier yourself
+    before exiting if you make any code changes (see the "Update
+    the PR context dossier before you exit" section below).
+  - If the dossier contradicts the actual files in the clone in a
+    non-trivial way (for example, a file the dossier says was
+    touched has none of the described changes), trust what you
+    Read from the clone — it is the authoritative ground truth —
+    and note the discrepancy in your stdout summary so the
+    supervisor can investigate.
+
+The goal is to eliminate exploratory Grep/Glob/Read rounds when the
+dossier already answers the question. Reading the dossier first is
+the cheapest way to do this — do it before anything else in the
+review-comment phase.
+
 ## Addressing review comments
 
 Once the rebase is complete (or was already clean), move on to the
@@ -373,6 +427,48 @@ one:
    that comment.
 4. **Use the original issue and the current PR diff as context**
    only — do not re-implement the issue from scratch.
+
+### Update the PR context dossier before you exit
+
+After you finish addressing the review comments (and before
+printing your stdout summary), append a new section to
+`<work_dir>/.cai/pr-context.md` so the next revise cycle inherits
+your work:
+
+~~~
+## Revision <N> (<YYYY-MM-DD>)
+
+### Rebase
+- <clean | resolved: <files> | aborted>
+
+### Files touched this revision
+- <relative/path>:<line> — <what changed, one line>
+
+### Decisions this revision
+- <decision> — <reason>
+
+### New gaps / deferred
+- <any review comment you deliberately did not address and why>
+~~~
+
+Rules:
+
+  - Pick the next `<N>` by Reading the existing dossier first — if
+    the last section is `## Revision 2`, write `## Revision 3`. If
+    there are no prior revision sections, write `## Revision 1`.
+  - If the dossier file does not exist AND you made no code
+    changes, skip this step — there is nothing to record.
+  - If the dossier file does not exist but you DID make code
+    changes (legacy PR), create a minimal dossier following the
+    same template as `cai-fix` (see
+    `.claude/agents/cai-fix.md` section "Before you exit: write
+    the PR context dossier") so the next revise cycle has a
+    starting point.
+  - The wrapper's commit step picks up the dossier edit
+    automatically — do not try to commit it yourself.
+  - Use `<work_dir>/.cai/pr-context.md` as the path, not a
+    relative `.cai/pr-context.md` (which would resolve under
+    `/app`).
 
 ### Empty diff is OK
 
@@ -402,7 +498,23 @@ The user message contains these sections:
    conflicted files
 2. **Original issue** — the issue the PR was opened against. This
    is for context only; do not re-implement the issue from scratch.
-3. **Current PR diff** — what has already been changed.
+3. **Current PR state** — a compact `git diff origin/main..HEAD
+   --stat` summary of the files this PR touches. The wrapper
+   **does not** include the full unified diff (dumping it into
+   every revise cycle is too expensive on large PRs). How to use
+   this section depends on whether a PR context dossier exists:
+   - **If the block points at `<work_dir>/.cai/pr-context.md`**
+     (the `cai-fix` agent creates this on every non-empty PR):
+     Read the dossier first for the files-touched list, design
+     decisions, out-of-scope gaps, and invariants, then Read
+     specific files in the clone for the actual current content.
+   - **If the block says no dossier was found** (legacy PR or
+     zero-diff fix run): use the `--stat` itself as the entry
+     point, Read the listed files directly, use Grep/Glob or the
+     Explore subagent for broader context, and create a minimal
+     dossier before exiting (see "Update the PR context dossier
+     before you exit" above) so the next revise cycle starts
+     with one.
 4. **Unaddressed review comments** — the comments you need to
    address (may be empty if the only work was a rebase).
 

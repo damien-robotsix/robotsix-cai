@@ -104,6 +104,14 @@ No ripple effects found.
 4. **Do not comment on the quality of the PR itself.** Only flag
    ripple effects on the rest of the codebase.
 5. **Keep it short.** Each finding should be 3–5 sentences max.
+6. **Ignore `.cai/pr-context.md`.** This file is an auto-generated
+   dossier that the `cai-fix` and `cai-revise` agents use to share
+   PR context across runs. It is metadata, not code, and a
+   `.github/workflows/cleanup-pr-context.yml` workflow auto-deletes
+   it from `main` after merge. If a hunk in the diff adds or
+   modifies `.cai/pr-context.md`, skip it entirely — do not flag
+   it under `stale_docs`, `dead_config`, `missing_co_change`, or
+   any other category.
 
 ## Efficiency guidance
 

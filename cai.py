@@ -2475,7 +2475,7 @@ def cmd_revise(args) -> int:
                     "to addressing review comments (if any).\n"
                 )
 
-            # 4. Fetch original issue body + current PR diff.
+            # 4. Fetch original issue body.
             try:
                 issue_data = _gh_json([
                     "issue", "view", str(issue_number),
@@ -2485,11 +2485,76 @@ def cmd_revise(args) -> int:
             except subprocess.CalledProcessError:
                 issue_data = {"number": issue_number, "title": "(unknown)", "body": ""}
 
-            diff_result = _run(
-                ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
-                capture_output=True,
+            # 4b. Describe the PR's current state to the agent.
+            #
+            #     Historically this block dumped the full unified
+            #     `gh pr diff` into the user message — a large token
+            #     sink on PRs that touch many lines, especially since
+            #     cai-revise runs every cycle for the full lifetime
+            #     of a PR. The full diff is now gone entirely: the
+            #     agent gets a compact `git diff origin/main..HEAD
+            #     --stat` summary as a file-level map, and explores
+            #     the clone itself (Read, Grep, Glob, and delegation
+            #     to Explore) when it needs the actual content.
+            #
+            #     When `.cai/pr-context.md` is present (`cai-fix`
+            #     writes it on every non-empty PR), the dossier is
+            #     the richer map and the agent Reads it first. When
+            #     it is missing (legacy PRs, or PRs where cai-fix
+            #     exited with zero diff), the stat alone is enough —
+            #     the agent uses it as the entry point and explores
+            #     from there, then writes a fresh dossier before
+            #     exiting so the next revise cycle has one.
+            dossier_path = work_dir / ".cai" / "pr-context.md"
+            stat_result = _git(
+                work_dir, "diff", "origin/main..HEAD", "--stat",
+                check=False,
             )
-            pr_diff = diff_result.stdout if diff_result.returncode == 0 else "(could not fetch diff)"
+            pr_stat = (stat_result.stdout or "").strip() or (
+                "(no changes vs origin/main)"
+            )
+            if dossier_path.exists():
+                pr_state_block = (
+                    f"## Current PR state\n\n"
+                    f"A PR context dossier is present at "
+                    f"`{work_dir}/.cai/pr-context.md` — **Read it "
+                    f"first.** It lists the files touched, key "
+                    f"symbols, design decisions, out-of-scope gaps, "
+                    f"and invariants the change relies on. Use it as "
+                    f"the ground-truth map of what this PR is doing "
+                    f"and Read specific files in the clone for the "
+                    f"actual current content.\n\n"
+                    f"The full unified diff is **not** included — "
+                    f"the dossier plus on-demand Reads is cheaper "
+                    f"and more accurate. A `git diff "
+                    f"origin/main..HEAD --stat` summary follows as a "
+                    f"file-level map:\n\n"
+                    f"```\n{pr_stat}\n```\n\n"
+                )
+            else:
+                pr_state_block = (
+                    f"## Current PR state\n\n"
+                    f"_No `.cai/pr-context.md` dossier was found — "
+                    f"this is a legacy PR or one where `cai-fix` "
+                    f"exited with zero diff. The full unified diff "
+                    f"is **not** included either — it is a token "
+                    f"sink on large PRs and you can reconstruct the "
+                    f"same information more accurately by Reading "
+                    f"files in the clone directly._\n\n"
+                    f"A `git diff origin/main..HEAD --stat` summary "
+                    f"follows as a file-level map. **Use it as your "
+                    f"entry point:** Read the listed files in the "
+                    f"clone to see the actual current content, use "
+                    f"Grep/Glob or the Explore subagent for any "
+                    f"broader context you need, and — if you make "
+                    f"code changes in this revision — create a "
+                    f"minimal dossier at "
+                    f"`{work_dir}/.cai/pr-context.md` before exiting "
+                    f"(see `.claude/agents/cai-fix.md` → 'Before you "
+                    f"exit: write the PR context dossier') so the "
+                    f"next revise cycle starts with one.\n\n"
+                    f"```\n{pr_stat}\n```\n\n"
+                )
 
             # 5. Build the user message. The system prompt, tool
             #    allowlist (Agent + edit tools), and hard rules all
@@ -2516,9 +2581,8 @@ def cmd_revise(args) -> int:
                 + f"## Original issue\n\n"
                 + f"### #{issue_data['number']} — {issue_data.get('title', '')}\n\n"
                 + f"{issue_data.get('body') or '(no body)'}\n\n"
-                + f"## Current PR diff\n\n"
-                + f"```diff\n{pr_diff}\n```\n\n"
-                + f"{comments_section}"
+                + pr_state_block
+                + comments_section
             )
 
             # 5b. Pre-create the `.cai-staging/agents/` directory so
