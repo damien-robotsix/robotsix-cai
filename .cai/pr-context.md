@@ -43,3 +43,17 @@ Refs: damien-robotsix/robotsix-cai#498
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `README.md:164` — Added paragraph documenting `auto-improve:parent` label behavior and sub-issue creation after "Filing issues with multi-step plans" section
+
+### Decisions this revision
+- Added user-facing description of what happens when a `### Plan` issue is accepted by the refine subagent: parent gets `auto-improve:parent` label, sub-issues created, checklist added
+
+### New gaps / deferred
+- None
