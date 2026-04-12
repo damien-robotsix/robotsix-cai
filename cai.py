@@ -170,6 +170,8 @@ CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
 PROPOSE_MEMORY = Path("/var/log/cai/propose-memory.md")
 # Persistent memory file for the update-check agent.
 UPDATE_CHECK_MEMORY = Path("/var/log/cai/update-check-memory.md")
+# Persistent memory file for the cost-optimize agent.
+COST_OPTIMIZE_MEMORY = Path("/var/log/cai/cost-optimize-memory.md")
 
 # Persistent per-agent memory directory. Each declarative subagent
 # has `memory: project` in its frontmatter, which Claude Code stores
@@ -4826,6 +4828,249 @@ def _save_code_audit_memory(agent_output: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# cost-optimize — weekly cost-reduction proposals
+# ---------------------------------------------------------------------------
+
+
+def _read_cost_optimize_memory() -> str:
+    """Return the contents of the cost-optimize memory file, or empty string."""
+    if not COST_OPTIMIZE_MEMORY.exists():
+        return ""
+    try:
+        return COST_OPTIMIZE_MEMORY.read_text().strip()
+    except OSError:
+        return ""
+
+
+def _save_cost_optimize_memory(agent_output: str) -> None:
+    """Extract the ## Memory Update block from agent output and persist it."""
+    match = re.search(
+        r"^## Memory Update\s*\n(.*)",
+        agent_output,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not match:
+        return
+    try:
+        COST_OPTIMIZE_MEMORY.parent.mkdir(parents=True, exist_ok=True)
+        COST_OPTIMIZE_MEMORY.write_text(match.group(0).strip() + "\n")
+    except OSError as exc:
+        print(f"[cai cost-optimize] could not write memory: {exc}", flush=True)
+
+
+def cmd_cost_optimize(args) -> int:
+    """Analyze cost data and propose one optimization or evaluate a prior proposal."""
+    print("[cai cost-optimize] running weekly cost optimization", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Build cost data for the agent.
+    rows_14d = _load_cost_log(days=14)
+    if not rows_14d:
+        print("[cai cost-optimize] no cost data available; skipping", flush=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("cost-optimize", repo=REPO, result="no_data", duration=dur, exit=0)
+        return 0
+
+    cost_summary = _build_cost_summary(days=14, top_n=20)
+
+    # Per-agent WoW breakdown.
+    now_ts = datetime.now(timezone.utc).timestamp()
+    boundary = now_ts - 7 * 86400
+    last_7d = [r for r in rows_14d if _row_ts(r) >= boundary]
+    prior_7d = [r for r in rows_14d if _row_ts(r) < boundary]
+
+    def _by_agent_detailed(rows: list[dict]) -> dict[str, dict]:
+        agg: dict[str, dict] = {}
+        for r in rows:
+            agent = r.get("agent") or "(none)"
+            try:
+                cost = float(r.get("cost_usd") or 0.0)
+            except (TypeError, ValueError):
+                cost = 0.0
+            tokens_in = int(r.get("input_tokens") or 0)
+            tokens_out = int(r.get("output_tokens") or 0)
+            cache_read = int(r.get("cache_read_input_tokens") or 0)
+            bucket = agg.setdefault(
+                agent,
+                {"calls": 0, "cost": 0.0, "tokens_in": 0,
+                 "tokens_out": 0, "cache_read": 0},
+            )
+            bucket["calls"] += 1
+            bucket["cost"] += cost
+            bucket["tokens_in"] += tokens_in
+            bucket["tokens_out"] += tokens_out
+            bucket["cache_read"] += cache_read
+        return agg
+
+    last_by_agent = _by_agent_detailed(last_7d)
+    prior_by_agent = _by_agent_detailed(prior_7d)
+    all_agents = sorted(set(list(last_by_agent) + list(prior_by_agent)))
+
+    agent_lines = []
+    for agent in all_agents:
+        lb = last_by_agent.get(
+            agent, {"calls": 0, "cost": 0.0, "tokens_in": 0, "cache_read": 0}
+        )
+        pb = prior_by_agent.get(agent, {"calls": 0, "cost": 0.0})
+        if pb["cost"] > 0:
+            delta = (lb["cost"] - pb["cost"]) / pb["cost"] * 100
+            delta_str = f"{delta:+.1f}%"
+        else:
+            delta_str = "n/a"
+        cache_pct = (
+            lb["cache_read"] / lb["tokens_in"] * 100
+            if lb["tokens_in"] > 0 else 0.0
+        )
+        agent_lines.append(
+            f"| {agent} | {lb['calls']} | ${lb['cost']:.4f}"
+            f" | {delta_str} | {cache_pct:.1f}% |"
+        )
+
+    agent_table = (
+        "### Per-agent WoW breakdown (last 7d vs prior 7d)\n\n"
+        "| agent | calls (7d) | cost (7d) | WoW Δ | cache hit % |\n"
+        "|---|---|---|---|---|\n"
+        + "\n".join(agent_lines)
+        + "\n"
+    )
+
+    # 2. Build user message.
+    memory = _read_cost_optimize_memory()
+    memory_section = "## Previous proposals\n\n"
+    if memory:
+        memory_section += memory + "\n"
+    else:
+        memory_section += "(first run — no prior proposals)\n"
+
+    user_message = (
+        "## Cost data\n\n"
+        + cost_summary + "\n\n"
+        + agent_table + "\n\n"
+        + memory_section
+    )
+
+    # 3. Run the cost-optimize agent.
+    print("[cai cost-optimize] running agent", flush=True)
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-cost-optimize",
+         "--permission-mode", "acceptEdits"],
+        category="cost-optimize",
+        agent="cai-cost-optimize",
+        input=user_message,
+        cwd="/app",
+    )
+    if result.stdout:
+        print(result.stdout, flush=True)
+    if result.returncode != 0:
+        print(
+            f"[cai cost-optimize] agent failed (exit {result.returncode}):\n"
+            f"{result.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("cost-optimize", repo=REPO, result="agent_failed",
+                duration=dur, exit=result.returncode)
+        return result.returncode
+
+    # 4. Save memory.
+    _save_cost_optimize_memory(result.stdout)
+
+    # 5. Handle proposal output.
+    proposal_match = re.search(
+        r"^### Proposal:\s*(.+)$", result.stdout, flags=re.MULTILINE
+    )
+    if proposal_match:
+        proposal_title = proposal_match.group(1).strip()
+
+        # Extract key for dedup.
+        key_match = re.search(r"\*\*Key:\*\*\s*(\S+)", result.stdout)
+        proposal_key = key_match.group(1).strip() if key_match else uuid.uuid4().hex[:8]
+
+        # Extract proposal block.
+        block_match = re.search(
+            r"(### Proposal:.*?)(?=\n## Memory Update|\Z)",
+            result.stdout, flags=re.DOTALL,
+        )
+        proposal_body = (
+            block_match.group(1).strip() if block_match else result.stdout.strip()
+        )
+
+        # Dedup check.
+        fingerprint = f"<!-- fingerprint: cost-optimize-{proposal_key} -->"
+        dup_check = _run(
+            ["gh", "issue", "list",
+             "--repo", REPO,
+             "--search", f"cost-optimize-{proposal_key} in:body",
+             "--state", "all",
+             "--limit", "1",
+             "--json", "number"],
+            capture_output=True,
+        )
+        if (
+            dup_check.returncode == 0
+            and dup_check.stdout.strip() not in ("", "[]")
+        ):
+            print(
+                f"[cai cost-optimize] duplicate for key {proposal_key}; skipping",
+                flush=True,
+            )
+            dur = f"{int(time.monotonic() - t0)}s"
+            log_run("cost-optimize", repo=REPO, result="duplicate",
+                    duration=dur, exit=0)
+            return 0
+
+        # Create issue.
+        issue_body = (
+            f"{proposal_body}\n\n"
+            "---\n"
+            "_Proposed by the weekly cost-optimization agent"
+            " (`cai cost-optimize`)._\n\n"
+            f"{fingerprint}\n"
+        )
+        labels = ",".join(["auto-improve", LABEL_RAISED])
+        gh_result = _run(
+            ["gh", "issue", "create",
+             "--repo", REPO,
+             "--title", f"[cost] {proposal_title}",
+             "--body", issue_body,
+             "--label", labels],
+            capture_output=True,
+        )
+        if gh_result.returncode == 0:
+            url = gh_result.stdout.strip()
+            print(f"[cai cost-optimize] created proposal issue: {url}", flush=True)
+        else:
+            print(
+                f"[cai cost-optimize] failed to create issue: {gh_result.stderr}",
+                file=sys.stderr, flush=True,
+            )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("cost-optimize", repo=REPO, result="proposal_created",
+                duration=dur, exit=gh_result.returncode)
+        return gh_result.returncode
+
+    # 6. Handle evaluation output.
+    eval_match = re.search(
+        r"^### Evaluation:\s*(.+)$", result.stdout, flags=re.MULTILINE
+    )
+    if eval_match:
+        print(
+            f"[cai cost-optimize] evaluation: {eval_match.group(1).strip()}",
+            flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("cost-optimize", repo=REPO, result="evaluation_done",
+                duration=dur, exit=0)
+        return 0
+
+    # 7. No recognized output.
+    print("[cai cost-optimize] no proposal or evaluation found in output", flush=True)
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("cost-optimize", repo=REPO, result="no_output", duration=dur, exit=0)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # propose — creative improvement proposals
 # ---------------------------------------------------------------------------
 
@@ -8108,6 +8353,7 @@ def main() -> int:
     sub.add_parser("refine", help="Refine human-filed issues into structured plans")
     sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
     sub.add_parser("explore", help="Autonomous exploration/benchmarking of :needs-exploration issues")
+    sub.add_parser("cost-optimize", help="Weekly cost-reduction proposal or evaluation")
     sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, review-docs, merge, confirm")
     sub.add_parser("test", help="Run the project test suite")
 
@@ -8168,6 +8414,7 @@ def main() -> int:
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
         "health-report": cmd_health_report,
+        "cost-optimize": cmd_cost_optimize,
         "test": cmd_test,
     }
     return handlers[args.command](args)
