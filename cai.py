@@ -115,7 +115,7 @@ import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -188,6 +188,7 @@ LABEL_PR_NEEDS_HUMAN = "needs-human-review"
 
 LOG_PATH = Path("/var/log/cai/cai.log")
 COST_LOG_PATH = Path("/var/log/cai/cai-cost.jsonl")
+REVIEW_PR_PATTERN_LOG = Path("/var/log/cai/review-pr-patterns.jsonl")
 
 
 def log_run(category: str, **fields) -> None:
@@ -646,6 +647,76 @@ def _closed_issues_block(closed: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _review_pr_pattern_summary() -> str:
+    """Read the review-pr pattern log and return a markdown summary block.
+
+    Filters to the last 30 days.  Returns an empty string if no data exists.
+    """
+    if not REVIEW_PR_PATTERN_LOG.exists():
+        return ""
+
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
+    # category -> list of PR numbers that surfaced it
+    category_prs: dict[str, list[int]] = {}
+    total_with_findings = 0
+    total_clean = 0
+
+    try:
+        with REVIEW_PR_PATTERN_LOG.open("r") as fh:
+            for raw_line in fh:
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                try:
+                    entry = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+                # Parse timestamp and apply 30-day filter
+                try:
+                    ts_str = entry.get("ts", "")
+                    ts = datetime.fromisoformat(ts_str.rstrip("Z"))
+                    if ts < cutoff:
+                        continue
+                except (ValueError, AttributeError):
+                    continue
+                categories = entry.get("categories", [])
+                pr_num = entry.get("pr")
+                if categories:
+                    total_with_findings += 1
+                    for cat in categories:
+                        category_prs.setdefault(cat, [])
+                        if pr_num is not None and pr_num not in category_prs[cat]:
+                            category_prs[cat].append(pr_num)
+                else:
+                    total_clean += 1
+    except OSError:
+        return ""
+
+    if not category_prs and total_clean == 0:
+        return ""
+
+    lines = [
+        "",
+        "## Review-PR finding patterns (last 30 days)",
+        "",
+        "Summary of recurring ripple-effect categories found during PR reviews:",
+        "",
+        "| Category | Count | Recent PRs |",
+        "|---|---|---|",
+    ]
+    for cat, prs in sorted(category_prs.items(), key=lambda kv: -len(kv[1])):
+        recent = ", ".join(f"#{p}" for p in prs[-5:])
+        lines.append(f"| {cat} | {len(prs)} | {recent} |")
+
+    lines += [
+        "",
+        f"Total reviews with findings: {total_with_findings}",
+        f"Total clean reviews: {total_clean}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def cmd_analyze(args) -> int:
     """Parse prior transcripts, ask claude to analyze, publish findings."""
     print("[cai analyze] running self-analyzer", flush=True)
@@ -755,7 +826,9 @@ def cmd_analyze(args) -> int:
     # in `.claude/agents/cai-analyze.md`. Durable per-agent learnings
     # live in its `memory: project` pool. The wrapper only passes
     # dynamic per-run context (parsed signals, open issues,
-    # closed-issue rationales) via stdin as the user message.
+    # closed-issue rationales, and review-pr pattern history) via
+    # stdin as the user message.
+    review_pr_block = _review_pr_pattern_summary()
     user_message = (
         "## Parsed signals\n\n"
         "```json\n"
@@ -763,6 +836,7 @@ def cmd_analyze(args) -> int:
         "```\n"
         f"{issues_block}"
         f"{closed_block}"
+        f"{review_pr_block}"
     )
 
     analyzer = _run_claude_p(
@@ -4732,6 +4806,30 @@ def cmd_confirm(args) -> int:
 # review-pr
 # ---------------------------------------------------------------------------
 
+
+def _log_review_pr_findings(pr_number: int, head_sha: str, agent_output: str) -> None:
+    """Append one JSON line recording the finding categories for a PR review.
+
+    Silently no-ops on any I/O error so logging failures never break the
+    review workflow.
+    """
+    try:
+        categories = re.findall(r"### Finding:\s*(\w+)", agent_output)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        entry = {
+            "ts": ts,
+            "pr": pr_number,
+            "sha": head_sha[:8],
+            "categories": categories,
+        }
+        REVIEW_PR_PATTERN_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with REVIEW_PR_PATTERN_LOG.open("a") as fh:
+            fh.write(json.dumps(entry) + "\n")
+            fh.flush()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # review-pr posts two comment variants depending on whether the
 # review found ripple effects:
 #
@@ -4919,6 +5017,8 @@ def cmd_review_pr(args) -> int:
                  "--repo", REPO, "--body", comment_body],
                 capture_output=True,
             )
+
+            _log_review_pr_findings(pr_number, head_sha, agent_output)
 
             finding_word = "with findings" if has_findings else "clean"
             print(
