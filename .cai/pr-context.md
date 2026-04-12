@@ -52,3 +52,17 @@ Refs: damien-robotsix/robotsix-cai#308
 
 ### New gaps / deferred
 - None — all three reviewer findings addressed
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .cai-staging/agents/cai-analyze.md — removed `Bash` from tools list (line 4); agent uses `skill:look-up-closed-finding` via the Skill tool, not via Bash directly
+
+### Decisions this revision
+- Removed Bash rather than updating the description: the agent genuinely does not need shell access; `gh` runs inside the skill runtime, not the agent. "Read-only" description remains accurate.
+
+### New gaps / deferred
+- None — reviewer finding addressed
