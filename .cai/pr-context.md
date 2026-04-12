@@ -54,3 +54,17 @@ Refs: robotsix-cai/robotsix-cai#460
 
 ### New gaps / deferred
 - None
+
+## Revision 3 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- cai.py:25 — updated module docstring fix subcommand description to note "(each capped at $1.00)" for plan agents
+
+### Decisions this revision
+- Inserted cap mention inline in the existing "run 2 parallel plan agents" phrase per reviewer suggestion
+
+### New gaps / deferred
+- None
