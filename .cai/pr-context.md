@@ -30,7 +30,21 @@ Refs: robotsix/robotsix-cai#454
 ## Out of scope / known gaps
 - No `REVIEW_DOCS_PATTERN_LOG` analytics — kept minimal per issue scope
 - The `docs/` directory is currently empty; agent handles this gracefully with "No documentation updates needed."
-- The cycle command docstring still mentions only "review-pr" in the flow description — could be updated separately
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:7376` — updated `cmd_cycle` docstring flow: "revise → review-pr → merge" → "revise → review-pr → review-docs → merge"
+- `cai.py:7929` — updated cycle subcommand help text to include `review-docs` in the pipeline list
+
+### Decisions this revision
+- Both flow-description locations updated to match the actual `_drain_pending_prs` pipeline order (already updated by the PR)
+
+### New gaps / deferred
+- None
 
 ## Invariants this change relies on
 - `_BOT_COMMENT_MARKERS` clean-heading match suppresses revise re-processing; findings heading absence ensures revise acts on docs gaps

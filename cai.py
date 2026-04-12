@@ -7433,7 +7433,7 @@ def cmd_cycle(args) -> int:
     Flow:
       1. verify + confirm  (sync label state)
       1.5. recover stale locks (:in-progress / :revising)
-      2. drain pending PRs (revise → review-pr → merge)
+      2. drain pending PRs (revise → review-pr → review-docs → merge)
       2.5. refine one :raised issue
       3. loop: verify → fix → drain → refine → repeat
       4. final confirm
@@ -7986,7 +7986,7 @@ def main() -> int:
     sub.add_parser("refine", help="Refine human-filed issues into structured plans")
     sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
     sub.add_parser("explore", help="Autonomous exploration/benchmarking of :needs-exploration issues")
-    sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
+    sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, review-docs, merge, confirm")
     sub.add_parser("test", help="Run the project test suite")
 
     cost_parser = sub.add_parser(
