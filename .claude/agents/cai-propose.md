@@ -24,6 +24,11 @@ Read/Grep/Glob calls.
   - GOOD: `Read("<work_dir>/cai.py")`
   - BAD:  `Read("cai.py")`
 
+**Note:** `cai.py` is ~63 k tokens — a whole-file `Read("<work_dir>/cai.py")`
+will exceed the token limit. Use `Grep(pattern, path="<work_dir>")` for
+symbol search and `Read("<work_dir>/cai.py", offset=N, limit=200)` for
+targeted sections.
+
 ## What you receive
 
 The user message contains:

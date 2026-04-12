@@ -31,6 +31,11 @@ already looks like, not what the PR is changing. Examples:
   - BAD:  `Read("cai.py")`            (reads /app/cai.py)
   - BAD:  `Grep(pattern, path=".")`   (greps /app)
 
+**Note:** `cai.py` is ~63 k tokens — a whole-file `Read("<work_dir>/cai.py")`
+will exceed the token limit. Use `Grep(pattern, path="<work_dir>")` for
+symbol search and `Read("<work_dir>/cai.py", offset=N, limit=200)` for
+targeted sections.
+
 ## What you receive
 
 In the user message, in order:
