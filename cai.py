@@ -1066,6 +1066,54 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
     return recovered
 
 
+# Labels that indicate an issue is already managed by the auto-improve
+# pipeline (or the audit pipeline).  Issues carrying any of these are NOT
+# eligible for automatic ingestion.
+_MANAGED_LABEL_PREFIXES = ("auto-improve:", "audit:")
+
+
+def _ingest_unlabeled_issues() -> list[dict]:
+    """Find open issues with no pipeline label and tag them :raised.
+
+    Returns the list of issues that were ingested.
+    """
+    try:
+        all_open = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--json", "number,title,labels",
+            "--limit", "200",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai ingest] gh issue list failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        return []
+
+    ingested: list[dict] = []
+    for issue in all_open:
+        label_names = {lbl["name"] for lbl in issue.get("labels", [])}
+        if any(
+            name.startswith(prefix)
+            for name in label_names
+            for prefix in _MANAGED_LABEL_PREFIXES
+        ):
+            continue  # already in the pipeline
+        _set_labels(
+            issue["number"],
+            add=["auto-improve", LABEL_RAISED],
+            log_prefix="cai ingest",
+        )
+        print(
+            f"[cai ingest] #{issue['number']}: {issue['title']} → :raised",
+            flush=True,
+        )
+        ingested.append(issue)
+    return ingested
+
+
 def _select_fix_target():
     """Return the highest-scored open issue eligible for the fix subagent.
 
@@ -7236,6 +7284,13 @@ def cmd_cycle(args) -> int:
         print(f"[cai cycle] recovered {len(rolled_back)} stale lock(s): {nums}",
               flush=True)
 
+    # --- Phase 1.6: ingest unlabeled issues --------------------------------
+    ingested = _ingest_unlabeled_issues()
+    if ingested:
+        nums = ", ".join(f"#{i['number']}" for i in ingested)
+        print(f"[cai cycle] ingested {len(ingested)} unlabeled issue(s): {nums}",
+              flush=True)
+
     # --- Phase 2: drain any already-pending PRs -------------------------
     print("\n[cai cycle] draining pending PRs before starting fix loop",
           flush=True)
@@ -7281,7 +7336,23 @@ def cmd_cycle(args) -> int:
             except subprocess.CalledProcessError:
                 pass
 
+        # Check for :raised issues that still need refining.
+        has_raised = False
         if not has_fix_target and not has_pending_prs:
+            try:
+                raised = _gh_json([
+                    "issue", "list",
+                    "--repo", REPO,
+                    "--label", LABEL_RAISED,
+                    "--state", "open",
+                    "--json", "number",
+                    "--limit", "1",
+                ]) or []
+                has_raised = len(raised) > 0
+            except subprocess.CalledProcessError:
+                pass
+
+        if not has_fix_target and not has_pending_prs and not has_raised:
             print("[cai cycle] no eligible issues and no pending PRs; exiting loop",
                   flush=True)
             break
