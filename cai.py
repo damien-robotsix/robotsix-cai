@@ -51,8 +51,9 @@ Subcommands:
     python cai.py confirm   Re-analyze the recent transcript window and
                             verify whether `:merged` issues are actually
                             solved. Patterns that disappeared get closed
-                            with `:solved`; patterns that persist stay
-                            as `:merged`.
+                            with `:solved`; patterns that persist are
+                            re-queued to `:refined` (up to 3 attempts),
+                            then escalated to `:needs-human-review`.
 
     python cai.py review-pr Walk open PRs against main, run a
                             consistency review for ripple effects, and
@@ -4732,7 +4733,12 @@ def _parse_verdicts(text: str) -> list[tuple[int, str, str]]:
 
 
 def cmd_confirm(args) -> int:
-    """Re-analyze the recent window to verify :merged issues are solved."""
+    """Re-analyze the recent window to verify :merged issues are solved.
+
+    For unsolved issues, logs the outcome and either re-queues to
+    :refined (up to 3 attempts) or escalates to :needs-human-review
+    after max attempts.
+    """
     print("[cai confirm] checking merged issues against recent signals", flush=True)
     t0 = time.monotonic()
 

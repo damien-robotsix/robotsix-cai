@@ -61,7 +61,7 @@ subprocess with no shared state.
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the refine → fix pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
-| `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → left as `:merged` (Sonnet) |
+| `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → re-queued to `:refined` (up to 3 attempts), then escalated to `:needs-human-review` (Sonnet) |
 | `cai.py cycle` | _(startup + manual/on-demand)_ | Runs verify → fix → revise → review-pr → merge → confirm in sequence. The entrypoint runs this once synchronously at `docker compose up -d` so the issue-solving pipeline produces immediate logs; not scheduled via cron (the individual steps have their own cron lines) |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
@@ -109,8 +109,9 @@ action so two concurrent `fix` runs can't pick the same issue.
                   confirm (pattern       confirm (inconclusive
                    absent)                / unsolved)
                         ▼                       ▼
-                  solved (closed)       stays :merged
-                                     (reasoning posted)
+                  solved (closed)    re-queued :refined
+                                     (up to 3 attempts,
+                                      then :needs-human-review)
 ```
 
 `:no-action` means the fix subagent reviewed the issue and decided no

@@ -74,3 +74,21 @@ Refs: robotsix-cai/robotsix-cai#413
 - `_fetch_previous_fix_attempts` returns empty list on API failure (safe default for scoring)
 - `OUTCOME_LOG_PATH.parent` (`/var/log/cai/`) is writable at runtime (same assumption as `COST_LOG_PATH`)
 - The `%Y-%m-%dT%H:%M:%SZ` strptime format matches GitHub API `createdAt` field format
+
+## Revision 3 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:51-56` — updated module docstring for `confirm` to describe re-queue behavior (was "stay as :merged")
+- `cai.py:4735-4740` — expanded `cmd_confirm()` docstring to include re-queue and escalation logic
+- `README.md:64` — updated confirm table row to reflect re-queue flow instead of terminal `:merged`
+- `README.md:109-113` — updated ASCII lifecycle diagram: "stays :merged" → "re-queued :refined / :needs-human-review"
+
+### Decisions this revision
+- Kept ASCII diagram compact (same column width) by using two lines for the re-queue annotation
+- No behavioral changes — documentation only
+
+### New gaps / deferred
+- None
