@@ -111,5 +111,6 @@ No documentation updates needed.
 ## Agent-specific efficiency guidance
 
 1. **Use Agent for broad exploration.** When you need to search broadly, use
-   the Agent tool with `subagent_type: Explore` rather than many sequential
-   Grep or Read calls.
+   `Agent(subagent_type="Explore", model="haiku", ...)` rather than many
+   sequential Grep or Read calls. **Do NOT delegate decisions** — only
+   reading and search.

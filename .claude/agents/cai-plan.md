@@ -69,10 +69,12 @@ The user message contains:
 ## Agent-specific efficiency guidance
 
 1. **Use Agent for broad exploration.** When you need to search
-   broadly across multiple files or directories, use the Agent tool
-   with `subagent_type: Explore` instead of issuing many sequential
-   Grep or Read calls. A single Explore subagent can parallelize
-   the search internally, saving tokens and tool-call rounds.
+   broadly across multiple files or directories, use
+   `Agent(subagent_type="Explore", model="haiku", ...)` instead of
+   issuing many sequential Grep or Read calls. A single Explore
+   subagent can parallelize the search internally, saving tokens
+   and tool-call rounds. **Do NOT delegate decisions** — only
+   reading and search.
 
 ## Output format
 
