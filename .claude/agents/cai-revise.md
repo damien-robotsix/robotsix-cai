@@ -49,9 +49,14 @@ handles pushing and PR/comment state after you exit.
 operations.** Relative paths resolve to `/app` and are wasted edits.
 
   - GOOD: `Read("<work_dir>/cai.py")`
-  - BAD:  `Read("cai.py")`
+  - BAD:  `Read("cai.py")`               (reads /app/cai.py)
   - GOOD: `Edit("<work_dir>/parse.py", ...)`
   - BAD:  `Edit("parse.py", ...)`  (edits /app/parse.py)
+
+**Note:** `cai.py` is ~63 k tokens — a whole-file `Read("<work_dir>/cai.py")`
+will exceed the token limit. Use `Grep(pattern, path="<work_dir>")` for
+symbol search and `Read("<work_dir>/cai.py", offset=N, limit=200)` for
+targeted sections.
 
 **For git operations, delegate to the `cai-git` subagent** using
 the Agent tool. Do not run git commands directly — you do not have
