@@ -23,7 +23,7 @@ Refs: robotsix-cai/robotsix-cai#459
 - Rejected: leaving `_run_select_agent` unchanged — it already uses `enumerate(plans, 1)` so no change needed
 
 ## Out of scope / known gaps
-- `cai-select.md` agent definition does not hardcode "3 plans" — no change needed
+- (none)
 
 ## Revision 1 (2026-04-12)
 
@@ -37,6 +37,20 @@ Refs: robotsix-cai/robotsix-cai#459
 
 ### Decisions this revision
 - All three were straightforward stale references — updated to match the implementation change
+
+### New gaps / deferred
+- None
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-select.md:39` — "Plan 1, Plan 2, Plan 3" → "Plan 1, Plan 2" in What you receive section
+
+### Decisions this revision
+- Dossier incorrectly marked cai-select.md as "no change needed"; reviewer correctly identified line 39 still said "Plan 1, Plan 2, Plan 3"; updated via staging
 
 ### New gaps / deferred
 - None

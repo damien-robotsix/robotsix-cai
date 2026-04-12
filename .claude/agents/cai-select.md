@@ -36,7 +36,7 @@ The user message contains:
 
 1. **Work directory** — where the clone lives (for verification reads)
 2. **The original issue** — the problem being solved
-3. **Candidate plans** — numbered plans (Plan 1, Plan 2, Plan 3),
+3. **Candidate plans** — numbered plans (Plan 1, Plan 2),
    each proposing a different approach to fixing the issue
 
 ## How to evaluate
