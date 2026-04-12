@@ -1773,6 +1773,10 @@ def _pre_screen_issue_actionability(issue: dict) -> tuple[str, str]:
             f"{body}"
         )
 
+        # NOTE: intentional deviation from the --agent convention used by other
+        # _run_claude_p call sites.  The pre-screen is a pure inline prompt with
+        # no tool access and no agent definition file — using --model directly
+        # avoids the overhead of an agent file for a call that never needs one.
         proc = _run_claude_p(
             ["claude", "-p", "--model", "claude-haiku-4-5", prompt_text],
             category="fix/pre-screen",
