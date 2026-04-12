@@ -56,3 +56,18 @@ Refs: robotsix/robotsix-cai#430
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `install.sh`:148 — added `CAI_HEALTH_REPORT_SCHEDULE: "0 7 * * 1"` after `CAI_MERGE_SCHEDULE` in OAuth-mode generated docker-compose.yml template
+- `install.sh`:215 — added same `CAI_HEALTH_REPORT_SCHEDULE` entry in API-key-mode generated docker-compose.yml template
+
+### Decisions this revision
+- Inserted health-report schedule variable in the same relative position (after CAI_MERGE_SCHEDULE) as in docker-compose.yml to maintain consistency
+
+### New gaps / deferred
+- None
