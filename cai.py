@@ -3397,12 +3397,16 @@ def cmd_audit(args) -> int:
     if recent_prs:
         for pr in recent_prs:
             label_names = [lbl["name"] for lbl in pr.get("labels", [])]
+            head_ref = pr.get("headRefName", "")
+            body_snippet = (pr.get("body") or "")[:200].replace("\n", " ").strip()
             prs_section += (
                 f"- PR #{pr['number']}: {pr['title']} "
                 f"[{pr.get('state', 'unknown')}] "
                 f"(created {pr['createdAt']}"
                 f"{', merged ' + pr['mergedAt'] if pr.get('mergedAt') else ''})"
-                f"{' labels: ' + ', '.join(label_names) if label_names else ''}\n"
+                f"{' labels: ' + ', '.join(label_names) if label_names else ''}"
+                f"{' branch: ' + head_ref if head_ref else ''}"
+                f"{' body: ' + body_snippet if body_snippet else ''}\n"
             )
     else:
         prs_section += "(none)\n"
