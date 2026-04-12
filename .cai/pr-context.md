@@ -44,3 +44,19 @@ Refs: robotsix/robotsix-cai#424
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `docker-compose.yml:37` — updated CAI_AUDIT_SCHEDULE comment from "report-only + branch cleanup" to "LLM audit + deterministic cleanup; see README"
+- `install.sh:141` — same comment update (first occurrence)
+- `install.sh:208` — same comment update (second occurrence)
+
+### Decisions this revision
+- Used reviewer's suggested phrasing referencing README rather than enumerating all five steps inline (keeps comment concise)
+
+### New gaps / deferred
+- None
