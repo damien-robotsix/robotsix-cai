@@ -7813,7 +7813,7 @@ def cmd_cycle(args) -> int:
       1.5. recover stale locks (:in-progress / :revising)
       2. drain pending PRs (revise → review-pr → review-docs → merge)
       2.5. refine one :raised issue
-      3. loop: verify → fix/spike → drain → refine → repeat
+      3. loop: verify → fix/spike/explore → drain → refine → repeat
       4. final confirm
     """
     print("[cai cycle] starting continuous cycle", flush=True)

@@ -51,3 +51,17 @@ Refs: damien-robotsix/robotsix-cai#479
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:7816` — updated cmd_cycle docstring loop description from `fix/spike` to `fix/spike/explore`
+
+### Decisions this revision
+- Applied reviewer's exact suggested wording verbatim — minimal one-word addition accurate to the new code behavior
+
+### New gaps / deferred
+- None
