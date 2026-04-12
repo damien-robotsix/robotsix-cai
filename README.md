@@ -64,7 +64,7 @@ subprocess with no shared state.
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
 | `cai.py confirm` | `0 2 * * *` (daily 02:00 UTC) | Re-analyzes the recent transcript window to verify whether `:merged` issues are actually solved. Patterns that disappeared → closed with `:solved`; patterns that persist → re-queued to `:refined` (up to 3 attempts), then escalated to `:needs-human-review` (Sonnet) |
 | `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
-| `cai.py cycle` | _(startup + manual/on-demand)_ | Runs verify → fix → revise → review-pr → merge → confirm in sequence. The entrypoint runs this once synchronously at `docker compose up -d` so the issue-solving pipeline produces immediate logs; not scheduled via cron (the individual steps have their own cron lines) |
+| `cai.py cycle` | _(startup + manual/on-demand)_ | Runs verify → fix → revise → review-pr → review-docs → merge → confirm in sequence. The entrypoint runs this once synchronously at `docker compose up -d` so the issue-solving pipeline produces immediate logs; not scheduled via cron (the individual steps have their own cron lines) |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
@@ -293,6 +293,7 @@ docker compose exec cai python /app/cai.py analyze
 docker compose exec cai python /app/cai.py fix              # automatic scoring-based selection
 docker compose exec cai python /app/cai.py fix --issue 12   # specific issue
 docker compose exec cai python /app/cai.py review-pr
+docker compose exec cai python /app/cai.py review-docs
 docker compose exec cai python /app/cai.py revise
 docker compose exec cai python /app/cai.py verify
 docker compose exec cai python /app/cai.py audit
@@ -306,6 +307,7 @@ A short alias makes this trivial:
 alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /app/cai.py'
 cai fix --issue 12
 cai review-pr
+cai review-docs
 cai revise
 cai verify
 cai audit
@@ -490,7 +492,7 @@ The container uses three Docker named volumes:
   `.claude/agent-memory/<agent-name>/MEMORY.md`. The /app agents
   (analyze, audit, confirm, merge, audit-triage) read/write this
   volume directly. The cloned-worktree agents (fix, revise,
-  review-pr, code-audit, propose, propose-review, update-check,
+  review-pr, review-docs, code-audit, propose, propose-review, update-check,
   plan, select, git) also access their
   memory directly from `/app/.claude/agent-memory/<agent-name>/`
   via the mounted `cai_agent_memory` volume — no copy in/out by
@@ -545,7 +547,7 @@ docker run --rm -v cai_home:/data alpine ls -R /data
 
 A **run log** is written to `/var/log/cai/cai.log` inside the container
 (persisted in the `cai_logs` named volume). Each `init`, `analyze`,
-`fix`, `review-pr`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, `merge`, and `health-report` invocation appends one key=value line so you can
+`fix`, `review-pr`, `review-docs`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, `merge`, and `health-report` invocation appends one key=value line so you can
 watch cycle activity:
 
 ```bash

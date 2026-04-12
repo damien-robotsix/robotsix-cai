@@ -79,7 +79,7 @@ services:
       # `.claude/agent-memory/<agent-name>/`. The /app agents
       # (analyze, audit, confirm, merge, audit-triage) read/write
       # this volume directly. The cloned-worktree agents (fix,
-      # revise, review-pr, code-audit, propose,
+      # revise, review-pr, review-docs, code-audit, propose,
       # propose-review, update-check, plan, select, git) also
       # access their memory directly from the mounted volume.
       # (cai-rebase is excluded — lightweight agent, no memory

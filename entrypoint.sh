@@ -22,7 +22,7 @@
 #    independent processes — natural concurrency, easy to add more.
 #
 # 2. Do one synchronous `cai.py cycle` pass (verify → fix → revise →
-#    review-pr → merge → confirm) so `docker compose up -d` produces
+#    review-pr → review-docs → merge → confirm) so `docker compose up -d` produces
 #    useful logs immediately rather than waiting for the first cron
 #    tick. Only the issue-solving cycle runs at startup; analysis,
 #    audit, proposal, spike, refine, and update-check agents wait for
