@@ -7148,12 +7148,13 @@ def _drain_pending_prs(args) -> dict:
 def cmd_cycle(args) -> int:
     """Continuously fix issues and merge PRs until nothing is left to do.
 
-    Flow per iteration:
+    Flow:
       1. verify + confirm  (sync label state)
+      1.5. recover stale locks (:in-progress / :revising)
       2. drain pending PRs (revise → review-pr → merge)
-      3. fix one issue
-      4. if fix opened a PR → drain that PR immediately
-      5. loop back to (1) while fix found work
+      2.5. refine one :raised issue
+      3. loop: verify → fix → drain → refine → repeat
+      4. final confirm
     """
     print("[cai cycle] starting continuous cycle", flush=True)
     t0 = time.monotonic()
@@ -7168,6 +7169,13 @@ def cmd_cycle(args) -> int:
         if rc != 0:
             had_failure = True
 
+    # --- Phase 1.5: recover stale locks ----------------------------------
+    rolled_back = _rollback_stale_in_progress()
+    if rolled_back:
+        nums = ", ".join(f"#{i['number']}" for i in rolled_back)
+        print(f"[cai cycle] recovered {len(rolled_back)} stale lock(s): {nums}",
+              flush=True)
+
     # --- Phase 2: drain any already-pending PRs -------------------------
     print("\n[cai cycle] draining pending PRs before starting fix loop",
           flush=True)
@@ -7176,7 +7184,13 @@ def cmd_cycle(args) -> int:
     if any(v != 0 for v in pr_results.values()):
         had_failure = True
 
-    # --- Phase 3: fix loop — pick → fix → drain → repeat ---------------
+    # --- Phase 2.5: refine one :raised issue ------------------------------
+    rc = _run_step("refine", cmd_refine, args)
+    all_results["refine"] = rc
+    if rc != 0:
+        had_failure = True
+
+    # --- Phase 3: fix loop — pick → fix → drain → refine → repeat ------
     while True:
         iteration += 1
         print(f"\n[cai cycle] ---- iteration {iteration} ----", flush=True)
@@ -7206,6 +7220,11 @@ def cmd_cycle(args) -> int:
             all_results[f"{step}.{iteration}"] = step_rc
             if step_rc != 0:
                 had_failure = True
+
+        # Refine one more :raised issue so the next iteration has
+        # something to fix.
+        rc = _run_step("refine", cmd_refine, args)
+        all_results[f"refine.{iteration}"] = rc
 
     # --- Phase 4: final confirm -----------------------------------------
     rc = _run_step("confirm-final", cmd_confirm, args)
