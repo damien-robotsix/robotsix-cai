@@ -2566,6 +2566,7 @@ _BOT_COMMENT_MARKERS = (
     "## Revise subagent:",
     "## Revision summary",
     "## cai pre-merge review (clean)",
+    "## cai docs review (clean)",
     "## cai merge verdict",
 )
 
@@ -5790,6 +5791,205 @@ def cmd_review_pr(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# review-docs — pre-merge documentation review
+# ---------------------------------------------------------------------------
+
+# docs-review posts two comment variants depending on whether the
+# review found stale documentation:
+#
+#   * `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` — actionable, contains
+#     `### Finding: stale_docs` blocks. NOT in `_BOT_COMMENT_MARKERS`
+#     so the revise subagent picks them up and addresses them.
+#
+#   * `_DOCS_REVIEW_COMMENT_HEADING_CLEAN` — informational only, says
+#     "no documentation updates needed". IS in `_BOT_COMMENT_MARKERS`
+#     so the revise subagent skips it (no actionable content).
+#
+# Both forms include the head SHA at the end of the heading line so
+# the SHA-idempotency check can recognize either as "already
+# reviewed at this commit".
+_DOCS_REVIEW_COMMENT_HEADING_FINDINGS = "## cai docs review"
+_DOCS_REVIEW_COMMENT_HEADING_CLEAN = "## cai docs review (clean)"
+
+
+def cmd_review_docs(args) -> int:
+    """Review open PRs for stale documentation and post findings as PR comments."""
+    print("[cai review-docs] checking open PRs against main", flush=True)
+    t0 = time.monotonic()
+
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--base", "main",
+            "--json", "number,title,author,headRefOid,comments",
+            "--limit", "50",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai review-docs] gh pr list failed:\n{e.stderr}", file=sys.stderr)
+        log_run("review_docs", repo=REPO, result="pr_list_failed", exit=1)
+        return 1
+
+    if not prs:
+        print("[cai review-docs] no open PRs; nothing to do", flush=True)
+        log_run("review_docs", repo=REPO, result="no_open_prs", exit=0)
+        return 0
+
+    reviewed = 0
+    skipped = 0
+
+    for pr in prs:
+        pr_number = pr["number"]
+        head_sha = pr["headRefOid"]
+        title = pr["title"]
+
+        # Check if we already posted a docs review for this SHA.
+        already_reviewed = False
+        for comment in pr.get("comments", []):
+            body = (comment.get("body") or "")
+            first_line = body.split("\n", 1)[0]
+            if (
+                first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_FINDINGS)
+                and head_sha in first_line
+            ):
+                already_reviewed = True
+                break
+        if already_reviewed:
+            print(
+                f"[cai review-docs] PR #{pr_number}: already reviewed at {head_sha[:8]}; skipping",
+                flush=True,
+            )
+            skipped += 1
+            continue
+
+        print(f"[cai review-docs] reviewing PR #{pr_number}: {title}", flush=True)
+
+        # Get the diff.
+        diff_result = _run(
+            ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
+            capture_output=True,
+        )
+        if diff_result.returncode != 0:
+            print(
+                f"[cai review-docs] could not fetch diff for PR #{pr_number}:\n"
+                f"{diff_result.stderr}",
+                file=sys.stderr,
+            )
+            continue
+        pr_diff = diff_result.stdout
+
+        # Clone the repo for the agent to walk.
+        _uid = uuid.uuid4().hex[:8]
+        work_dir = Path(f"/tmp/cai-review-docs-{pr_number}-{_uid}")
+        try:
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+
+            clone = _run(
+                ["git", "clone", "--depth", "1",
+                 f"https://github.com/{REPO}.git", str(work_dir)],
+                capture_output=True,
+            )
+            if clone.returncode != 0:
+                print(
+                    f"[cai review-docs] clone failed for PR #{pr_number}:\n{clone.stderr}",
+                    file=sys.stderr,
+                )
+                continue
+
+            author_login = pr.get("author", {}).get("login", "unknown")
+            user_message = (
+                _work_directory_block(work_dir)
+                + "\n"
+                + f"## PR metadata\n\n"
+                + f"- **Number:** #{pr_number}\n"
+                + f"- **Title:** {title}\n"
+                + f"- **Author:** @{author_login}\n"
+                + f"- **Base:** main\n"
+                + f"- **HEAD SHA:** {head_sha}\n\n"
+                + f"## PR diff\n\n"
+                + f"```diff\n{pr_diff}\n```\n"
+            )
+
+            # Invoke the declared cai-review-docs subagent.
+            agent = _run_claude_p(
+                ["claude", "-p", "--agent", "cai-review-docs",
+                 "--permission-mode", "acceptEdits",
+                 "--add-dir", str(work_dir)],
+                category="review-docs",
+                agent="cai-review-docs",
+                input=user_message,
+                cwd="/app",
+            )
+            if agent.stdout:
+                print(agent.stdout, flush=True)
+            if agent.returncode != 0:
+                print(
+                    f"[cai review-docs] agent failed for PR #{pr_number} "
+                    f"(exit {agent.returncode}):\n{agent.stderr}",
+                    file=sys.stderr,
+                )
+                continue
+
+            agent_output = (agent.stdout or "").strip()
+
+            # Determine if there are findings.
+            has_findings = (
+                "### Finding:" in agent_output
+                and "No documentation updates needed" not in agent_output
+            )
+
+            if has_findings:
+                comment_body = (
+                    f"{_DOCS_REVIEW_COMMENT_HEADING_FINDINGS} \u2014 {head_sha}\n\n"
+                    f"{agent_output}\n\n"
+                    f"---\n"
+                    f"_Pre-merge documentation review by `cai review-docs`. "
+                    f"Address the findings above or explain why they don't "
+                    f"apply, then push a new commit to trigger a re-review._"
+                )
+            else:
+                comment_body = (
+                    f"{_DOCS_REVIEW_COMMENT_HEADING_CLEAN} \u2014 {head_sha}\n\n"
+                    f"No documentation updates needed.\n\n"
+                    f"---\n"
+                    f"_Pre-merge documentation review by `cai review-docs`._"
+                )
+
+            _run(
+                ["gh", "pr", "comment", str(pr_number),
+                 "--repo", REPO, "--body", comment_body],
+                capture_output=True,
+            )
+
+            finding_word = "with findings" if has_findings else "clean"
+            print(
+                f"[cai review-docs] posted review on PR #{pr_number} ({finding_word})",
+                flush=True,
+            )
+            reviewed += 1
+
+        except Exception as e:
+            print(
+                f"[cai review-docs] unexpected failure for PR #{pr_number}: {e!r}",
+                file=sys.stderr,
+            )
+        finally:
+            if work_dir.exists():
+                shutil.rmtree(work_dir, ignore_errors=True)
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    print(
+        f"[cai review-docs] reviewed={reviewed} skipped={skipped}",
+        flush=True,
+    )
+    log_run("review_docs", repo=REPO, reviewed=reviewed, skipped=skipped,
+            duration=dur, exit=0)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Merge — confidence-gated auto-merge for bot PRs
 # ---------------------------------------------------------------------------
 
@@ -6071,6 +6271,27 @@ def cmd_merge(args) -> int:
         if not has_review_at_sha:
             print(
                 f"[cai merge] PR #{pr_number}: review-pr has not reviewed "
+                f"{head_sha[:8]} yet; waiting",
+                flush=True,
+            )
+            continue
+
+        # Safety filter 7b: require `cai review-docs` to have reviewed
+        # the current head SHA before running a merge verdict.
+        has_docs_review_at_sha = False
+        for comment in pr.get("comments", []):
+            body = (comment.get("body") or "")
+            first_line = body.split("\n", 1)[0]
+            if (
+                first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_FINDINGS)
+                and head_sha in first_line
+            ):
+                has_docs_review_at_sha = True
+                break
+
+        if not has_docs_review_at_sha:
+            print(
+                f"[cai merge] PR #{pr_number}: review-docs has not reviewed "
                 f"{head_sha[:8]} yet; waiting",
                 flush=True,
             )
@@ -7197,10 +7418,11 @@ def _run_step(name: str, handler, args) -> int:
 
 
 def _drain_pending_prs(args) -> dict:
-    """Revise → review-pr → merge all pending PRs. Returns step results."""
+    """Revise → review-pr → review-docs → merge all pending PRs. Returns step results."""
     results: dict[str, int] = {}
     results["revise"] = _run_step("revise", cmd_revise, args)
     results["review-pr"] = _run_step("review-pr", cmd_review_pr, args)
+    results["review-docs"] = _run_step("review-docs", cmd_review_docs, args)
     results["merge"] = _run_step("merge", cmd_merge, args)
     return results
 
@@ -7759,6 +7981,7 @@ def main() -> int:
     sub.add_parser("update-check", help="Check Claude Code releases for workspace improvements")
     sub.add_parser("confirm", help="Verify merged issues are actually solved")
     sub.add_parser("review-pr", help="Pre-merge consistency review of open PRs")
+    sub.add_parser("review-docs", help="Pre-merge documentation review of open PRs")
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
     sub.add_parser("refine", help="Refine human-filed issues into structured plans")
     sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
@@ -7815,6 +8038,7 @@ def main() -> int:
         "update-check": cmd_update_check,
         "confirm": cmd_confirm,
         "review-pr": cmd_review_pr,
+        "review-docs": cmd_review_docs,
         "merge": cmd_merge,
         "refine": cmd_refine,
         "spike": cmd_spike,
