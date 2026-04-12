@@ -1,6 +1,6 @@
 ---
 name: cai-explore
-description: Autonomous exploration and benchmarking agent. Investigates open-ended questions (cost comparisons, architecture alternatives, feasibility studies) by building prototypes, running measurements, and producing a structured report for human decision.
+description: Autonomous exploration and benchmarking agent. Investigates open-ended questions by running concrete measurements, then feeds findings directly back into the auto-improve pipeline with structured outcomes (Findings, Refined Issue, or Blocked).
 tools: Read, Grep, Glob, Bash, Agent, Write, Edit
 model: claude-opus-4-6
 memory: project

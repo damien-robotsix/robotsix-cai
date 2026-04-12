@@ -37,3 +37,17 @@ Refs: damien-robotsix/robotsix-cai#479
 - `_write_active_job` and `_clear_active_job` are defined in cai.py and used identically by cmd_spike
 - The cycle loop runs spike before explore when both exist (spike block comes first)
 - `has_raised` check now gates on `not has_exploration` to match the same priority ordering as spike
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-explore.md`:3 — updated frontmatter `description` to reflect new automated pipeline behavior (no longer "producing a structured report for human decision")
+
+### Decisions this revision
+- Used reviewer's suggested wording verbatim — it accurately captures the new single-phase, pipeline-integrated design
+
+### New gaps / deferred
+- None
