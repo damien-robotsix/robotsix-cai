@@ -7504,7 +7504,7 @@ def cmd_cycle(args) -> int:
       1.5. recover stale locks (:in-progress / :revising)
       2. drain pending PRs (revise → review-pr → review-docs → merge)
       2.5. refine one :raised issue
-      3. loop: verify → fix → drain → refine → repeat
+      3. loop: verify → fix/spike → drain → refine → repeat
       4. final confirm
     """
     print("[cai cycle] starting continuous cycle", flush=True)
@@ -7579,9 +7579,25 @@ def cmd_cycle(args) -> int:
             except subprocess.CalledProcessError:
                 pass
 
+        # Check for :needs-spike issues.
+        has_spike = False
+        if not has_fix_target:
+            try:
+                spike_issues = _gh_json([
+                    "issue", "list",
+                    "--repo", REPO,
+                    "--label", LABEL_NEEDS_SPIKE,
+                    "--state", "open",
+                    "--json", "number",
+                    "--limit", "1",
+                ]) or []
+                has_spike = len(spike_issues) > 0
+            except subprocess.CalledProcessError:
+                pass
+
         # Check for :raised issues that still need refining.
         has_raised = False
-        if not has_fix_target and not has_pending_prs:
+        if not has_fix_target and not has_pending_prs and not has_spike:
             try:
                 raised = _gh_json([
                     "issue", "list",
@@ -7595,7 +7611,7 @@ def cmd_cycle(args) -> int:
             except subprocess.CalledProcessError:
                 pass
 
-        if not has_fix_target and not has_pending_prs and not has_raised:
+        if not has_fix_target and not has_pending_prs and not has_spike and not has_raised:
             print("[cai cycle] no eligible issues and no pending PRs; exiting loop",
                   flush=True)
             break
@@ -7627,6 +7643,15 @@ def cmd_cycle(args) -> int:
                 # fix failed (error) — stop looping.
                 print("[cai cycle] fix step failed; stopping loop", flush=True)
                 break
+
+        # Run spike if no fix target but :needs-spike issues exist.
+        # Spike outcomes feed back: refine_and_retry → :raised,
+        # refined → :refined, blocked → :needs-human, close → done.
+        if not has_fix_target and has_spike:
+            rc = _run_step("spike", cmd_spike, args)
+            all_results[f"spike.{iteration}"] = rc
+            if rc != 0:
+                had_failure = True
 
         # Drain pending PRs (from fix or pre-existing).
         pr_results = _drain_pending_prs(args)
