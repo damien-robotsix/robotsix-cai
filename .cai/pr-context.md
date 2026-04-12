@@ -115,3 +115,17 @@ Refs: damien-robotsix/robotsix-cai#308
 
 ### New gaps / deferred
 - None — all reviewer findings addressed
+
+## Revision 6 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .cai-staging/agents/cai-analyze.md — added `Skill` to tools list (line 4: `tools: Read, Grep, Glob, Skill`)
+
+### Decisions this revision
+- Added `Skill` tool (not `Bash`) — the agent invokes `skill:look-up-closed-finding` via the Skill tool; `gh` runs inside the skill runtime, not the agent directly
+
+### New gaps / deferred
+- None — reviewer finding addressed
