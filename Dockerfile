@@ -109,6 +109,7 @@ COPY --chown=cai:cai parse.py /app/parse.py
 COPY --chown=cai:cai publish.py /app/publish.py
 COPY --chown=cai:cai .claude /app/.claude
 COPY --chown=cai:cai entrypoint.sh /app/entrypoint.sh
+COPY --chown=cai:cai tests /app/tests
 RUN chmod +x /app/entrypoint.sh \
     && mkdir -p /app/.claude/agent-memory \
     && chown -R cai:cai /app
