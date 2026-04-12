@@ -312,6 +312,29 @@ When the issue clearly identifies:
 …then make exactly that change. Read the file(s), verify the
 remediation matches the current code, edit precisely, and stop.
 
+## Multi-step plans
+
+If the issue body contains a `### Plan` section with numbered steps,
+execute them **sequentially** rather than in parallel. For each step:
+
+1. **Decompose if needed** — if a step is itself complex, break it
+   into sub-actions in your internal TodoWrite list.
+2. **Make the edits** for that step only.
+3. **Verify** — use Read and Grep to confirm the edit landed correctly:
+   re-read the changed file to confirm the expected content is present,
+   grep for the before/after patterns, or check that a function
+   signature matches what the plan expected. If the issue body has a
+   `### Verification` section with explicit checks, run those checks now.
+4. **If verification fails**, do not proceed to step N+1. Either fix
+   step N or exit with zero diff explaining which step failed and why.
+5. **If verification passes**, mark the step complete in TodoWrite and
+   move to the next step.
+
+Multi-step plans are NOT a license to make larger changes. The scope
+cap — minimal, targeted, only what the issue asks — still applies to
+each individual step. If the issue has no `### Plan` section, ignore
+this section entirely and proceed with your normal single-pass approach.
+
 ## Raising complementary issues
 
 While working on the fix, you may notice related problems that are
