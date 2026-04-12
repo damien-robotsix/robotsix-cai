@@ -2,7 +2,7 @@
 name: cai-review-pr
 description: Pre-merge ripple-effect review for an open PR. Walks the diff, searches the broader codebase for inconsistencies the PR introduced but didn't update, and emits `### Finding:` blocks the wrapper posts as a PR comment. Read-only.
 tools: Read, Grep, Glob, Agent
-model: claude-sonnet-4-6
+model: claude-haiku-4-5
 memory: project
 ---
 
