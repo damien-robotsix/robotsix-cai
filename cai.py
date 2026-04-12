@@ -12,8 +12,10 @@ Subcommands:
                             claude -p, and publish findings via
                             publish.py.
 
-    python cai.py fix       Pick the oldest issue labelled
-                            `auto-improve:refined` or `auto-improve:
+    python cai.py fix       Score eligible issues by age, category
+                            success rate, and prior fix attempts; pick
+                            the highest scorer labelled `auto-improve:
+                            refined` or `auto-improve:
                             requested` (audit issues reach fix via
                             triage relabelling), lock it via the `:in-progress`
                             label, clone the repo into /tmp, run 3
@@ -1029,7 +1031,11 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
 
 
 def _select_fix_target():
-    """Return the oldest open issue eligible for the fix subagent.
+    """Return the highest-scored open issue eligible for the fix subagent.
+
+    Scoring: age_days × category_success_rate × (1 / max(1, prior_attempts)).
+    Categories with fewer than 3 observations get a neutral prior of 0.60.
+    This replaces the previous FIFO (oldest-first) selection.
 
     Eligible = labelled `:refined` or `:requested`, NOT labelled
     `:in-progress` or `:pr-open`.  `audit:raised` issues are handled
@@ -6043,7 +6049,7 @@ def main() -> int:
     fix_parser = sub.add_parser("fix", help="Run the fix subagent")
     fix_parser.add_argument(
         "--issue", type=int, default=None,
-        help="Target a specific issue number instead of picking the oldest",
+        help="Target a specific issue number instead of using automatic scoring-based selection",
     )
 
     sub.add_parser("revise", help="Iterate on open PRs based on review comments")

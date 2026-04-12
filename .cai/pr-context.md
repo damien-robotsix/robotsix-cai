@@ -34,6 +34,24 @@ Refs: robotsix-cai/robotsix-cai#413
 - `cai-confirm.md` agent definition not modified — confidence field addition deferred
 - `publish.py` not modified — category labels already set correctly
 
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:15` — updated module docstring "Pick the oldest issue" → describe scoring logic
+- `cai.py:1032` — updated `_select_fix_target` docstring to describe outcome-driven scoring (replaces "oldest open issue")
+- `cai.py:6042` — updated `--issue` help text to "instead of using automatic scoring-based selection"
+- `README.md:55` — updated `cai.py fix` table row to describe scoring strategy instead of "oldest eligible"
+- `README.md:270` — updated inline comment `# oldest eligible` → `# automatic scoring-based selection`
+
+### Decisions this revision
+- Expanded `_select_fix_target` docstring to include the scoring formula for developer clarity
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `category:{value}` labels are already applied to issues by `publish.py`
 - `_fetch_previous_fix_attempts` returns empty list on API failure (safe default for scoring)
