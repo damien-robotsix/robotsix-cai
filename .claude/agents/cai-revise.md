@@ -256,7 +256,7 @@ and create a minimal dossier before exiting if you make code changes.
 Use `Agent(subagent_type="Explore", model="haiku", ...)` for reading
 the dossier, files referenced by review comments, and symbol searches
 — this trades expensive sonnet output tokens for ~10× cheaper haiku tokens.
-Fall back to direct Read only for small lookups (< 3 files, < 100 lines).
+Fall back to direct Read only for small lookups (3 or fewer files, < 100 lines).
 **Do NOT delegate edits or decisions** — only reading and search.
 Git operations still go through `cai-git`, not Explore.
 
@@ -275,7 +275,7 @@ one:
    session), referenced files, and mentioned symbols. See "Delegate
    bulk reading to a haiku Explore subagent" above. Fall back to
    direct Read only for small, single-file lookups where the
-   subagent overhead isn't worthwhile (< 3 files, known paths,
+   subagent overhead isn't worthwhile (3 or fewer files, known paths,
    < 100 lines total).
 3. **Make the minimal change** that addresses what the reviewer
    asked for. Do not guess at scope — if a comment is unclear or

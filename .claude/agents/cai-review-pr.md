@@ -117,6 +117,26 @@ No ripple effects found.
    modifies `.cai/pr-context.md`, skip it entirely — do not flag
    it under `stale_docs`, `dead_config`, `missing_co_change`, or
    any other category.
+7. **Delegate broad exploration to an Explore subagent.** If your
+   review will touch more than 3 distinct files, or read more than
+   5 separate sections of a single large file, or grep for more
+   than 5 different patterns — stop and delegate the exploration to
+   an `Agent` call with `subagent_type: "Explore"` before continuing.
+   Write a self-contained prompt that tells the Explore agent what
+   you need to find and why. Then use its findings to identify
+   ripple effects. Example:
+
+       Agent({
+         subagent_type: "Explore",
+         description: "Find all references to changed symbol",
+         prompt: "In the repo at <work_dir>, find every reference to
+                  the function/constant/label '<name>': all call sites,
+                  doc mentions, config entries, and agent definitions.
+                  Report file paths and line numbers."
+       })
+
+   Do NOT perform the exploration yourself with sequential
+   Read/Grep calls — that wastes tokens and rounds.
 
 ## Efficiency guidance
 
@@ -138,8 +158,3 @@ No ripple effects found.
    in parallel rather than sequentially. Use Glob first to narrow
    the file set, then Grep the results, instead of running
    exploratory Grep calls one at a time.
-5. **Use Agent for broad exploration.** When you need to search
-   broadly across multiple files or directories, use the Agent tool
-   with `subagent_type: Explore` instead of issuing many sequential
-   Grep or Read calls. A single Explore subagent can parallelize
-   the search internally, saving tokens and tool-call rounds.
