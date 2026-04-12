@@ -113,7 +113,12 @@ Example of updating this very file:
    will commit, push, and open the PR after you exit. Just leave
    your changes uncommitted in the working tree.
 4. **Do not add tests, docstrings, or type annotations** unless the
-   issue specifically asks for them.
+   issue specifically asks for them. **Exception:** if your code
+   change causes an existing test in `tests/` to fail, you **must**
+   update the failing test(s) to reflect the new correct behavior
+   before exiting. A test update in this case is required — not
+   optional — because the regression gate in `cmd_fix` will
+   otherwise block the PR indefinitely.
 5. **Do not delete or substantially rewrite existing files** unless
    the issue is explicitly about deletion or rewrite.
 6. **Stay inside the repo.** Don't modify files outside the working

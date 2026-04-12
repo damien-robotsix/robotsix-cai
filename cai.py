@@ -1805,6 +1805,25 @@ def cmd_fix(args) -> int:
         )
         _git(work_dir, "commit", "-m", commit_msg)
 
+        # 7b. Run regression tests against the clone's working tree before
+        # pushing, so a test failure can be rolled back without leaving any
+        # remote state (orphaned branch with no PR).
+        test_result = _run(
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
+            cwd=str(work_dir),
+            capture_output=True,
+        )
+        if test_result.returncode != 0:
+            print(
+                f"[cai fix] regression tests failed — not opening PR\n"
+                f"{test_result.stdout}\n{test_result.stderr}",
+                file=sys.stderr,
+            )
+            rollback()
+            log_run("fix", repo=REPO, issue=issue_number,
+                    result="tests_failed", exit=1)
+            return 1
+
         # 8. Push.
         push = _run(
             ["git", "-C", str(work_dir), "push", "-u", "origin", branch],
@@ -5649,6 +5668,15 @@ def cmd_cycle(args) -> int:
     return 1 if failed else 0
 
 
+def cmd_test(args) -> int:
+    """Run the project test suite."""
+    result = _run(
+        [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
+        cwd=str(Path(__file__).resolve().parent),
+    )
+    return result.returncode
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -5681,6 +5709,7 @@ def main() -> int:
     sub.add_parser("merge", help="Confidence-gated auto-merge for bot PRs")
     sub.add_parser("refine", help="Refine human-filed issues into structured plans")
     sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, merge, confirm")
+    sub.add_parser("test", help="Run the project test suite")
 
     cost_parser = sub.add_parser(
         "cost-report",
@@ -5726,6 +5755,7 @@ def main() -> int:
         "refine": cmd_refine,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
+        "test": cmd_test,
     }
     return handlers[args.command](args)
 
