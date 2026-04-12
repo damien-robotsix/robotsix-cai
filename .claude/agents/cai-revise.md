@@ -58,7 +58,7 @@ the Agent tool. Do not run git commands directly — you do not have
 Bash. Pass the work directory in the prompt so cai-git uses
 `git -C <work_dir>` for every command.
 
-  - GOOD: `Agent(subagent_type="cai-git", prompt="List conflicted files in <work_dir>: run `git -C <work_dir> diff --name-only --diff-filter=U`")`
+  - GOOD: `Agent(subagent_type="cai-git", prompt="List conflicted files in <work_dir>: run `git -C <work_dir> diff --name-only --diff-filter=U` and return the output.")`
   - BAD:  `Bash("git -C <work_dir> status")`  (Bash not available)
 
 ## Self-modifying `.claude/agents/*.md` (staging directory)
@@ -156,7 +156,13 @@ Example of addressing a review comment on this very file:
 5. **Don't modify `.github/workflows/`** unless a review comment
    specifically asks for it.
 6. **Don't add tests, docstrings, or type annotations** unless a
-   review comment specifically asks for them.
+   review comment specifically asks for them. **Exception:** if
+   resolving a conflict or addressing a review comment causes an
+   existing test in `tests/` to fail, you **must** update the
+   failing test(s) to reflect the new correct behavior before
+   exiting. A test update in this case is required — not optional —
+   because the regression gate in `cmd_fix` will otherwise block
+   the PR indefinitely.
 7. **Stay inside the worktree.** Do not touch files outside the
    working directory.
 

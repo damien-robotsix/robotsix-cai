@@ -5607,7 +5607,7 @@ def cmd_cycle(args) -> int:
 
 def cmd_test(args) -> int:
     """Run the project test suite."""
-    result = subprocess.run(
+    result = _run(
         [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
         cwd=str(Path(__file__).resolve().parent),
     )

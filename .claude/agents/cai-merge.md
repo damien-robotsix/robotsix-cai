@@ -60,7 +60,9 @@ You must emit exactly one of three confidence levels:
 - PR introduces new files not mentioned in the issue
 - PR modifies workflow files (`.github/workflows/`)
 - PR modifies files the issue explicitly says not to touch
-- PR adds tests or docstrings unless the issue asked for them
+- PR adds new test files or docstrings unless the issue asked for them
+  (updating *existing* test files to keep the suite green is
+  acceptable scope even without an explicit issue request)
 - PR removes existing functionality not explicitly asked to be removed
 - You cannot trace every change in the diff back to a remediation
   step in the issue
