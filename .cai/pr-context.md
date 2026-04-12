@@ -85,3 +85,19 @@ Refs: damien-robotsix/robotsix-cai#308
 
 ### New gaps / deferred
 - None — all three reviewer findings addressed
+
+## Revision 4 (2026-04-12)
+
+### Rebase
+- resolved: .claude/agents/cai-revise.md — conflict between HEAD's condensed staging section and PR commit's expanded version covering plugin staging; kept incoming (PR) version
+
+### Files touched this revision
+- .cai-staging/plugins/cai-skills/.claude-plugin/plugin.json — created plugin manifest (wrapper moves to .claude/plugins/)
+- .cai-staging/plugins/cai-skills/skills/look-up-closed-finding/SKILL.md — created skill definition (wrapper moves to .claude/plugins/)
+- .cai-staging/agents/cai-revise.md — conflict-resolved version (kept incoming expanded plugin staging section)
+
+### Decisions this revision
+- Plugin files written to .cai-staging/plugins/ — same flow as Revision 3; wrapper copies to .claude/plugins/ and commits; fixes missing_co_change where Revision 3's staging writes never landed in the repo
+
+### New gaps / deferred
+- None — reviewer finding addressed
