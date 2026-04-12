@@ -201,11 +201,6 @@ Example of creating a plugin skill:
    in parallel rather than sequentially. Use Glob first to narrow
    the file set, then Grep the results, instead of running
    exploratory Grep calls one at a time.
-9. **Use Agent for broad exploration.** When you need to search
-   broadly across multiple files or directories, use the Agent tool
-   with `subagent_type: Explore` instead of issuing many sequential
-   Grep or Read calls. A single Explore subagent can parallelize
-   the search internally, saving tokens and tool-call rounds.
 
 ## Consult your memory first
 
@@ -349,7 +344,7 @@ The dossier exists for one reason: the `cai-revise` agent reads it
 at the start of every revise cycle so it does not have to Grep/Glob
 its way to the same understanding of the PR you already have. A
 `.github/workflows/cleanup-pr-context.yml` workflow deletes the
-file from `main` automatically after the PR is merged, so it never
+file from `main` after the PR is merged, so it never
 lands on `main` — you do not need to worry about cleanup.
 
 **Skip the dossier entirely when you are exiting with zero diff**

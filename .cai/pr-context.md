@@ -24,3 +24,20 @@ Refs: robotsix-cai/robotsix-cai#463
 ## Invariants this change relies on
 - The `.cai-staging/agents/` mechanism copies files by basename to `.claude/agents/` after the session exits
 - The existing `## Hard rules` section is the right location for non-negotiable behavioral constraints
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-review-pr.md:hard-rules — added hard rule 7 requiring Explore delegation above threshold; removed soft efficiency item 5
+- .claude/agents/cai-review-docs.md:hard-rules — added hard rule 6 requiring Explore delegation above threshold; removed soft efficiency item 3
+- .claude/agents/cai-fix.md:efficiency — removed dead efficiency item 9 (Agent not in cai-fix tools list; exploration is cai-plan's job)
+
+### Decisions this revision
+- Applied same hard rule (3 files / 5 sections / 5 patterns threshold) to cai-review-pr and cai-review-docs — they both have Agent in their tools lists
+- Removed item 9 from cai-fix efficiency guidance rather than promoting it — cai-fix has no Agent tool and receives a ready-made plan from cai-plan, so broad exploration is not its job
+
+### New gaps / deferred
+- cai-plan.md has a duplicate numbering bug (two items labeled "2" in Hard rules); noted but not fixed as it's outside the scope of this review comment
