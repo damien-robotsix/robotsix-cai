@@ -34,3 +34,21 @@ Refs: damien-robotsix/robotsix-cai#308
 - `_run_claude_p` callers use repo root as cwd (so relative plugin path resolves correctly)
 - `shutil.copytree` with `dirs_exist_ok=True` is available (Python 3.8+)
 - The wrapper's `_apply_agent_edit_staging` is called after the fix agent exits in both `cmd_fix` and `cmd_revise`
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- cai.py:1481-1538 — expanded comment block to document plugin staging pattern; added PLUGIN_STAGING_REL constant
+- cai.py:1547-1620 — updated _apply_agent_edit_staging docstring; used PLUGIN_STAGING_REL constant; added early return on plugin staging failure (fail-fast, preserve staged content)
+- .cai-staging/agents/cai-fix.md — updated "Self-modifying" section to document plugin staging at .cai-staging/plugins/
+- .cai-staging/agents/cai-revise.md — updated "Self-modifying" section to document plugin staging at .cai-staging/plugins/
+
+### Decisions this revision
+- Fail-fast on plugin staging error (return early, skip cleanup) — preserves staged content so it isn't silently lost; caller can inspect and retry
+- PLUGIN_STAGING_REL constant placed adjacent to AGENT_EDIT_STAGING_REL — consistent naming, single source of truth for both paths
+
+### New gaps / deferred
+- None — all three reviewer findings addressed

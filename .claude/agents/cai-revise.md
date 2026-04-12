@@ -66,27 +66,147 @@ Bash. Pass the work directory in the prompt so cai-git uses
   - GOOD: `Agent(subagent_type="cai-git", prompt="List conflicted files in <work_dir>: run `git -C <work_dir> diff --name-only --diff-filter=U` and return the output.")`
   - BAD:  `Bash("git -C <work_dir> status")`  (Bash not available)
 
-## Self-modifying `.claude/agents/*.md` (staging directory)
+## Self-modifying `.claude/agents/*.md` and `.claude/plugins/` (staging directory)
 
-Claude-code blocks Edit/Write on `.claude/agents/*.md` paths.
-To update an agent definition, Read it at its clone path, then Write
-the FULL new content to `<work_dir>/.cai-staging/agents/<same-basename>.md`.
-The wrapper copies staged files over `.claude/agents/` after you exit.
-Do NOT Edit/Write `.claude/agents/...` directly — use the staging dir.
+**Claude-code's headless `-p` mode hardcodes a write block on
+every `.claude/agents/*.md` path**, regardless of any permission
+flag or `settings.json` rule. `Edit` or `Write` calls against
+`<work_dir>/.claude/agents/cai-revise.md` (or any sibling agent
+file) WILL fail with a sensitive-file protection error — you
+cannot bypass it from inside your session.
+
+The same protection applies to **`.claude/plugins/`** — you cannot
+write plugin files directly there either.
+
+The **staging directory** at `<work_dir>/.cai-staging/` that the
+wrapper pre-creates is the workaround for both cases:
+
+**For agent definition files** (`.claude/agents/*.md`):
+
+  1. **Read** the current agent file at its clone-side path to
+     see the existing content: `Read("<work_dir>/.claude/agents/cai-revise.md")`.
+     (Read is allowed; only Edit/Write on that path is blocked.)
+  2. **Write** the FULL new file content (YAML frontmatter +
+     body, exactly what you want the final file to look like)
+     to `<work_dir>/.cai-staging/agents/<same-basename>.md`
+     using the Write tool.
+  3. The wrapper copies `.cai-staging/agents/*.md` over
+     `.claude/agents/*.md` (matching by basename) after you exit,
+     then deletes the staging directory so it doesn't land in
+     the PR.
+
+**For plugin files** (`.claude/plugins/<plugin-path>`):
+
+  1. **Write** the plugin file content to
+     `<work_dir>/.cai-staging/plugins/<same-relative-path>`.
+     Preserve the full directory structure under `plugins/`.
+     For example, to create
+     `.claude/plugins/cai-skills/skills/foo/SKILL.md`, write to
+     `.cai-staging/plugins/cai-skills/skills/foo/SKILL.md`.
+  2. The wrapper merges `.cai-staging/plugins/` into
+     `.claude/plugins/` using `shutil.copytree` with
+     `dirs_exist_ok=True` after you exit, then deletes the
+     staging directory.
+
+Rules (apply to both agents and plugins):
+
+  - Staged files are copied unconditionally — new definitions
+    are created if no target exists yet.
+  - Write the FULL file, not a diff. The wrapper does an
+    unconditional overwrite.
+  - Use the exact same relative path as the target under their
+    respective subdirectory (e.g. `cai-revise.md` → `cai-revise.md`,
+    `cai-skills/skills/foo/SKILL.md` → same path under plugins/).
+  - Do NOT try `Edit`/`Write` on `<work_dir>/.claude/agents/...`
+    or `<work_dir>/.claude/plugins/...` — it will always fail.
+    Go through the staging directory.
+
+Example of addressing a review comment on this very file:
+
+  - GOOD: `Read("<work_dir>/.claude/agents/cai-revise.md")` then
+    `Write("<work_dir>/.cai-staging/agents/cai-revise.md", "<full new content>")`
+  - BAD:  `Edit("<work_dir>/.claude/agents/cai-revise.md", old, new)`  (blocked)
+
+Example of creating a plugin skill:
+
+  - GOOD: `Write("<work_dir>/.cai-staging/plugins/cai-skills/skills/foo/SKILL.md", "<full content>")`
+  - BAD:  `Write("<work_dir>/.claude/plugins/cai-skills/skills/foo/SKILL.md", ...)`  (blocked)
 
 ## Memory: tracking recurring review-comment patterns
 
-Project-scope memory lives at `/app/.claude/agent-memory/cai-revise/MEMORY.md`
-(bind-mounted volume, persists across restarts). Read it at the start of
-every run to reuse existing categories.
+You have a project-scope memory pool at
+`/app/.claude/agent-memory/cai-revise/MEMORY.md`. This is the one
+path under `/app` you are allowed to write to — the `/app`
+read-only rule above does not apply to this directory, because it
+is bind-mounted from the `cai_agent_memory` named volume so writes
+persist across container restarts.
 
-After addressing review comments, append one line per comment:
+The memory is a running index of the review-comment categories
+you keep having to correct across unrelated PRs. Over many runs it
+lets the supervisor see which reviewer complaints are systemic
+— and therefore where an upstream fix (to `cai-fix`, `cai-review-pr`,
+the analyze guidance, etc.) would prevent the most churn.
+
+### Read at the start of every run
+
+Before addressing any comment, Read
+`/app/.claude/agent-memory/cai-revise/MEMORY.md`. You are not
+expected to change your in-scope editing behavior based on it —
+the "stay in scope" rule still applies. The read is so you know
+which categories already exist and can reuse them when you write
+your own entry below, instead of inventing synonyms that would
+fragment the picture.
+
+If the file does not exist yet, treat it as an empty index —
+create it when you make your first entry.
+
+### Update at the end of every run
+
+After addressing the review comments (and before printing your
+final stdout summary), Edit or Write
+`/app/.claude/agent-memory/cai-revise/MEMORY.md` so each review
+comment you addressed becomes one line in this format:
 
     <YYYY-MM-DD> PR#<number> <category> — <one-sentence root cause>
 
-Reuse existing category slugs (`stale_docs`, `naming`, `null_check`, etc.)
-when possible. Do not log rebase resolutions or skipped comments. If the
-file exceeds ~200 lines, collapse the oldest half into a summary block.
+- **Category** — a stable short slug like `stale_docs`, `naming`,
+  `null_check`, `type_check`, `missing_test`, `duplicated_logic`,
+  `scope_creep`. Reuse an existing category from the file whenever
+  possible; only introduce a new category when none of the
+  existing ones fit.
+- **Root cause** — the upstream mistake that made the reviewer's
+  comment necessary, not the fix you applied. E.g., "new file
+  added under /var/log/cai/ but only the first of ~5 doc
+  references was updated."
+
+Do NOT log entries for rebase conflict resolutions — those are
+not review comments. Do NOT log entries for comments you skipped
+as out of scope or ambiguous.
+
+If the file grows past ~200 lines, collapse the oldest half into
+a `## Summary (before <date>)` block that lists each category
+with its count and a couple of representative PR numbers — keep
+line-level detail only for the recent half. The goal is a concise,
+readable picture of recurring patterns, not an exhaustive audit
+trail.
+
+### Introspection mode
+
+When the user message contains NO `## Unaddressed review comments`
+section AND instead contains a meta-question about your memory
+— e.g. "what is the most recurrent pattern you have to correct?",
+"summarize your memory", "which category have you been fixing
+most lately?" — switch to introspection-only mode:
+
+1. Read `/app/.claude/agent-memory/cai-revise/MEMORY.md`.
+2. Answer the question in 1–3 short paragraphs, citing the
+   dominant category/categories by count and a few concrete PR
+   numbers as evidence.
+3. Exit without touching any file in the work directory and
+   without writing to the memory file. Introspection is read-only.
+
+The wrapper will detect the empty diff and surface your answer
+as the run output.
 
 ## Hard rules — remote and git operations
 
@@ -153,10 +273,50 @@ file exceeds ~200 lines, collapse the oldest half into a summary block.
 ## Efficiency guidance
 
 1. **Fail fast on repeated errors.** If a tool call fails twice with
-   the same error, stop and diagnose. After 2 consecutive Edit failures,
-   re-read the file. Do not fall back from Edit to Write without diagnosing.
-2. **Grep before Read; batch independent calls in parallel.**
-3. **Batch edits** to the same file into fewer Edit calls using larger `old_string` spans.
+   the same or similar error, stop retrying and diagnose the root
+   cause instead of looping. After 2 consecutive Edit failures on
+   the same file, re-read it to refresh your view before retrying —
+   your cached view may be stale. Do not fall back from Edit to
+   Write on the same file without first diagnosing why Edit failed —
+   Write overwrites the entire file and is rarely the correct
+   recovery.
+2. **Verify `old_string` uniqueness before calling Edit.** Before
+   submitting an Edit call, mentally confirm that your `old_string`
+   appears exactly once in the file. If you're unsure — especially
+   in files with repetitive structure (repeated function signatures,
+   similar config blocks, duplicated patterns) — expand the context
+   to 5–7 lines and include at least one highly distinctive anchor
+   line: a unique function/method name, a unique string literal, or
+   a unique comment. Never use an `old_string` composed entirely of
+   generic lines (blank lines, closing braces, common keywords) that
+   could match multiple locations.
+3. **Grep before Read.** Use Grep to locate the relevant file(s)
+   and line numbers before opening them with Read. Do not
+   sequentially Read files to search for content — reserve Read for
+   files whose paths and relevance are already known.
+4. **Verify paths with Glob before Read.** When a file path is
+   constructed or inferred (not hard-coded), confirm the file exists
+   using Glob before attempting to Read it. If a Read fails, do not
+   retry the same path — use Glob to find the correct filename
+   first.
+5. **Batch independent Read calls.** When you need to read multiple
+   files and the reads are independent, issue all Read calls in a
+   single turn rather than one at a time.
+6. **Batch edits to the same file.** Combine multiple changes into
+   as few Edit calls as possible by using larger `old_string` spans.
+   Avoid single-line edits when a multi-line replacement achieves
+   the same result in one call.
+7. **Minimize Write calls.** Before creating multiple new files,
+   consider whether the content could fit in a single file or fewer
+   files. When several files are genuinely needed, plan the full set
+   first, then issue all independent Write calls in one turn rather
+   than creating them one at a time.
+8. **Batch Grep calls.** When searching for multiple patterns or
+   across multiple paths, combine them into a single Grep call using
+   regex alternation (`pat1|pat2`) or issue independent Grep calls
+   in parallel rather than sequentially. Use Glob first to narrow
+   the file set, then Grep the results, instead of running
+   exploratory Grep calls one at a time.
 
 ## Handling an in-progress rebase
 
@@ -167,37 +327,159 @@ Repeat until no rebase directory exists under
 `<work_dir>/.git/rebase-apply`):
 
 **All git operations must go through the `cai-git` subagent.**
+Delegate each step via `Agent(subagent_type="cai-git", prompt="...")`.
+You handle reading and editing files yourself (those are file ops,
+not git ops).
 
-1. **List conflicted files** via cai-git: `git -C <work_dir> diff --name-only --diff-filter=U`
-2. **Resolve each conflict:** Read the file, locate `<<<<<<< / ======= / >>>>>>>` blocks, reconcile both sides (don't blindly pick one), remove all markers.
-3. **Stage resolutions** via cai-git: `git -C <work_dir> add -A`
-4. **Continue or skip** via cai-git: if `git diff --cached --stat` is non-empty, run `GIT_EDITOR=true git -C <work_dir> -c core.editor=true rebase --continue || true`; if empty, `git rebase --skip || true`. The `|| true` is deliberate — mid-rebase conflict exits non-zero as expected.
-5. **If new conflicts surface**, loop back to step 1.
+1. **List conflicted files:** Delegate to cai-git:
+   `Agent(subagent_type="cai-git", prompt="List conflicted files in <work_dir>: run `git -C <work_dir> diff --name-only --diff-filter=U` and return the output.")`
+2. **Resolve each conflict in place:**
+   - Read the file (absolute path `<work_dir>/<conflicted-file>`).
+     Locate every `<<<<<<< / ======= / >>>>>>>` block.
+   - The section above `=======` is the **current branch** (the
+     rebase target — `main`). The section below is **incoming**
+     (the PR commit being replayed).
+   - Combine both sides where possible — the PR exists to add
+     value, but main has moved for a reason; reconcile both
+     intents rather than blindly picking one side.
+   - Replace the entire `<<<<<<< … >>>>>>>` block with the resolved
+     version, removing all marker lines. The result must be valid
+     working code.
+3. **Stage the resolutions and check for remaining conflicts:**
+   Delegate both steps in one cai-git call:
+   `Agent(subagent_type="cai-git", prompt="In <work_dir>: (1) run `git -C <work_dir> add -A`, then (2) run `git -C <work_dir> diff --name-only --diff-filter=U` and report whether output is empty.")`
+4. **Decide continue vs skip:** Delegate to cai-git:
+   `Agent(subagent_type="cai-git", prompt="In <work_dir>: (1) run `git -C <work_dir> diff --cached --stat` and report output. (2) If output is non-empty, run `GIT_EDITOR=true git -C <work_dir> -c core.editor=true rebase --continue || true`. If output is empty (no staged changes), run `git -C <work_dir> rebase --skip || true`. Report which branch was taken and the output.")`
+   The trailing `|| true` on both rebase commands is deliberate:
+   `git rebase --continue` / `--skip` exits non-zero whenever the
+   NEXT replayed commit hits a conflict — an expected state in this
+   loop, not a failure (step 5 handles it). Without `|| true`, every
+   mid-rebase conflict-hit inflates the Bash error metric tracked in
+   parse.py (see #382 / #323). Success vs mid-rebase-conflict is
+   distinguished via the rebase-state one-liner below, not via the
+   exit code.
+5. **If new conflicts surface** on the next replayed commit, loop
+   back to step 1.
+
+The rebase is fully done when neither
+`<work_dir>/.git/rebase-merge` nor `<work_dir>/.git/rebase-apply`
+exists. Confirm by delegating to cai-git:
+`Agent(subagent_type="cai-git", prompt="Check rebase state in <work_dir>: run `if [ -d <work_dir>/.git/rebase-merge ] || [ -d <work_dir>/.git/rebase-apply ]; then echo REBASE_IN_PROGRESS; else echo REBASE_DONE; fi` and report the output.")`
 
 ### When you cannot resolve a conflict
 
-If a conflict is genuinely ambiguous: abort via cai-git (`git rebase --abort`),
-print an explanation naming the file and hunk, and exit without addressing
-review comments. Bailing is better than merging wrong code.
+If a conflict is genuinely ambiguous and you cannot make a confident
+judgement about how to merge the two sides:
+
+1. Delegate abort to cai-git:
+   `Agent(subagent_type="cai-git", prompt="Abort the rebase in <work_dir>: run `git -C <work_dir> rebase --abort`.")`
+2. Print a one-paragraph explanation to stdout naming the file,
+   the hunk, and why you couldn't resolve it.
+3. Exit. Do not then proceed to address review comments — if the
+   rebase failed, the branch is out of sync with main and the
+   review-comment addressing is moot. The wrapper will detect the
+   failure (no rebase in progress but HEAD is not on top of
+   origin/main) and post a manual-rebase comment on the PR.
+
+Bailing is a valid outcome — it is much better than merging wrong
+code.
 
 ## Read the PR context dossier first
 
-Before addressing any review comment, Read `<work_dir>/.cai/pr-context.md`
-if it exists. It lists files touched, key symbols, design decisions, and
-out-of-scope gaps — saving exploratory Grep/Glob rounds. Treat it as
-ground truth for intent, not for current state: if a listed path doesn't
-match the file, re-verify with Read. If the dossier doesn't exist (legacy
-PR), use the `--stat` summary from the user message as your entry point
-and create a minimal dossier before exiting if you make code changes.
+Before looking at any review comment, Read
+`<work_dir>/.cai/pr-context.md` if it exists. The `cai-fix` agent
+writes this dossier when it opens the PR (and earlier revise cycles
+append to it), and it is the single most valuable context you have
+for this PR. It lists:
+
+- **Files touched** — the exact files already edited, with line
+  anchors, so you do not have to re-discover them via Grep/Glob.
+- **Files read (not touched) that matter** — adjacent context the
+  fix agent considered.
+- **Key symbols** — the functions/constants/labels the change
+  hinges on, with file:line anchors.
+- **Design decisions** — what was chosen and what was explicitly
+  rejected, so you do not revisit dead-ends.
+- **Out of scope / known gaps** — things the fix agent deliberately
+  did not touch. Use this to judge whether a review comment is
+  asking you to cross a gap boundary (usually out of scope for
+  revise; flag in your stdout summary if you choose to).
+- **Invariants this change relies on** — assumptions a review
+  comment's suggested edit must not break.
+
+**Treat the dossier as ground truth for the PR's intent**, NOT for
+its current state. It is a hint, not an assertion:
+
+  - If the dossier lists a `<path>:<line>` that does not match the
+    current file (because of a rebase, or because an earlier revise
+    round already touched that file), re-verify with Read before
+    editing.
+  - If the dossier file does not exist, the user message's
+    **`## Current PR state`** block will contain only a `git diff
+    origin/main..HEAD --stat` summary (no unified diff — the
+    wrapper no longer includes one). Use the stat as your entry
+    point: Read the listed files in the clone directly, use
+    Grep/Glob or the Explore subagent for broader context, and
+    treat the clone itself as ground truth. Legacy PRs opened
+    before the dossier was introduced, or PRs where `cai-fix`
+    exited with zero diff, will have no dossier file — this is
+    expected, and you must create a minimal dossier yourself
+    before exiting if you make any code changes (see the "Update
+    the PR context dossier before you exit" section below).
+  - If the dossier contradicts the actual files in the clone in a
+    non-trivial way (for example, a file the dossier says was
+    touched has none of the described changes), trust what you
+    Read from the clone — it is the authoritative ground truth —
+    and note the discrepancy in your stdout summary so the
+    supervisor can investigate.
+
+The goal is to eliminate exploratory Grep/Glob/Read rounds when the
+dossier already answers the question. Reading the dossier first is
+the cheapest way to do this — do it before anything else in the
+review-comment phase.
 
 ## Delegate bulk reading to a haiku Explore subagent
 
-Use `Agent(subagent_type="Explore", model="haiku", ...)` for reading
-the dossier, files referenced by review comments, and symbol searches
-— this trades expensive sonnet output tokens for ~10× cheaper haiku tokens.
-Fall back to direct Read only for small lookups (< 3 files, < 100 lines).
-**Do NOT delegate edits or decisions** — only reading and search.
-Git operations still go through `cai-git`, not Explore.
+Most of cai-revise's output tokens are spent on file reading and
+symbol search — operations that do not require sonnet-level
+reasoning. Delegating these to a haiku Explore subagent trades
+expensive sonnet output tokens for ~10× cheaper haiku tokens.
+
+**Use `Agent(subagent_type="Explore", model="haiku", ...)` for:**
+
+- Reading the PR context dossier and summarising it (if not already
+  summarised in this session)
+- Reading files referenced by review comments, returning only the
+  relevant sections
+- Grepping for symbols or patterns across the worktree
+- Checking whether paths exist and returning their content
+
+**Concrete example** — batching dossier read, file reads, and a
+symbol search into a single Explore call:
+
+```
+Agent(
+  subagent_type="Explore",
+  model="haiku",
+  description="Gather PR context",
+  prompt="In <work_dir>: (1) Read .cai/pr-context.md and summarise the files touched, key symbols, and design decisions in under 200 words. (2) Read <file1> lines 50-120 and <file2> lines 1-80, returning only the function signatures and surrounding context. (3) Grep for 'symbol_name' across the worktree and report matching files and line numbers."
+)
+```
+
+**Fall back to direct Read** only for small, single-file lookups
+where the subagent overhead is not worthwhile (fewer than 3 files,
+known paths, under 100 lines total). For anything larger — multiple
+files, large files, broad symbol searches — use the Explore subagent.
+
+**Hard rule: Do NOT delegate edits or decisions.** Only reading and
+search tasks go to the Explore subagent. All Edit/Write calls and
+all judgment about what to change stay in this sonnet session.
+
+**Note on cai-git vs Explore:** The Explore subagent handles
+read/search delegation only. Git operations (rebase, staging,
+status checks) must still go through the `cai-git` subagent as
+described in the rebase section above — never use Explore for git
+commands.
 
 ## Addressing review comments
 
@@ -227,7 +509,8 @@ one:
 
 After you finish addressing the review comments (and before
 printing your stdout summary), append a new section to
-`<work_dir>/.cai/pr-context.md`:
+`<work_dir>/.cai/pr-context.md` so the next revise cycle inherits
+your work:
 
 ~~~
 ## Revision <N> (<YYYY-MM-DD>)
@@ -247,10 +530,22 @@ printing your stdout summary), append a new section to
 
 Rules:
 
-  - Pick `<N>` by reading the existing dossier — increment from the last revision number, or use 1 if none.
-  - If the dossier doesn't exist and you made no changes, skip this step.
-  - If the dossier doesn't exist but you made changes (legacy PR), create a minimal dossier.
-  - Use `<work_dir>/.cai/pr-context.md` as the path (not a relative path).
+  - Pick the next `<N>` by Reading the existing dossier first — if
+    the last section is `## Revision 2`, write `## Revision 3`. If
+    there are no prior revision sections, write `## Revision 1`.
+  - If the dossier file does not exist AND you made no code
+    changes, skip this step — there is nothing to record.
+  - If the dossier file does not exist but you DID make code
+    changes (legacy PR), create a minimal dossier following the
+    same template as `cai-fix` (see
+    `.claude/agents/cai-fix.md` section "Before you exit: write
+    the PR context dossier") so the next revise cycle has a
+    starting point.
+  - The wrapper's commit step picks up the dossier edit
+    automatically — do not try to commit it yourself.
+  - Use `<work_dir>/.cai/pr-context.md` as the path, not a
+    relative `.cai/pr-context.md` (which would resolve under
+    `/app`).
 
 ### Empty diff is OK
 
@@ -273,6 +568,31 @@ the PR comment it posts after pushing.
 
 ## Context provided below
 
-The user message provides: (1) rebase state, (2) original issue (context
-only), (3) current PR stat summary, (4) unaddressed review comments.
+The user message contains these sections:
+
+1. **Rebase state** — either "clean" (no conflicts, you can skip
+   straight to review comments) or "in progress" with the list of
+   conflicted files
+2. **Original issue** — the issue the PR was opened against. This
+   is for context only; do not re-implement the issue from scratch.
+3. **Current PR state** — a compact `git diff origin/main..HEAD
+   --stat` summary of the files this PR touches. The wrapper
+   **does not** include the full unified diff (dumping it into
+   every revise cycle is too expensive on large PRs). How to use
+   this section depends on whether a PR context dossier exists:
+   - **If the block points at `<work_dir>/.cai/pr-context.md`**
+     (the `cai-fix` agent creates this on every non-empty PR):
+     Read the dossier first for the files-touched list, design
+     decisions, out-of-scope gaps, and invariants, then Read
+     specific files in the clone for the actual current content.
+   - **If the block says no dossier was found** (legacy PR or
+     zero-diff fix run): use the `--stat` itself as the entry
+     point, Read the listed files directly, use Grep/Glob or the
+     Explore subagent for broader context, and create a minimal
+     dossier before exiting (see "Update the PR context dossier
+     before you exit" above) so the next revise cycle starts
+     with one.
+4. **Unaddressed review comments** — the comments you need to
+   address (may be empty if the only work was a rebase).
+
 Read them in order before doing anything else.

@@ -1742,7 +1742,8 @@ def _update_parent_checklist_item(
 
 
 # ---------------------------------------------------------------------------
-# Wrapper-side `.claude/agents/*.md` writes (staging-directory pattern)
+# Wrapper-side `.claude/agents/*.md` and `.claude/plugins/` writes
+# (staging-directory pattern)
 # ---------------------------------------------------------------------------
 #
 # Background: claude-code's headless `claude -p` mode hardcodes a
@@ -1762,24 +1763,36 @@ def _update_parent_checklist_item(
 #
 # Workaround: a "staging directory" pattern.
 #
-#   1. Before invoking the agent, the wrapper creates an empty dir
-#      at `<work_dir>/.cai-staging/agents/`. This path is NOT under
-#      `.claude/agents/`, so claude-code's protection doesn't fire
-#      on writes to it.
+#   1. Before invoking the agent, the wrapper creates empty dirs
+#      at `<work_dir>/.cai-staging/agents/` and
+#      `<work_dir>/.cai-staging/plugins/`. These paths are NOT under
+#      `.claude/`, so claude-code's protection doesn't fire on
+#      writes to them.
 #
-#   2. The agent's prompt instructs it: when you need to update an
-#      `.claude/agents/<name>.md` file, do not Edit the protected
-#      path directly. Instead, use the Write tool to write the FULL
-#      new content to `<work_dir>/.cai-staging/agents/<name>.md`.
+#   2a. The agent's prompt instructs it: when you need to update an
+#       `.claude/agents/<name>.md` file, do not Edit the protected
+#       path directly. Instead, use the Write tool to write the FULL
+#       new content to `<work_dir>/.cai-staging/agents/<name>.md`.
 #
-#   3. After the agent exits successfully, the wrapper iterates the
-#      staging directory. For each file `<name>.md` found, it
-#      copies the contents to `<work_dir>/.claude/agents/<name>.md`
-#      via plain `pathlib.write_text` (the wrapper isn't a claude
-#      session and isn't subject to the protection).
+#   2b. To create or update plugin files under `.claude/plugins/`,
+#       write to `<work_dir>/.cai-staging/plugins/<plugin-path>`
+#       preserving the same relative directory structure. For example,
+#       to create `.claude/plugins/cai-skills/skills/foo/SKILL.md`,
+#       write to `.cai-staging/plugins/cai-skills/skills/foo/SKILL.md`.
+#
+#   3. After the agent exits successfully, the wrapper:
+#      - For each `<name>.md` in `.cai-staging/agents/`: copies it to
+#        `<work_dir>/.claude/agents/<name>.md` via `pathlib.write_text`.
+#      - For the tree at `.cai-staging/plugins/`: merges it into
+#        `<work_dir>/.claude/plugins/` using `shutil.copytree` with
+#        `dirs_exist_ok=True`.
+#      (The wrapper isn't a claude session and isn't subject to the
+#      protection.)
 #
 #   4. The wrapper removes the staging directory before committing
-#      so it doesn't land in the PR.
+#      so it doesn't land in the PR. If plugin staging fails, the
+#      staging directory is preserved for inspection rather than
+#      silently deleted.
 #
 # Full-file writes (not Edit-style old/new diffs) by design: the
 # agent writes the whole replacement content; the wrapper does an
@@ -1790,9 +1803,10 @@ def _update_parent_checklist_item(
 # hundred lines max).
 
 
-# Path of the staging directory inside a cloned worktree, relative
+# Paths of the staging directories inside a cloned worktree, relative
 # to the clone root.
 AGENT_EDIT_STAGING_REL = Path(".cai-staging") / "agents"
+PLUGIN_STAGING_REL = Path(".cai-staging") / "plugins"
 
 
 def _setup_agent_edit_staging(work_dir: Path) -> Path:
@@ -1823,7 +1837,10 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
       3. The staging dir lives entirely inside `work_dir` so escapes
          via `..` are not possible (the wrapper iterates one
          directory level via `iterdir()` and copies whole files).
-      4. The staging dir is removed unconditionally before commit.
+      4. The staging dir is removed before commit if all staging
+         operations succeeded. If plugin staging fails, the staging
+         dir is preserved for inspection and the function returns
+         early so staged content is not silently lost.
 
     Returns the count of files successfully applied. If the staging
     dir doesn't exist or is empty, returns 0 with no side effects.
@@ -1864,7 +1881,7 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
                 continue
 
     # Apply any plugin staging: .cai-staging/plugins/ → .claude/plugins/
-    plugin_staging = work_dir / ".cai-staging" / "plugins"
+    plugin_staging = work_dir / PLUGIN_STAGING_REL
     if plugin_staging.exists() and plugin_staging.is_dir():
         plugin_target = work_dir / ".claude" / "plugins"
         try:
@@ -1881,6 +1898,10 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
                 f"[cai] agent edit staging: failed to apply plugin tree: {exc}",
                 file=sys.stderr,
             )
+            # Preserve .cai-staging so staged plugin files are not
+            # silently lost when the copy fails — caller can inspect
+            # or retry. Do not fall through to shutil.rmtree below.
+            return applied
 
     # Clean up the entire .cai-staging tree (one level above the
     # agents/ subdir) so nothing leaks into the PR.

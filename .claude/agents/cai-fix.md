@@ -52,7 +52,7 @@ will exceed the token limit. Use `Grep(pattern, path="<work_dir>")` for
 symbol search and `Read("<work_dir>/cai.py", offset=N, limit=200)` for
 targeted sections.
 
-## Self-modifying `.claude/agents/*.md` (staging directory)
+## Self-modifying `.claude/agents/*.md` and `.claude/plugins/` (staging directory)
 
 **Claude-code's headless `-p` mode hardcodes a write block on
 every `.claude/agents/*.md` path**, regardless of any permission
@@ -61,10 +61,13 @@ flag or `settings.json` rule. `Edit` or `Write` calls against
 file) WILL fail with a sensitive-file protection error — you
 cannot bypass it from inside your session.
 
-When you need to update your own definition file or another
-agent's definition file, use the **staging directory** at
-`<work_dir>/.cai-staging/agents/` that the wrapper pre-creates
-for you:
+The same protection applies to **`.claude/plugins/`** — you cannot
+write plugin files directly there either.
+
+The **staging directory** at `<work_dir>/.cai-staging/` that the
+wrapper pre-creates is the workaround for both cases:
+
+**For agent definition files** (`.claude/agents/*.md`):
 
   1. **Read** the current agent file at its clone-side path to
      see the existing content: `Read("<work_dir>/.claude/agents/cai-fix.md")`.
@@ -78,22 +81,42 @@ for you:
      successfully, then deletes the staging directory so it
      doesn't land in the PR.
 
-Rules:
+**For plugin files** (`.claude/plugins/<plugin-path>`):
 
-  - Staged files are copied unconditionally — new agent definitions
+  1. **Write** the plugin file content to
+     `<work_dir>/.cai-staging/plugins/<same-relative-path>`.
+     Preserve the full directory structure under `plugins/`.
+     For example, to create
+     `.claude/plugins/cai-skills/skills/foo/SKILL.md`, write to
+     `.cai-staging/plugins/cai-skills/skills/foo/SKILL.md`.
+  2. The wrapper merges `.cai-staging/plugins/` into
+     `.claude/plugins/` using `shutil.copytree` with
+     `dirs_exist_ok=True` after you exit, then deletes the
+     staging directory.
+
+Rules (apply to both agents and plugins):
+
+  - Staged files are copied unconditionally — new definitions
     are created if no target exists yet.
   - Write the FULL file, not a diff. The wrapper does an
     unconditional overwrite.
-  - Use the exact same basename as the target
-    (e.g. `cai-fix.md` → `cai-fix.md`, not `cai-fix-new.md`).
-  - Do NOT try `Edit`/`Write` on `<work_dir>/.claude/agents/...` —
-    it will always fail. Go through the staging directory.
+  - Use the exact same relative path as the target under their
+    respective subdirectory (e.g. `cai-fix.md` → `cai-fix.md`,
+    `cai-skills/skills/foo/SKILL.md` → same path under plugins/).
+  - Do NOT try `Edit`/`Write` on `<work_dir>/.claude/agents/...`
+    or `<work_dir>/.claude/plugins/...` — it will always fail.
+    Go through the staging directory.
 
 Example of updating this very file:
 
   - GOOD: `Read("<work_dir>/.claude/agents/cai-fix.md")` then
     `Write("<work_dir>/.cai-staging/agents/cai-fix.md", "<full new content>")`
   - BAD:  `Edit("<work_dir>/.claude/agents/cai-fix.md", old, new)`  (blocked)
+
+Example of creating a plugin skill:
+
+  - GOOD: `Write("<work_dir>/.cai-staging/plugins/cai-skills/skills/foo/SKILL.md", "<full content>")`
+  - BAD:  `Write("<work_dir>/.claude/plugins/cai-skills/skills/foo/SKILL.md", ...)`  (blocked)
 
 ## Hard rules
 
