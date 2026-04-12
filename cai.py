@@ -6464,7 +6464,7 @@ def cmd_review_pr(args) -> int:
                 continue
 
             # Build the user message. The system prompt, tool
-            # allowlist (Read/Grep/Glob/Agent), and hard rules all
+            # allowlist (Read/Grep/Glob), and hard rules all
             # live in `.claude/agents/cai-review-pr.md`. The wrapper
             # passes the work-directory block (so the agent knows
             # where the cloned PR is) plus the dynamic per-run
@@ -6492,6 +6492,7 @@ def cmd_review_pr(args) -> int:
             agent = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-review-pr",
                  "--permission-mode", "acceptEdits",
+                 "--max-budget-usd", "0.50",
                  "--add-dir", str(work_dir)],
                 category="review-pr",
                 agent="cai-review-pr",
