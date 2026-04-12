@@ -79,3 +79,17 @@ Refs: robotsix-cai/robotsix-cai#446
 ## Invariants this change relies on
 - `comments` at line 2964 contains only unaddressed comments (filtered by `_select_revise_targets`)
 - `rebase_in_progress` is accurate — set immediately after the rebase attempt with no intervening git ops
+
+## Revision 4 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-git.md:12 — updated "primarily `cai-revise`" to "primarily `cai-revise` and `cai-rebase`" to reflect new caller
+
+### Decisions this revision
+- Kept "primarily" qualifier since other agents (cai-revise, cai-rebase) are the main callers but the contract is open to any subagent
+
+### New gaps / deferred
+- None
