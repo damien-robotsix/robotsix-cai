@@ -29,3 +29,19 @@ Refs: robotsix/robotsix-cai#478
 ## Invariants this change relies on
 - `_run_plan_agent` returns a string (either plan text or an error string) — never raises
 - `_run_select_agent` handles any list of plan strings, including error strings
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- README.md:56 — "2 parallel plan agents" → "2 serial plan agents (second sees first and proposes alternative)"
+- cai.py:25-26 — module docstring updated to match serial execution model
+- .cai-staging/agents/cai-fix.md:456 — "multiple independently generated candidates" → "2 serially generated candidates"
+
+### Decisions this revision
+- Updated all three stale_docs sites flagged by reviewer in one pass
+
+### New gaps / deferred
+- None

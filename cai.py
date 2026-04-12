@@ -22,9 +22,10 @@ Subcommands:
                             ambiguous issues are returned to their origin
                             label without cloning; if actionable, lock it
                             via the `:in-progress` label, clone the repo
-                            into /tmp, run 2 parallel plan agents (each
-                            capped at $1.00) to generate candidate fix
-                            plans, run a select
+                            into /tmp, run 2 serial plan agents (each
+                            capped at $1.00; the second sees the first
+                            plan and proposes an alternative) to generate
+                            candidate fix plans, run a select
                             agent to pick the best plan, then run the fix
                             subagent (full tool permissions) with the
                             selected plan, and open a PR if the agent
