@@ -79,9 +79,11 @@ services:
       # `.claude/agent-memory/<agent-name>/`. The /app agents
       # (analyze, audit, confirm, merge, audit-triage) read/write
       # this volume directly. The cloned-worktree agents (fix,
-      # revise, review-pr, code-audit) have memory copied in/out
-      # of their per-issue clones by the wrapper around each
-      # invocation.
+      # revise, review-pr, code-audit, propose,
+      # propose-review, update-check, plan, select, git) also
+      # access their memory directly from the mounted volume.
+      # (cai-rebase is excluded — lightweight agent, no memory
+      # tracking by design.)
       - cai_agent_memory:/app/.claude/agent-memory
       - cai_logs:/var/log/cai
     # Required if Watchtower is enabled (uncommented below):

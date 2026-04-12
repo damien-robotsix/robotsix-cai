@@ -178,7 +178,7 @@ UPDATE_CHECK_MEMORY = Path("/var/log/cai/update-check-memory.md")
 # restarts. ALL subagents (both /app agents and the cloned-worktree
 # agents) now read/write this path directly because they're all
 # invoked with `cwd=/app`. The cloned-worktree agents
-# (cai-fix, cai-revise, cai-review-pr, cai-code-audit, cai-propose,
+# (cai-fix, cai-revise, cai-rebase, cai-review-pr, cai-code-audit, cai-propose,
 # cai-propose-review, cai-update-check, cai-plan, cai-select, cai-git) operate
 # on a clone elsewhere via absolute paths —
 # see `_work_directory_block` for the user-message section that
@@ -1899,9 +1899,9 @@ def _work_directory_block(work_dir: Path) -> str:
     happens, and how to update protected `.claude/agents/*.md`
     files via the staging directory.
 
-    All cloned-worktree subagents (cai-fix, cai-revise, cai-review-pr,
-    cai-code-audit, cai-propose, cai-propose-review, cai-update-check,
-    cai-plan, cai-select, cai-git) are invoked with `cwd=/app`
+    All cloned-worktree subagents (cai-fix, cai-revise, cai-rebase,
+    cai-review-pr, cai-code-audit, cai-propose, cai-propose-review,
+    cai-update-check, cai-plan, cai-select, cai-git) are invoked with `cwd=/app`
     rather than `cwd=<clone>`. This makes their canonical agent
     definition (`/app/.claude/agents/<name>.md`) and per-agent memory
     (`/app/.claude/agent-memory/<name>/`) directly available via
@@ -3027,10 +3027,10 @@ def cmd_revise(args) -> int:
 
             # 3b. Deterministically attempt the rebase onto main.
             #     We always rebase — if main hasn't moved, it's a
-            #     no-op. The unified cai-revise subagent handles both
-            #     conflict resolution AND review-comment addressing
-            #     in one session, so the wrapper doesn't need to
-            #     branch on `needs_rebase` anymore.
+            #     no-op. Depending on what's needed, the wrapper
+            #     routes to: (a) early exit if clean + no comments,
+            #     (b) cai-rebase (haiku) if conflicts + no comments,
+            #     or (c) cai-revise (sonnet) if comments ± conflicts.
             _git(work_dir, "fetch", "origin", "main")
             pre_agent_head = _git(
                 work_dir, "rev-parse", "HEAD", check=False,
@@ -3085,6 +3085,49 @@ def cmd_revise(args) -> int:
                     "completed without conflicts. You can skip straight "
                     "to addressing review comments (if any).\n"
                 )
+
+            # 3c. Early exit: clean rebase with no comments.
+            #     If the rebase completed without conflicts AND there
+            #     are no unaddressed review comments, skip agent
+            #     invocation entirely. Just force-push if HEAD moved
+            #     (rebase may have advanced commits) and unlock.
+            if not rebase_in_progress and not comments:
+                post_rebase_head = _git(
+                    work_dir, "rev-parse", "HEAD", check=False,
+                ).stdout.strip()
+                if pre_agent_head != post_rebase_head:
+                    push = _run(
+                        ["git", "-C", str(work_dir), "push",
+                         "--force-with-lease", "origin", branch],
+                        capture_output=True,
+                    )
+                    if push.returncode != 0:
+                        print(
+                            f"[cai revise] noop push failed:\n{push.stderr}",
+                            file=sys.stderr,
+                        )
+                        _set_labels(issue_number, remove=[LABEL_REVISING],
+                                    log_prefix="cai revise")
+                        log_run("revise", repo=REPO, pr=pr_number,
+                                result="noop_push_failed", exit=1)
+                        had_failure = True
+                        continue
+                    print(
+                        f"[cai revise] clean rebase pushed for PR #{pr_number} "
+                        "(no comments to address)",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[cai revise] PR #{pr_number}: rebase was no-op and "
+                        "no comments to address; skipping agent",
+                        flush=True,
+                    )
+                _set_labels(issue_number, remove=[LABEL_REVISING],
+                            log_prefix="cai revise")
+                log_run("revise", repo=REPO, pr=pr_number,
+                        result="noop_clean", exit=0)
+                continue
 
             # 4. Fetch original issue body.
             try:
@@ -3203,7 +3246,12 @@ def cmd_revise(args) -> int:
             #     workaround.
             _setup_agent_edit_staging(work_dir)
 
-            # 6. Invoke the declared cai-revise subagent.
+            # 5c. Choose agent: rebase-only conflicts → haiku agent,
+            #     otherwise → full cai-revise.
+            rebase_only = rebase_in_progress and not comments
+            agent_name = "cai-rebase" if rebase_only else "cai-revise"
+
+            # 6. Invoke the declared subagent.
             #    Runs with `cwd=/app` and `--add-dir <work_dir>` so
             #    the agent reads its own definition (and memory)
             #    from the canonical /app paths while operating on
@@ -3216,20 +3264,20 @@ def cmd_revise(args) -> int:
             #    self-modifications through the staging directory
             #    instead (see _work_directory_block).
             #
-            #    cai-revise delegates git rebase ops to the cai-git
-            #    haiku subagent via the Agent tool instead of running
-            #    git commands directly — see cai-revise.md and the
-            #    cai-git agent definition for details.
+            #    cai-revise/cai-rebase delegate git rebase ops to the
+            #    cai-git haiku subagent via the Agent tool instead of
+            #    running git commands directly — see the respective
+            #    agent definition files for details.
             print(
-                f"[cai revise] running cai-revise subagent for {work_dir}",
+                f"[cai revise] running {agent_name} subagent for {work_dir}",
                 flush=True,
             )
             agent = _run_claude_p(
-                ["claude", "-p", "--agent", "cai-revise",
+                ["claude", "-p", "--agent", agent_name,
                  "--dangerously-skip-permissions",
                  "--add-dir", str(work_dir)],
                 category="revise",
-                agent="cai-revise",
+                agent=agent_name,
                 input=user_message,
                 cwd="/app",
             )

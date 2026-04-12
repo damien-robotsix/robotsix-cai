@@ -174,8 +174,14 @@ instead of closing it. The `revise` subcommand (default: hourly at
 `:30`) picks up any PR comment posted **after the most recent commit**
 on the branch and feeds it to the revise subagent. It also
 auto-rebases unmergeable PRs onto current main before processing
-comments; if the rebase has conflicts it posts a comment for human
-triage instead.
+comments. Clean rebases with no unaddressed comments are pushed
+automatically with no agent invocation. Rebases with conflicts but
+no unaddressed comments are handled by the lightweight `cai-rebase`
+haiku agent for automatic conflict resolution. Rebases (clean or
+conflicted) with unaddressed comments are handled by `cai-revise`
+which resolves any rebase and addresses the comments in one session.
+If a conflict is genuinely ambiguous, the agent aborts and posts a
+comment for human triage instead.
 
 How it works:
 
@@ -484,10 +490,12 @@ The container uses three Docker named volumes:
   `.claude/agent-memory/<agent-name>/MEMORY.md`. The /app agents
   (analyze, audit, confirm, merge, audit-triage) read/write this
   volume directly. The cloned-worktree agents (fix, revise,
-  review-pr, code-audit, propose, propose-review) also access their
+  review-pr, code-audit, propose, propose-review, update-check,
+  plan, select, git) also access their
   memory directly from `/app/.claude/agent-memory/<agent-name>/`
   via the mounted `cai_agent_memory` volume — no copy in/out by
-  the wrapper.
+  the wrapper. (cai-rebase is excluded — it is a lightweight
+  agent with no memory tracking by design.)
 - **`cai_logs`** (mounted at `/var/log/cai`) — run log. One
   key=value line per `cai` invocation. Using a named volume avoids
   the host permission issues that a bind-mount causes.
