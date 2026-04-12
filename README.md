@@ -483,8 +483,9 @@ The container uses three Docker named volumes:
   `memory: project` in its frontmatter, which Claude Code stores at
   `.claude/agent-memory/<agent-name>/MEMORY.md`. The /app agents
   (analyze, audit, confirm, merge, audit-triage) read/write this
-  volume directly. The cloned-worktree agents (fix, revise,
-  review-pr, code-audit, propose, propose-review) also access their
+  volume directly. The cloned-worktree agents (fix, revise, rebase,
+  review-pr, code-audit, propose, propose-review, update-check,
+  plan, select, git) also access their
   memory directly from `/app/.claude/agent-memory/<agent-name>/`
   via the mounted `cai_agent_memory` volume — no copy in/out by
   the wrapper.

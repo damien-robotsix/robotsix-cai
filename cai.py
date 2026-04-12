@@ -178,7 +178,7 @@ UPDATE_CHECK_MEMORY = Path("/var/log/cai/update-check-memory.md")
 # restarts. ALL subagents (both /app agents and the cloned-worktree
 # agents) now read/write this path directly because they're all
 # invoked with `cwd=/app`. The cloned-worktree agents
-# (cai-fix, cai-revise, cai-review-pr, cai-code-audit, cai-propose,
+# (cai-fix, cai-revise, cai-rebase, cai-review-pr, cai-code-audit, cai-propose,
 # cai-propose-review, cai-update-check, cai-plan, cai-select, cai-git) operate
 # on a clone elsewhere via absolute paths —
 # see `_work_directory_block` for the user-message section that

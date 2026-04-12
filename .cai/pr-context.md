@@ -29,6 +29,22 @@ Refs: robotsix-cai/robotsix-cai#446
 - cai-rebase does not write a PR context dossier (no review comments to record)
 - Post-agent verification (step 7) is unchanged — works identically for both agents
 
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- cai.py:181 — added `cai-rebase` to module-level cloned-worktree agent list comment
+- README.md:486 — added rebase, update-check, plan, select, git to cloned-worktree agents list
+- docker-compose.yml:81 — updated cloned-worktree agents list to include all agents; corrected stale "copied in/out" description
+
+### Decisions this revision
+- Used complete agent list (all 11) in all three locations to match the authoritative list at cai.py:1890
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `comments` at line 2964 contains only unaddressed comments (filtered by `_select_revise_targets`)
 - `rebase_in_progress` is accurate — set immediately after the rebase attempt with no intervening git ops
