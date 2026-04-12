@@ -177,6 +177,7 @@ first, which relabels eligible ones to `auto-improve:raised` so the
 |---|---|
 | `audit:raised` | Freshly raised audit finding |
 | `audit:solved` | Addressed (manually closed or auto-resolved on next audit) |
+| `audit:needs-human` | Finding requires human judgement and cannot be resolved autonomously |
 
 Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 `prompt_contradiction`, `topic_duplicate`, `silent_failure`.

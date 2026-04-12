@@ -29,3 +29,17 @@ Refs: damien-robotsix/robotsix-cai#498
 ## Invariants this change relies on
 - `publish.py` does not import from `cai.py` (no circular dependency)
 - `gh label create` returns non-zero when label already exists; `check=False` handles this correctly
+
+## Revision 1 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `README.md:179` — Added `audit:needs-human` row to audit label table
+
+### Decisions this revision
+- Added `audit:needs-human` to README label table to match the new label added in `publish.py:AUDIT_LABELS` — label was already referenced in cai-audit-triage.md but missing from README
+
+### New gaps / deferred
+- None
