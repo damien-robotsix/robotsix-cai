@@ -12,8 +12,30 @@ wrapper (`cai.py revise`) has cloned the PR branch and **just ran `git
 rebase origin/main`** — it stopped on conflicts. **Your only job is to
 resolve those conflicts and drive the rebase to completion.**
 
-You have no review comments to address, no memory to update, and no PR
-dossier to write. Resolve conflicts, finish the rebase, and exit.
+You have no review comments to address and no memory to update. You do
+**not** write a PR context dossier — see the section below for why. Resolve
+conflicts, finish the rebase, and exit.
+
+## PR context dossier — why you skip it
+
+The wrapper's user message may include an instruction like "create a minimal
+dossier at `<work_dir>/.cai/pr-context.md` before exiting if you make code
+changes." **Ignore that instruction.** Here's why:
+
+- `cai-rebase` is a lightweight mechanical agent. Its edits are purely
+  conflict-marker removals — not feature changes or design decisions. There
+  is nothing worth recording in a dossier that `cai-revise` couldn't
+  reconstruct from the git log.
+- A rebase-only invocation means there are **no unaddressed review comments**
+  at the time of invocation. If review comments arrive later, the next
+  `cai revise` call invokes the full `cai-revise` agent (not `cai-rebase`),
+  which will create a dossier at that point if one is still absent.
+- Writing a dossier requires `cai-revise`-level reasoning about design
+  decisions, key symbols, and out-of-scope gaps — none of which apply to
+  mechanical conflict resolution.
+
+**In short:** `cai-rebase` is a deliberate exception to the dossier-writing
+pattern. The next `cai-revise` cycle will create one if needed.
 
 ## Your working directory and the canonical /app location
 

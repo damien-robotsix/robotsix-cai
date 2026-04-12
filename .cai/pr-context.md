@@ -93,3 +93,17 @@ Refs: robotsix-cai/robotsix-cai#446
 
 ### New gaps / deferred
 - None
+
+## Revision 5 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-rebase.md — added "PR context dossier — why you skip it" section explaining that cai-rebase explicitly ignores the wrapper's no-dossier instruction to create a minimal dossier; documents the exception with rationale
+
+### Decisions this revision
+- Resolved contradictory_rules finding: cai-rebase.md previously said "no PR dossier to write" without acknowledging the wrapper's instruction; new section makes the exception explicit and explains why (mechanical conflict-only edits, no design decisions, next cai-revise will create dossier if comments arrive)
+
+### New gaps / deferred
+- None
