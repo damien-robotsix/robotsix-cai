@@ -6,7 +6,7 @@ import unittest
 # Ensure the repo root is on the import path.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cai import _parse_decomposition
+from cai_lib import _parse_decomposition
 
 
 class TestParseDecomposition(unittest.TestCase):

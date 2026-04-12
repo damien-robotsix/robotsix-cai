@@ -107,6 +107,7 @@ RUN groupadd --system --gid 1000 cai \
 
 WORKDIR /app
 COPY --chown=cai:cai cai.py /app/cai.py
+COPY --chown=cai:cai cai_lib/ /app/cai_lib/
 COPY --chown=cai:cai parse.py /app/parse.py
 COPY --chown=cai:cai publish.py /app/publish.py
 COPY --chown=cai:cai .claude /app/.claude
