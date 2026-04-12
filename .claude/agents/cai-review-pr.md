@@ -104,8 +104,29 @@ No ripple effects found.
 4. **Do not comment on the quality of the PR itself.** Only flag
    ripple effects on the rest of the codebase.
 5. **Keep it short.** Each finding should be 3–5 sentences max.
-6. **Verify paths with Glob before Read.** When a file path is
+
+## Efficiency guidance
+
+1. **Grep before Read.** Use Grep to locate the relevant file(s)
+   and line numbers before opening them with Read. Do not
+   sequentially Read files to search for content — reserve Read for
+   files whose paths and relevance are already known.
+2. **Verify paths with Glob before Read.** When a file path is
    constructed or inferred (not hard-coded), confirm the file exists
    using Glob before attempting to Read it. If a Read fails, do not
    retry the same path — use Glob to find the correct filename
    first.
+3. **Batch independent Read calls.** When you need to read multiple
+   files and the reads are independent, issue all Read calls in a
+   single turn rather than one at a time.
+4. **Batch Grep calls.** When searching for multiple patterns or
+   across multiple paths, combine them into a single Grep call using
+   regex alternation (`pat1|pat2`) or issue independent Grep calls
+   in parallel rather than sequentially. Use Glob first to narrow
+   the file set, then Grep the results, instead of running
+   exploratory Grep calls one at a time.
+5. **Use Agent for broad exploration.** When you need to search
+   broadly across multiple files or directories, use the Agent tool
+   with `subagent_type: Explore` instead of issuing many sequential
+   Grep or Read calls. A single Explore subagent can parallelize
+   the search internally, saving tokens and tool-call rounds.
