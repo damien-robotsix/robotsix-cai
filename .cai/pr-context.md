@@ -52,6 +52,23 @@ Refs: robotsix-cai/robotsix-cai#413
 ### New gaps / deferred
 - None
 
+## Revision 2 (2026-04-12)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:230` — added module-level `_get_issue_category(issue) -> str` helper before `_log_outcome()`
+- `cai.py:1105-1111` — replaced 5-line inline category extraction inside `_score()` with `_get_issue_category(issue)`
+- `cai.py:4872-4876` — removed nested `_extract_category()` from `cmd_confirm()`; replaced its 3 call sites with `_get_issue_category(mi)`
+
+### Decisions this revision
+- `_get_issue_category` placed immediately before `_log_outcome` (outcome-related helpers cluster)
+- No behavioral change — pure deduplication; both original implementations were identical
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `category:{value}` labels are already applied to issues by `publish.py`
 - `_fetch_previous_fix_attempts` returns empty list on API failure (safe default for scoring)

@@ -227,6 +227,14 @@ def log_cost(row: dict) -> None:
         pass
 
 
+def _get_issue_category(issue: dict) -> str:
+    """Return the category label value for *issue*, or ``'(unknown)'`` if absent."""
+    for ln in (lbl["name"] for lbl in issue.get("labels", [])):
+        if ln.startswith("category:"):
+            return ln.split(":", 1)[1]
+    return "(unknown)"
+
+
 def _log_outcome(issue_number: int, category: str, outcome: str, fix_attempt_count: int) -> None:
     """Append one JSON record to the outcome log. Never raises."""
     try:
@@ -1103,12 +1111,7 @@ def _select_fix_target():
         except (ValueError, KeyError):
             age_days = 1.0
         # Category success rate.
-        label_names = {lbl["name"] for lbl in issue.get("labels", [])}
-        cat = "(unknown)"
-        for ln in label_names:
-            if ln.startswith("category:"):
-                cat = ln.split(":", 1)[1]
-                break
+        cat = _get_issue_category(issue)
         rate = outcome_stats.get(cat, default_rate)
         # Prior fix attempts (from closed unmerged PRs).
         prior = len(_fetch_previous_fix_attempts(issue["number"]))
@@ -4870,18 +4873,12 @@ def cmd_confirm(args) -> int:
     unsolved = 0
     inconclusive = 0
 
-    def _extract_category(issue: dict) -> str:
-        for ln in (lbl["name"] for lbl in issue.get("labels", [])):
-            if ln.startswith("category:"):
-                return ln.split(":", 1)[1]
-        return "(unknown)"
-
     for issue_num, status, reasoning in verdicts:
         if issue_num not in merged_nums:
             continue
         mi = merged_by_num[issue_num]
         if status == "solved":
-            cat = _extract_category(mi)
+            cat = _get_issue_category(mi)
             prior_attempts = len(_fetch_previous_fix_attempts(issue_num))
             _log_outcome(issue_num, cat, "solved", prior_attempts)
             _set_labels(issue_num, add=[LABEL_SOLVED], remove=[LABEL_MERGED], log_prefix="cai confirm")
@@ -4895,7 +4892,7 @@ def cmd_confirm(args) -> int:
             print(f"[cai confirm] #{issue_num}: solved — closed", flush=True)
             solved += 1
         elif status == "unsolved":
-            cat = _extract_category(mi)
+            cat = _get_issue_category(mi)
             prior_attempts = len(_fetch_previous_fix_attempts(issue_num))
             _log_outcome(issue_num, cat, "unsolved", prior_attempts)
 
@@ -4953,7 +4950,7 @@ def cmd_confirm(args) -> int:
                 print(f"[cai confirm] #{issue_num}: unsolved — max re-queues reached, needs-human", flush=True)
             unsolved += 1
         elif status == "inconclusive":
-            cat = _extract_category(mi)
+            cat = _get_issue_category(mi)
             prior_attempts = len(_fetch_previous_fix_attempts(issue_num))
             _log_outcome(issue_num, cat, "inconclusive", prior_attempts)
             # Post reasoning to the issue so humans can see why, but
