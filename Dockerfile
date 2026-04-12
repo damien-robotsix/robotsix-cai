@@ -15,7 +15,7 @@ ENV BROWSER=echo
 
 # Pin the claude-code version so the self-improvement loop is reproducible.
 # Bumping this should be a deliberate, reviewed change.
-ARG CLAUDE_CODE_VERSION=2.1.96
+ARG CLAUDE_CODE_VERSION=2.1.101
 
 # Pin supercronic (the in-container cron supervisor; Phase D onward).
 # SHA256 is computed once against v0.2.44's linux-amd64 binary; bumping
