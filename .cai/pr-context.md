@@ -40,3 +40,17 @@ Refs: robotsix-cai/robotsix-cai#460
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-12)
+
+### Rebase
+- resolved: README.md, cai.py — both had "2 vs 3 parallel plan agents" conflicts from PR #459 (3→2) landing on main after Revision 1 was authored; resolved by keeping "2" from HEAD and merging in the budget-cap documentation from the incoming branch
+
+### Files touched this revision
+- .claude/agents/cai-plan.md (via staging) — added Hard Rule #2 documenting the $1.00 budget cap per reviewer request
+
+### Decisions this revision
+- Used "one of two parallel plans can still succeed" wording in the Hard Rule to match current 2-agent count (not 3 as suggested by reviewer, since PR #459 already reduced the count)
+
+### New gaps / deferred
+- None
