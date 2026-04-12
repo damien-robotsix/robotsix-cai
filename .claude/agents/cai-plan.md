@@ -65,48 +65,13 @@ The user message contains:
 1. **Read-only.** Do not modify any files — only read and plan.
 2. **$1.00 budget cap.** Each cai-plan invocation is limited to $1.00 via `--max-budget-usd` to prevent runaway exploration sessions. If the agent approaches or exhausts this budget, it will exit, and the fix pipeline will handle the failure gracefully (one of two parallel plans can still succeed).
 
-3. **Delegate broad exploration to an Explore subagent.** If your
-   investigation will touch more than 3 distinct files, or read more
-   than 5 separate sections of a single large file, or grep for more
-   than 5 different patterns — stop and delegate the exploration to
-   an `Agent` call with `subagent_type: "Explore"` before continuing.
-   Write a self-contained prompt that tells the Explore agent what
-   you need to understand and why. Then use its findings to write
-   your plan. Example:
+## Agent-specific efficiency guidance
 
-       Agent({
-         subagent_type: "Explore",
-         description: "Trace revise lifecycle",
-         prompt: "In the repo at <work_dir>, find all functions involved
-                  in the 'revise' lifecycle: where it's dispatched, how
-                  review comments are fetched, how the rebase-vs-revise
-                  decision is made, and what calls the cai-revise agent.
-                  Report file paths, function names, and line numbers."
-       })
-
-   Do NOT perform the exploration yourself with sequential
-   Read/Grep calls — that wastes tokens and rounds.
-
-## Efficiency guidance
-
-1. **Grep before Read.** Use Grep to locate the relevant file(s)
-   and line numbers before opening them with Read. Do not
-   sequentially Read files to search for content — reserve Read for
-   files whose paths and relevance are already known.
-2. **Verify paths with Glob before Read.** When a file path is
-   constructed or inferred (not hard-coded), confirm the file exists
-   using Glob before attempting to Read it. If a Read fails, do not
-   retry the same path — use Glob to find the correct filename
-   first.
-3. **Batch independent Read calls.** When you need to read multiple
-   files and the reads are independent, issue all Read calls in a
-   single turn rather than one at a time.
-4. **Batch Grep calls.** When searching for multiple patterns or
-   across multiple paths, combine them into a single Grep call using
-   regex alternation (`pat1|pat2`) or issue independent Grep calls
-   in parallel rather than sequentially. Use Glob first to narrow
-   the file set, then Grep the results, instead of running
-   exploratory Grep calls one at a time.
+1. **Use Agent for broad exploration.** When you need to search
+   broadly across multiple files or directories, use the Agent tool
+   with `subagent_type: Explore` instead of issuing many sequential
+   Grep or Read calls. A single Explore subagent can parallelize
+   the search internally, saving tokens and tool-call rounds.
 
 ## Output format
 

@@ -117,44 +117,11 @@ No ripple effects found.
    modifies `.cai/pr-context.md`, skip it entirely — do not flag
    it under `stale_docs`, `dead_config`, `missing_co_change`, or
    any other category.
-7. **Delegate broad exploration to an Explore subagent.** If your
-   review will touch more than 3 distinct files, or read more than
-   5 separate sections of a single large file, or grep for more
-   than 5 different patterns — stop and delegate the exploration to
-   an `Agent` call with `subagent_type: "Explore"` before continuing.
-   Write a self-contained prompt that tells the Explore agent what
-   you need to find and why. Then use its findings to identify
-   ripple effects. Example:
 
-       Agent({
-         subagent_type: "Explore",
-         description: "Find all references to changed symbol",
-         prompt: "In the repo at <work_dir>, find every reference to
-                  the function/constant/label '<name>': all call sites,
-                  doc mentions, config entries, and agent definitions.
-                  Report file paths and line numbers."
-       })
+## Agent-specific efficiency guidance
 
-   Do NOT perform the exploration yourself with sequential
-   Read/Grep calls — that wastes tokens and rounds.
-
-## Efficiency guidance
-
-1. **Grep before Read.** Use Grep to locate the relevant file(s)
-   and line numbers before opening them with Read. Do not
-   sequentially Read files to search for content — reserve Read for
-   files whose paths and relevance are already known.
-2. **Verify paths with Glob before Read.** When a file path is
-   constructed or inferred (not hard-coded), confirm the file exists
-   using Glob before attempting to Read it. If a Read fails, do not
-   retry the same path — use Glob to find the correct filename
-   first.
-3. **Batch independent Read calls.** When you need to read multiple
-   files and the reads are independent, issue all Read calls in a
-   single turn rather than one at a time.
-4. **Batch Grep calls.** When searching for multiple patterns or
-   across multiple paths, combine them into a single Grep call using
-   regex alternation (`pat1|pat2`) or issue independent Grep calls
-   in parallel rather than sequentially. Use Glob first to narrow
-   the file set, then Grep the results, instead of running
-   exploratory Grep calls one at a time.
+1. **Use Agent for broad exploration.** When you need to search
+   broadly across multiple files or directories, use the Agent tool
+   with `subagent_type: Explore` instead of issuing many sequential
+   Grep or Read calls. A single Explore subagent can parallelize
+   the search internally, saving tokens and tool-call rounds.
