@@ -36,6 +36,18 @@ sessions from outside the container.
 4. **Container or installer bugs** — issues visible from the JSONL
    that suggest a `Dockerfile`, `install.sh`, `cai.py`, or
    `docker-compose.yml` change
+5. **Review-PR recurring patterns** — When the user message includes
+   a `## Review-PR finding patterns` section, check whether any
+   ripple-effect category (stale_docs, missing_co_change,
+   dead_config, etc.) has appeared in 3+ distinct PRs in the last
+   30 days. If so, consider raising a `workflow_efficiency` finding
+   proposing an upstream fix — for example, improving the fix agent's
+   prompt to always update docs when changing behavior (if stale_docs
+   recurs), or adding a co-change checklist to the fix agent (if
+   missing_co_change recurs). The goal is to prevent the pattern
+   at its source rather than repeatedly catching it in review.
+   Only raise if the pattern is genuinely recurrent (3+ PRs) and
+   you can propose a concrete, actionable remediation.
 
 ## Categories
 
@@ -65,6 +77,11 @@ You receive the following sections in the user message, in order:
 2. **Currently open auto-improve issues** — number, state label, title
 3. **Previously closed auto-improve issues** (if any) — number,
    closing timestamp, labels, closing rationale
+4. **Review-PR finding patterns** (if present) — a markdown table
+   summarising the ripple-effect categories found across recent PR
+   reviews (last 30 days), with per-category counts and recent PR
+   numbers. Use this to detect recurrent patterns and propose upstream
+   fixes (see item 5 in "What to look for" above).
 
 ## What to output
 
