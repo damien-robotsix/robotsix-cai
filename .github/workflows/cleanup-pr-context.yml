@@ -2,7 +2,7 @@ name: Cleanup PR context dossier
 
 # Deletes `.cai/pr-context.md` from the default branch whenever an
 # auto-improve PR that carried one is merged in. The dossier is an
-# auto-generated file that `cai-fix` creates and `cai-revise` updates
+# auto-generated file that `cai-implement` creates and `cai-revise` updates
 # so the revise agent does not have to re-explore the repo at the
 # start of every cycle. It is meant to live only on the PR branch —
 # once the PR is merged, the file has no purpose on `main` and is

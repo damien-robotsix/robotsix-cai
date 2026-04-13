@@ -79,7 +79,7 @@ def _transcript_dir_is_empty() -> bool:
     return not any(TRANSCRIPT_DIR.rglob("*.jsonl"))
 
 
-def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (), log_prefix: str = "cai fix") -> bool:
+def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (), log_prefix: str = "cai implement") -> bool:
     """Add and/or remove labels on an issue. Returns True on success."""
     # Auto-add the base label for any state-prefixed label being added.
     # This is defensive: create_issue already applies base labels, but
@@ -168,11 +168,11 @@ def _fetch_linked_issue_block(pr_body: str) -> str:
     )
 
 
-def _build_fix_user_message(issue: dict, attempt_history_block: str = "") -> str:
-    """Build the dynamic per-run user message for the cai-fix agent.
+def _build_implement_user_message(issue: dict, attempt_history_block: str = "") -> str:
+    """Build the dynamic per-run user message for the cai-implement agent.
 
     The system prompt, tool allowlist, and hard rules live in
-    `.claude/agents/cai-fix.md`; durable per-agent learnings live
+    `.claude/agents/cai-implement.md`; durable per-agent learnings live
     in its `memory: project` pool. The wrapper passes the issue
     body, reviewer comments, and (when available) a summary of
     prior closed PRs for this issue.

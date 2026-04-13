@@ -34,8 +34,8 @@ def _run_claude_p(
     it keep working unchanged.
 
     `category` labels the row by top-level cai command (e.g.
-    "analyze", "fix", "audit"). `agent` records the subagent name
-    (e.g. "cai-fix") if applicable.
+    "analyze", "implement", "audit"). `agent` records the subagent name
+    (e.g. "cai-implement") if applicable.
 
     On JSON parse failure or a missing `result` event, no cost row is
     written, the original stdout is left in place, and a one-line

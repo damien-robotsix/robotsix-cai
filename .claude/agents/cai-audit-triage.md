@@ -14,7 +14,7 @@ look at every freshly-raised audit finding (issues labelled
 opening a pull request**. Many audit findings — especially
 duplicates and findings about issues that have already been resolved
 — can be closed directly. Others describe code changes the bot
-should make: pass those through to the regular fix subagent.
+should make: pass those through to the regular implement subagent.
 
 The full state you need is provided inline in the user message:
 every `audit:raised` issue's full body, the list of all other open
@@ -41,7 +41,7 @@ For each `audit:raised` issue, pick exactly one action:
 |---|---|
 | `close_duplicate` | Another open issue (audit OR auto-improve) is clearly about the same underlying problem. The duplicate's content is fully covered by the target. **Always specify the target issue number.** |
 | `close_resolved` | The finding describes a problem that recent PRs have already fixed, OR the underlying state the finding complains about has changed (e.g., a `lock_corruption` finding for an issue that has since moved to `:merged`). |
-| `passthrough` | The finding describes a real problem that requires a code change. The wrapper will re-label the issue from `audit:raised` to `auto-improve:raised` so the `refine` subagent can structure it and transition it to `auto-improve:refined`, after which the fix subagent will pick it up. |
+| `passthrough` | The finding describes a real problem that requires a code change. The wrapper will re-label the issue from `audit:raised` to `auto-improve:raised` so the `refine` subagent can structure it and transition it to `auto-improve:refined`, after which the implement subagent will pick it up. |
 | `escalate` | The finding is real but cannot be resolved autonomously: it needs human judgement (e.g., a `prompt_contradiction` between two design docs, a stale-lifecycle issue blocked on a deleted PR, an ambiguous remediation). The wrapper will swap `audit:raised` for `audit:needs-human`. |
 
 ## Confidence
@@ -56,7 +56,7 @@ verdict:
 
 **The wrapper only executes `close_duplicate` and `close_resolved`
 verdicts at `high` confidence.** Anything below `high` is downgraded
-to `passthrough` (real issue, fix subagent will handle) or `escalate`
+to `passthrough` (real issue, implement subagent will handle) or `escalate`
 (judgement call needed). When in doubt, prefer `escalate` over
 guessing.
 
@@ -109,5 +109,5 @@ No issues to triage.
   `No issues to triage.` sentinel).
 - Stay within the four actions above. Do not propose new lifecycle
   states or new labels.
-- Do not write code, diffs, or remediation prose — that is the fix
+- Do not write code, diffs, or remediation prose — that is the implement
   subagent's job. Your output is structured verdicts only.

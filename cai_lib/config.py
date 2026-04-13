@@ -10,9 +10,9 @@ SMOKE_PROMPT = "Say hello in one short sentence."
 # `~/.claude/projects/<sanitized-cwd>/<session-id>.jsonl` for every
 # session, so this directory contains one subdir per cwd:
 #   * `-app/`            — sessions started by cai.py inside /app
-#   * `-tmp-cai-fix-<N>/` — sessions started by the fix subagent in
+#   * `-tmp-cai-implement-<N>/` — sessions started by the implement subagent in
 #                          its per-issue clone under /tmp
-# The analyzer parses *all* of them so the fix subagent's tool-rich
+# The analyzer parses *all* of them so the implement subagent's tool-rich
 # sessions feed back into the next analyzer cycle.
 #
 # Path is /home/cai/... because the container runs as the non-root
@@ -40,7 +40,7 @@ COST_OPTIMIZE_MEMORY = Path("/var/log/cai/cost-optimize-memory.md")
 # restarts. ALL subagents (both /app agents and the cloned-worktree
 # agents) now read/write this path directly because they're all
 # invoked with `cwd=/app`. The cloned-worktree agents
-# (cai-fix, cai-revise, cai-rebase, cai-review-pr, cai-review-docs, cai-code-audit, cai-propose,
+# (cai-implement, cai-revise, cai-rebase, cai-review-pr, cai-review-docs, cai-code-audit, cai-propose,
 # cai-propose-review, cai-update-check, cai-plan, cai-select, cai-git) operate
 # on a clone elsewhere via absolute paths —
 # see `_work_directory_block` for the user-message section that

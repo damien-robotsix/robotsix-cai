@@ -206,7 +206,7 @@ file exceeds ~200 lines, collapse the oldest half into a summary block.
    existing test in `tests/` to fail, you **must** update the
    failing test(s) to reflect the new correct behavior before
    exiting. A test update in this case is required — not optional —
-   because the regression gate in `cmd_fix` will otherwise block
+   because the regression gate in `cmd_implement` will otherwise block
    the PR indefinitely.
 7. **Stay inside the worktree.** Do not touch files outside the
    working directory.
