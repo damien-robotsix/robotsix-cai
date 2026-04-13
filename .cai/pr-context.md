@@ -57,6 +57,20 @@ Refs: robotsix/robotsix-cai#461
 ### New gaps / deferred
 - Reviewer comment (@damien-robotsix) is a clarification question, not a code-change request — no action taken beyond explanation above.
 
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- cai-review-docs agent posted "### Fixed: stale_docs" comment claiming docs/agents.md line 23 needed updating (cai-review-pr tools `Read, Grep, Glob, Agent` → `Read, Grep, Glob`). Verified in clone: docs/agents.md line 23 already reads `Read, Grep, Glob` — fix was already present in the branch before this revision ran. No changes needed.
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `--max-budget-usd` is a valid Claude CLI flag supported by the current claude-code version
 - Removing `Agent` from tools list still leaves `Read`, `Grep`, `Glob` sufficient for ripple-effect checking
