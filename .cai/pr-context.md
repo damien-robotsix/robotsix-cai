@@ -48,6 +48,23 @@ Refs: damien-robotsix/robotsix-cai#504
 ### New gaps / deferred
 - None
 
+## Revision 2 (2026-04-13)
+
+### Rebase
+- resolved: cai.py (2 conflicts — constants/logging block vs imports, and _select_plan_target+github helpers vs import)
+
+### Files touched this revision
+- cai_lib/config.py:66 — added LABEL_HUMAN_SUBMITTED, LABEL_PLANNED, LABEL_PLAN_APPROVED (added to main in PRs #517/#518, missing from extracted module)
+- cai.py:173 — conflict 1 resolved: replaced inline constants+logging functions with `from cai_lib.config import *` + `from cai_lib.logging_utils import ...`
+- cai.py:744 — conflict 2 resolved: kept new `_select_plan_target` from main, replaced inline github helpers with `from cai_lib.github import ...`
+
+### Decisions this revision
+- `_select_plan_target` stays in cai.py — added by PR #521 on main, not in scope for this extraction PR
+- New labels (LABEL_HUMAN_SUBMITTED, LABEL_PLANNED, LABEL_PLAN_APPROVED) added to cai_lib/config.py so `from cai_lib.config import *` wildcard re-exports them correctly
+
+### New gaps / deferred
+- Review comment "ok to merge" is an approval, no code change required
+
 ## Invariants this change relies on
 - All extracted symbols remain accessible from `cai` module via import re-exports
 - `cai_lib` dependency graph is acyclic: config → logging_utils → subprocess_utils → github → cmd_lifecycle
