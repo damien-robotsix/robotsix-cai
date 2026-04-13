@@ -15,22 +15,22 @@ Subcommands:
     python cai.py fix       Score eligible issues by age, category
                             success rate, and prior fix attempts; pick
                             the highest scorer labelled `auto-improve:
-                            refined` or `auto-improve:
+                            plan-approved` or `auto-improve:
                             requested` (audit issues reach fix via
                             triage relabelling), run a cheap Haiku
                             pre-screen to classify the issue; spike/
                             ambiguous issues are returned to their origin
                             label without cloning; if actionable, lock it
                             via the `:in-progress` label, clone the repo
-                            into /tmp, run 2 serial plan agents (each
-                            capped at $1.00; the second sees the first
-                            plan and proposes an alternative) to generate
-                            candidate fix plans, run a select
-                            agent to pick the best plan, then run the fix
-                            subagent (full tool permissions) with the
-                            selected plan, and open a PR if the agent
-                            produced a diff. Rolls back the label on
-                            empty diff or any failure.
+                            into /tmp, load the stored implementation
+                            plan from the issue body (written by `cai
+                            plan` between `<!-- cai-plan-start/end -->`
+                            markers) if present, then run the fix
+                            subagent (full tool permissions) with that
+                            plan, and open a PR if the agent produced a
+                            diff. Does NOT re-plan — planning is a
+                            separate `cai plan` step. Rolls back the
+                            label on empty diff or any failure.
 
     python cai.py verify    Mechanical, no-LLM. Walk issues with
                             `:pr-open`, find their linked PR by `Refs`
@@ -971,25 +971,25 @@ def _run_plan_select_pipeline(issue: dict, work_dir: Path, attempt_history_block
     issue_number = issue["number"]
 
     # Step 1: Run Plan 1.
-    print(f"[cai fix] running plan agent 1/2 for #{issue_number}", flush=True)
+    print(f"[cai plan] running plan agent 1/2 for #{issue_number}", flush=True)
     plan1 = _run_plan_agent(issue, 1, work_dir, attempt_history_block)
-    print(f"[cai fix] plan 1: {len(plan1)} chars", flush=True)
+    print(f"[cai plan] plan 1: {len(plan1)} chars", flush=True)
 
     # Step 2: Run Plan 2 with knowledge of Plan 1, asking for an alternative.
-    print(f"[cai fix] running plan agent 2/2 for #{issue_number}", flush=True)
+    print(f"[cai plan] running plan agent 2/2 for #{issue_number}", flush=True)
     plan2 = _run_plan_agent(issue, 2, work_dir, attempt_history_block, first_plan=plan1)
-    print(f"[cai fix] plan 2: {len(plan2)} chars", flush=True)
+    print(f"[cai plan] plan 2: {len(plan2)} chars", flush=True)
 
     plans = [plan1, plan2]
 
     # Step 3: Run the select agent to pick the best plan.
-    print(f"[cai fix] running select agent for #{issue_number}", flush=True)
+    print(f"[cai plan] running select agent for #{issue_number}", flush=True)
     selection = _run_select_agent(issue, plans, work_dir)
     if not selection.strip():
-        print("[cai fix] select agent produced no output; skipping pipeline", flush=True)
+        print("[cai plan] select agent produced no output; skipping pipeline", flush=True)
         return None
 
-    print(f"[cai fix] select agent produced {len(selection)} chars", flush=True)
+    print(f"[cai plan] select agent produced {len(selection)} chars", flush=True)
     return selection
 
 
@@ -1799,7 +1799,7 @@ def cmd_fix(args) -> int:
         _git(work_dir, "checkout", "-b", branch)
 
         # 4b. Fetch previous fix attempts (closed, unmerged PRs) and
-        #     build a history block so plan and fix agents don't repeat
+        #     build a history block so the fix agent doesn't repeat
         #     rejected approaches.
         attempts = _fetch_previous_fix_attempts(issue_number)
         attempt_history_block = _build_attempt_history_block(attempts)
@@ -1809,13 +1809,26 @@ def cmd_fix(args) -> int:
                 flush=True,
             )
 
-        # 4c. Run the plan-select pipeline: 2 plan agents in serial
-        #     (each capped at $1.00), where the second sees the first's
-        #     output and proposes an alternative. A select agent then
-        #     picks the best plan. The selected plan is prepended
-        #     to the fix agent's user message so it has a concrete
-        #     implementation strategy to follow.
-        selected_plan = _run_plan_select_pipeline(issue, work_dir, attempt_history_block)
+        # 4c. Load the stored implementation plan from the issue body.
+        #     `cai plan` is an independent step that runs the plan-select
+        #     pipeline and writes the selected plan between
+        #     `<!-- cai-plan-start/end -->` markers. `cai fix` only
+        #     executes that stored plan — it never re-plans. For
+        #     `:requested` issues (human shortcut) there may be no
+        #     stored plan, and the fix agent runs without one.
+        selected_plan = _extract_stored_plan(issue.get("body", "") or "")
+        if selected_plan:
+            print(
+                f"[cai fix] using stored plan from issue body "
+                f"({len(selected_plan)} chars)",
+                flush=True,
+            )
+        else:
+            print(
+                "[cai fix] no stored plan found; running fix agent "
+                "without a plan (expected for :requested issues)",
+                flush=True,
+            )
 
         # 5. Run the cai-fix declarative subagent.
         #    System prompt, tool allowlist, and hard rules live in
@@ -1841,9 +1854,8 @@ def cmd_fix(args) -> int:
                 _work_directory_block(work_dir)
                 + "\n"
                 + "## Selected Implementation Plan\n\n"
-                + "The following plan was selected by the plan-select "
-                + "pipeline from 2 serially generated candidates. "
-                + "Follow this plan to implement the fix.\n\n"
+                + "The following plan was produced by `cai plan` and "
+                + "stored on the issue. Follow it to implement the fix.\n\n"
                 + f"{selected_plan}\n\n"
                 + "---\n\n"
                 + _build_fix_user_message(issue, attempt_history_block)
