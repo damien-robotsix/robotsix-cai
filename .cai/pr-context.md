@@ -153,3 +153,17 @@ Refs: robotsix-cai/cai#518
 
 ### New gaps / deferred
 - docs/cli.md, docs/configuration.md, docs/architecture.md findings from second review comment were already addressed in Revision 2 — no changes needed
+
+## Revision 8 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- All four `stale_docs` findings from third review comment (docs/cli.md ## plan section, docs/configuration.md CAI_PLAN_SCHEDULE row, docs/architecture.md Plan step + Cycle Command, README.md command table + env vars + startup list) were already addressed in Revision 2. Verified by reading all four files — every referenced change is present in the clone.
+
+### New gaps / deferred
+- none
