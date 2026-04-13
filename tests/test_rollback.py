@@ -5,11 +5,11 @@ import unittest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, MagicMock
 
-# Ensure the repo root is on the import path so `import cai` works
+# Ensure the repo root is on the import path so imports work
 # regardless of how the test runner is invoked.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import cai
+import cai_lib as cai
 
 
 def _make_issue(number, label, age_hours):
@@ -34,10 +34,10 @@ class TestRollbackStaleInProgress(unittest.TestCase):
             label = args[args.index("--label") + 1]
             return issues_by_label.get(label, [])
 
-        with patch.object(cai, "_gh_json", side_effect=fake_gh_json), \
-             patch.object(cai, "_set_labels", return_value=True), \
-             patch.object(cai, "log_run"), \
-             patch.object(cai, "LOG_PATH", MagicMock(exists=lambda: False)):
+        with patch("cai_lib.cmd_lifecycle._gh_json", side_effect=fake_gh_json), \
+             patch("cai_lib.cmd_lifecycle._set_labels", return_value=True), \
+             patch("cai_lib.cmd_lifecycle.log_run"), \
+             patch("cai_lib.cmd_lifecycle.LOG_PATH", MagicMock(exists=lambda: False)):
             return cai._rollback_stale_in_progress(immediate=immediate)
 
     def test_immediate_true_rolls_back_all(self):
