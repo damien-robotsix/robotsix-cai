@@ -86,9 +86,8 @@ Subcommands:
                             `<!-- cai-plan-start/end -->` markers,
                             and transitions the label from
                             `auto-improve:refined` to
-                            `auto-improve:planned`. Runs on a cron
-                            schedule (CAI_PLAN_SCHEDULE); not part
-                            of the synchronous startup cycle.
+                            `auto-improve:planned`. Invoked as part
+                            of `cai.py cycle`; also runnable manually.
 
     python cai.py spike     Pick the oldest issue labelled
                             `auto-improve:needs-spike`, clone the
@@ -141,11 +140,15 @@ Subcommands:
                             `check-workflows` namespace. Runs every 6 hours
                             by default (CAI_CHECK_WORKFLOWS_SCHEDULE).
 
-The container runs `entrypoint.sh`, which executes `init`, `analyze`,
-`verify`, `refine`, `spike`, `fix`, `revise`, `review-pr`, `review-docs`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
-startup, then hands off to supercronic. Each cron tick is a fresh process.
-`plan` is not part of the synchronous startup cycle — it runs only on its
-cron schedule (CAI_PLAN_SCHEDULE, default 0 11 * * *).
+The container runs `entrypoint.sh`, which executes `cai.py cycle` once
+synchronously at startup (driving the full issue-solving pipeline:
+verify → confirm → drain PRs → refine → plan → fix loop), then hands
+off to supercronic. Each cron tick is a fresh process. The pipeline is
+driven by a single `CAI_CYCLE_SCHEDULE` cron line; a flock in
+`cmd_cycle` serializes overlapping runs so issues are processed one
+at a time. Orthogonal tasks (analyze, audit, propose, update-check,
+health-report, cost-optimize, check-workflows, code-audit) keep their
+own schedules and are not run at startup.
 
 The gh auth check is done once per subcommand invocation. We want a
 clear error message in docker logs if credentials ever disappear from
@@ -155,6 +158,7 @@ No third-party Python dependencies — only stdlib.
 """
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -8253,6 +8257,9 @@ def _drain_pending_prs(args) -> dict:
     return results
 
 
+_CYCLE_LOCK_PATH = "/tmp/cai-cycle.lock"
+
+
 def cmd_cycle(args) -> int:
     """Continuously fix issues and merge PRs until nothing is left to do.
 
@@ -8264,7 +8271,32 @@ def cmd_cycle(args) -> int:
       2.6. plan one :refined issue (plan-select pipeline → store plan → :planned)
       3. loop: verify → fix/spike/explore → drain → refine → repeat
       4. final confirm
+
+    A non-blocking flock on `_CYCLE_LOCK_PATH` ensures at most one
+    cycle runs at a time — supercronic is happy to fire overlapping
+    cycles if a previous one is still running, and we want serial
+    issue processing (one full cycle per issue from refine through
+    merge before starting the next).
     """
+    lock_fd = os.open(_CYCLE_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(lock_fd)
+        print("[cai cycle] another cycle is already running; skipping this tick",
+              flush=True)
+        return 0
+
+    try:
+        return _cmd_cycle_inner(args)
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
+
+
+def _cmd_cycle_inner(args) -> int:
     print("[cai cycle] starting continuous cycle", flush=True)
     t0 = time.monotonic()
     iteration = 0
