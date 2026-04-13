@@ -77,7 +77,7 @@ the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
 `CAI_PROPOSE_SCHEDULE`, `CAI_SPIKE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`, `CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. Analysis, audit,
-proposal, refine, spike, and update-check agents are **not** run at
+proposal, refine, spike, update-check, and check-workflows agents are **not** run at
 startup — they wait for their own cron ticks so container restarts
 don't re-trigger token-heavy analysis passes.
 

@@ -43,6 +43,21 @@ Refs: damien-robotsix/robotsix-cai#497
 - No log fetching — agent only sees run metadata (URL, branch, SHA, conclusion), not logs
 - No success/flake detection — flake categorization requires multi-run history not fetched
 
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- cai.py:1256 — added "check-workflows" to _BASE_NAMESPACES set
+- README.md:80 — added "check-workflows" to the "not run at startup" agent list
+
+### Decisions this revision
+- _BASE_NAMESPACES addition is minimal and exactly mirrors the audit namespace pattern
+
+### New gaps / deferred
+- none
+
 ## Invariants this change relies on
 - _gh_json raises CalledProcessError on non-zero exit; cmd_check_workflows catches it
 - publish.py's parse_findings() splits on `### Finding:` headers; agent must use that format

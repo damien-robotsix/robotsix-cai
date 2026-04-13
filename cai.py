@@ -1253,7 +1253,7 @@ def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (
     # Auto-add the base label for any state-prefixed label being added.
     # This is defensive: create_issue already applies base labels, but
     # auto-adding here self-heals issues that lost theirs.
-    _BASE_NAMESPACES = {"auto-improve", "audit"}
+    _BASE_NAMESPACES = {"auto-improve", "audit", "check-workflows"}
     auto_added_bases: set[str] = set()
     for label in add:
         if ":" in label:
