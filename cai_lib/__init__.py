@@ -79,7 +79,7 @@ from cai_lib.github import (
     _build_fix_user_message,
 )
 
-from cai_lib.cmd_lifecycle import _rollback_stale_in_progress
+from cai_lib.cmd_lifecycle import _rollback_stale_in_progress, _reconcile_interrupted
 
 from cai_lib.cmd_fix import _parse_decomposition
 
@@ -108,6 +108,7 @@ __all__ = [
     "_set_labels", "_issue_has_label", "_build_issue_block", "_build_fix_user_message",
     # cmd_lifecycle
     "_rollback_stale_in_progress",
+    "_reconcile_interrupted",
     # cmd_fix
     "_parse_decomposition",
 ]
