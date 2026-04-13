@@ -51,7 +51,7 @@ The issue-solving pipeline is split across two cron lines:
 
 - `cai.py cycle` drains pending PRs and fixes `human:plan-approved`
   issues only. `:raised`, `:refined`, and `:planned` issues are
-  invisible to the fix loop — a human approves a plan into
+  invisible to the implement loop — a human approves a plan into
   `human:plan-approved` before the cycle will act on it.
 - `cai.py plan-all` drives every `:raised` / `:refined` issue
   through refine → plan → `:planned`, producing the backlog humans

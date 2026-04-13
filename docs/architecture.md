@@ -46,7 +46,7 @@
 2. **Recover stale locks** — roll back `:in-progress` and `:revising` issues past their timeout.
 3. **Ingest unlabeled** — attach `auto-improve` to any unlabeled issues that belong to the pipeline.
 4. **Drain PRs** — for each open auto-improve PR: revise → review-pr → review-docs → merge.
-5. **Fix loop** — repeatedly call `fix`, `spike`, or `explore` on `human:plan-approved` / `human:requested` issues until no eligible work remains, draining PRs after each fix. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the human:plan-approved gate.
+5. **Implement loop** — repeatedly call `implement`, `spike`, or `explore` on `human:plan-approved` / `human:requested` issues until no eligible work remains, draining PRs after each implementation. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the human:plan-approved gate.
 6. **Plan-all** — run `plan-all` to drain every open `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to review before the next cycle.
 7. **Final confirm** — one last confirm pass.
 
