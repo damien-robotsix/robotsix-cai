@@ -32,6 +32,22 @@ Refs: damien-robotsix/robotsix-cai#504
 - `_fetch_previous_fix_attempts` not extracted — not in scope
 - No refactoring of extracted logic — pure move only
 
+## Revision 1 (2026-04-13)
+
+### Rebase
+- resolved: cai.py (conflict between HEAD _set_labels with check-workflows in _BASE_NAMESPACES and PR import line)
+
+### Files touched this revision
+- cai_lib/github.py:86 — added "check-workflows" to _BASE_NAMESPACES to match HEAD's update in _set_labels
+- cai.py:3197 — removed redundant explicit `from cai_lib.config import _STALE_*` import (already covered by wildcard at line 156)
+
+### Decisions this revision
+- Kept PR's import-from-cai_lib approach; updated cai_lib/github.py to include the "check-workflows" namespace added by PR #497 on main
+- Removed mid-file explicit _STALE_* import to address reviewer's redundant_code finding
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - All extracted symbols remain accessible from `cai` module via import re-exports
 - `cai_lib` dependency graph is acyclic: config → logging_utils → subprocess_utils → github → cmd_lifecycle

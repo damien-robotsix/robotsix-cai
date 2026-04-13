@@ -3441,8 +3441,6 @@ def cmd_verify(args) -> int:
 # audit
 # ---------------------------------------------------------------------------
 
-from cai_lib.config import _STALE_IN_PROGRESS_HOURS, _STALE_REVISING_HOURS, _STALE_NO_ACTION_DAYS, _STALE_MERGED_DAYS  # noqa: E402
-
 
 
 def _cleanup_orphaned_branches() -> list[str]:
