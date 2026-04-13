@@ -6058,6 +6058,12 @@ def cmd_review_pr(args) -> int:
 _DOCS_REVIEW_COMMENT_HEADING_FINDINGS = "## cai docs review"
 _DOCS_REVIEW_COMMENT_HEADING_CLEAN = "## cai docs review (clean)"
 
+# Commit-message subject used by `cmd_review_docs` when it pushes
+# automated documentation fixes. Recognized by the merge gate so a
+# docs-only follow-up commit doesn't force another full review-pr
+# pass (which would cascade into another review-docs pass, etc.).
+_REVIEW_DOCS_COMMIT_SUBJECT = "docs: update documentation per review-docs"
+
 
 def cmd_review_docs(args) -> int:
     """Fix stale documentation on open PRs and post findings for issues that cannot be fixed automatically."""
@@ -6241,7 +6247,7 @@ def cmd_review_docs(args) -> int:
                 # Commit and push the doc fixes.
                 _git(work_dir, "add", "-A")
                 _git(work_dir, "commit", "-m",
-                     "docs: update documentation per review-docs\n\n"
+                     f"{_REVIEW_DOCS_COMMIT_SUBJECT}\n\n"
                      "Applied by cai review-docs.")
                 push = _run(
                     ["git", "-C", str(work_dir), "push", "origin", branch],
@@ -6606,16 +6612,59 @@ def cmd_merge(args) -> int:
         # both start with `_REVIEW_COMMENT_HEADING_FINDINGS` and both
         # include the head SHA on the heading line. Mirrors the
         # already-reviewed check in `cmd_review_pr`.
-        has_review_at_sha = False
+        #
+        # Exception: when `cai review-docs` fixes documentation it
+        # pushes a new commit with subject
+        # `_REVIEW_DOCS_COMMIT_SUBJECT`, advancing HEAD past the last
+        # review-pr SHA. Treat such follow-up commits as "already
+        # reviewed" — otherwise every docs push forces another
+        # review-pr pass, which in turn triggers another review-docs
+        # pass at the new SHA, cascading indefinitely for any tweak.
+        reviewed_shas = set()
         for comment in pr.get("comments", []):
             body = (comment.get("body") or "")
             first_line = body.split("\n", 1)[0]
-            if (
-                first_line.startswith(_REVIEW_COMMENT_HEADING_FINDINGS)
-                and head_sha in first_line
-            ):
-                has_review_at_sha = True
-                break
+            if not first_line.startswith(_REVIEW_COMMENT_HEADING_FINDINGS):
+                continue
+            m_sha = re.search(r"\u2014\s+([0-9a-f]{7,40})", first_line)
+            if m_sha:
+                reviewed_shas.add(m_sha.group(1))
+
+        has_review_at_sha = head_sha in reviewed_shas
+
+        if not has_review_at_sha and reviewed_shas:
+            # Accept an earlier review-pr SHA if every intervening
+            # commit up to HEAD is a review-docs self-commit.
+            try:
+                _commits_data = _gh_json([
+                    "pr", "view", str(pr_number),
+                    "--repo", REPO,
+                    "--json", "commits",
+                ])
+                _commit_list = _commits_data.get("commits", [])
+            except subprocess.CalledProcessError:
+                _commit_list = []
+
+            latest_reviewed_idx = -1
+            for idx, c in enumerate(_commit_list):
+                if c.get("oid") in reviewed_shas:
+                    latest_reviewed_idx = idx
+
+            if latest_reviewed_idx >= 0:
+                tail = _commit_list[latest_reviewed_idx + 1:]
+                if tail and all(
+                    (c.get("messageHeadline") or "").startswith(
+                        _REVIEW_DOCS_COMMIT_SUBJECT
+                    )
+                    for c in tail
+                ):
+                    has_review_at_sha = True
+                    print(
+                        f"[cai merge] PR #{pr_number}: accepting review-pr "
+                        f"at earlier SHA; {len(tail)} intervening "
+                        f"commit(s) are review-docs follow-ups",
+                        flush=True,
+                    )
 
         if not has_review_at_sha:
             print(
