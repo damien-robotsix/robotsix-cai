@@ -56,23 +56,13 @@ Assess each plan on these criteria, in order of importance:
 
 ## Output format
 
-Produce your selection in exactly this structure:
-
-```
-## Selection
-
-### Chosen plan
-Plan <N>
-
-### Reasoning
-<2-3 sentences explaining why this plan is best and why the others
-were not chosen>
-
-### Plan to implement
-<paste the full chosen plan here, exactly as provided — do not
-modify it>
-```
+Output **only** the chosen plan — paste it exactly as provided with
+no modifications. Do not emit any selection metadata, plan numbers,
+reasoning, or wrapper headings. Your entire response should be the
+plan text and nothing else.
 
 If all plans are equally bad or none correctly addresses the issue,
-say so in your reasoning and pick the least-bad option, noting its
-weaknesses so the fix agent can compensate.
+pick the least-bad option. You may insert a single `> **Note:** …`
+blockquote at the very top of the output (before the plan content)
+to flag critical weaknesses for the fix agent, but keep it to one
+sentence.
