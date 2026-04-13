@@ -9,7 +9,7 @@
 3. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. Label transitions to `auto-improve:planned`, awaiting human approval.
 4. **Human Approval** — A human reviews the generated plan and applies `human:plan-approved` label to approve the issue for fixing.
 5. **Fix** — `cai implement` calls `cai-implement` on `human:plan-approved` issues in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
-6. **Review** — `cai review-pr` checks for ripple-effect inconsistencies and posts findings as PR comments. `cai review-docs` then (and only after review-pr completes) checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. This ordering is enforced: review-docs skips PRs until review-pr has posted a review comment at the current HEAD SHA.
+6. **Review** — `cai review-pr` checks for ripple-effect inconsistencies, posts findings as PR comments, and sets the `pr:reviewed-accept` or `pr:reviewed-reject` label. `cai review-docs` then (and only after review-pr has set `pr:reviewed-accept`) checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. This ordering is enforced: review-docs skips PRs until the `pr:reviewed-accept` label is present.
 7. **Revise** — `cai revise` calls `cai-revise` or `cai-rebase` to address review comments or rebase conflicts. Label transitions to `auto-improve:revising`.
 7.5. **CI Fix** — `cai fix-ci` calls `cai-fix-ci` to diagnose and fix failing GitHub Actions checks on open PRs. The subagent reads the failure log (last 200 lines, up to 2 failing checks), locates the root cause in the clone, and makes the minimal fix. A per-SHA marker comment (`## CI-fix subagent: fix attempt`) is always posted after each run — whether or not a fix was produced — so the loop guard fires on the next tick if CI is still red. PRs with unaddressed review comments are skipped (left for `cai revise`); PRs with `:needs-human-review` or `:merge-blocked` are always skipped.
 8. **Merge** — `cai merge` calls `cai-merge` to assess confidence and auto-merges PRs that meet the threshold. Label transitions to `auto-improve:merged`.
@@ -38,6 +38,10 @@
 | `human:submitted` | Human-submitted issue awaiting refinement |
 | `merge-blocked` | PR has a blocking review finding; will not auto-merge |
 | `needs-human-review` | Issue or PR requires human attention |
+| `pr:edited` | PR branch has been updated by `cai revise` or `cai review-docs` |
+| `pr:reviewed-accept` | `cai review-pr` completed and posted a clean verdict (no findings) |
+| `pr:reviewed-reject` | `cai review-pr` completed and posted findings (changes needed) |
+| `pr:documented` | `cai review-docs` completed (documentation is current) |
 
 ## The Cycle Command
 
