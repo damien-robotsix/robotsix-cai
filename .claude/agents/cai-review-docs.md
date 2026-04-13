@@ -71,8 +71,15 @@ Changes that **do NOT warrant documentation review**:
    post-PR code
 4. For each gap, emit a `### Finding: stale_docs` block
 
-If the `docs/` directory does not exist or is empty, output
-`No documentation updates needed.`
+If the `docs/` directory does not exist or is empty:
+- If the PR diff contains no user-facing changes (see "Changes that do NOT
+  warrant documentation review" above), output
+  `No documentation updates needed.`
+- If the PR diff **does** contain user-facing changes, emit a
+  `### Finding: stale_docs` block (using the format below) with
+  file `docs/ (missing or empty)`, describing that the PR changes user-facing
+  behavior but no documentation exists to verify, and suggesting the team
+  create or populate `/docs` before merging.
 
 ## Output format
 
