@@ -44,6 +44,7 @@ services:
       CAI_MERGE_SCHEDULE: "35 * * * *"      # hourly at :35 (auto-merge confident PRs)
       CAI_HEALTH_REPORT_SCHEDULE: "0 7 * * 1" # weekly Monday 07:00 UTC (pipeline health report)
       CAI_CHECK_WORKFLOWS_SCHEDULE: "0 */6 * * *" # every 6h (check for CI workflow failures)
+      CAI_PLAN_SCHEDULE: "0 11 * * *"        # daily 11:00 UTC (plan-select pipeline on :refined issues)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)

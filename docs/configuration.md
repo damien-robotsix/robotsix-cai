@@ -35,6 +35,7 @@ All pipeline agents run on cron schedules configurable via environment variables
 | `CAI_UPDATE_CHECK_SCHEDULE` | `0 4 * * 1` | Weekly (Monday 04:00 UTC) — Claude Code release check |
 | `CAI_HEALTH_REPORT_SCHEDULE` | `0 7 * * 1` | Weekly (Monday 07:00 UTC) — pipeline health report |
 | `CAI_CHECK_WORKFLOWS_SCHEDULE` | `0 */6 * * *` | Every 6 hours — GitHub Actions workflow check |
+| `CAI_PLAN_SCHEDULE` | `0 11 * * *` | Daily (11:00 UTC) — plan-select pipeline on `:refined` issues |
 
 Schedule values use standard cron format: `minute hour day month weekday`. To disable a scheduled agent, set its variable to an empty string or a comment value.
 

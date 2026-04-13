@@ -56,4 +56,25 @@ Refs: robotsix-cai/cai#518
 - Default schedule `0 11 * * *` (daily at 11:00) — arbitrary but consistent with other daily tasks
 
 ### New gaps / deferred
-- `docker-compose.yml` and `install.sh` YAML templates not updated with `CAI_PLAN_SCHEDULE` — reviewer did not flag these; will surface in review-pr if needed
+- none
+
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `README.md` — added `cai.py plan` row to command table; added `CAI_PLAN_SCHEDULE` to env vars list; added "plan" to "not run at startup" list
+- `docs/configuration.md` — added `CAI_PLAN_SCHEDULE` row to Agent Schedules table
+- `docker-compose.yml` — added `CAI_PLAN_SCHEDULE: "0 11 * * *"` after `CAI_CHECK_WORKFLOWS_SCHEDULE`
+- `install.sh` — added `CAI_PLAN_SCHEDULE: "0 11 * * *"` to both YAML template sections (replace_all)
+- `docs/cli.md` — added `## plan` section between `refine` and `review-docs`
+- `docs/architecture.md` — added Plan step (step 3) to Pipeline Overview; updated Cycle Command step 5 to mention plan
+
+### Decisions this revision
+- Inserted Plan as step 3 in Pipeline Overview, renumbering Fix→Review→Revise→Merge→Confirm accordingly
+- Added `## plan` section in docs/cli.md between `refine` and `review-docs` (alphabetical proximity to `refine`)
+- `replace_all: true` on install.sh because both YAML templates had identical `CAI_CHECK_WORKFLOWS_SCHEDULE` lines
+
+### New gaps / deferred
+- none
