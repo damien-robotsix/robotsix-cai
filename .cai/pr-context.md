@@ -62,6 +62,21 @@ Refs: robotsix-cai/cai#525
 ### New gaps / deferred
 - none
 
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- Both review comments already fully addressed by Revision 2: docs/architecture.md has special cai-review-docs paragraph; docs/agents.md has Edit+Write in tools and updated description; docs/cli.md has direct-fix description; cai-review-docs.md frontmatter has Edit+Write in tools list.
+- "The agent itself never runs git push" statement (architecture.md Worktree section) remains accurate: the *wrapper* calls git push after detecting file changes via `git status --porcelain`, not the agent itself.
+
+### New gaps / deferred
+- none
+
 ## Invariants this change relies on
 - `gh auth setup-git` must be called before `gh repo clone` to enable authenticated push
 - The PR branch must not be protected against bot pushes (auto-improve branches are bot-owned)
