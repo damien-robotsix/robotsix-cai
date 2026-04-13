@@ -46,3 +46,25 @@ Refs: damien-robotsix/robotsix-cai#537
 
 ### New gaps / deferred
 - none
+
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py`:17-19 — help text updated from `auto-improve:plan-approved`/`auto-improve:requested` to `human:plan-approved`/`human:requested`
+- `cai.py`:641-652 — docstring updated `:plan-approved` → `human:plan-approved`, `:requested` → `human:requested`
+- `cai.py`:7809 — inline comment updated `:plan-approved / :requested` → `human:plan-approved / human:requested`
+- `cai.py`:8026,8029 — inline comments updated `:plan-approved`/`:requested` → `human:plan-approved`/`human:requested`
+- `entrypoint.sh`:10 — comment updated `:plan-approved` → `human:plan-approved`
+- `docker-compose.yml`:31,38 — comments updated `:plan-approved` → `human:plan-approved`
+- `install.sh`:136,143,208,215 — both YAML template blocks updated `:plan-approved` → `human:plan-approved`
+- `.claude/agents/cai-audit.md`:48,64,98 — updated `:requested` → `human:requested`, `:plan-approved` → `human:plan-approved` (via staging)
+
+### Decisions this revision
+- Used `replace_all` for install.sh since both YAML templates had identical stale comments
+- cai-audit.md updated via .cai-staging/agents/ (write-protected path)
+
+### New gaps / deferred
+- none

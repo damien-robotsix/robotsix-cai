@@ -14,8 +14,8 @@ Subcommands:
 
     python cai.py fix       Score eligible issues by age, category
                             success rate, and prior fix attempts; pick
-                            the highest scorer labelled `auto-improve:
-                            plan-approved` or `auto-improve:
+                            the highest scorer labelled `human:
+                            plan-approved` or `human:
                             requested` (audit issues reach fix via
                             triage relabelling), run a cheap Haiku
                             pre-screen to classify the issue; spike/
@@ -638,18 +638,18 @@ def _select_fix_target(exclude: set[int] | None = None):
     Categories with fewer than 3 observations get a neutral prior of 0.60.
     This replaces the previous FIFO (oldest-first) selection.
 
-    Eligible = labelled `:plan-approved` or `:requested`, NOT labelled
-    `:in-progress` or `:pr-open`.  `:plan-approved` is the primary gate:
+    Eligible = labelled `human:plan-approved` or `human:requested`, NOT labelled
+    `:in-progress` or `:pr-open`.  `human:plan-approved` is the primary gate:
     the `plan-all` step drives every :raised / :refined issue to
-    :planned, and a human then promotes :planned → :plan-approved when
-    the plan looks good.  `:requested` is an explicit human shortcut
+    :planned, and a human then promotes :planned → human:plan-approved when
+    the plan looks good.  `human:requested` is an explicit human shortcut
     that bypasses the plan gate (treat as "I've already validated this,
     just fix it").  `:refined` and `:planned` issues sit outside the
     fix pipeline until a human approves.
 
     `audit:raised` issues are handled exclusively by the audit-triage
     agent — only issues that triage re-labels to `auto-improve:raised`
-    (and subsequently refine → plan → plan-approved) enter the fix
+    (and subsequently refine → plan → human:plan-approved) enter the fix
     pipeline.
 
     If no candidates are found, attempts to recover stale `:pr-open`
@@ -7806,7 +7806,7 @@ def cmd_cycle(args) -> int:
       1.5. recover stale locks (:in-progress / :revising)
       2. drain pending PRs (revise → review-pr → review-docs → merge)
       3. loop: verify → fix/spike/explore → drain → repeat
-         (fix picks only :plan-approved / :requested — nothing raised
+         (fix picks only human:plan-approved / human:requested — nothing raised
          or refined is auto-consumed here; an issue whose fix fails
          is skipped for the rest of the cycle so the remaining fix
          targets still get a chance before plan-all runs)
@@ -8023,10 +8023,10 @@ def _cmd_cycle_inner(args) -> int:
                 had_failure = True
 
     # --- Phase 3.5: plan-all — drive :raised/:refined to :planned -------
-    # The fix loop only acts on :plan-approved (or :requested) issues,
+    # The fix loop only acts on human:plan-approved (or human:requested) issues,
     # so any :raised or :refined work would sit idle without this step.
     # plan-all loops refine → plan until the queue is exhausted; humans
-    # then approve :planned → :plan-approved on their own schedule.
+    # then approve :planned → human:plan-approved on their own schedule.
     rc = _run_step("plan-all", cmd_plan_all, args)
     all_results["plan-all"] = rc
     if rc != 0:

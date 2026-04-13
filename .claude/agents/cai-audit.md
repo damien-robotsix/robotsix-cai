@@ -45,7 +45,7 @@ The user message contains:
 ## Lifecycle states — tracking vs active
 
 Issues labelled `auto-improve` (with **no** state suffix such as
-`:raised`, `:requested`, `:in-progress`, etc.) are **tracking-only
+`:raised`, `human:requested`, `:in-progress`, etc.) are **tracking-only
 backlog items**. They represent feature ideas or improvements that a
 human has not yet promoted to active work. This is intentional — the
 user deliberately keeps them in the backlog until they decide the
@@ -61,7 +61,7 @@ a soft `forgotten_backlog` finding with **low** confidence as a gentle
 reminder. This is distinct from `stale_lifecycle`, which applies only
 to issues that have entered an active state.
 
-Active states (`:raised`, `:refined`, `:planned`, `:plan-approved`, `:requested`, `:in-progress`, `:pr-open`,
+Active states (`:raised`, `:refined`, `:planned`, `human:plan-approved`, `human:requested`, `:in-progress`, `:pr-open`,
 `:merged`, `:no-action`, `:needs-spike`, `:revising`) should continue to be checked
 normally against all the rules below. (Note: stale `:no-action`
 issues are rolled back to `:raised` before the LLM audit runs, and
@@ -95,7 +95,7 @@ did not actually succeed. Flag these as `silent_failure`.
 | `[publish] created=0 skipped=0 failed=0` after `parsed N finding(s)` where N > 0 | All findings silently lost |
 | `[fix] result=push_failed exit=1` (≥2 occurrences in window) | Recurring git push problem |
 | `[fix] result=clone_failed exit=1` (≥2 occurrences in window) | Recurring gh/git auth problem |
-| `[fix] result=no_eligible_issues` repeating ≥7 times in a row while open `:refined`/`:requested` issues exist | Bot is skipping issues it should be picking |
+| `[fix] result=no_eligible_issues` repeating ≥7 times in a row while open `:refined`/`human:requested` issues exist | Bot is skipping issues it should be picking |
 | `[cai analyze] claude -p failed (exit N)` | API errors (rate limit, auth, network) |
 | `[cai analyze] parse.py failed (exit N)` | Parser crash |
 | `level=error msg="..."` lines from supercronic itself | Scheduler errors |
