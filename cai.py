@@ -571,9 +571,9 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
                 comment = (
                     "## Auto-improve: rolling back to :refined\n\n"
                     f"Linked PR #{pr['number']} was closed without merging. "
-                    "Resetting this issue to `:refined` so the fix subagent can "
-                    "re-attempt on the next tick (bypassing the refine step since "
-                    "the issue was already structured before the previous fix attempt).\n\n"
+                    "Resetting this issue to `:refined` so it can flow through "
+                    "the refinement and planning cycle again before a human "
+                    "can re-approve it for the fix subagent.\n\n"
                     f"---\n_Rolled back automatically by `{log_prefix}`._"
                 )
                 _run(["gh", "issue", "comment", str(issue["number"]),
@@ -2772,8 +2772,9 @@ def _select_revise_targets() -> list[dict]:
 
 
 def _recover_stuck_rebase_prs() -> int:
-    """Close PRs the rebase resolver gave up on so the fix subagent
-    can re-attempt them from a fresh branch off current main.
+    """Close PRs the rebase resolver gave up on so the issue can flow
+    through the planning cycle and the fix subagent can re-attempt from
+    a fresh branch off current main.
 
     Trigger condition: an open `auto-improve/<N>-*` PR has a
     `## Revise subagent: rebase resolution failed` comment newer than
@@ -2781,8 +2782,8 @@ def _recover_stuck_rebase_prs() -> int:
     revise step from spamming retry comments — but without recovery
     the PR sits stuck forever, accumulating an ever-larger conflict
     surface every time main moves. Closing it and resetting the issue
-    to `:refined` lets the fix subagent open a fresh PR against the
-    current main on its next tick (#144 was the original symptom).
+    to `:refined` lets it re-flow through plan → approval → fix against
+    current main on a future cycle (#144 was the original symptom).
 
     Returns the number of PRs recovered.
     """

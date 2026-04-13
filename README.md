@@ -106,14 +106,23 @@ action so two concurrent `fix` runs can't pick the same issue.
                                 │
                                 │ refine
                                 ▼
-                             refined  ◄──┐
+                             refined
+                                │
+                                │ plan
+                                ▼
+                             planned  ◄──┐
                                 │       │ (PR closed
-                                │ fix    │  unmerged, or
-                                ▼        │  pre-screen ambiguous
-                          in-progress    │  → rolled back to
-                                │        │    origin label)
-                          pre-screen     │
-                            (Haiku)      │
+                    (human approval)   │  unmerged, or
+                                │       │  pre-screen ambiguous
+                                ▼       │  → rolled back to
+                        plan-approved  │  origin label)
+                                │       │
+                                │ fix   │
+                                ▼       │
+                          in-progress   │
+                                │       │
+                          pre-screen    │
+                            (Haiku)     │
                   ┌─────────────┼───────┐│
                   │             │       ││
                (spike)   (actionable)   ││
@@ -147,8 +156,9 @@ action so two concurrent `fix` runs can't pick the same issue.
 `:no-action` means the fix subagent reviewed the issue and decided no
 code change was needed. The agent's reasoning is posted as a comment
 on the issue. A human can either close the issue (agreeing with the
-bot), re-label to `:refined` to retry the fix directly, or re-label to
-`:raised` to re-run through the refine step first.
+bot), re-label to `:refined` to re-run through refine → plan → `:plan-approved` 
+before the fix subagent retries, or re-label to `:raised` to re-run through 
+the refine step first.
 
 ### Filing issues with multi-step plans
 
@@ -192,7 +202,9 @@ Audit findings flag inconsistencies in the issue/PR lifecycle.
 Issues labelled `audit:raised` go through `cai.py audit-triage`
 first, which relabels eligible ones to `auto-improve:raised` so the
 `refine` subagent can structure them and transition them to
-`auto-improve:refined`, after which the fix subagent picks them up.
+`auto-improve:refined`. They then flow through `cai.py plan`
+to `:planned`, awaiting human approval to transition to `:plan-approved`
+before the fix subagent picks them up.
 
 | Label | Meaning |
 |---|---|
@@ -216,7 +228,8 @@ determine whether the fix worked. Additionally, remote `auto-improve/*`
 branches with no open PR — including branches for merged/closed PRs and
 branches pushed by the fix agent that never had a PR opened — are deleted
 automatically. Finally, `:pr-open` issues whose linked PR was closed without
-merging are rolled back to `:refined` so the fix agent can re-attempt.
+merging are rolled back to `:refined` to restart the refinement and planning
+cycle before a human can re-approve them for the fix subagent.
 
 ### Comment-driven PR iteration
 
@@ -437,8 +450,8 @@ Docker daemons (≥ API 1.44), causing watchtower to crash-loop with
 subagent is running, the in-flight fix is killed and the issue may be
 left stuck in `auto-improve:in-progress`. The audit subcommand handles
 automatic recovery (rolling back to `:refined`). For manual recovery,
-relabel back to `:refined` to re-enter the fix pipeline directly, or
-to `:raised` to re-run through the refine step first.
+relabel back to `:refined` to re-enter the refinement → plan → approval
+cycle, or to `:raised` to re-run through the refine step first.
 
 To change the polling interval, edit the `--interval` value (in
 seconds) in the `watchtower` service's `command:` block and run

@@ -6,19 +6,20 @@
 
 1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised` or `human:submitted`.
 2. **Refine** — `cai refine` calls `cai-refine` to rewrite the issue into a structured plan with steps, verification, and scope guardrails. Label transitions to `auto-improve:refined`.
-3. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. Label transitions to `auto-improve:planned` (or `human:plan-approved` if human-reviewed).
-4. **Fix** — `cai fix` calls `cai-fix` in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
-5. **Review** — `cai review-pr` checks for ripple-effect inconsistencies and posts findings as PR comments. `cai review-docs` then (and only after review-pr completes) checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. This ordering is enforced: review-docs skips PRs until review-pr has posted a review comment at the current HEAD SHA.
-6. **Revise** — `cai revise` calls `cai-revise` or `cai-rebase` to address review comments or rebase conflicts. Label transitions to `auto-improve:revising`.
-7. **Merge** — `cai merge` calls `cai-merge` to assess confidence and auto-merges PRs that meet the threshold. Label transitions to `auto-improve:merged`.
-8. **Confirm** — `cai confirm` calls `cai-confirm` to verify the merged fix actually resolved the original issue. Label transitions to `auto-improve:solved` or re-queues to `:refined`.
+3. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. Label transitions to `auto-improve:planned`, awaiting human approval.
+4. **Human Approval** — A human reviews the generated plan and applies `human:plan-approved` label to approve the issue for fixing.
+5. **Fix** — `cai fix` calls `cai-fix` on `human:plan-approved` issues in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
+6. **Review** — `cai review-pr` checks for ripple-effect inconsistencies and posts findings as PR comments. `cai review-docs` then (and only after review-pr completes) checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. This ordering is enforced: review-docs skips PRs until review-pr has posted a review comment at the current HEAD SHA.
+7. **Revise** — `cai revise` calls `cai-revise` or `cai-rebase` to address review comments or rebase conflicts. Label transitions to `auto-improve:revising`.
+8. **Merge** — `cai merge` calls `cai-merge` to assess confidence and auto-merges PRs that meet the threshold. Label transitions to `auto-improve:merged`.
+9. **Confirm** — `cai confirm` calls `cai-confirm` to verify the merged fix actually resolved the original issue. Label transitions to `auto-improve:solved` or re-queues to `:refined`.
 
 ## Lifecycle Labels
 
 | Label | Meaning |
 |---|---|
 | `auto-improve:raised` | Newly filed, awaiting refinement |
-| `auto-improve:refined` | Has a structured plan, ready for fix |
+| `auto-improve:refined` | Has a structured plan, ready for the planning pipeline |
 | `auto-improve:in-progress` | Fix agent is running (lock; 6 h stale timeout) |
 | `auto-improve:pr-open` | PR created, awaiting review and merge |
 | `auto-improve:revising` | Revise agent is running (lock; 1 h stale timeout) |
