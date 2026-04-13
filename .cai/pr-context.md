@@ -76,3 +76,20 @@ Refs: damien-robotsix/robotsix-cai#499
 
 ### New gaps / deferred
 - None
+
+## Revision 4 (2026-04-13)
+
+### Rebase
+- resolved: docs/agents.md, docs/architecture.md, docs/cli.md, docs/configuration.md (both-added conflicts with main; HEAD kept throughout — main's versions from PR #492 were more complete)
+
+### Files touched this revision
+- docs/configuration.md — added Agent Schedules section with all 17 CAI_*_SCHEDULE variables and defaults; added Transcript Analysis Variables section (CAI_TRANSCRIPT_WINDOW_DAYS, CAI_TRANSCRIPT_MAX_FILES)
+- docs/architecture.md — Lifecycle Labels table now includes all labels: `:requested`, `:revising`, `auto-improve:parent`, `audit:needs-human`, `merge-blocked`, `needs-human-review`
+
+### Decisions this revision
+- Conflict resolution kept HEAD (main) content for all 4 files — main had nav_order frontmatter, correct structure, and review-cycle fixes from PR #492
+- Schedule vars and label additions address the two `missing_co_change` review findings from @damien-robotsix in the same pass as conflict resolution
+- No separate editing pass needed since HEAD content was written with the review fixes already incorporated
+
+### New gaps / deferred
+- None
