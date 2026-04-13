@@ -6334,12 +6334,21 @@ def cmd_review_pr(args) -> int:
 # review-docs — pre-merge documentation review
 # ---------------------------------------------------------------------------
 
-# docs-review posts two comment variants depending on whether the
-# review found stale documentation:
+# docs-review posts two comment variants depending on the outcome:
 #
-#   * `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` — actionable, contains
-#     `### Finding: stale_docs` blocks. NOT in `_BOT_COMMENT_MARKERS`
-#     so the revise subagent picks them up and addresses them.
+#   * `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` — used in two cases:
+#     (1) The agent fixed stale docs and pushed a commit to the PR
+#         branch. The comment is posted at the *new* SHA and may
+#         contain `### Fixed: stale_docs` blocks plus any remaining
+#         `### Finding: stale_docs` blocks for issues it could not
+#         fix automatically.
+#     (2) The agent found unfixable issues and did not push. The
+#         comment is posted at the original SHA and contains
+#         `### Finding: stale_docs` blocks that the revise subagent
+#         can pick up and address.
+#     NOT in `_BOT_COMMENT_MARKERS` so the revise subagent considers
+#     it actionable; when all items are already fixed (case 1) the
+#     revise agent will see no open findings and skip it naturally.
 #
 #   * `_DOCS_REVIEW_COMMENT_HEADING_CLEAN` — informational only, says
 #     "no documentation updates needed". IS in `_BOT_COMMENT_MARKERS`
@@ -6353,7 +6362,7 @@ _DOCS_REVIEW_COMMENT_HEADING_CLEAN = "## cai docs review (clean)"
 
 
 def cmd_review_docs(args) -> int:
-    """Review open PRs for stale documentation and post findings as PR comments."""
+    """Fix stale documentation on open PRs and post findings for issues that cannot be fixed automatically."""
     print("[cai review-docs] checking open PRs against main", flush=True)
     t0 = time.monotonic()
 
@@ -6363,7 +6372,7 @@ def cmd_review_docs(args) -> int:
             target_pr = _gh_json([
                 "pr", "view", str(args.pr),
                 "--repo", REPO,
-                "--json", "number,title,author,headRefOid,comments",
+                "--json", "number,title,author,headRefOid,headRefName,comments",
             ])
         except subprocess.CalledProcessError as e:
             print(f"[cai review-docs] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
@@ -6377,7 +6386,7 @@ def cmd_review_docs(args) -> int:
                 "--repo", REPO,
                 "--state", "open",
                 "--base", "main",
-                "--json", "number,title,author,headRefOid,comments",
+                "--json", "number,title,author,headRefOid,headRefName,comments",
                 "--limit", "50",
             ]) or []
         except subprocess.CalledProcessError as e:
@@ -6396,6 +6405,7 @@ def cmd_review_docs(args) -> int:
     for pr in prs:
         pr_number = pr["number"]
         head_sha = pr["headRefOid"]
+        branch = pr.get("headRefName", "")
         title = pr["title"]
 
         # Check if we already posted a docs review for this SHA.
@@ -6455,16 +6465,16 @@ def cmd_review_docs(args) -> int:
             continue
         pr_diff = diff_result.stdout
 
-        # Clone the repo for the agent to walk.
+        # Clone the repo and check out the PR branch so the agent can edit docs.
         _uid = uuid.uuid4().hex[:8]
         work_dir = Path(f"/tmp/cai-review-docs-{pr_number}-{_uid}")
         try:
             if work_dir.exists():
                 shutil.rmtree(work_dir)
 
+            _run(["gh", "auth", "setup-git"], capture_output=True)
             clone = _run(
-                ["git", "clone", "--depth", "1",
-                 f"https://github.com/{REPO}.git", str(work_dir)],
+                ["gh", "repo", "clone", REPO, str(work_dir)],
                 capture_output=True,
             )
             if clone.returncode != 0:
@@ -6473,6 +6483,14 @@ def cmd_review_docs(args) -> int:
                     file=sys.stderr,
                 )
                 continue
+
+            _git(work_dir, "fetch", "origin", branch)
+            _git(work_dir, "checkout", branch)
+
+            # Configure git identity so the agent can commit.
+            name, email = _gh_user_identity()
+            _git(work_dir, "config", "user.name", name)
+            _git(work_dir, "config", "user.email", email)
 
             author_login = pr.get("author", {}).get("login", "unknown")
             user_message = (
@@ -6511,28 +6529,60 @@ def cmd_review_docs(args) -> int:
 
             agent_output = (agent.stdout or "").strip()
 
-            # Determine if there are findings.
-            has_findings = (
-                "### Finding:" in agent_output
-                and "No documentation updates needed" not in agent_output
-            )
+            # Check if the agent made any doc changes.
+            status_result = _git(work_dir, "status", "--porcelain", check=False)
+            has_doc_changes = bool(status_result.stdout.strip())
 
-            if has_findings:
+            if has_doc_changes:
+                # Commit and push the doc fixes.
+                _git(work_dir, "add", "-A")
+                _git(work_dir, "commit", "-m",
+                     "docs: update documentation per review-docs\n\n"
+                     "Applied by cai review-docs.")
+                push = _run(
+                    ["git", "-C", str(work_dir), "push", "origin", branch],
+                    capture_output=True,
+                )
+                if push.returncode != 0:
+                    print(
+                        f"[cai review-docs] push failed for PR #{pr_number}:\n"
+                        f"{push.stderr}",
+                        file=sys.stderr,
+                    )
+                    continue
+                new_sha = _git(work_dir, "rev-parse", "HEAD").stdout.strip()
                 comment_body = (
-                    f"{_DOCS_REVIEW_COMMENT_HEADING_FINDINGS} \u2014 {head_sha}\n\n"
+                    f"{_DOCS_REVIEW_COMMENT_HEADING_FINDINGS} \u2014 {new_sha}\n\n"
                     f"{agent_output}\n\n"
                     f"---\n"
-                    f"_Pre-merge documentation review by `cai review-docs`. "
-                    f"Address the findings above or explain why they don't "
-                    f"apply, then push a new commit to trigger a re-review._"
+                    f"_Documentation updated automatically by `cai review-docs`._"
+                )
+                print(
+                    f"[cai review-docs] pushed doc fixes to PR #{pr_number}",
+                    flush=True,
                 )
             else:
-                comment_body = (
-                    f"{_DOCS_REVIEW_COMMENT_HEADING_CLEAN} \u2014 {head_sha}\n\n"
-                    f"No documentation updates needed.\n\n"
-                    f"---\n"
-                    f"_Pre-merge documentation review by `cai review-docs`._"
+                # No file changes — post clean or findings comment at original SHA.
+                has_text_findings = (
+                    "### Finding:" in agent_output
+                    and "No documentation updates needed" not in agent_output
                 )
+                if has_text_findings:
+                    comment_body = (
+                        f"{_DOCS_REVIEW_COMMENT_HEADING_FINDINGS} \u2014 {head_sha}\n\n"
+                        f"{agent_output}\n\n"
+                        f"---\n"
+                        f"_Pre-merge documentation review by `cai review-docs`. "
+                        f"Address the findings above or explain why they don't "
+                        f"apply, then push a new commit to trigger a re-review._"
+                    )
+                else:
+                    comment_body = (
+                        f"{_DOCS_REVIEW_COMMENT_HEADING_CLEAN} \u2014 {head_sha}\n\n"
+                        f"No documentation updates needed.\n\n"
+                        f"---\n"
+                        f"_Pre-merge documentation review by `cai review-docs`._"
+                    )
 
             _run(
                 ["gh", "pr", "comment", str(pr_number),
@@ -6540,9 +6590,12 @@ def cmd_review_docs(args) -> int:
                 capture_output=True,
             )
 
-            finding_word = "with findings" if has_findings else "clean"
+            result_word = "fixes pushed" if has_doc_changes else (
+                "with findings" if not has_doc_changes and "### Finding:" in agent_output
+                else "clean"
+            )
             print(
-                f"[cai review-docs] posted review on PR #{pr_number} ({finding_word})",
+                f"[cai review-docs] posted review on PR #{pr_number} ({result_word})",
                 flush=True,
             )
             reviewed += 1

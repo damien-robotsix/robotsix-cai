@@ -114,7 +114,7 @@ Invoke `cai-refine` on the oldest `auto-improve:raised` or `human:submitted` iss
 
 ## review-docs
 
-Review open PRs for stale documentation using `cai-review-docs`. Posts `### Finding: stale_docs` blocks as PR comments.
+Review open PRs for stale documentation using `cai-review-docs`. Directly fixes stale documentation it finds and pushes commits to the PR branch. Posts `### Fixed: stale_docs` blocks for successfully fixed docs, and `### Finding: stale_docs` blocks for issues that cannot be fixed automatically.
 
 **Note:** `review-docs` skips PRs until `cai review-pr` has reviewed the current HEAD SHA. This enforces the `review-pr` → `review-docs` → `merge` ordering.
 

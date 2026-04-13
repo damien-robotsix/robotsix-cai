@@ -7,7 +7,7 @@
 1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised` or `human:submitted`.
 2. **Refine** — `cai refine` calls `cai-refine` to rewrite the issue into a structured plan with steps, verification, and scope guardrails. Label transitions to `auto-improve:refined`.
 3. **Fix** — `cai fix` calls `cai-fix` in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
-4. **Review** — `cai review-pr` checks for ripple-effect inconsistencies and posts findings as PR comments. `cai review-docs` then (and only after review-pr completes) checks for stale documentation, also posting findings as comments. This ordering is enforced: review-docs skips PRs until review-pr has posted a review comment at the current HEAD SHA.
+4. **Review** — `cai review-pr` checks for ripple-effect inconsistencies and posts findings as PR comments. `cai review-docs` then (and only after review-pr completes) checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. This ordering is enforced: review-docs skips PRs until review-pr has posted a review comment at the current HEAD SHA.
 5. **Revise** — `cai revise` calls `cai-revise` or `cai-rebase` to address review comments or rebase conflicts. Label transitions to `auto-improve:revising`.
 6. **Merge** — `cai merge` calls `cai-merge` to assess confidence and auto-merges PRs that meet the threshold. Label transitions to `auto-improve:merged`.
 7. **Confirm** — `cai confirm` calls `cai-confirm` to verify the merged fix actually resolved the original issue. Label transitions to `auto-improve:solved` or re-queues to `:refined`.
@@ -59,7 +59,9 @@ For code-editing agents (`cai-fix`, `cai-revise`, `cai-rebase`), the wrapper als
 - Commits all changes, pushes the branch, and opens (or updates) a PR
 - Deletes the worktree on completion
 
-For review and planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-docs`, `cai-review-pr`, `cai-select`, `cai-update-check`), the clone provides read access to the full repo tree; these agents emit structured output (findings, plans, verdicts) that the wrapper acts on deterministically — no commit or PR is created.
+For review and planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-pr`, `cai-select`, `cai-update-check`), the clone provides read access to the full repo tree; these agents emit structured output (findings, plans, verdicts) that the wrapper acts on deterministically — no commit or PR is created.
+
+`cai-review-docs` is a special review agent that can edit documentation: it has `Edit` and `Write` tools to fix stale docs directly, and the wrapper automatically commits and pushes any changes to the same PR branch (not to a new isolated branch).
 
 ### Clone agents
 
