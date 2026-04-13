@@ -24,27 +24,25 @@ services:
     env_file:
       - .env
     environment:
-      # Crontab expressions for the four scheduled tasks. Any valid
+      # Crontab expressions for the scheduled tasks. Any valid
       # 5-field cron line works — see https://crontab.guru/ —
       # supercronic also supports @hourly, @daily, etc.
       #
-      # Defaults are staggered so the three jobs never overlap.
+      # CAI_CYCLE_SCHEDULE drives the full issue-solving pipeline
+      # (refine → plan → fix → revise → review-pr → merge → confirm).
+      # A flock in cmd_cycle serializes overlapping runs so issues
+      # are processed one at a time. The remaining schedules are
+      # for orthogonal tasks that run independently.
+      CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — full issue-solving pipeline
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily at 00:00 UTC (LLM call)
-      CAI_FIX_SCHEDULE: "15 * * * *"        # hourly at :15 (cheap if no work)
-      CAI_REFINE_SCHEDULE: "10 * * * *"     # hourly at :10 (structure human-filed issues)
-      CAI_REVISE_SCHEDULE: "30 * * * *"     # hourly at :30 (iterate on PR comments)
-      CAI_VERIFY_SCHEDULE: "45 * * * *"     # hourly at :45 (mechanical, no LLM)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
       CAI_AUDIT_TRIAGE_SCHEDULE: "10 */6 * * *" # every 6h at :10 (triage raised findings)
       CAI_CODE_AUDIT_SCHEDULE: "0 3 * * 0"  # weekly Sunday 03:00 UTC (Sonnet, code consistency)
       CAI_PROPOSE_SCHEDULE: "0 4 * * 0"    # weekly Sunday 04:00 UTC (creative improvement proposals)
       CAI_UPDATE_CHECK_SCHEDULE: "0 4 * * 1" # weekly Monday 04:00 UTC (Claude Code release check)
-      CAI_CONFIRM_SCHEDULE: "0 2 * * *"     # daily at 02:00 UTC (verify merged fixes)
-      CAI_REVIEW_PR_SCHEDULE: "20 * * * *"  # hourly at :20 (pre-merge consistency review)
-      CAI_MERGE_SCHEDULE: "35 * * * *"      # hourly at :35 (auto-merge confident PRs)
       CAI_HEALTH_REPORT_SCHEDULE: "0 7 * * 1" # weekly Monday 07:00 UTC (pipeline health report)
+      CAI_COST_OPTIMIZE_SCHEDULE: "0 5 * * 0" # weekly Sunday 05:00 UTC (cost-reduction analysis)
       CAI_CHECK_WORKFLOWS_SCHEDULE: "0 */6 * * *" # every 6h (check for CI workflow failures)
-      CAI_PLAN_SCHEDULE: "0 11 * * *"        # daily 11:00 UTC (plan-select pipeline on :refined issues)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)

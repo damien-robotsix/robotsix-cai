@@ -14,28 +14,22 @@
 
 ## Agent Schedules
 
-All pipeline agents run on cron schedules configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
+Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
+
+The issue-solving pipeline (refine → plan → fix → revise → review-pr → merge → confirm) is driven by a single `CAI_CYCLE_SCHEDULE` line. A flock in `cmd_cycle` serializes overlapping runs, so issues are processed one at a time — each cycle refines, plans, fixes, drains PRs, and only moves to the next issue when the current one is solved or has reached a blocking point (human review requested, `:merge-blocked`, etc.). Individual pipeline subcommands (`fix`, `refine`, `plan`, `spike`, `revise`, `review-pr`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions but no longer have their own cron lines.
 
 | Variable | Default | Description |
 |---|---|---|
+| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly full issue-solving pipeline (flock-serialized) |
 | `CAI_ANALYZER_SCHEDULE` | `0 0 * * *` | Daily transcript analysis and issue raising |
-| `CAI_FIX_SCHEDULE` | `15 * * * *` | Hourly fix agent run |
-| `CAI_REFINE_SCHEDULE` | `10 * * * *` | Hourly issue refinement |
-| `CAI_REVISE_SCHEDULE` | `30 * * * *` | Hourly PR revision (review comments + rebase) |
-| `CAI_VERIFY_SCHEDULE` | `45 * * * *` | Hourly label sync with PR state |
-| `CAI_REVIEW_PR_SCHEDULE` | `20 * * * *` | Hourly pre-merge consistency review |
-| `CAI_MERGE_SCHEDULE` | `35 * * * *` | Hourly confidence-gated auto-merge |
-| `CAI_CONFIRM_SCHEDULE` | `0 2 * * *` | Daily post-merge confirmation |
 | `CAI_AUDIT_SCHEDULE` | `0 */6 * * *` | Every 6 hours — queue/PR lifecycle audit |
 | `CAI_AUDIT_TRIAGE_SCHEDULE` | `10 */6 * * *` | Every 6 hours — resolve `audit:raised` findings |
-| `CAI_SPIKE_SCHEDULE` | `0 */2 * * *` | Every 2 hours — research `:needs-spike` issues |
 | `CAI_CODE_AUDIT_SCHEDULE` | `0 3 * * 0` | Weekly (Sunday 03:00 UTC) — source tree audit |
 | `CAI_PROPOSE_SCHEDULE` | `0 4 * * 0` | Weekly (Sunday 04:00 UTC) — creative proposals |
 | `CAI_COST_OPTIMIZE_SCHEDULE` | `0 5 * * 0` | Weekly (Sunday 05:00 UTC) — cost-reduction analysis |
 | `CAI_UPDATE_CHECK_SCHEDULE` | `0 4 * * 1` | Weekly (Monday 04:00 UTC) — Claude Code release check |
 | `CAI_HEALTH_REPORT_SCHEDULE` | `0 7 * * 1` | Weekly (Monday 07:00 UTC) — pipeline health report |
 | `CAI_CHECK_WORKFLOWS_SCHEDULE` | `0 */6 * * *` | Every 6 hours — GitHub Actions workflow check |
-| `CAI_PLAN_SCHEDULE` | `0 11 * * *` | Daily (11:00 UTC) — plan-select pipeline on `:refined` issues |
 
 Schedule values use standard cron format: `minute hour day month weekday`. To disable a scheduled agent, set its variable to an empty string or a comment value.
 
