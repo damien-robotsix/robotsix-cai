@@ -109,3 +109,17 @@ Refs: robotsix-cai/cai#518
 
 ### New gaps / deferred
 - none
+
+## Revision 5 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:8481` — added `("planned", LABEL_PLANNED)` and `("plan-approved", LABEL_PLAN_APPROVED)` to `label_states` in `cmd_health_report` Issue Throughput section
+
+### Decisions this revision
+- Inserted after `"refined"` to maintain pipeline order (raised → refined → planned → plan-approved → in-progress → pr-open → …)
+
+### New gaps / deferred
+- none

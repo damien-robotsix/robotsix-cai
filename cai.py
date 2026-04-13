@@ -8560,6 +8560,8 @@ def cmd_health_report(args) -> int:
     label_states = [
         ("raised", LABEL_RAISED),
         ("refined", LABEL_REFINED),
+        ("planned", LABEL_PLANNED),
+        ("plan-approved", LABEL_PLAN_APPROVED),
         ("in-progress", LABEL_IN_PROGRESS),
         ("pr-open", LABEL_PR_OPEN),
         ("merged", LABEL_MERGED),
