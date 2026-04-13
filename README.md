@@ -51,7 +51,7 @@ subprocess with no shared state.
 | Subcommand | Default schedule | What it does |
 |---|---|---|
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
-| `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:raised` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:refined` |
+| `cai.py refine` | `10 * * * *` (hourly :10) | Picks the oldest `:raised` or `human:submitted` issue, invokes the cai-refine subagent (read-only) to produce a structured plan, updates the issue body, and transitions the label to `:refined` |
 | `cai.py spike` | `0 */2 * * *` (every 2 hours) | Picks the oldest `:needs-spike` issue and runs the cai-spike agent to investigate unanswered research questions; transitions the issue to closed (findings), `:refined` (actionable plan), or `needs-human-review` (blocked) |
 | `cai.py fix` | `15 * * * *` (hourly :15) | Scores eligible issues by age, category success rate, and prior fix attempts; picks the highest scorer, first runs a cheap Haiku pre-screen to classify the issue; spike/ambiguous issues are returned to their origin label without cloning; if actionable, runs 2 serial plan agents (each capped at $1.00; the second sees the first plan and proposes an alternative) then a select agent to choose the best plan, lets a fix subagent implement it with full tool permissions, opens a PR — see lifecycle below |
 | `cai.py revise` | `30 * * * *` (hourly :30) | Watches `:pr-open` PRs for new comments and iterates on the same branch via force-push; also auto-rebases unmergeable PRs onto current main |
@@ -88,7 +88,7 @@ machine. The lock label (`:in-progress`) is set as the **first** gh
 action so two concurrent `fix` runs can't pick the same issue.
 
 ```
-                              raised
+                    raised / human:submitted
                                 │
                                 │ refine
                                 ▼
@@ -305,11 +305,14 @@ The threshold defaults to `high` — only the most clear-cut PRs merge
 or close automatically. Relax to `medium` by editing the env var once
 trust builds.
 
-`auto-improve:requested` is a separate entry point: a human applies
-it to an arbitrary issue to opt it into the fix queue. The label is
-restricted to repo admins by `.github/workflows/admin-only-label.yml`
-— a non-admin who applies it gets the label removed and a comment
-explaining why.
+There are two human entry points into the pipeline. `auto-improve:requested`
+is the admin entry point: a human applies it to an arbitrary issue to opt it
+into the fix queue directly (bypassing refinement). The label is restricted to
+repo admins by `.github/workflows/admin-only-label.yml` — a non-admin who
+applies it gets the label removed and a comment explaining why. `human:submitted`
+is the non-admin entry point: a human labels their own issue to opt it into the
+pipeline through the normal refinement step. Both ultimately transition through
+`refine` → `fix`.
 
 ### Triggering tasks ad-hoc
 

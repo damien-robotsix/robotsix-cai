@@ -4,7 +4,7 @@
 
 `robotsix-cai` is a self-improving agent system. The continuous loop runs inside a long-lived Docker container and drives GitHub issues through a well-defined lifecycle:
 
-1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised`.
+1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised` or `human:submitted`.
 2. **Refine** — `cai refine` calls `cai-refine` to rewrite the issue into a structured plan with steps, verification, and scope guardrails. Label transitions to `auto-improve:refined`.
 3. **Fix** — `cai fix` calls `cai-fix` in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
 4. **Review** — `cai review-pr` checks for ripple-effect inconsistencies; `cai review-docs` checks for stale documentation. Findings are posted as PR comments.
@@ -27,9 +27,12 @@
 | `auto-improve:needs-spike` | Needs research investigation (`cai spike`) |
 | `auto-improve:needs-exploration` | Needs autonomous exploration (`cai explore`) |
 | `auto-improve:requested` | Explicitly requested by a human |
+| `auto-improve:planned` | Plan generated and stored in issue body; awaiting human approval |
+| `auto-improve:plan-approved` | Plan approved by human; ready for fix subagent |
 | `auto-improve:parent` | Parent issue; child sub-issues carry the work |
 | `audit:raised` | Audit finding awaiting triage by `cai audit-triage` |
 | `audit:needs-human` | Audit finding escalated to human |
+| `human:submitted` | Human-submitted issue awaiting refinement |
 | `merge-blocked` | PR has a blocking review finding; will not auto-merge |
 | `needs-human-review` | Issue or PR requires human attention |
 
