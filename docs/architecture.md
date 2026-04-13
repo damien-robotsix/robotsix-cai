@@ -45,9 +45,11 @@
 2. **Recover stale locks** — roll back `:in-progress` and `:revising` issues past their timeout.
 3. **Ingest unlabeled** — attach `auto-improve` to any unlabeled issues that belong to the pipeline.
 4. **Drain PRs** — for each open auto-improve PR: revise → review-pr → review-docs → merge.
-5. **Refine one** — call `refine` on the oldest `:raised` issue to transition it to `:refined` so the fix loop has a candidate.
-6. **Fix loop** — repeatedly call `fix`, `spike`, or `explore` until no eligible issues remain, draining PRs after each fix.
+5. **Fix loop** — repeatedly call `fix`, `spike`, or `explore` on `:plan-approved` / `:requested` issues until no eligible work remains, draining PRs after each fix. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the plan-approved gate.
+6. **Plan-all** — run `plan-all` to drain every open `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to review before the next cycle.
 7. **Final confirm** — one last confirm pass.
+
+`plan-all` also runs on its own cron line (default `30 * * * *`) so the `:planned` queue stays current between cycles.
 
 ## Agent Execution Modes
 

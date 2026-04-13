@@ -16,11 +16,12 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-The issue-solving pipeline (refine → fix → revise → review-pr → merge → confirm) is driven by a single `CAI_CYCLE_SCHEDULE` line. A flock in `cmd_cycle` serializes overlapping runs, so issues are processed one at a time — each cycle refines, fixes, drains PRs, and only moves to the next issue when the current one is solved or has reached a blocking point (human review requested, `:merge-blocked`, etc.). Individual pipeline subcommands (`fix`, `refine`, `plan`, `spike`, `revise`, `review-pr`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions but no longer have their own cron lines.
+The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives fix → revise → review-pr → merge → confirm on `:plan-approved` issues (flock-serialized, one issue at a time). `CAI_PLAN_ALL_SCHEDULE` drives every `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to approve; `plan-all` also runs at the end of each `cycle`. `:raised`, `:refined`, and `:planned` issues are never auto-fixed — a human must promote `:planned` → `:plan-approved` before the fix loop touches them. Individual pipeline subcommands (`fix`, `refine`, `plan`, `plan-all`, `spike`, `revise`, `review-pr`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly full issue-solving pipeline (flock-serialized) |
+| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly fix pipeline on `:plan-approved` issues (flock-serialized) |
+| `CAI_PLAN_ALL_SCHEDULE` | `30 * * * *` | Hourly (offset 30) — drain `:raised`/`:refined` into `:planned` |
 | `CAI_ANALYZER_SCHEDULE` | `0 0 * * *` | Daily transcript analysis and issue raising |
 | `CAI_AUDIT_SCHEDULE` | `0 */6 * * *` | Every 6 hours — queue/PR lifecycle audit |
 | `CAI_AUDIT_TRIAGE_SCHEDULE` | `10 */6 * * *` | Every 6 hours — resolve `audit:raised` findings |
