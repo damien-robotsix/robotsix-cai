@@ -157,6 +157,20 @@ Refs: robotsix-cai/cai#518
 ## Revision 8 (2026-04-13)
 
 ### Rebase
+- resolved: docs/architecture.md (conflict between PR's Plan step numbering and HEAD's enhanced Review description from PR #522)
+
+### Files touched this revision
+- `docs/architecture.md:9-22` — resolved conflict: kept Plan as step 3, took HEAD's enhanced Review description (with review-docs ordering note and direct-fix detail), renumbered steps 5→8
+
+### Decisions this revision
+- Review comment from @damien-robotsix flagged 3 missing registrations (\_STATE\_PRIORITY, cmd\_verify cleanup, label\_states) — all three were already addressed in Revisions 4, 5, and 6 respectively; no changes needed
+
+### New gaps / deferred
+- none
+
+## Revision 8 (2026-04-13)
+
+### Rebase
 - clean
 
 ### Files touched this revision
