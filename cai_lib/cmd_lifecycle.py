@@ -21,7 +21,7 @@ from cai_lib.config import (
     _STALE_IN_PROGRESS_HOURS,
     _STALE_REVISING_HOURS,
 )
-from cai_lib.github import _gh_json, _set_labels
+from cai_lib.github import _gh_json, _set_labels, _issue_has_label
 from cai_lib.logging_utils import log_run
 
 
@@ -145,3 +145,121 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
                 )
 
     return rolled_back
+
+
+def _reconcile_fix(issue_number: int | None) -> str:
+    """Reconcile an interrupted ``fix`` action."""
+    if issue_number is None:
+        return "not_started"
+
+    # 1. Check for open PRs whose head matches auto-improve/<N>-*
+    #    (single gh call — covers the "completed" case)
+    prefix = f"auto-improve/{issue_number}-"
+    try:
+        open_prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--json", "headRefName",
+            "--limit", "50",
+        ]) or []
+    except subprocess.CalledProcessError:
+        return "not_started"
+
+    if any(pr.get("headRefName", "").startswith(prefix) for pr in open_prs):
+        return "completed_externally"
+
+    # 2. Check if a branch exists (no open PR).
+    #    Use matching-refs to fetch only branches with our prefix — avoids
+    #    paginating the entire branch list.
+    try:
+        refs = _gh_json([
+            "api",
+            f"repos/{REPO}/git/matching-refs/heads/{prefix}",
+        ]) or []
+    except (subprocess.CalledProcessError, Exception):
+        refs = []
+
+    if refs:
+        return "partially_done"
+
+    return "not_started"
+
+
+def _reconcile_revise(issue_number: int | None) -> str:
+    """Reconcile an interrupted ``revise`` action."""
+    if issue_number is None:
+        return "not_started"
+
+    # 1. Check label state (1 gh call via _issue_has_label)
+    has_revising = _issue_has_label(issue_number, LABEL_REVISING)
+
+    # 2. Check for open PRs (1 gh call)
+    prefix = f"auto-improve/{issue_number}-"
+    try:
+        open_prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--json", "headRefName",
+            "--limit", "50",
+        ]) or []
+    except subprocess.CalledProcessError:
+        return "not_started"
+
+    has_pr = any(pr.get("headRefName", "").startswith(prefix) for pr in open_prs)
+
+    if not has_pr and not has_revising:
+        return "not_started"
+    if has_pr and not has_revising:
+        # PR exists, :revising already removed → revision landed
+        return "completed_externally"
+    if has_pr and has_revising:
+        # PR exists but still marked :revising → mid-flight
+        return "partially_done"
+    # has_revising but no PR — label orphan, treat as not started
+    return "not_started"
+
+
+def _reconcile_refine(issue_number: int | None) -> str:
+    """Reconcile an interrupted ``refine`` action."""
+    if issue_number is None:
+        return "not_started"
+
+    # Single gh call: fetch issue body
+    try:
+        issue = _gh_json([
+            "issue", "view", str(issue_number),
+            "--repo", REPO,
+            "--json", "body",
+        ])
+    except subprocess.CalledProcessError:
+        return "not_started"
+
+    body = (issue or {}).get("body", "") or ""
+    if "### Plan" in body:
+        return "completed_externally"
+
+    return "not_started"
+
+
+def _reconcile_interrupted(cmd: str, target_type: str, target_id: int | None) -> str:
+    """Classify how far an interrupted action got by inspecting remote state.
+
+    Returns one of:
+      - ``"not_started"``          — no remote side-effects detected
+      - ``"partially_done"``       — branch pushed or label set, but action incomplete
+      - ``"completed_externally"`` — PR opened or output already written
+
+    Takes explicit args from the caller (the active-job file); does NOT read
+    ``cai-active.json`` itself.  At most 2–3 ``gh`` subprocess calls.
+    """
+    _HANDLERS = {
+        "fix": _reconcile_fix,
+        "revise": _reconcile_revise,
+        "refine": _reconcile_refine,
+    }
+    handler = _HANDLERS.get(cmd)
+    if handler is None:
+        return "not_started"
+    return handler(target_id)
