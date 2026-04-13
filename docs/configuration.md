@@ -16,7 +16,7 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives implement → revise → review-pr → merge → confirm on `human:plan-approved` issues (flock-serialized, one issue at a time). `CAI_PLAN_ALL_SCHEDULE` drives every `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to approve; `plan-all` also runs at the end of each `cycle`. `:raised`, `:refined`, and `:planned` issues are never auto-fixed — a human must promote `:planned` → `human:plan-approved` before the implement loop touches them. Individual pipeline subcommands (`implement`, `refine`, `plan`, `plan-all`, `spike`, `revise`, `review-pr`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions.
+The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives implement → revise → fix-ci → review-pr → review-docs → merge → confirm on `human:plan-approved` issues (flock-serialized, one issue at a time). `CAI_PLAN_ALL_SCHEDULE` drives every `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to approve; `plan-all` also runs at the end of each `cycle`. `:raised`, `:refined`, and `:planned` issues are never auto-fixed — a human must promote `:planned` → `human:plan-approved` before the implement loop touches them. Individual pipeline subcommands (`implement`, `refine`, `plan`, `plan-all`, `spike`, `revise`, `fix-ci`, `review-pr`, `review-docs`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -31,6 +31,7 @@ The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives implemen
 | `CAI_UPDATE_CHECK_SCHEDULE` | `0 4 * * 1` | Weekly (Monday 04:00 UTC) — Claude Code release check |
 | `CAI_HEALTH_REPORT_SCHEDULE` | `0 7 * * 1` | Weekly (Monday 07:00 UTC) — pipeline health report |
 | `CAI_CHECK_WORKFLOWS_SCHEDULE` | `0 */6 * * *` | Every 6 hours — GitHub Actions workflow check |
+| `CAI_FIX_CI_SCHEDULE` | `50 * * * *` | Hourly (offset 50) — diagnose and fix failing CI checks |
 
 Schedule values use standard cron format: `minute hour day month weekday`. To disable a scheduled agent, set its variable to an empty string or a comment value.
 

@@ -51,6 +51,7 @@ CAI_UPDATE_CHECK_SCHEDULE="${CAI_UPDATE_CHECK_SCHEDULE:-0 4 * * 1}"
 CAI_HEALTH_REPORT_SCHEDULE="${CAI_HEALTH_REPORT_SCHEDULE:-0 7 * * 1}"
 CAI_COST_OPTIMIZE_SCHEDULE="${CAI_COST_OPTIMIZE_SCHEDULE:-0 5 * * 0}"
 CAI_CHECK_WORKFLOWS_SCHEDULE="${CAI_CHECK_WORKFLOWS_SCHEDULE:-0 */6 * * *}"
+CAI_FIX_CI_SCHEDULE="${CAI_FIX_CI_SCHEDULE:-50 * * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -69,6 +70,7 @@ $CAI_UPDATE_CHECK_SCHEDULE python /app/cai.py update-check
 $CAI_HEALTH_REPORT_SCHEDULE python /app/cai.py health-report
 $CAI_COST_OPTIMIZE_SCHEDULE python /app/cai.py cost-optimize
 $CAI_CHECK_WORKFLOWS_SCHEDULE python /app/cai.py check-workflows
+$CAI_FIX_CI_SCHEDULE python /app/cai.py fix-ci
 CRONTAB
 
 echo "[entrypoint] crontab:"
