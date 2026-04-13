@@ -68,3 +68,17 @@ Refs: damien-robotsix/robotsix-cai#537
 
 ### New gaps / deferred
 - none
+
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- Review comment from @damien-robotsix (pre-merge review against commit ba8f5ec) claimed cai_lib/config.py, publish.py, .github/workflows/admin-only-label.yml, README.md, and cai.py had not been updated. Verified current state of all five files — all changes are already present in the branch (applied in Revision 2). Comment was posted against an earlier commit state before Revision 2 was pushed.
+
+### New gaps / deferred
+- none
