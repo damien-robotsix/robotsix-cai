@@ -8481,7 +8481,7 @@ def cmd_cycle(args) -> int:
     Flow:
       1. verify + confirm  (sync label state)
       1.5. recover stale locks (:in-progress / :revising)
-      2. drain pending PRs (revise → review-pr → review-docs → merge)
+      2. drain pending PRs (revise → fix-ci → review-pr → review-docs → merge)
       3. loop: verify → fix/spike/explore → drain → repeat
          (fix picks only human:plan-approved / human:requested — nothing raised
          or refined is auto-consumed here; an issue whose fix fails
@@ -9332,7 +9332,7 @@ def main() -> int:
         "--pr", type=int, default=None,
         help="Target a specific PR number instead of using queue-based selection",
     )
-    sub.add_parser("cycle", help="Full cycle: verify, fix, revise, review-pr, review-docs, merge, confirm")
+    sub.add_parser("cycle", help="Full cycle: verify, fix, revise, fix-ci, review-pr, review-docs, merge, confirm")
     sub.add_parser("test", help="Run the project test suite")
 
     cost_parser = sub.add_parser(

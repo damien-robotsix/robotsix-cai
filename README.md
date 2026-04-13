@@ -68,7 +68,7 @@ The individual pipeline subcommands (`implement`, `refine`, `plan`,
 
 | Subcommand | Default schedule | What it does |
 |---|---|---|
-| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Implement pipeline on `human:plan-approved` issues: verify → confirm → drain pending PRs (revise → review-pr → review-docs → merge) → loop(implement/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
+| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Implement pipeline on `human:plan-approved` issues: verify → confirm → drain pending PRs (revise → fix-ci → review-pr → review-docs → merge) → loop(implement/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
 | `cai.py plan-all` | `30 * * * *` (hourly, offset 30) | Drains every open `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a queue to review. Also runs at the end of each `cycle`; the cron line provides a mid-cycle catch-up pass |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL) and `:revising` (1-hour TTL) locks and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
@@ -79,7 +79,7 @@ The individual pipeline subcommands (`implement`, `refine`, `plan`,
 | `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
 | `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
 | `cai.py check-workflows` | `0 */6 * * *` (every 6 hours) | GitHub Actions failure monitor — fetches recent failed workflow runs (last 24 h), filters out bot branches, and runs a Haiku agent to group related failures and identify root causes; findings are published as `check-workflows` namespace issues. |
-| `cai.py refine` / `plan` / `spike` / `implement` / `revise` / `review-pr` / `merge` / `verify` / `confirm` | _(invoked by `cycle`; also manual/on-demand)_ | Individual pipeline stages. See the lifecycle below for how `cycle` chains them. |
+| `cai.py refine` / `plan` / `spike` / `implement` / `revise` / `fix-ci` / `review-pr` / `review-docs` / `merge` / `verify` / `confirm` | _(invoked by `cycle`; also manual/on-demand)_ | Individual pipeline stages. See the lifecycle below for how `cycle` chains them. |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
@@ -87,7 +87,7 @@ the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_ANALYZER_SCHEDULE`,
 `CAI_AUDIT_SCHEDULE`, `CAI_AUDIT_TRIAGE_SCHEDULE`,
 `CAI_CODE_AUDIT_SCHEDULE`, `CAI_PROPOSE_SCHEDULE`,
 `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`,
-`CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`),
+`CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`, `CAI_FIX_CI_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. Orthogonal tasks
 (analyze, audit, propose, update-check, health-report, cost-optimize,

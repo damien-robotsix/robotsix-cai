@@ -56,7 +56,7 @@ Print a human-readable cost report from `/var/log/cai/cai-cost.jsonl`.
 
 ## cycle
 
-Continuously run the full pipeline until nothing is left to do: verify + confirm → recover stale locks → drain pending PRs (revise → review-pr → review-docs → merge) → refine one `:raised` or `human:submitted` issue → fix/spike/explore loop → final confirm.
+Continuously run the full pipeline until nothing is left to do: verify + confirm → recover stale locks → drain pending PRs (revise → fix-ci → review-pr → review-docs → merge) → refine one `:raised` or `human:submitted` issue → fix/spike/explore loop → final confirm.
 
 No arguments.
 
@@ -67,6 +67,14 @@ Run `cai-explore` on the oldest `auto-improve:needs-exploration` issue. Outcomes
 | Argument | Type | Description |
 |---|---|---|
 | `--issue INT` | optional | Target a specific issue number |
+
+## fix-ci
+
+Diagnose and fix failing GitHub Actions checks on open auto-improve PRs. Invokes `cai-fix-ci` to read the failure log, identify the root cause (test, lint, build, or type error), and make a minimal targeted fix. Skips PRs with unaddressed review comments (left for `cai revise`), PRs marked `:needs-human-review`, or `:merge-blocked`. Posts a per-SHA marker comment after each run to prevent retry loops on the same commit.
+
+| Argument | Type | Description |
+|---|---|---|
+| `--pr INT` | optional | Target a specific PR number instead of using queue-based selection |
 
 ## implement
 
