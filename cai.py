@@ -6118,23 +6118,28 @@ def cmd_review_docs(args) -> int:
             skipped += 1
             continue
 
-        # Gate: only review docs after review-pr has reviewed this SHA.
-        # This enforces the review-pr → review-docs → merge ordering.
-        has_code_review_at_sha = False
+        # Gate: only review docs after review-pr has posted a CLEAN
+        # review at this SHA. Running review-docs while review-pr
+        # still has open findings lets the docs commit advance HEAD
+        # past an unresolved finding, which confuses revise's
+        # "comment already addressed" logic (the docs self-summary
+        # gets conflated with the real review-pr finding). Wait until
+        # the revise/review loop has converged before touching docs.
+        has_clean_code_review_at_sha = False
         for comment in pr.get("comments", []):
             body = (comment.get("body") or "")
             first_line = body.split("\n", 1)[0]
             if (
-                first_line.startswith(_REVIEW_COMMENT_HEADING_FINDINGS)
+                first_line.startswith(_REVIEW_COMMENT_HEADING_CLEAN)
                 and head_sha in first_line
             ):
-                has_code_review_at_sha = True
+                has_clean_code_review_at_sha = True
                 break
 
-        if not has_code_review_at_sha:
+        if not has_clean_code_review_at_sha:
             print(
-                f"[cai review-docs] PR #{pr_number}: review-pr has not reviewed "
-                f"{head_sha[:8]} yet; waiting",
+                f"[cai review-docs] PR #{pr_number}: review-pr has not posted "
+                f"a clean review for {head_sha[:8]} yet; waiting for revise/review loop",
                 flush=True,
             )
             skipped += 1
