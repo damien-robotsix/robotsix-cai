@@ -41,6 +41,22 @@ Refs: robotsix/robotsix-cai#461
 ### New gaps / deferred
 - None
 
+## Revision 2 (2026-04-13)
+
+### Rebase
+- resolved: `.claude/agents/cai-review-pr.md` (conflict 1), `.claude/agents/cai-review-docs.md` (conflict 2, second commit)
+
+### Files touched this revision
+- `.claude/agents/cai-review-pr.md` — rebase conflict resolved: took PR's version (no Agent, 4 Grep/Read/Glob guidance items) over HEAD's haiku-Explore version
+- `.claude/agents/cai-review-docs.md` — rebase conflict resolved: took HEAD's version (Agent+Edit+Write, direct-fix workflow) over PR's read-only version
+
+### Decisions this revision
+- cai-review-docs conflict resolved in favor of HEAD: main has evolved this agent to have direct-fix capability (Edit/Write tools + Agent for exploration); taking the PR's read-only version would have regressed that functionality. Original scope guardrail ("Do NOT modify cai-review-docs") also supports this choice.
+- Reviewer comment (@damien-robotsix) asked whether removing Agent increases token cost since Explore runs on haiku. No code change made: cai-review-pr itself runs on `model: claude-haiku-4-5`, so spawning a haiku child Explore session saves no tokens vs having the haiku parent do direct Grep/Glob calls — it only adds sub-session overhead (context initialization, turn counts). The haiku-delegation pattern is designed for opus-class parents where the ≈10× model cost difference justifies the sub-session overhead; it does not apply when the parent is already haiku.
+
+### New gaps / deferred
+- Reviewer comment (@damien-robotsix) is a clarification question, not a code-change request — no action taken beyond explanation above.
+
 ## Invariants this change relies on
 - `--max-budget-usd` is a valid Claude CLI flag supported by the current claude-code version
 - Removing `Agent` from tools list still leaves `Read`, `Grep`, `Glob` sufficient for ripple-effect checking
