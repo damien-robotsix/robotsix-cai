@@ -76,7 +76,7 @@ The user message contains:
    and tool-call rounds; always add `model="haiku"` to trade
    expensive Sonnet output tokens for ~10× cheaper Haiku tokens.
    Fall back to direct Grep/Read only for small, targeted lookups
-   (< 3 files, < 100 lines total) where subagent overhead isn't
+   (3 or fewer files, < 100 lines total) where subagent overhead isn't
    worthwhile. **Do NOT delegate decisions** — only reading and search.
 
 ## Output format

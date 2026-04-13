@@ -72,3 +72,17 @@ Refs: robotsix-cai/robotsix-cai#377
 
 ### New gaps / deferred
 - None
+
+## Revision 4 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- .claude/agents/cai-plan.md:79 — changed `< 3 files` to `3 or fewer files` to match cai-revise.md threshold
+
+### Decisions this revision
+- Harmonized Explore fallback threshold to "3 or fewer files" — matches cai-revise.md lines 259/278; reviewer suggested fix
+
+### New gaps / deferred
+- None
