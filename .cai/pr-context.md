@@ -36,3 +36,19 @@ Refs: damien-robotsix/robotsix-cai#486
 ## Invariants this change relies on
 - `cai_lib.cmd_lifecycle` imports `_gh_json`, `_set_labels`, `log_run`, `LOG_PATH` at module level — patches must target `cai_lib.cmd_lifecycle.<name>`, not `cai_lib.<name>`.
 - `cai_lib/__init__.py` re-exports match the exact attribute names the tests use via `cai.<name>` (where `cai` is `cai_lib`).
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none (no code changes)
+
+### Decisions this revision
+- Created two follow-up issues as requested by reviewer @damien-robotsix:
+  - #533: cai-review-pr should receive original issue body in user message context
+  - #534: Phase 2 — remove cai.py symbol duplicates and add `from cai_lib.X import Y` imports
+
+### New gaps / deferred
+- None; no review comments required code changes.
