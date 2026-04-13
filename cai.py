@@ -1998,9 +1998,13 @@ def cmd_fix(args) -> int:
         return 0
 
     if ps_verdict == "ambiguous":
+        # Bounce to :refined (not :plan-approved) so the issue re-flows
+        # through refine → plan → human approval. Returning to
+        # :plan-approved would make _select_fix_target pick it up again
+        # immediately and loop on the same pre-screen verdict.
         _set_labels(
             issue_number,
-            add=[origin_raised_label],
+            add=[LABEL_REFINED],
             remove=[LABEL_IN_PROGRESS],
         )
         _run(
@@ -2010,7 +2014,7 @@ def cmd_fix(args) -> int:
              f"## Pre-screen: ambiguous issue\n\n"
              f"{ps_reason}\n\n---\n"
              f"_Flagged by `cai fix` pre-screen (Haiku). The issue "
-             f"was returned to `{origin_raised_label}` for refinement._"],
+             f"was returned to `{LABEL_REFINED}` for refinement._"],
             capture_output=True,
         )
         log_run("fix", repo=REPO, issue=issue_number, result="pre_screen_ambiguous", exit=0)
