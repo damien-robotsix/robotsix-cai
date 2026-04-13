@@ -13,7 +13,7 @@ Refs: robotsix/robotsix-cai#554
 - `cai.py:6901` — removed unused `reasoning = verdict["reasoning"]` assignment (F841)
 - `cai.py:8277` — changed `except Exception as exc:` to `except Exception:` (F841, exc never used)
 - `cai_lib/github.py:121` — added `# noqa: E741` for `l` iterator variable
-- `tests/test_publish.py:10` — added `# noqa: F401` for `VALID_CATEGORIES` unused import
+- `tests/test_publish.py:10` — removed genuinely unused `VALID_CATEGORIES` import; restored `# noqa: E402` for post-sys.path import
 
 ## Files read (not touched) that matter
 - `cai.py` — scanned for F541/F401/F841/E741 violations
@@ -35,3 +35,17 @@ Refs: robotsix/robotsix-cai#554
 ## Invariants this change relies on
 - `python -m unittest discover -s tests -v` already discovers `test_lint.py` automatically via `tests/__init__.py`
 - ruff skips gracefully when not installed (`@unittest.skipUnless(shutil.which("ruff"), ...)`)
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `tests/test_publish.py:10` — removed genuinely unused `VALID_CATEGORIES` from import; replaced `# noqa: F401` with `# noqa: E402`
+
+### Decisions this revision
+- Removed `VALID_CATEGORIES` rather than suppressing it — it has no re-export mechanism, no callers in the test file, and the issue scope guardrails say to fix genuine auto-fixable violations manually
+
+### New gaps / deferred
+- None
