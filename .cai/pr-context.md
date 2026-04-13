@@ -57,3 +57,17 @@ Refs: damien-robotsix/robotsix-cai#498
 
 ### New gaps / deferred
 - None
+
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `README.md:165-170` — Corrected description of sub-issue creation: it happens on `## Multi-Step Decomposition` output (refine detects multi-step), not when a `### Plan` section already exists (which causes refine to skip refinement); added note that pre-existing `### Plan` issues skip refinement and sub-issues are not created
+
+### Decisions this revision
+- Adopted reviewer's suggested text verbatim — accurately describes actual cai-refine.md behavior (early exit on structured headings vs. Multi-Step Decomposition output)
+
+### New gaps / deferred
+- None

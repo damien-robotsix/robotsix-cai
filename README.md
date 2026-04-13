@@ -163,12 +163,12 @@ Each step should be a distinct, atomic action. If an issue has no
 `### Plan` section, the fix agent uses its standard single-pass
 approach and this guidance does not apply.
 
-When an issue with a `### Plan` section is accepted, the refine subagent:
+If the refine subagent detects that work requires multiple independent steps, it produces a `## Multi-Step Decomposition` output. The wrapper then:
 1. Labels the parent issue `auto-improve:parent`
 2. Creates one sub-issue per step (each sub-issue body includes a back-reference to the parent)
 3. Adds a checklist to the parent issue to track sub-issue completion
 
-You can watch the parent issue's checklist to monitor progress.
+You can watch the parent issue's checklist to monitor progress. Note: if an issue already has a structured `### Plan` section when filed, the refine subagent will skip refinement, and no sub-issues will be created — the fix subagent will execute the steps directly from the issue body.
 
 ### Audit findings
 
