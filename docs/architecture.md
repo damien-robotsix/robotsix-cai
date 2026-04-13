@@ -49,14 +49,19 @@
 
 ### Worktree agents
 
-`cai-fix`, `cai-revise`, `cai-rebase`, `cai-explore`, `cai-spike` run in a **fresh git worktree clone**. The wrapper:
+`cai-code-audit`, `cai-fix`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-rebase`, `cai-review-docs`, `cai-review-pr`, `cai-revise`, `cai-select`, `cai-update-check` run in a **fresh git worktree clone**. The wrapper clones the repo and passes the clone path as the agent's work directory. The agent itself never runs `git push` or `gh` — the wrapper owns all remote state.
+
+For code-editing agents (`cai-fix`, `cai-revise`, `cai-rebase`), the wrapper also:
 - Creates an isolated branch (`auto-improve/<issue>-<slug>`)
-- Runs the agent with the clone path as its work directory
 - Commits all changes, pushes the branch, and opens (or updates) a PR
 - Deletes the worktree on completion
 
-The agent itself never runs `git` or `gh` — the wrapper owns all remote state.
+For review and planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-docs`, `cai-review-pr`, `cai-select`, `cai-update-check`), the clone provides read access to the full repo tree; these agents emit structured output (findings, plans, verdicts) that the wrapper acts on deterministically — no commit or PR is created.
+
+### Clone agents
+
+`cai-explore`, `cai-spike` also operate on a fresh repo clone but follow a different pattern. The wrapper clones the repo and passes it via `--add-dir` (not as `cwd`). These agents post outcomes (Findings, Refined Issue, Blocked) directly to the GitHub issue via `gh issue` commands. They do not create branches or PRs.
 
 ### Read-only agents
 
-`cai-analyze`, `cai-audit`, `cai-audit-triage`, `cai-code-audit`, `cai-confirm`, `cai-cost-optimize`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-refine`, `cai-review-docs`, `cai-review-pr`, `cai-select`, `cai-update-check` receive all context in their prompt or read the repo without writing to it. They emit structured output (findings, verdicts, plans) that the wrapper acts on deterministically.
+`cai-analyze`, `cai-audit`, `cai-audit-triage`, `cai-confirm`, `cai-cost-optimize`, `cai-merge`, `cai-refine` receive all context in their prompt or read the live repo without a dedicated clone. They emit structured output (findings, verdicts, label transitions) that the wrapper acts on deterministically.

@@ -45,3 +45,27 @@ Refs: robotsix-cai/robotsix-cai#492
 
 ### New gaps / deferred
 - none
+
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- docs/agents.md:10 — cai-code-audit mode Read-only → Worktree
+- docs/agents.md:13 — cai-explore mode Worktree → Clone (new mode)
+- docs/agents.md:17-19 — cai-plan, cai-propose, cai-propose-review mode Read-only → Worktree
+- docs/agents.md:22-23 — cai-review-docs, cai-review-pr mode Read-only → Worktree
+- docs/agents.md:25 — cai-select mode Inline-only → Worktree
+- docs/agents.md:26 — cai-spike mode Worktree → Clone
+- docs/agents.md:27 — cai-update-check mode Read-only → Worktree
+- docs/agents.md:29 — footnote expanded to describe Worktree (code-editing vs. review/planning sub-types), Clone, and Read-only modes
+- docs/architecture.md:50-62 — Worktree agents section rewritten: full list per cai.py:186, split into code-editing vs. review/planning sub-types; added Clone agents subsection for cai-explore/cai-spike; updated Read-only agents list
+
+### Decisions this revision
+- Introduced "Clone" as a 4th mode for cai-explore and cai-spike — per cai.py cmd_explore/cmd_spike, these agents clone the repo via --add-dir and post outcomes directly to GitHub issues (no branch, no PR); using "Worktree" was misleading because the architecture.md Worktree description said "opens a PR"
+- Worktree agents list in architecture.md now matches cai.py:186 exactly: cai-fix, cai-revise, cai-rebase, cai-review-pr, cai-review-docs, cai-code-audit, cai-propose, cai-propose-review, cai-update-check, cai-plan, cai-select, cai-git
+- cai-merge added to Read-only list in architecture.md (it was previously in agents.md as Inline-only; the architecture.md Read-only description "receive context in prompt" covers inline-only behavior accurately)
+
+### New gaps / deferred
+- none
