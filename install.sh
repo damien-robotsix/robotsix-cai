@@ -133,14 +133,14 @@ services:
       # Crontab expressions for the scheduled tasks (any valid
       # 5-field cron line — see https://crontab.guru/).
       #
-      # CAI_CYCLE_SCHEDULE drives the fix pipeline on :plan-approved
+      # CAI_CYCLE_SCHEDULE drives the fix pipeline on human:plan-approved
       # issues (fix → revise → review-pr → merge → confirm). A flock
       # in cmd_cycle serializes overlapping runs so issues are
       # processed one at a time. CAI_PLAN_ALL_SCHEDULE drives the
       # upstream refine → plan flow that turns :raised/:refined
       # issues into :planned for humans to approve. The remaining
       # schedules are for orthogonal tasks that run independently.
-      CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on :plan-approved
+      CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on human:plan-approved
       CAI_PLAN_ALL_SCHEDULE: "30 * * * *"   # hourly @30 — drain :raised/:refined into :planned
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
@@ -205,14 +205,14 @@ services:
       # Crontab expressions for the scheduled tasks (any valid
       # 5-field cron line — see https://crontab.guru/).
       #
-      # CAI_CYCLE_SCHEDULE drives the fix pipeline on :plan-approved
+      # CAI_CYCLE_SCHEDULE drives the fix pipeline on human:plan-approved
       # issues (fix → revise → review-pr → merge → confirm). A flock
       # in cmd_cycle serializes overlapping runs so issues are
       # processed one at a time. CAI_PLAN_ALL_SCHEDULE drives the
       # upstream refine → plan flow that turns :raised/:refined
       # issues into :planned for humans to approve. The remaining
       # schedules are for orthogonal tasks that run independently.
-      CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on :plan-approved
+      CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on human:plan-approved
       CAI_PLAN_ALL_SCHEDULE: "30 * * * *"   # hourly @30 — drain :raised/:refined into :planned
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)

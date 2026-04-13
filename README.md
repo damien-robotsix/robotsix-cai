@@ -49,10 +49,10 @@ dispatcher so each task is its own subprocess with no shared state.
 
 The issue-solving pipeline is split across two cron lines:
 
-- `cai.py cycle` drains pending PRs and fixes `:plan-approved`
+- `cai.py cycle` drains pending PRs and fixes `human:plan-approved`
   issues only. `:raised`, `:refined`, and `:planned` issues are
   invisible to the fix loop — a human approves a plan into
-  `:plan-approved` before the cycle will act on it.
+  `human:plan-approved` before the cycle will act on it.
 - `cai.py plan-all` drives every `:raised` / `:refined` issue
   through refine → plan → `:planned`, producing the backlog humans
   review. It also runs at the end of each `cycle` so the next
@@ -68,7 +68,7 @@ The individual pipeline subcommands (`fix`, `refine`, `plan`,
 
 | Subcommand | Default schedule | What it does |
 |---|---|---|
-| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Fix pipeline on `:plan-approved` issues: verify → confirm → drain pending PRs (revise → review-pr → review-docs → merge) → loop(fix/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
+| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Fix pipeline on `human:plan-approved` issues: verify → confirm → drain pending PRs (revise → review-pr → review-docs → merge) → loop(fix/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
 | `cai.py plan-all` | `30 * * * *` (hourly, offset 30) | Drains every open `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a queue to review. Also runs at the end of each `cycle`; the cron line provides a mid-cycle catch-up pass |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL) and `:revising` (1-hour TTL) locks and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
@@ -330,7 +330,7 @@ The threshold defaults to `high` — only the most clear-cut PRs merge
 or close automatically. Relax to `medium` by editing the env var once
 trust builds.
 
-There are two human entry points into the pipeline. `auto-improve:requested`
+There are two human entry points into the pipeline. `human:requested`
 is the admin entry point: a human applies it to an arbitrary issue to opt it
 into the fix queue directly (bypassing refinement). The label is restricted to
 repo admins by `.github/workflows/admin-only-label.yml` — a non-admin who
