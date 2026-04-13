@@ -73,6 +73,23 @@ Refs: damien-robotsix/robotsix-cai#497
 ### New gaps / deferred
 - none
 
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- docker-compose.yml:46 — added CAI_CHECK_WORKFLOWS_SCHEDULE after CAI_HEALTH_REPORT_SCHEDULE
+- install.sh:150 — added CAI_CHECK_WORKFLOWS_SCHEDULE in OAuth YAML template block
+- install.sh:218 — added CAI_CHECK_WORKFLOWS_SCHEDULE in API-key YAML template block
+
+### Decisions this revision
+- Used same schedule as audit ("0 */6 * * *") matching entrypoint.sh default and reviewer suggestion
+- Placed after CAI_HEALTH_REPORT_SCHEDULE (last schedule var before non-schedule config) in all three files
+
+### New gaps / deferred
+- none
+
 ## Invariants this change relies on
 - _gh_json raises CalledProcessError on non-zero exit; cmd_check_workflows catches it
 - publish.py's parse_findings() splits on `### Finding:` headers; agent must use that format
