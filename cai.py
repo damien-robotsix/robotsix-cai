@@ -1417,186 +1417,6 @@ def _update_parent_checklist_item(
     return result.returncode == 0
 
 
-# ---------------------------------------------------------------------------
-# Wrapper-side `.claude/agents/*.md` and `.claude/plugins/` writes
-# (staging-directory pattern)
-# ---------------------------------------------------------------------------
-#
-# Background: claude-code's headless `claude -p` mode hardcodes a
-# self-modification protection on `.claude/agents/*.md` files. The
-# protection fires regardless of `--dangerously-skip-permissions`,
-# `--permission-mode`, `--add-dir`, `--agent <name>`, OR
-# `permissions.allow` rules in `.claude/settings.json` — verified
-# empirically with three reproduction tests on the host. The docs
-# describe an exemption for `bypassPermissions` mode but that
-# exemption applies only to interactive Claude Code sessions, not
-# headless `-p` sessions.
-#
-# This means: a sub-agent invoked via `claude -p --agent cai-fix`
-# CANNOT use its Edit/Write tools to modify any `.claude/agents/*.md`
-# file, even the one for a different agent. The block is structural
-# and unbypassable from inside the session.
-#
-# Workaround: a "staging directory" pattern.
-#
-#   1. Before invoking the agent, the wrapper creates empty dirs
-#      at `<work_dir>/.cai-staging/agents/` and
-#      `<work_dir>/.cai-staging/plugins/`. These paths are NOT under
-#      `.claude/`, so claude-code's protection doesn't fire on
-#      writes to them.
-#
-#   2a. The agent's prompt instructs it: when you need to update an
-#       `.claude/agents/<name>.md` file, do not Edit the protected
-#       path directly. Instead, use the Write tool to write the FULL
-#       new content to `<work_dir>/.cai-staging/agents/<name>.md`.
-#
-#   2b. To create or update plugin files under `.claude/plugins/`,
-#       write to `<work_dir>/.cai-staging/plugins/<plugin-path>`
-#       preserving the same relative directory structure. For example,
-#       to create `.claude/plugins/cai-skills/skills/foo/SKILL.md`,
-#       write to `.cai-staging/plugins/cai-skills/skills/foo/SKILL.md`.
-#
-#   3. After the agent exits successfully, the wrapper:
-#      - For each `<name>.md` in `.cai-staging/agents/`: copies it to
-#        `<work_dir>/.claude/agents/<name>.md` via `pathlib.write_text`.
-#      - For the tree at `.cai-staging/plugins/`: merges it into
-#        `<work_dir>/.claude/plugins/` using `shutil.copytree` with
-#        `dirs_exist_ok=True`.
-#      (The wrapper isn't a claude session and isn't subject to the
-#      protection.)
-#
-#   4. The wrapper removes the staging directory before committing
-#      so it doesn't land in the PR. If plugin staging fails, the
-#      staging directory is preserved for inspection rather than
-#      silently deleted.
-#
-# Full-file writes (not Edit-style old/new diffs) by design: the
-# agent writes the whole replacement content; the wrapper does an
-# unconditional write. Simpler than parsing structured blocks, no
-# whitespace-ambiguity edge cases, no context-uniqueness rules.
-# The trade-off is verbosity — the agent has to emit the entire
-# file content — but agent definition files are small (a few
-# hundred lines max).
-
-
-# Paths of the staging directories inside a cloned worktree, relative
-# to the clone root.
-AGENT_EDIT_STAGING_REL = Path(".cai-staging") / "agents"
-PLUGIN_STAGING_REL = Path(".cai-staging") / "plugins"
-
-
-def _setup_agent_edit_staging(work_dir: Path) -> Path:
-    """Create the staging directories where agents write proposed
-    `.claude/agents/*.md` and `.claude/plugins/` updates. Idempotent.
-
-    Returns the absolute agent-staging directory path so the caller can
-    pass it to the agent via the user message.
-    """
-    staging = work_dir / AGENT_EDIT_STAGING_REL
-    staging.mkdir(parents=True, exist_ok=True)
-    plugin_staging = work_dir / PLUGIN_STAGING_REL
-    plugin_staging.mkdir(parents=True, exist_ok=True)
-    return staging
-
-
-def _apply_agent_edit_staging(work_dir: Path) -> int:
-    """Copy any files staged at `<work_dir>/.cai-staging/agents/`
-    back to `<work_dir>/.claude/agents/`, copy any plugin tree staged
-    at `<work_dir>/.cai-staging/plugins/` to `<work_dir>/.claude/plugins/`,
-    then remove the staging directory so it doesn't land in the PR.
-
-    Security boundaries:
-
-      1. Each staged agent file is copied to `<work_dir>/.claude/agents/`
-         using the same basename. If no target exists a new file is
-         created; if one exists it is overwritten.
-      2. Staged plugin trees are merged into `<work_dir>/.claude/plugins/`
-         using shutil.copytree with dirs_exist_ok=True.
-      3. The staging dir lives entirely inside `work_dir` so escapes
-         via `..` are not possible (the wrapper iterates one
-         directory level via `iterdir()` and copies whole files).
-      4. The staging dir is removed before commit if all staging
-         operations succeeded. If plugin staging fails, the staging
-         dir is preserved for inspection and the function returns
-         early so staged content is not silently lost.
-
-    Returns the count of files successfully applied. If the staging
-    dir doesn't exist or is empty, returns 0 with no side effects.
-    """
-    staging = work_dir / AGENT_EDIT_STAGING_REL
-    applied = 0
-
-    if staging.exists() and staging.is_dir():
-        target_dir = work_dir / ".claude" / "agents"
-        for staged_file in sorted(staging.iterdir()):
-            if not staged_file.is_file():
-                continue
-
-            target = target_dir / staged_file.name
-            if not target.exists():
-                print(
-                    f"[cai] agent edit staging: creating new agent file "
-                    f".claude/agents/{staged_file.name}",
-                    flush=True,
-                )
-
-            try:
-                content = staged_file.read_text()
-                target.write_text(content)
-                print(
-                    f"[cai] applied staged agent file: "
-                    f".claude/agents/{staged_file.name} "
-                    f"({len(content)} bytes)",
-                    flush=True,
-                )
-                applied += 1
-            except OSError as exc:
-                print(
-                    f"[cai] agent edit staging: failed to apply "
-                    f"{staged_file.name}: {exc}",
-                    file=sys.stderr,
-                )
-                continue
-
-    # Apply any plugin staging: .cai-staging/plugins/ → .claude/plugins/
-    plugin_staging = work_dir / PLUGIN_STAGING_REL
-    if plugin_staging.exists() and plugin_staging.is_dir():
-        plugin_target = work_dir / ".claude" / "plugins"
-        try:
-            shutil.copytree(str(plugin_staging), str(plugin_target),
-                            dirs_exist_ok=True)
-            print(
-                f"[cai] applied staged plugin tree: .claude/plugins/ "
-                f"(merged from .cai-staging/plugins/)",
-                flush=True,
-            )
-            applied += 1
-        except OSError as exc:
-            print(
-                f"[cai] agent edit staging: failed to apply plugin tree: {exc}",
-                file=sys.stderr,
-            )
-            # Preserve .cai-staging so staged plugin files are not
-            # silently lost when the copy fails — caller can inspect
-            # or retry. Do not fall through to shutil.rmtree below.
-            return applied
-
-    # Clean up the entire .cai-staging tree (one level above the
-    # agents/ subdir) so nothing leaks into the PR.
-    cai_staging_root = work_dir / ".cai-staging"
-    if cai_staging_root.exists():
-        try:
-            shutil.rmtree(cai_staging_root)
-        except OSError as exc:
-            print(
-                f"[cai] agent edit staging: cleanup of "
-                f"{cai_staging_root} failed: {exc}",
-                file=sys.stderr,
-            )
-
-    return applied
-
-
 def _git(work_dir: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     cmd = ["git", "-C", str(work_dir)] + list(args)
     return subprocess.run(cmd, text=True, check=check, capture_output=True)
@@ -1605,8 +1425,7 @@ def _git(work_dir: Path, *args: str, check: bool = True) -> subprocess.Completed
 def _work_directory_block(work_dir: Path) -> str:
     """Return the standard "## Work directory" user-message section
     that informs a cloned-worktree subagent where its actual work
-    happens, and how to update protected `.claude/agents/*.md`
-    files via the staging directory.
+    happens.
 
     All cloned-worktree subagents (cai-fix, cai-revise, cai-rebase,
     cai-review-pr, cai-review-docs, cai-code-audit, cai-propose, cai-propose-review,
@@ -1620,18 +1439,7 @@ def _work_directory_block(work_dir: Path) -> str:
     files in the actual clone, since the clone is no longer the
     cwd. This block tells the agent where the clone is and reminds
     it to use absolute paths.
-
-    Self-modification of `.claude/agents/*.md`: claude-code's
-    headless `-p` mode hardcodes a protection that blocks
-    Edit/Write on any `.claude/agents/*.md` file, regardless of
-    `--dangerously-skip-permissions`, `--permission-mode`, or
-    `permissions.allow` rules. We work around it with a staging
-    directory — see `_setup_agent_edit_staging` /
-    `_apply_agent_edit_staging`. The block below tells the agent
-    how to use it.
     """
-    staging_rel = AGENT_EDIT_STAGING_REL.as_posix()
-    staging_abs = (work_dir / AGENT_EDIT_STAGING_REL).as_posix()
     return (
         "## Work directory\n\n"
         "You are running with cwd `/app` so your declarative agent "
@@ -1657,40 +1465,7 @@ def _work_directory_block(work_dir: Path) -> str:
         "  - GOOD: `git -C "
         f"{work_dir} status`\n"
         "  - BAD:  `git status`        (reports /app status, not "
-        "the clone's)\n\n"
-        "## Updating `.claude/agents/*.md` (self-modification)\n\n"
-        "Claude-code's headless `-p` mode hardcodes a write block "
-        "on every `.claude/agents/*.md` path, regardless of any "
-        "permission flag or settings rule. Edit/Write calls against "
-        f"`{work_dir}/.claude/agents/<name>.md` WILL fail with a "
-        "sensitive-file protection error — this is not something "
-        "you can bypass from inside your session.\n\n"
-        "The wrapper provides a **staging directory** at:\n\n"
-        f"    {staging_abs}\n\n"
-        "To update an `.claude/agents/<name>.md` file, use the "
-        "Write tool to write the COMPLETE new file content "
-        "(frontmatter + body) to "
-        f"`{staging_abs}/<name>.md`. After your session exits "
-        "successfully the wrapper copies every file it finds in "
-        f"`{staging_rel}/` back over the corresponding "
-        "`.claude/agents/<same-name>.md` in the clone, then deletes "
-        "the staging directory so it never lands in the PR.\n\n"
-        "Rules:\n"
-        "  - Staged files are copied unconditionally — new agent "
-        "definitions are created if no target exists yet.\n"
-        "  - Write the FULL file, not a diff or patch. The wrapper "
-        "does an unconditional full-file overwrite.\n"
-        "  - Use the same basename as the target "
-        f"(e.g. `{staging_abs}/cai-fix.md` → "
-        f"`{work_dir}/.claude/agents/cai-fix.md`).\n"
-        "  - Do NOT attempt `Edit` or `Write` on the protected "
-        f"`{work_dir}/.claude/agents/...` path — it will always "
-        "fail. Go through the staging dir.\n\n"
-        "Example:\n"
-        f"  - GOOD: `Write(\"{staging_abs}/cai-fix.md\", "
-        "\"<full new file content>\")`\n"
-        f"  - BAD:  `Edit(\"{work_dir}/.claude/agents/cai-fix.md\", "
-        "...)`  (blocked by claude-code)\n"
+        "the clone's)\n"
     )
 
 
@@ -1927,23 +1702,11 @@ def cmd_fix(args) -> int:
         #     implementation strategy to follow.
         selected_plan = _run_plan_select_pipeline(issue, work_dir, attempt_history_block)
 
-        # 4d. Pre-create the `.cai-staging/agents/` directory so the
-        #     agent has somewhere to write proposed updates to its
-        #     own `.claude/agents/*.md` file(s). Claude-code's
-        #     headless `-p` mode hardcodes a protection on every
-        #     `.claude/agents/*.md` path that no permission flag
-        #     bypasses, so we route self-modifications through a
-        #     non-protected scratch path and copy them back after
-        #     the agent exits successfully. See
-        #     `_setup_agent_edit_staging` / `_apply_agent_edit_staging`.
-        _setup_agent_edit_staging(work_dir)
-
         # 5. Run the cai-fix declarative subagent.
         #    System prompt, tool allowlist, and hard rules live in
         #    `.claude/agents/cai-fix.md`. The wrapper passes the
         #    work-directory block (telling the agent where its clone
-        #    is, how to use absolute paths, and how to stage
-        #    `.claude/agents/*.md` updates) plus the dynamic per-run
+        #    is and how to use absolute paths) plus the dynamic per-run
         #    context (the issue body) as the user message via stdin.
         #
         #    The agent runs with `cwd=/app`, NOT the clone. This
@@ -1972,11 +1735,8 @@ def cmd_fix(args) -> int:
             )
         print(f"[cai fix] running cai-fix subagent for {work_dir}", flush=True)
         # `--dangerously-skip-permissions` is required for the
-        # remaining permission-mode gating (cai-fix needs to edit
-        # source files in the clone). Claude-code's hardcoded
-        # protection on `.claude/agents/*.md` is NOT bypassed by
-        # any flag — we route self-modifications through the
-        # staging directory instead (see _work_directory_block).
+        # permission-mode gating (cai-fix needs to edit source
+        # files in the clone, including `.claude/agents/*.md`).
         agent = _run_claude_p(
             ["claude", "-p", "--agent", "cai-fix",
              "--dangerously-skip-permissions",
@@ -2005,24 +1765,6 @@ def cmd_fix(args) -> int:
         if suggested:
             n = _create_suggested_issues(suggested, issue_number)
             print(f"[cai fix] created {n}/{len(suggested)} suggested issue(s)", flush=True)
-
-        # 5c. Apply any `.claude/agents/*.md` updates the agent
-        #     staged at `<work_dir>/.cai-staging/agents/`. These
-        #     exist because claude-code's headless `-p` mode
-        #     hardcodes a self-modification block on every
-        #     `.claude/agents/*.md` path that no flag bypasses, so
-        #     the agent writes full new contents to the staging
-        #     dir and the wrapper copies them back via plain
-        #     pathlib (not subject to the protection). The staging
-        #     dir is removed after apply so it doesn't land in
-        #     the PR.
-        applied = _apply_agent_edit_staging(work_dir)
-        if applied:
-            print(
-                f"[cai fix] applied {applied} staged "
-                f".claude/agents/*.md update(s)",
-                flush=True,
-            )
 
         # 6. Inspect the working tree. Empty diff = deliberate
         #    no-action OR a spike-shaped bail-out (the agent
@@ -3152,14 +2894,7 @@ def cmd_revise(args) -> int:
                 + comments_section
             )
 
-            # 5b. Pre-create the `.cai-staging/agents/` directory so
-            #     the agent has somewhere to write proposed updates
-            #     to its own `.claude/agents/*.md` file(s). See
-            #     `_setup_agent_edit_staging` for why we need this
-            #     workaround.
-            _setup_agent_edit_staging(work_dir)
-
-            # 5c. Choose agent: rebase-only conflicts → haiku agent,
+            # 5b. Choose agent: rebase-only conflicts → haiku agent,
             #     otherwise → full cai-revise.
             rebase_only = rebase_in_progress and not comments
             agent_name = "cai-rebase" if rebase_only else "cai-revise"
@@ -3172,10 +2907,7 @@ def cmd_revise(args) -> int:
             #
             #    `--dangerously-skip-permissions` is required for
             #    the permission gating on file Edit/Write in the
-            #    clone. Claude-code's hardcoded `.claude/agents/*.md`
-            #    protection is NOT bypassed by any flag — we route
-            #    self-modifications through the staging directory
-            #    instead (see _work_directory_block).
+            #    clone, including `.claude/agents/*.md` files.
             #
             #    cai-revise/cai-rebase delegate git rebase ops to the
             #    cai-git haiku subagent via the Agent tool instead of
@@ -3196,24 +2928,6 @@ def cmd_revise(args) -> int:
             )
             if agent.stdout:
                 print(agent.stdout, flush=True)
-
-            # 6b. Apply any `.claude/agents/*.md` updates the agent
-            #     staged at `<work_dir>/.cai-staging/agents/`. We
-            #     apply UNCONDITIONALLY (even on agent non-zero
-            #     exit) because cai-revise's return code is
-            #     dominated by rebase outcome — the agent may have
-            #     completed a valid self-modification before
-            #     hitting an unrelated rebase failure, and we'd
-            #     rather preserve that work than silently discard
-            #     it. If we end up rolling back the branch below,
-            #     the staged edits go with it.
-            applied = _apply_agent_edit_staging(work_dir)
-            if applied:
-                print(
-                    f"[cai revise] applied {applied} staged "
-                    f".claude/agents/*.md update(s)",
-                    flush=True,
-                )
 
             agent_summary = (agent.stdout or "").strip()[:4000]
 
