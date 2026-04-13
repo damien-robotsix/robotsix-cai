@@ -39,3 +39,21 @@ Refs: robotsix/robotsix-cai#509
 ## Invariants this change relies on
 - `_write_active_job` and `_clear_active_job` both never raise (OSError is caught)
 - `_run_claude_p` does not raise exceptions in normal operation (it returns a CompletedProcess-like object with returncode)
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:4563` — added `_write_active_job("audit-triage", "none", None)` + try/finally around `_run_claude_p` in `cmd_audit_triage`
+- `cai.py:5551` — added `_write_active_job("code-audit", "none", None)` + try/finally around `_run_claude_p` in `cmd_code_audit`
+- `cai.py:8576` — added `_write_active_job("check-workflows", "none", None)` + try/finally around `_run_claude_p` in `cmd_check_workflows`
+- `docs/configuration.md:37` — updated cai-active.json description to reflect new JSON schema and broader command coverage
+
+### Decisions this revision
+- Wrapped only the `_run_claude_p` call (not full function) in try/finally — matches `cmd_cost_optimize` pattern; subsequent logic (verdict parsing, publish) is fast enough not to warrant full wrapping
+- Used `target_type="none"` for all three commands — they don't target a specific issue or PR
+
+### New gaps / deferred
+- (none)

@@ -4561,12 +4561,16 @@ def cmd_audit_triage(args) -> int:
     )
 
     # 4. Invoke the declared cai-audit-triage subagent.
-    triage = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-audit-triage"],
-        category="audit-triage",
-        agent="cai-audit-triage",
-        input=user_message,
-    )
+    _write_active_job("audit-triage", "none", None)
+    try:
+        triage = _run_claude_p(
+            ["claude", "-p", "--agent", "cai-audit-triage"],
+            category="audit-triage",
+            agent="cai-audit-triage",
+            input=user_message,
+        )
+    finally:
+        _clear_active_job()
     print(triage.stdout, flush=True)
     if triage.returncode != 0:
         print(
@@ -5549,15 +5553,19 @@ def cmd_code_audit(args) -> int:
     #    the agent reads its definition + memory from the canonical
     #    /app paths while auditing the clone via absolute paths.
     print(f"[cai code-audit] running agent for {work_dir}", flush=True)
-    agent = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-code-audit",
-         "--permission-mode", "acceptEdits",
-         "--add-dir", str(work_dir)],
-        category="code-audit",
-        agent="cai-code-audit",
-        input=user_message,
-        cwd="/app",
-    )
+    _write_active_job("code-audit", "none", None)
+    try:
+        agent = _run_claude_p(
+            ["claude", "-p", "--agent", "cai-code-audit",
+             "--permission-mode", "acceptEdits",
+             "--add-dir", str(work_dir)],
+            category="code-audit",
+            agent="cai-code-audit",
+            input=user_message,
+            cwd="/app",
+        )
+    finally:
+        _clear_active_job()
     if agent.stdout:
         print(agent.stdout, flush=True)
     if agent.returncode != 0:
@@ -8574,15 +8582,19 @@ def cmd_check_workflows(args) -> int:
         f"[cai check-workflows] running agent on {len(recent_runs)} failure(s)",
         flush=True,
     )
-    agent = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-check-workflows",
-         "--max-turns", "3",
-         "--permission-mode", "acceptEdits"],
-        category="check-workflows",
-        agent="cai-check-workflows",
-        input=user_message,
-        cwd="/app",
-    )
+    _write_active_job("check-workflows", "none", None)
+    try:
+        agent = _run_claude_p(
+            ["claude", "-p", "--agent", "cai-check-workflows",
+             "--max-turns", "3",
+             "--permission-mode", "acceptEdits"],
+            category="check-workflows",
+            agent="cai-check-workflows",
+            input=user_message,
+            cwd="/app",
+        )
+    finally:
+        _clear_active_job()
     if agent.stdout:
         print(agent.stdout, flush=True)
     if agent.returncode != 0:
