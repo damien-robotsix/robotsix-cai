@@ -571,9 +571,9 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
                 comment = (
                     "## Auto-improve: rolling back to :refined\n\n"
                     f"Linked PR #{pr['number']} was closed without merging. "
-                    "Resetting this issue to `:refined` so the fix subagent can "
-                    "re-attempt on the next tick (bypassing the refine step since "
-                    "the issue was already structured before the previous fix attempt).\n\n"
+                    "Resetting this issue to `:refined` so it can flow through "
+                    "the refinement and planning cycle again before a human "
+                    "can re-approve it for the fix subagent.\n\n"
                     f"---\n_Rolled back automatically by `{log_prefix}`._"
                 )
                 _run(["gh", "issue", "comment", str(issue["number"]),
@@ -1026,6 +1026,24 @@ def _extract_stored_plan(issue_body: str) -> str | None:
     if content.startswith(heading):
         content = content[len(heading):].strip()
     return content if content else None
+
+
+def _get_plan_for_fix(issue: dict, origin_label: str) -> str | None:
+    """Retrieve the implementation plan for a fix run.
+
+    For :plan-approved issues, the plan is extracted from the issue body
+    where `cai plan` stored it.  For :requested (admin bypass) issues,
+    no plan is expected — returns None for graceful degradation.
+    """
+    if origin_label == LABEL_REQUESTED:
+        print("[cai fix] :requested bypass — no stored plan expected", flush=True)
+        return None
+    plan = _extract_stored_plan(issue.get("body", ""))
+    if plan:
+        print(f"[cai fix] using stored plan from issue body ({len(plan)} chars)", flush=True)
+    else:
+        print("[cai fix] WARNING: :plan-approved issue has no stored plan in body — proceeding without plan", flush=True)
+    return plan
 
 
 def _strip_stored_plan_block(issue_body: str) -> str:
@@ -1934,14 +1952,14 @@ def cmd_fix(args) -> int:
     issue_number = issue["number"]
     title = issue["title"]
     label_names = {lbl["name"] for lbl in issue.get("labels", [])}
-    origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_REFINED
+    origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_PLAN_APPROVED
     print(f"[cai fix] picked #{issue_number}: {title}", flush=True)
 
-    # 1. Lock — set :in-progress, drop :refined and :requested.
+    # 1. Lock — set :in-progress, drop :plan-approved and :requested.
     if not _set_labels(
         issue_number,
         add=[LABEL_IN_PROGRESS],
-        remove=[LABEL_REFINED, LABEL_REQUESTED],
+        remove=[LABEL_PLAN_APPROVED, LABEL_REQUESTED],
     ):
         print(f"[cai fix] could not lock #{issue_number}", file=sys.stderr)
         log_run("fix", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
@@ -1980,9 +1998,13 @@ def cmd_fix(args) -> int:
         return 0
 
     if ps_verdict == "ambiguous":
+        # Bounce to :refined (not :plan-approved) so the issue re-flows
+        # through refine → plan → human approval. Returning to
+        # :plan-approved would make _select_fix_target pick it up again
+        # immediately and loop on the same pre-screen verdict.
         _set_labels(
             issue_number,
-            add=[origin_raised_label],
+            add=[LABEL_REFINED],
             remove=[LABEL_IN_PROGRESS],
         )
         _run(
@@ -1992,7 +2014,7 @@ def cmd_fix(args) -> int:
              f"## Pre-screen: ambiguous issue\n\n"
              f"{ps_reason}\n\n---\n"
              f"_Flagged by `cai fix` pre-screen (Haiku). The issue "
-             f"was returned to `{origin_raised_label}` for refinement._"],
+             f"was returned to `{LABEL_REFINED}` for refinement._"],
             capture_output=True,
         )
         log_run("fix", repo=REPO, issue=issue_number, result="pre_screen_ambiguous", exit=0)
@@ -2050,26 +2072,11 @@ def cmd_fix(args) -> int:
                 flush=True,
             )
 
-        # 4c. Load the stored implementation plan from the issue body.
-        #     `cai plan` is an independent step that runs the plan-select
-        #     pipeline and writes the selected plan between
-        #     `<!-- cai-plan-start/end -->` markers. `cai fix` only
-        #     executes that stored plan — it never re-plans. For
-        #     `:requested` issues (human shortcut) there may be no
-        #     stored plan, and the fix agent runs without one.
-        selected_plan = _extract_stored_plan(issue.get("body", "") or "")
-        if selected_plan:
-            print(
-                f"[cai fix] using stored plan from issue body "
-                f"({len(selected_plan)} chars)",
-                flush=True,
-            )
-        else:
-            print(
-                "[cai fix] no stored plan found; running fix agent "
-                "without a plan (expected for :requested issues)",
-                flush=True,
-            )
+        # 4c. Retrieve the pre-computed plan from the issue body.
+        #     For :plan-approved issues, `cai plan` stored the plan
+        #     and a human approved it.  For :requested bypass issues,
+        #     no plan is expected.
+        selected_plan = _get_plan_for_fix(issue, origin_raised_label)
 
         # 4d. Pre-create the `.cai-staging/agents/` directory so the
         #     agent has somewhere to write proposed updates to its
@@ -2107,8 +2114,9 @@ def cmd_fix(args) -> int:
                 _work_directory_block(work_dir)
                 + "\n"
                 + "## Selected Implementation Plan\n\n"
-                + "The following plan was produced by `cai plan` and "
-                + "stored on the issue. Follow it to implement the fix.\n\n"
+                + "The following plan was pre-computed by `cai plan` and "
+                + "approved by a human reviewer. "
+                + "Follow this plan to implement the fix.\n\n"
                 + f"{selected_plan}\n\n"
                 + "---\n\n"
                 + _build_fix_user_message(issue, attempt_history_block)
@@ -2768,8 +2776,9 @@ def _select_revise_targets() -> list[dict]:
 
 
 def _recover_stuck_rebase_prs() -> int:
-    """Close PRs the rebase resolver gave up on so the fix subagent
-    can re-attempt them from a fresh branch off current main.
+    """Close PRs the rebase resolver gave up on so the issue can flow
+    through the planning cycle and the fix subagent can re-attempt from
+    a fresh branch off current main.
 
     Trigger condition: an open `auto-improve/<N>-*` PR has a
     `## Revise subagent: rebase resolution failed` comment newer than
@@ -2777,8 +2786,8 @@ def _recover_stuck_rebase_prs() -> int:
     revise step from spamming retry comments — but without recovery
     the PR sits stuck forever, accumulating an ever-larger conflict
     surface every time main moves. Closing it and resetting the issue
-    to `:refined` lets the fix subagent open a fresh PR against the
-    current main on its next tick (#144 was the original symptom).
+    to `:refined` lets it re-flow through plan → approval → fix against
+    current main on a future cycle (#144 was the original symptom).
 
     Returns the number of PRs recovered.
     """
