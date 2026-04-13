@@ -8029,19 +8029,18 @@ def cmd_cycle(args) -> int:
 
         # Check for pr-open issues that still need drain passes.
         has_pending_prs = False
-        if not has_fix_target:
-            try:
-                pending = _gh_json([
-                    "issue", "list",
-                    "--repo", REPO,
-                    "--label", LABEL_PR_OPEN,
-                    "--state", "open",
-                    "--json", "number",
-                    "--limit", "1",
-                ]) or []
-                has_pending_prs = len(pending) > 0
-            except subprocess.CalledProcessError:
-                pass
+        try:
+            pending = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", LABEL_PR_OPEN,
+                "--state", "open",
+                "--json", "number",
+                "--limit", "1",
+            ]) or []
+            has_pending_prs = len(pending) > 0
+        except subprocess.CalledProcessError:
+            pass
 
         # Check for :needs-spike issues.
         has_spike = False
@@ -8109,7 +8108,7 @@ def cmd_cycle(args) -> int:
                   flush=True)
             break
 
-        if not has_fix_target and has_pending_prs:
+        if has_pending_prs:
             drain_only_passes += 1
             if drain_only_passes > _MAX_DRAIN_ONLY_PASSES:
                 print(
@@ -8119,14 +8118,14 @@ def cmd_cycle(args) -> int:
                 )
                 break
             print(
-                f"[cai cycle] no fix targets but {len(pending)} PR(s) still open; "
+                f"[cai cycle] pending PR(s) still open; "
                 f"draining (pass {drain_only_passes}/{_MAX_DRAIN_ONLY_PASSES})",
                 flush=True,
             )
         else:
-            drain_only_passes = 0  # reset when we have fix work
+            drain_only_passes = 0  # reset when no pending PRs
 
-        if has_fix_target:
+        if has_fix_target and not has_pending_prs:
             rc = _run_step("fix", cmd_fix, args)
             key = f"fix.{iteration}"
             all_results[key] = rc
@@ -8136,6 +8135,11 @@ def cmd_cycle(args) -> int:
                 # fix failed (error) — stop looping.
                 print("[cai cycle] fix step failed; stopping loop", flush=True)
                 break
+        elif has_fix_target and has_pending_prs:
+            print(
+                "[cai cycle] fix target available but skipping — draining pending PR(s) first",
+                flush=True,
+            )
 
         # Run spike if no fix target but :needs-spike issues exist.
         # Spike outcomes feed back: refine_and_retry → :raised,
