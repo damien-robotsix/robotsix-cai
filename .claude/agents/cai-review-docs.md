@@ -57,7 +57,10 @@ In the user message, in order:
 
 1. **Work directory** — where the cloned PR branch lives
 2. **PR metadata** — number, title, author, base branch, head SHA
-3. **PR diff** — the full unified diff of the PR
+3. **Original issue** *(optional)* — if the PR references an issue,
+   the full issue body is included. Use this to verify documentation
+   changes align with the issue's stated scope.
+4. **PR diff** — the full unified diff of the PR
 
 ## What to check
 
@@ -90,14 +93,18 @@ Changes that **do NOT warrant documentation review**:
 
 1. Read the diff carefully. Note user-facing changes AND any renamed or
    removed symbols/labels/config keys.
-2. For every rename, `Grep` the full work directory for the old name across
+2. If an `## Original issue` section is present, read it and note
+   what user-facing changes the issue describes. Ensure the documentation
+   covers those changes (e.g., if the issue says "add CLI flag `--foo`",
+   verify `--foo` is documented).
+3. For every rename, `Grep` the full work directory for the old name across
    `.md`, `.py`, `.sh`, `.yml`, and `.yaml` — this catches stale README lines,
    docstrings, inline comments, help strings, and workflow comments.
-3. Use `Glob("docs/**/*.md", path="<work_dir>")` and read `README.md` to check
+4. Use `Glob("docs/**/*.md", path="<work_dir>")` and read `README.md` to check
    prose against the post-PR code.
-4. For each stale reference, **directly edit the file** using `Edit` or
+5. For each stale reference, **directly edit the file** using `Edit` or
    `Write` — update prose, docstrings, comments, and help strings in place.
-5. After fixing, emit a `### Fixed: stale_docs` block documenting each change.
+6. After fixing, emit a `### Fixed: stale_docs` block documenting each change.
 
 If the `docs/` directory does not exist:
 - Emit a single `### Finding: stale_docs` block with file `docs/ (missing)`,

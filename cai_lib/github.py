@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -135,6 +136,36 @@ def _build_issue_block(issue: dict) -> str:
             body = c.get("body", "")
             block += f"**{author}:**\n{body}\n\n"
     return block
+
+
+def _fetch_linked_issue_block(pr_body: str) -> str:
+    """Return an '## Original issue' block if the PR body contains a Refs link.
+
+    Auto-improve PRs include a ``Refs <REPO>#<N>`` line in their body.
+    Parse it, fetch the issue, and format the block. Returns "" on any
+    failure (missing link, deleted issue, network error).
+    """
+    if not pr_body:
+        return ""
+    m = re.search(rf"Refs\s+{re.escape(REPO)}#(\d+)", pr_body)
+    if not m:
+        return ""
+    issue_num = int(m.group(1))
+    try:
+        issue_data = _gh_json([
+            "issue", "view", str(issue_num),
+            "--repo", REPO,
+            "--json", "number,title,body",
+        ])
+    except subprocess.CalledProcessError:
+        return ""
+    if not issue_data:
+        return ""
+    return (
+        f"## Original issue\n\n"
+        f"### #{issue_data['number']} — {issue_data.get('title', '')}\n\n"
+        f"{issue_data.get('body') or '(no body)'}\n\n"
+    )
 
 
 def _build_fix_user_message(issue: dict, attempt_history_block: str = "") -> str:
