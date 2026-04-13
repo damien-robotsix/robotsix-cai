@@ -78,3 +78,17 @@ Refs: robotsix-cai/cai#518
 
 ### New gaps / deferred
 - none
+
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- All four `stale_docs` findings from cai-review-docs were already addressed in Revision 2; no changes needed.
+
+### New gaps / deferred
+- none
