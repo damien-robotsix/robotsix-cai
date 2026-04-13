@@ -71,15 +71,22 @@ Changes that **do NOT warrant documentation review**:
    post-PR code
 4. For each gap, emit a `### Finding: stale_docs` block
 
-If the `docs/` directory does not exist or is empty:
-- If the PR diff contains no user-facing changes (see "Changes that do NOT
-  warrant documentation review" above), output
-  `No documentation updates needed.`
-- If the PR diff **does** contain user-facing changes, emit a
-  `### Finding: stale_docs` block (using the format below) with
-  file `docs/ (missing or empty)`, describing that the PR changes user-facing
-  behavior but no documentation exists to verify, and suggesting the team
-  create or populate `/docs` before merging.
+If the `docs/` directory does not exist:
+- Emit a single `### Finding: stale_docs` block with file `docs/ (missing)`,
+  description "The `/docs` directory does not exist in this repository.
+  Documentation review cannot be performed.", and suggested update "Bootstrap
+  a `/docs` directory with at least an `index.md` covering the CLI and agent
+  inventory."
+
+If the `docs/` directory exists but contains no `.md` files:
+- Emit a single `### Finding: stale_docs` block with file `docs/ (empty)`,
+  description "The `/docs` directory is empty — no Markdown files found.
+  Documentation review cannot be performed.", and suggested update "Populate
+  `/docs` with at least an `index.md` covering the CLI and agent inventory."
+
+Only output `No documentation updates needed.` when the `docs/` directory
+exists, contains `.md` files, AND the PR introduces no user-facing changes
+that require documentation updates.
 
 ## Output format
 
