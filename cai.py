@@ -4332,7 +4332,7 @@ def cmd_audit(args) -> int:
     if not cost_section:
         cost_section = "## Cost summary\n\n(no cost-log entries yet)\n"
 
-    # Outcome statistics for the audit agent to spot workflow_efficiency issues.
+    # Outcome statistics for the audit agent to spot fix_loop_efficiency issues.
     outcome_counts = _load_outcome_counts(days=90)
     if outcome_counts:
         outcome_lines = ["## Outcome statistics (last 90 days)\n",

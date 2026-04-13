@@ -83,7 +83,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Closed issue whose labels don't include a terminal state (`auto-improve:merged` or `auto-improve:no-action`) — may indicate manual close without proper resolution | `workflow_anomaly` |
 | Merged PR whose linked `auto-improve` issue is still open (check recent PRs for matching branch/title against open issues) | `workflow_anomaly` |
 | Closed-unmerged PR whose linked issue is not rolled back to `:refined` | `workflow_anomaly` |
-| A category in the outcome statistics table flagged ⚠ (success rate <40% with ≥3 outcomes in 90 days) | `workflow_efficiency` |
+| A category in the outcome statistics table flagged ⚠ (success rate <40% with ≥3 outcomes in 90 days) | `fix_loop_efficiency` |
 
 ### Log-level patterns
 
@@ -153,7 +153,7 @@ already been rolled back before your context is assembled.
 | `forgotten_backlog` | Tracking-only issue (no state label) older than 30 days with no human activity |
 | `cost_outlier` | A `claude -p` invocation (or category aggregate) in the cost summary that dominates token spend disproportionately to its functional value |
 | `workflow_anomaly` | Issue or PR whose lifecycle transitions don't match expected workflow (e.g., closed without terminal label, merged PR with open issue) |
-| `workflow_efficiency` | A fix category where the loop is structurally struggling — success rate below 40% over the last 90 days (with ≥3 outcomes), suggesting a prompt, scope, or tooling problem rather than a one-off failure |
+| `fix_loop_efficiency` | A fix category where the loop is structurally struggling — success rate below 40% over the last 90 days (with ≥3 outcomes), suggesting a prompt, scope, or tooling problem rather than a one-off failure |
 
 ## Output format
 

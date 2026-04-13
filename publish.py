@@ -52,7 +52,7 @@ AUDIT_CATEGORIES = {
     "forgotten_backlog",
     "cost_outlier",
     "workflow_anomaly",
-    "workflow_efficiency",
+    "fix_loop_efficiency",
 }
 
 CODE_AUDIT_CATEGORIES = {
@@ -124,7 +124,7 @@ AUDIT_LABELS = [
     ("category:forgotten_backlog", "c2e0c6", "Tracking-only issue with no state label idle >30 days"),
     ("category:cost_outlier", "fbca04", "A claude -p invocation or category aggregate that dominates token spend"),
     ("category:workflow_anomaly", "e4e669", "Issue or PR lifecycle transition doesn't match expected workflow"),
-    ("category:workflow_efficiency", "e4e669", "A fix category where the loop is structurally struggling — success rate below 40% with ≥3 outcomes in 90 days"),
+    ("category:fix_loop_efficiency", "e4e669", "A fix category where the loop is structurally struggling — success rate below 40% with ≥3 outcomes in 90 days"),
 ]
 
 CODE_AUDIT_LABELS = [
