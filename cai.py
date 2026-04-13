@@ -5369,15 +5369,19 @@ def cmd_propose(args) -> int:
     )
 
     print("[cai propose] running review agent", flush=True)
-    review = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-propose-review",
-         "--permission-mode", "acceptEdits",
-         "--add-dir", str(work_dir)],
-        category="propose",
-        agent="cai-propose-review",
-        input=review_message,
-        cwd="/app",
-    )
+    _write_active_job("propose-review", "none", None)
+    try:
+        review = _run_claude_p(
+            ["claude", "-p", "--agent", "cai-propose-review",
+             "--permission-mode", "acceptEdits",
+             "--add-dir", str(work_dir)],
+            category="propose",
+            agent="cai-propose-review",
+            input=review_message,
+            cwd="/app",
+        )
+    finally:
+        _clear_active_job()
     if review.stdout:
         print(review.stdout, flush=True)
     if review.returncode != 0:

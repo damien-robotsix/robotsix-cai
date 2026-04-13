@@ -71,3 +71,18 @@ Refs: robotsix/robotsix-cai#509
 
 ### New gaps / deferred
 - (none)
+
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:5371` — wrapped `cai-propose-review` `_run_claude_p` call in `_write_active_job("propose-review", "none", None)` + try/finally with `_clear_active_job()`
+
+### Decisions this revision
+- Used cmd name `"propose-review"` to distinguish the review phase from the creative phase (`"propose"`) for observability granularity
+- Pattern matches the creative agent wrapping immediately above in the same function
+
+### New gaps / deferred
+- (none)
