@@ -93,3 +93,18 @@ Refs: damien-robotsix/robotsix-cai#499
 
 ### New gaps / deferred
 - None
+
+## Revision 5 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- docs/configuration.md:17 — introductory sentence updated: "most are also explicitly configured in `docker-compose.yml`" instead of "both files set all defaults"
+
+### Decisions this revision
+- Used reviewer's suggested wording verbatim: clarifies that only most (not all) schedule vars appear in docker-compose.yml
+- Did not add CAI_SPIKE_SCHEDULE/CAI_COST_OPTIMIZE_SCHEDULE to docker-compose.yml — behavioral change outside this docs PR's scope
+
+### New gaps / deferred
+- None

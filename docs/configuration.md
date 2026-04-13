@@ -14,7 +14,7 @@
 
 ## Agent Schedules
 
-All pipeline agents run on cron schedules configurable via environment variables. Default values are set in `docker-compose.yml` and `entrypoint.sh`.
+All pipeline agents run on cron schedules configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
 | Variable | Default | Description |
 |---|---|---|
