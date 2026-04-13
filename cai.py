@@ -7148,7 +7148,7 @@ def cmd_merge(args) -> int:
 
 
 def cmd_refine(args) -> int:
-    """Invoke the cai-refine agent on the oldest :raised issue."""
+    """Invoke the cai-refine agent on the oldest :raised or human:submitted issue."""
     print("[cai refine] looking for issues to refine", flush=True)
     t0 = time.monotonic()
 

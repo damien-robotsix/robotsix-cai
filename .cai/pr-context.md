@@ -55,3 +55,22 @@ Refs: robotsix-cai/cai#517
 
 ### New gaps / deferred
 - None; all five review-pr findings and all three review-docs findings addressed
+
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `README.md:54` — updated refine table row to mention `:raised` or `human:submitted`
+- `README.md:91` — updated ASCII lifecycle diagram entry point from `raised` to `raised / human:submitted`
+- `README.md:308-316` — expanded entry-points narrative to explain both `auto-improve:requested` (admin) and `human:submitted` (non-admin)
+- `cai.py:7151` — updated `cmd_refine()` docstring to mention both entry-point labels
+- `docs/cli.md:59` — updated `cycle` command description to mention `human:submitted`
+
+### Decisions this revision
+- README diagram updated in-place (single-line label change above the existing `raised` node)
+- Narrative expanded to explain the admin vs non-admin distinction between the two entry points
+
+### New gaps / deferred
+- None; all five review-pr findings and one review-docs finding addressed
