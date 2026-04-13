@@ -96,6 +96,7 @@ LABELS = [
     ("auto-improve:planned", "e4e669", "Plan generated and stored in issue body; awaiting human approval"),
     ("auto-improve:plan-approved", "0e8a16", "Plan approved by human; ready for fix subagent"),
     ("human:submitted", "bfd4f2", "Human-submitted issue awaiting refinement"),
+    ("auto-improve:parent", "c5def5", "Parent issue with sub-issues"),
     ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
     ("needs-human-review", "e11d48", "PR needs a human decision before merge"),
     ("category:reliability", "d73a4a", "Errors, failures, flaky behavior"),
@@ -107,6 +108,7 @@ LABELS = [
 AUDIT_LABELS = [
     ("audit", "c5def5", "Queue/PR consistency audit finding"),
     ("audit:raised", "0e8a16", "Audit finding freshly raised; needs human triage"),
+    ("audit:needs-human", "e11d48", "Audit finding needs human decision"),
     ("audit:solved", "6f42c1", "Audit finding addressed"),
     ("category:stale_lifecycle", "d93f0b", "Issue stuck in a state longer than expected"),
     ("category:lock_corruption", "e11d48", "Mutually exclusive labels or dangling references"),
@@ -292,6 +294,31 @@ def ensure_labels(namespace: str = "auto-improve") -> None:
             check=False,
             capture_output=True,
         )
+
+
+def ensure_all_labels() -> None:
+    """Create labels for ALL namespaces. Idempotent.
+
+    Deduplicates labels that appear in multiple sets (e.g.
+    auto-improve and auto-improve:raised appear in both LABELS
+    and CODE_AUDIT_LABELS).
+    """
+    seen: set[str] = set()
+    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS):
+        for name, color, description in label_set:
+            if name in seen:
+                continue
+            seen.add(name)
+            subprocess.run(
+                [
+                    "gh", "label", "create", name,
+                    "--color", color,
+                    "--description", description,
+                    "--repo", REPO,
+                ],
+                check=False,
+                capture_output=True,
+            )
 
 
 def issue_exists(key: str) -> bool:
