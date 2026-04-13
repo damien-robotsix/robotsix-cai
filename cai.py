@@ -196,7 +196,7 @@ from cai_lib.github import (  # noqa: E402
     _set_labels, _issue_has_label, _build_issue_block, _build_implement_user_message,
     _fetch_linked_issue_block,
 )
-from cai_lib.cmd_lifecycle import _rollback_stale_in_progress  # noqa: E402
+from cai_lib.cmd_lifecycle import _rollback_stale_in_progress, _reconcile_interrupted  # noqa: E402
 from cai_lib.cmd_implement import _parse_decomposition  # noqa: E402
 
 
