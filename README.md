@@ -391,7 +391,7 @@ The installer asks for the **auth mode**:
    written to a `.env` file (chmod 600).
 
 The installer also asks whether to enable **Watchtower** — a small
-sidecar container that polls Docker Hub every 30 minutes and
+sidecar container that polls Docker Hub every 12 hours (43200 s) and
 automatically pulls + restarts cai when a new image is published.
 Default is **no** (manual updates). If you answer yes, the generated
 `docker-compose.yml` includes a `watchtower` service alongside `cai`.

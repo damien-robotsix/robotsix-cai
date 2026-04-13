@@ -104,7 +104,7 @@ case "$ENABLE_WATCHTOWER" in
       - /var/run/docker.sock:/var/run/docker.sock
     command:
       - --label-enable
-      - --interval=1800
+      - --interval=43200
       - --cleanup
 WATCHTOWER
 )
