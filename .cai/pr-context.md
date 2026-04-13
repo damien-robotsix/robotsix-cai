@@ -61,3 +61,18 @@ Refs: damien-robotsix/robotsix-cai#499
 
 ### New gaps / deferred
 - None
+
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- docs/architecture.md:36-45 — replaced incorrect issue lifecycle labels (`:planned`, `:review`, `:confirmed`) with actual labels from cai.py constants (`:raised`, `:refined`, `:in-progress`, `:pr-open`, `:merged`, `:solved`)
+
+### Decisions this revision
+- Accurate labels sourced from cai.py lines 193-212 (LABEL_* constants) and cross-checked against README.md lifecycle diagram (lines 89-130)
+- Added `:no-action` and re-queue / `needs-human-review` outcomes to match the full state machine
+
+### New gaps / deferred
+- None
