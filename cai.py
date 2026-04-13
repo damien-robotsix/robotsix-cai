@@ -120,6 +120,14 @@ Subcommands:
                             issue with the `health-report` label. Use
                             --dry-run to print to stdout without posting.
 
+    python cai.py check-workflows  Periodic GitHub Actions workflow failure
+                            monitor. Fetches recent workflow runs, filters
+                            out bot branches (auto-improve/), and runs a
+                            Sonnet agent to identify persistent failures.
+                            Findings are published via publish.py with the
+                            `check-workflows` namespace. Runs every 6 hours
+                            by default (CAI_CHECK_WORKFLOWS_SCHEDULE).
+
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
 `verify`, `refine`, `spike`, `fix`, `revise`, `review-pr`, `review-docs`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.

@@ -58,6 +58,21 @@ Refs: damien-robotsix/robotsix-cai#497
 ### New gaps / deferred
 - none
 
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- cai.py:114 (module docstring) — added check-workflows entry following health-report
+
+### Decisions this revision
+- Entry follows the same indentation/format as other cron-only commands (code-audit, propose, update-check, health-report)
+- Placed between health-report and the startup description paragraph
+
+### New gaps / deferred
+- none
+
 ## Invariants this change relies on
 - _gh_json raises CalledProcessError on non-zero exit; cmd_check_workflows catches it
 - publish.py's parse_findings() splits on `### Finding:` headers; agent must use that format
