@@ -123,3 +123,19 @@ Refs: robotsix-cai/cai#518
 
 ### New gaps / deferred
 - none
+
+## Revision 6 (2026-04-13)
+
+### Rebase
+- resolved: docs/architecture.md (conflict between PR's Plan step 3 and HEAD's enhanced Review description from PR #522)
+
+### Files touched this revision
+- `docs/architecture.md:9-19` — resolved conflict: kept Plan as step 3, Fix as step 4, took HEAD's enhanced Review description (with review-docs ordering note), renumbered Review→Revise→Merge→Confirm to steps 5→6→7→8
+- `cai.py:4019` — added `LABEL_PLAN_APPROVED` to cmd_verify pr-open recovery cleanup list alongside `LABEL_PLANNED`
+
+### Decisions this revision
+- Took HEAD's enhanced Review description (includes review-docs ordering enforcement note from PR #522) over the PR branch's shorter version — HEAD version is strictly more complete
+- Added LABEL_PLAN_APPROVED to cmd_verify cleanup: both plan-related labels are symmetric intermediate states that should be cleaned up when a PR is found, per reviewer finding
+
+### New gaps / deferred
+- none
