@@ -2472,6 +2472,14 @@ _BOT_COMMENT_MARKERS = (
 )
 
 
+# Maximum number of characters of the original issue body to inline into the
+# revise agent's user message.  The full body is redundant once a PR exists —
+# the agent needs intent and acceptance criteria, not the full proposal.  When
+# the body exceeds this limit it is truncated and a pointer to the GitHub issue
+# is appended so the agent can fetch the rest if needed.
+_REVISE_ISSUE_BODY_MAX_CHARS = 1500
+
+
 def _is_bot_comment(comment: dict) -> bool:
     """Return True if a comment body looks like it was posted by a cai subagent."""
     body = (comment.get("body") or "").lstrip()
@@ -3368,13 +3376,23 @@ def cmd_revise(args) -> int:
                     "(none — only the rebase needed attention)\n"
                 )
 
+            _issue_body_raw = issue_data.get("body") or "(no body)"
+            _issue_num = issue_data["number"]
+            if len(_issue_body_raw) > _REVISE_ISSUE_BODY_MAX_CHARS:
+                _issue_body = (
+                    _issue_body_raw[:_REVISE_ISSUE_BODY_MAX_CHARS]
+                    + f"\n\n… (truncated — see #{_issue_num} for full body)"
+                )
+            else:
+                _issue_body = _issue_body_raw
+
             user_message = (
                 _work_directory_block(work_dir)
                 + "\n"
                 + f"{rebase_state_block}\n"
                 + "## Original issue\n\n"
-                + f"### #{issue_data['number']} — {issue_data.get('title', '')}\n\n"
-                + f"{issue_data.get('body') or '(no body)'}\n\n"
+                + f"### #{_issue_num} — {issue_data.get('title', '')}\n\n"
+                + f"{_issue_body}\n\n"
                 + pr_state_block
                 + comments_section
             )
