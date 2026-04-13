@@ -89,3 +89,17 @@ Refs: damien-robotsix/robotsix-cai#544
 
 ### New gaps / deferred
 - none
+
+## Revision 4 (2026-04-13)
+
+### Rebase
+- resolved: cai.py (4 conflict regions in cmd_cycle — HEAD added outer loop / plan-all re-entry logic; PR renamed fix→implement; merged by keeping HEAD structure with implement naming)
+
+### Files touched this revision
+- none (review comment already addressed)
+
+### Decisions this revision
+- Review comment from @damien-robotsix (cai review-docs) claimed docs/architecture.md:49 and README.md:54 still said "fix loop"; both were already updated in prior commits. No edits needed.
+
+### New gaps / deferred
+- none
