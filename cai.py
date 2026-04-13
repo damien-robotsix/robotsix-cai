@@ -2716,9 +2716,105 @@ def _recover_stuck_rebase_prs() -> int:
     return recovered
 
 
+def _close_orphaned_prs() -> int:
+    """Close open auto-improve PRs whose linked issue has been closed.
+
+    If the linked issue is CLOSED, `_select_revise_targets` silently
+    skips the PR (it requires issue.state == OPEN), and `cmd_merge`
+    cannot merge it if it has conflicts, so the PR sits open forever
+    accumulating conflict with main. This recovery step closes such
+    orphaned PRs and strips the stale `:pr-open` label from the
+    closed issue so the state machine converges.
+
+    Returns the number of PRs closed.
+    """
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--limit", "100",
+            "--json", "number,headRefName",
+        ])
+    except subprocess.CalledProcessError:
+        return 0
+
+    closed = 0
+    for pr in prs:
+        branch = pr.get("headRefName", "")
+        m = re.match(r"auto-improve/(\d+)-", branch)
+        if not m:
+            continue
+        issue_number = int(m.group(1))
+        pr_number = pr["number"]
+
+        try:
+            issue = _gh_json([
+                "issue", "view", str(issue_number),
+                "--repo", REPO,
+                "--json", "state",
+            ])
+        except subprocess.CalledProcessError:
+            continue
+        if not issue or issue.get("state", "").upper() != "CLOSED":
+            continue
+
+        print(
+            f"[cai revise] PR #{pr_number}: linked issue #{issue_number} "
+            f"is CLOSED; closing orphaned PR",
+            flush=True,
+        )
+
+        comment = (
+            "## Revise subagent: closing orphaned PR\n\n"
+            f"Linked issue #{issue_number} is closed, so this PR has "
+            "no tracking issue to drive it forward. Closing "
+            "automatically to prevent it from blocking the auto-improve "
+            "loop (revise skips PRs whose issue is closed; merge cannot "
+            "land it if it conflicts with `main`).\n\n"
+            "---\n"
+            "_Closed automatically by `cai revise` orphan recovery. "
+            "Reopen the issue if you want the fix subagent to retry._"
+        )
+        close_res = _run(
+            ["gh", "pr", "close", str(pr_number),
+             "--repo", REPO, "--delete-branch", "--comment", comment],
+            capture_output=True,
+        )
+        if close_res.returncode != 0:
+            print(
+                f"[cai revise] PR #{pr_number}: gh pr close failed:\n"
+                f"{close_res.stderr}",
+                file=sys.stderr,
+            )
+            continue
+
+        # Strip the stale :pr-open label from the closed issue.
+        _set_labels(
+            issue_number,
+            remove=[LABEL_PR_OPEN, LABEL_REVISING],
+            log_prefix="cai revise",
+        )
+        log_run("revise", repo=REPO, pr=pr_number, issue=issue_number,
+                result="closed_orphaned_pr", exit=0)
+        closed += 1
+
+    return closed
+
+
 def cmd_revise(args) -> int:
     """Iterate on open PRs based on review comments."""
     print("[cai revise] checking for PRs with unaddressed comments", flush=True)
+
+    # Close PRs whose linked issue was closed — otherwise they sit
+    # open forever (revise skips them, merge can't land conflicts).
+    orphaned = _close_orphaned_prs()
+    if orphaned:
+        print(
+            f"[cai revise] closed {orphaned} orphaned PR(s) "
+            "(linked issue was closed)",
+            flush=True,
+        )
 
     # Recover any PRs the rebase resolver has given up on, so they
     # don't sit stuck forever. Refs #144.
