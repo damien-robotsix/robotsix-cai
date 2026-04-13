@@ -1,13 +1,12 @@
-"""cai_lib.subprocess — subprocess wrappers for cai commands."""
+"""Subprocess helpers extracted from cai.py."""
 
 import json
 import subprocess
 import sys
-
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cai_lib.logging import log_cost
+from cai_lib.logging_utils import log_cost
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:

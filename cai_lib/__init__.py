@@ -43,13 +43,16 @@ from cai_lib.config import (
     LABEL_AUDIT_RAISED,
     LABEL_AUDIT_NEEDS_HUMAN,
     LABEL_PR_NEEDS_HUMAN,
+    LABEL_HUMAN_SUBMITTED,
+    LABEL_PLANNED,
+    LABEL_PLAN_APPROVED,
     _STALE_IN_PROGRESS_HOURS,
     _STALE_REVISING_HOURS,
     _STALE_NO_ACTION_DAYS,
     _STALE_MERGED_DAYS,
 )
 
-from cai_lib.logging import (
+from cai_lib.logging_utils import (
     log_run,
     log_cost,
     _write_active_job,
@@ -63,7 +66,7 @@ from cai_lib.logging import (
     _build_cost_summary,
 )
 
-from cai_lib.subprocess import _run, _run_claude_p
+from cai_lib.subprocess_utils import _run, _run_claude_p
 
 from cai_lib.github import (
     _gh_json,
@@ -91,7 +94,7 @@ __all__ = [
     "LABEL_MERGED", "LABEL_SOLVED", "LABEL_NO_ACTION", "LABEL_NEEDS_SPIKE",
     "LABEL_NEEDS_EXPLORATION", "LABEL_REFINED", "LABEL_REVISING", "LABEL_PARENT",
     "LABEL_MERGE_BLOCKED", "LABEL_AUDIT_RAISED", "LABEL_AUDIT_NEEDS_HUMAN",
-    "LABEL_PR_NEEDS_HUMAN",
+    "LABEL_PR_NEEDS_HUMAN", "LABEL_HUMAN_SUBMITTED", "LABEL_PLANNED", "LABEL_PLAN_APPROVED",
     "_STALE_IN_PROGRESS_HOURS", "_STALE_REVISING_HOURS",
     "_STALE_NO_ACTION_DAYS", "_STALE_MERGED_DAYS",
     # logging
