@@ -6496,6 +6496,48 @@ def _pr_set_needs_human(pr_number: int, needs: bool) -> None:
         )
 
 
+# PR pipeline-state labels (Step 1 of #557).  All live here so they remain
+# co-located with _pr_set_pipeline_state and avoid star-import visibility
+# issues that would arise if underscore-prefixed names were placed in config.
+LABEL_PR_EDITED          = "pr:edited"
+LABEL_PR_REVIEWED_REJECT = "pr:reviewed-reject"
+LABEL_PR_REVIEWED_ACCEPT = "pr:reviewed-accept"
+LABEL_PR_DOCUMENTED      = "pr:documented"
+PR_PIPELINE_LABELS = (
+    LABEL_PR_EDITED,
+    LABEL_PR_REVIEWED_REJECT,
+    LABEL_PR_REVIEWED_ACCEPT,
+    LABEL_PR_DOCUMENTED,
+)
+
+
+def _pr_set_pipeline_state(pr_number: int, label: str) -> None:
+    """Set exactly one PR pipeline-state label, removing the others.
+
+    Removes every label in PR_PIPELINE_LABELS then adds ``label``.
+    Idempotent: gh silently no-ops if the label is already/not present.
+    Logged but not fatal on failure — labelling is a UX nicety.
+    """
+    for lbl in PR_PIPELINE_LABELS:
+        # Swallow non-zero returns — the label simply wasn't on the PR.
+        _run(
+            ["gh", "pr", "edit", str(pr_number),
+             "--repo", REPO, "--remove-label", lbl],
+            capture_output=True,
+        )
+    res = _run(
+        ["gh", "pr", "edit", str(pr_number),
+         "--repo", REPO, "--add-label", label],
+        capture_output=True,
+    )
+    if res.returncode != 0:
+        print(
+            f"[cai] PR #{pr_number}: could not add pipeline label "
+            f"`{label}`:\n{res.stderr}",
+            file=sys.stderr,
+        )
+
+
 def _pr_label_sweep() -> tuple[int, int]:
     """Sync `needs-human-review` across every open bot PR.
 
