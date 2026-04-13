@@ -7,7 +7,7 @@ import unittest
 # regardless of how the test runner is invoked.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from publish import parse_findings, Finding, VALID_CATEGORIES
+from publish import parse_findings, Finding, VALID_CATEGORIES  # noqa: F401
 
 
 def _finding_block(title, category, key, confidence, evidence, remediation):
