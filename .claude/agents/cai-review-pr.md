@@ -47,16 +47,25 @@ In the user message, in order:
 ## What to look for
 
 Walk the diff, then use your tools to search the broader codebase for
-ripple effects in these six categories:
+ripple effects in these five categories:
 
 | Category | What it means |
 |---|---|
 | `redundant_code` | The PR adds logic that already exists elsewhere (or makes existing code redundant) |
-| `stale_docs` | The PR changes behavior but doesn't update related docs, comments, or README sections |
 | `dead_config` | The PR removes or renames something but leaves behind config, env vars, or references to the old name |
 | `contradictory_rules` | The PR introduces a pattern that contradicts an existing convention in the codebase |
-| `cross_cutting_ref` | The PR changes a function, constant, label, or path that is referenced elsewhere but doesn't update all references |
-| `missing_co_change` | The PR changes one side of a paired change (e.g., adds a subcommand but doesn't register it, adds an env var but doesn't document it) |
+| `cross_cutting_ref` | The PR changes a function, constant, label, or path that is referenced elsewhere but doesn't update all references (code references only — see below on docs) |
+| `missing_co_change` | The PR changes one side of a paired change (e.g., adds a subcommand but doesn't register it, adds an env var but doesn't document it in code-level config) |
+
+**Documentation is out of scope.** A separate `cai-review-docs` agent
+owns all documentation concerns — README, `docs/**`, code docstrings,
+inline comments, help text strings, and prose references to renamed
+symbols/labels. Do **not** flag any of these, even under
+`cross_cutting_ref` or `missing_co_change`. Your job is strictly
+code-level consistency (imports, call sites, config constants,
+workflow references, label registrations, and so on). If the only
+stale references you can find are in `.md` files, docstrings, or
+comments, the correct output is "No ripple effects found."
 
 ## How to work
 
@@ -112,8 +121,11 @@ No ripple effects found.
    `.github/workflows/cleanup-pr-context.yml` workflow auto-deletes
    it from `main` after merge. If a hunk in the diff adds or
    modifies `.cai/pr-context.md`, skip it entirely — do not flag
-   it under `stale_docs`, `dead_config`, `missing_co_change`, or
-   any other category.
+   it under `dead_config`, `missing_co_change`, or any other category.
+7. **Never flag documentation.** No README, `docs/**`, docstring,
+   inline comment, or help-text findings. `cai-review-docs` handles
+   all of that. If a finding you're about to emit only concerns
+   `.md` files or prose inside code, drop it.
 
 ## Agent-specific efficiency guidance
 
