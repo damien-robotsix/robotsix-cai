@@ -123,7 +123,7 @@ Subcommands:
     python cai.py check-workflows  Periodic GitHub Actions workflow failure
                             monitor. Fetches recent workflow runs, filters
                             out bot branches (auto-improve/), and runs a
-                            Sonnet agent to identify persistent failures.
+                            Haiku agent to identify persistent failures.
                             Findings are published via publish.py with the
                             `check-workflows` namespace. Runs every 6 hours
                             by default (CAI_CHECK_WORKFLOWS_SCHEDULE).

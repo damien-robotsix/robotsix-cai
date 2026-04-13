@@ -90,6 +90,20 @@ Refs: damien-robotsix/robotsix-cai#497
 ### New gaps / deferred
 - none
 
+## Revision 4 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- cai.py:126 (module docstring) — changed "Sonnet agent" to "Haiku agent" for check-workflows description
+
+### Decisions this revision
+- Minimal one-word fix; README.md already had the correct "Haiku agent" wording (added in original PR), so only the module docstring needed updating
+
+### New gaps / deferred
+- none
+
 ## Invariants this change relies on
 - _gh_json raises CalledProcessError on non-zero exit; cmd_check_workflows catches it
 - publish.py's parse_findings() splits on `### Finding:` headers; agent must use that format
