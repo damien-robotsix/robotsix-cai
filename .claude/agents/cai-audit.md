@@ -61,7 +61,7 @@ a soft `forgotten_backlog` finding with **low** confidence as a gentle
 reminder. This is distinct from `stale_lifecycle`, which applies only
 to issues that have entered an active state.
 
-Active states (`:raised`, `:refined`, `:requested`, `:in-progress`, `:pr-open`,
+Active states (`:raised`, `:refined`, `:planned`, `:plan-approved`, `:requested`, `:in-progress`, `:pr-open`,
 `:merged`, `:no-action`, `:needs-spike`, `:revising`) should continue to be checked
 normally against all the rules below. (Note: stale `:no-action`
 issues are rolled back to `:raised` before the LLM audit runs, and

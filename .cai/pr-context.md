@@ -196,6 +196,20 @@ Refs: robotsix-cai/cai#518
 ### New gaps / deferred
 - none
 
+## Revision 11 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-audit.md:64` — added `:planned` and `:plan-approved` to the active states list
+
+### Decisions this revision
+- docs/cli.md, docs/configuration.md, docs/architecture.md findings were already addressed in prior revisions; only cai-audit.md active states list needed updating.
+
+### New gaps / deferred
+- none
+
 ## Revision 10 (2026-04-13)
 
 ### Rebase
