@@ -213,6 +213,9 @@ LABEL_PARENT = "auto-improve:parent"
 LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
 LABEL_AUDIT_NEEDS_HUMAN = "audit:needs-human"
+LABEL_HUMAN_SUBMITTED = "human:submitted"
+LABEL_PLANNED = "auto-improve:planned"
+LABEL_PLAN_APPROVED = "auto-improve:plan-approved"
 
 # PR-level label applied by `cai merge` when the verdict is below the
 # auto-merge threshold. Lets a human filter open PRs that are waiting
@@ -1103,7 +1106,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
 # Labels that indicate an issue is already managed by the auto-improve
 # pipeline (or the audit pipeline).  Issues carrying any of these are NOT
 # eligible for automatic ingestion.
-_MANAGED_LABEL_PREFIXES = ("auto-improve:", "audit:")
+_MANAGED_LABEL_PREFIXES = ("auto-improve:", "audit:", "human:")
 
 
 def _ingest_unlabeled_issues() -> list[dict]:
@@ -7165,25 +7168,36 @@ def cmd_refine(args) -> int:
         title = issue["title"]
         print(f"[cai refine] targeting #{issue_number}: {title}", flush=True)
     else:
-        try:
-            issues = _gh_json([
-                "issue", "list",
-                "--repo", REPO,
-                "--label", LABEL_RAISED,
-                "--state", "open",
-                "--json", "number,title,body,labels,createdAt,comments",
-                "--limit", "100",
-            ]) or []
-        except subprocess.CalledProcessError as e:
-            print(
-                f"[cai refine] gh issue list failed:\n{e.stderr}",
-                file=sys.stderr,
-            )
-            log_run("refine", repo=REPO, result="list_failed", exit=1)
-            return 1
+        all_candidates = []
+        for label in (LABEL_RAISED, LABEL_HUMAN_SUBMITTED):
+            try:
+                batch = _gh_json([
+                    "issue", "list",
+                    "--repo", REPO,
+                    "--label", label,
+                    "--state", "open",
+                    "--json", "number,title,body,labels,createdAt,comments",
+                    "--limit", "100",
+                ]) or []
+            except subprocess.CalledProcessError as e:
+                print(
+                    f"[cai refine] gh issue list failed:\n{e.stderr}",
+                    file=sys.stderr,
+                )
+                log_run("refine", repo=REPO, result="list_failed", exit=1)
+                return 1
+            all_candidates.extend(batch)
+
+        # Deduplicate by issue number (in case an issue has both labels).
+        seen = set()
+        issues = []
+        for i in all_candidates:
+            if i["number"] not in seen:
+                seen.add(i["number"])
+                issues.append(i)
 
         if not issues:
-            print("[cai refine] no :raised issues; nothing to do", flush=True)
+            print("[cai refine] no :raised or human:submitted issues; nothing to do", flush=True)
             log_run("refine", repo=REPO, result="no_eligible_issues", exit=0)
             return 0
 
@@ -7310,11 +7324,11 @@ def cmd_refine(args) -> int:
                 duration=dur, result="edit_failed", exit=1)
         return 1
 
-    # 8. Transition labels: :raised → :refined.
+    # 8. Transition labels: :raised / human:submitted → :refined.
     _set_labels(
         issue_number,
         add=[LABEL_REFINED],
-        remove=[LABEL_RAISED],
+        remove=[LABEL_RAISED, LABEL_HUMAN_SUBMITTED],
         log_prefix="cai refine",
     )
 
