@@ -20,7 +20,7 @@
 |---|---|
 | `auto-improve:raised` | Newly filed, awaiting refinement |
 | `auto-improve:refined` | Has a structured plan, ready for the planning pipeline |
-| `auto-improve:in-progress` | Fix agent is running (lock; 6 h stale timeout) |
+| `auto-improve:in-progress` | Implement agent is running (lock; 6 h stale timeout) |
 | `auto-improve:pr-open` | PR created, awaiting review and merge |
 | `auto-improve:revising` | Revise agent is running (lock; 1 h stale timeout) |
 | `auto-improve:merged` | PR merged, awaiting confirmation |

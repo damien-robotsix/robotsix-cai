@@ -163,10 +163,10 @@ the refine step first.
 ### Filing issues with multi-step plans
 
 When filing an auto-improve issue, you can optionally include a
-`### Plan` section with numbered steps. The fix agent will execute
+`### Plan` section with numbered steps. The implement agent will execute
 the steps **sequentially**, verifying each one before proceeding to
 the next. You can also include a `### Verification` section with
-explicit checks the fix agent should run after each step.
+explicit checks the implement agent should run after each step.
 
 Example of a well-structured multi-step issue:
 
@@ -184,7 +184,7 @@ Example of a well-structured multi-step issue:
 ```
 
 Each step should be a distinct, atomic action. If an issue has no
-`### Plan` section, the fix agent uses its standard single-pass
+`### Plan` section, the implement agent uses its standard single-pass
 approach and this guidance does not apply.
 
 If the refine subagent detects that work requires multiple independent steps, it produces a `## Multi-Step Decomposition` output. The wrapper then:
@@ -222,11 +222,11 @@ rolled back: `:in-progress` issues after 6 hours with no recent fix
 activity, and `:revising` issues after 1 hour with no recent revise
 activity — both are automatically rolled back to `:refined`. Stale
 `:no-action` issues (7+ days) are rolled back to `:raised` so the `refine`
-agent (and subsequently the fix agent) can retry with new context. Stale `:merged` issues (14+ days)
+agent (and subsequently the implement agent) can retry with new context. Stale `:merged` issues (14+ days)
 are flagged with `needs-human-review` since the automation cannot
 determine whether the fix worked. Additionally, remote `auto-improve/*`
 branches with no open PR — including branches for merged/closed PRs and
-branches pushed by the fix agent that never had a PR opened — are deleted
+branches pushed by the implement agent that never had a PR opened — are deleted
 automatically. Finally, `:pr-open` issues whose linked PR was closed without
 merging are rolled back to `:refined` to restart the refinement and planning
 cycle before a human can re-approve them for the implement subagent.
