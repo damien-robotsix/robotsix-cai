@@ -29,6 +29,21 @@ Refs: robotsix-cai/cai#525
 - The merge gate (line 6878) does not check `_DOCS_REVIEW_COMMENT_HEADING_CLEAN` explicitly but it works because CLEAN starts with the FINDINGS prefix — no change needed
 - After review-docs pushes a new commit (new SHA=Y), review-pr must re-run to review Y before merge proceeds — this is the correct pipeline ordering
 
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:6337-6361` — updated comment block for `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` to document both code paths (fixed+pushed vs unfixable findings)
+- `cai.py:6356` — updated `cmd_review_docs` docstring from "post findings as PR comments" to "fix stale documentation and post findings for issues that cannot be fixed automatically"
+
+### Decisions this revision
+- docs/agents.md, docs/architecture.md, docs/cli.md were already fixed and pushed by cai-review-docs agent (second review comment); only cai.py internal comments/docstring remained
+
+### New gaps / deferred
+- none
+
 ## Invariants this change relies on
 - `gh auth setup-git` must be called before `gh repo clone` to enable authenticated push
 - The PR branch must not be protected against bot pushes (auto-improve branches are bot-owned)

@@ -6334,12 +6334,21 @@ def cmd_review_pr(args) -> int:
 # review-docs — pre-merge documentation review
 # ---------------------------------------------------------------------------
 
-# docs-review posts two comment variants depending on whether the
-# review found stale documentation:
+# docs-review posts two comment variants depending on the outcome:
 #
-#   * `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` — actionable, contains
-#     `### Finding: stale_docs` blocks. NOT in `_BOT_COMMENT_MARKERS`
-#     so the revise subagent picks them up and addresses them.
+#   * `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` — used in two cases:
+#     (1) The agent fixed stale docs and pushed a commit to the PR
+#         branch. The comment is posted at the *new* SHA and may
+#         contain `### Fixed: stale_docs` blocks plus any remaining
+#         `### Finding: stale_docs` blocks for issues it could not
+#         fix automatically.
+#     (2) The agent found unfixable issues and did not push. The
+#         comment is posted at the original SHA and contains
+#         `### Finding: stale_docs` blocks that the revise subagent
+#         can pick up and address.
+#     NOT in `_BOT_COMMENT_MARKERS` so the revise subagent considers
+#     it actionable; when all items are already fixed (case 1) the
+#     revise agent will see no open findings and skip it naturally.
 #
 #   * `_DOCS_REVIEW_COMMENT_HEADING_CLEAN` — informational only, says
 #     "no documentation updates needed". IS in `_BOT_COMMENT_MARKERS`
@@ -6353,7 +6362,7 @@ _DOCS_REVIEW_COMMENT_HEADING_CLEAN = "## cai docs review (clean)"
 
 
 def cmd_review_docs(args) -> int:
-    """Review open PRs for stale documentation and post findings as PR comments."""
+    """Fix stale documentation on open PRs and post findings for issues that cannot be fixed automatically."""
     print("[cai review-docs] checking open PRs against main", flush=True)
     t0 = time.monotonic()
 
