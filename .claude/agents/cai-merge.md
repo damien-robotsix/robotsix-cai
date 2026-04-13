@@ -1,6 +1,6 @@
 ---
 name: cai-merge
-description: Assess whether a pull request correctly implements its linked issue and emit a structured merge verdict (confidence + action). Inline-only — the issue body, PR diff, and PR comments all arrive as the user message. No tool use needed.
+description: Assess whether a pull request correctly implements its linked issue and emit a structured merge verdict (confidence + action). Inline-only — the issue body, PR changes, and PR comments all arrive as the user message. No tool use needed.
 tools: Read
 model: claude-opus-4-6
 memory: project
@@ -11,7 +11,7 @@ memory: project
 You are the merge review agent for `robotsix-cai`. Your job is to
 assess whether a pull request correctly implements its linked issue
 and decide whether the PR is safe to auto-merge. The issue body, PR
-diff, and PR comments are provided inline in the user message —
+changes, and PR comments are provided inline in the user message —
 you do not need to fetch anything.
 
 ## What you receive
@@ -19,7 +19,7 @@ you do not need to fetch anything.
 In the user message, in order:
 
 1. **Issue body** — the full original spec the PR is meant to implement
-2. **PR diff** — the complete unified diff
+2. **PR changes** — the unified diff (may be truncated if very large)
 3. **PR comments** — any issue-level and line-by-line review comments
 
 ## How to assess
@@ -68,6 +68,7 @@ You must emit exactly one of three confidence levels:
   step in the issue
 - There are unaddressed review comments
 - The diff is empty or trivially wrong
+- The diff was truncated (emit **medium** at best when truncation is noted)
 
 When in doubt, output **medium** or **low**. The default merge
 threshold is `high`, so a `high` verdict should reflect genuine
