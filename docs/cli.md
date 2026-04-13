@@ -112,6 +112,14 @@ Invoke `cai-refine` on the oldest `auto-improve:raised` or `human:submitted` iss
 |---|---|---|
 | `--issue INT` | optional | Target a specific issue number |
 
+## plan
+
+Run the plan-select pipeline on the oldest `auto-improve:refined` issue. Clones the repo, runs 2 serial plan agents followed by a select agent, stores the chosen plan in the issue body inside `<!-- cai-plan-start/end -->` markers, and transitions the label to `auto-improve:planned`. Runs on a cron schedule (CAI_PLAN_SCHEDULE); not part of the synchronous startup cycle.
+
+| Argument | Type | Description |
+|---|---|---|
+| `--issue INT` | optional | Target a specific issue number instead of queue-based selection |
+
 ## review-docs
 
 Review open PRs for stale documentation using `cai-review-docs`. Directly fixes stale documentation it finds and pushes commits to the PR branch. Posts `### Fixed: stale_docs` blocks for successfully fixed docs, and `### Finding: stale_docs` blocks for issues that cannot be fixed automatically.

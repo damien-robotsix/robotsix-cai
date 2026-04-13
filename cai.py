@@ -77,6 +77,19 @@ Subcommands:
                             issue body, and transition the label to
                             `auto-improve:refined`.
 
+    python cai.py plan      Run the plan-select pipeline on the
+                            oldest issue labelled `auto-improve:
+                            refined`. Clones the repo into /tmp,
+                            runs 2 serial plan agents followed by
+                            a select agent, stores the chosen plan
+                            in the issue body inside
+                            `<!-- cai-plan-start/end -->` markers,
+                            and transitions the label from
+                            `auto-improve:refined` to
+                            `auto-improve:planned`. Runs on a cron
+                            schedule (CAI_PLAN_SCHEDULE); not part
+                            of the synchronous startup cycle.
+
     python cai.py spike     Pick the oldest issue labelled
                             `auto-improve:needs-spike`, clone the
                             repo into /tmp, and run the cai-spike
@@ -131,6 +144,8 @@ Subcommands:
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
 `verify`, `refine`, `spike`, `fix`, `revise`, `review-pr`, `review-docs`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
+`plan` is not part of the synchronous startup cycle — it runs only on its
+cron schedule (CAI_PLAN_SCHEDULE, default 0 11 * * *).
 
 The gh auth check is done once per subcommand invocation. We want a
 clear error message in docker logs if credentials ever disappear from
@@ -933,7 +948,9 @@ def cmd_analyze(args) -> int:
         LABEL_IN_PROGRESS: 0,
         LABEL_PR_OPEN: 1,
         LABEL_NEEDS_SPIKE: 2,
+        LABEL_PLAN_APPROVED: 3,
         LABEL_REFINED: 3,
+        LABEL_PLANNED: 3,
         LABEL_RAISED: 4,
         LABEL_HUMAN_SUBMITTED: 4,
         LABEL_MERGED: 5,
@@ -1173,6 +1190,12 @@ def _select_fix_target():
     `auto-improve:refined`) enter the fix pipeline.
     If no candidates are found, attempts to recover stale `:pr-open`
     issues whose linked PR was closed unmerged or that have no linked PR.
+
+    NOTE: `:planned` and `:plan-approved` issues are intentionally NOT
+    picked up here.  `:planned` issues are waiting for human approval;
+    `:plan-approved` issues will be wired into this function in Step 3 of
+    the plan-gate sub-issue chain (#481).  Until then, they sit in the
+    queue without being consumed by the fix agent.
     """
     candidates: dict[int, dict] = {}
     for label in (LABEL_REFINED, LABEL_REQUESTED):
@@ -1265,6 +1288,59 @@ def _select_fix_target():
         return age_days * rate * (1.0 / max(1, prior))
 
     return max(candidates.values(), key=_score)
+
+
+def _select_plan_target(issue_number: int | None = None):
+    """Return the oldest open :refined issue eligible for planning, or None.
+
+    If *issue_number* is given, fetch that issue directly (validating it is
+    open and not locked).  Otherwise query for the oldest :refined issue
+    that is not :in-progress or :pr-open.
+    """
+    if issue_number is not None:
+        try:
+            issue = _gh_json([
+                "issue", "view", str(issue_number),
+                "--repo", REPO,
+                "--json", "number,title,body,labels,state,createdAt,comments",
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[cai plan] gh issue view #{issue_number} failed:\n{e.stderr}",
+                  file=sys.stderr)
+            return None
+        if issue.get("state", "").upper() != "OPEN":
+            print(f"[cai plan] issue #{issue_number} is not open; nothing to do",
+                  flush=True)
+            return None
+        label_names = {lbl["name"] for lbl in issue.get("labels", [])}
+        if LABEL_IN_PROGRESS in label_names or LABEL_PR_OPEN in label_names:
+            print(f"[cai plan] issue #{issue_number} is locked; skipping",
+                  flush=True)
+            return None
+        return issue
+
+    # Queue-based: oldest :refined issue not locked.
+    try:
+        candidates = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_REFINED,
+            "--state", "open",
+            "--json", "number,title,body,labels,createdAt,comments",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai plan] gh issue list failed:\n{e.stderr}",
+              file=sys.stderr)
+        return None
+    candidates = [
+        c for c in candidates
+        if not {lbl["name"] for lbl in c.get("labels", [])}
+            & {LABEL_IN_PROGRESS, LABEL_PR_OPEN}
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda c: c.get("createdAt", ""))
 
 
 def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (), log_prefix: str = "cai fix") -> bool:
@@ -1525,6 +1601,136 @@ def _run_plan_select_pipeline(issue: dict, work_dir: Path, attempt_history_block
 
     print(f"[cai fix] select agent produced {len(selection)} chars", flush=True)
     return selection
+
+
+def _extract_stored_plan(issue_body: str) -> str | None:
+    """Extract the stored plan from an issue body, or None if not present."""
+    start_marker = "<!-- cai-plan-start -->"
+    end_marker = "<!-- cai-plan-end -->"
+    start = issue_body.find(start_marker)
+    end = issue_body.find(end_marker)
+    if start == -1 or end == -1 or end <= start:
+        return None
+    content = issue_body[start + len(start_marker):end].strip()
+    heading = "## Selected Implementation Plan"
+    if content.startswith(heading):
+        content = content[len(heading):].strip()
+    return content if content else None
+
+
+def _strip_stored_plan_block(issue_body: str) -> str:
+    """Remove an existing cai-plan block from the issue body, if present."""
+    start_marker = "<!-- cai-plan-start -->"
+    end_marker = "<!-- cai-plan-end -->"
+    start = issue_body.find(start_marker)
+    end = issue_body.find(end_marker)
+    if start == -1 or end == -1 or end <= start:
+        return issue_body
+    # Remove from start_marker through end_marker plus any trailing newlines.
+    after = end + len(end_marker)
+    while after < len(issue_body) and issue_body[after] == "\n":
+        after += 1
+    return issue_body[:start] + issue_body[after:]
+
+
+def cmd_plan(args) -> int:
+    """Run the plan-select pipeline on one :refined issue and store the result."""
+    t0 = time.monotonic()
+
+    # 1. Select target issue.
+    issue = _select_plan_target(getattr(args, "issue", None))
+    if issue is None:
+        print("[cai plan] no eligible :refined issues; nothing to do", flush=True)
+        log_run("plan", repo=REPO, result="no_eligible_issues", exit=0)
+        return 0
+
+    issue_number = issue["number"]
+    title = issue["title"]
+    print(f"[cai plan] picked #{issue_number}: {title}", flush=True)
+
+    # 2. Clone repo (plan agents need to read the codebase).
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-plan-{issue_number}-{_uid}")
+    try:
+        if work_dir.exists():
+            shutil.rmtree(work_dir)
+        clone = _run(
+            ["git", "clone", "--depth", "1",
+             f"https://github.com/{REPO}.git", str(work_dir)],
+            capture_output=True,
+        )
+        if clone.returncode != 0:
+            print(f"[cai plan] git clone failed:\n{clone.stderr}",
+                  file=sys.stderr)
+            log_run("plan", repo=REPO, issue=issue_number,
+                    result="clone_failed", exit=1)
+            return 1
+
+        # 3. Fetch previous fix attempts for context.
+        attempts = _fetch_previous_fix_attempts(issue_number)
+        attempt_history_block = _build_attempt_history_block(attempts)
+        if attempt_history_block:
+            print(
+                f"[cai plan] injecting {len(attempts)} previous fix "
+                f"attempt(s) for #{issue_number}",
+                flush=True,
+            )
+
+        # 4. Run plan-select pipeline.
+        selected_plan = _run_plan_select_pipeline(
+            issue, work_dir, attempt_history_block,
+        )
+        if selected_plan is None:
+            print(f"[cai plan] plan pipeline failed for #{issue_number}",
+                  file=sys.stderr)
+            dur = f"{int(time.monotonic() - t0)}s"
+            log_run("plan", repo=REPO, issue=issue_number,
+                    duration=dur, result="pipeline_failed", exit=1)
+            return 1
+
+        # 5. Store plan in issue body (strip any old plan block first).
+        current_body = _strip_stored_plan_block(issue.get("body", "") or "")
+        plan_block = (
+            "<!-- cai-plan-start -->\n"
+            "## Selected Implementation Plan\n\n"
+            f"{selected_plan}\n"
+            "<!-- cai-plan-end -->"
+        )
+        new_body = f"{plan_block}\n\n{current_body}"
+        update = _run(
+            ["gh", "issue", "edit", str(issue_number),
+             "--repo", REPO, "--body", new_body],
+            capture_output=True,
+        )
+        if update.returncode != 0:
+            print(f"[cai plan] gh issue edit failed:\n{update.stderr}",
+                  file=sys.stderr)
+            dur = f"{int(time.monotonic() - t0)}s"
+            log_run("plan", repo=REPO, issue=issue_number,
+                    duration=dur, result="edit_failed", exit=1)
+            return 1
+
+        # 6. Transition labels: :refined → :planned.
+        _set_labels(
+            issue_number,
+            add=[LABEL_PLANNED],
+            remove=[LABEL_REFINED],
+            log_prefix="cai plan",
+        )
+
+        dur = f"{int(time.monotonic() - t0)}s"
+        print(
+            f"[cai plan] #{issue_number} planned and transitioned to "
+            f":planned in {dur}",
+            flush=True,
+        )
+        log_run("plan", repo=REPO, issue=issue_number,
+                duration=dur, result="ok", exit=0)
+        return 0
+
+    finally:
+        if work_dir.exists():
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def _parse_suggested_issues(agent_output: str) -> list[dict]:
@@ -3807,7 +4013,7 @@ def cmd_verify(args) -> int:
         if LABEL_PR_OPEN in iss_labels:
             continue
         # Issue is open, has an open PR, but missing :pr-open — recover.
-        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_RAISED, LABEL_HUMAN_SUBMITTED, LABEL_AUDIT_RAISED) if l in iss_labels]
+        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED, LABEL_RAISED, LABEL_HUMAN_SUBMITTED, LABEL_AUDIT_RAISED) if l in iss_labels]
         if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove, log_prefix="cai verify"):
             print(
                 f"[cai verify] recovered #{issue_num}: added :pr-open "
@@ -8021,6 +8227,7 @@ def cmd_cycle(args) -> int:
       1.5. recover stale locks (:in-progress / :revising)
       2. drain pending PRs (revise → review-pr → review-docs → merge)
       2.5. refine one :raised issue
+      2.6. plan one :refined issue (plan-select pipeline → store plan → :planned)
       3. loop: verify → fix/spike/explore → drain → refine → repeat
       4. final confirm
     """
@@ -8062,6 +8269,12 @@ def cmd_cycle(args) -> int:
     # --- Phase 2.5: refine one :raised issue ------------------------------
     rc = _run_step("refine", cmd_refine, args)
     all_results["refine"] = rc
+    if rc != 0:
+        had_failure = True
+
+    # --- Phase 2.6: plan one :refined issue --------------------------------
+    rc = _run_step("plan", cmd_plan, args)
+    all_results["plan"] = rc
     if rc != 0:
         had_failure = True
 
@@ -8345,6 +8558,8 @@ def cmd_health_report(args) -> int:
     label_states = [
         ("raised", LABEL_RAISED),
         ("refined", LABEL_REFINED),
+        ("planned", LABEL_PLANNED),
+        ("plan-approved", LABEL_PLAN_APPROVED),
         ("in-progress", LABEL_IN_PROGRESS),
         ("pr-open", LABEL_PR_OPEN),
         ("merged", LABEL_MERGED),
@@ -8799,6 +9014,11 @@ def main() -> int:
         "--issue", type=int, default=None,
         help="Target a specific issue number instead of using queue-based selection",
     )
+    plan_parser = sub.add_parser("plan", help="Run plan-select pipeline on a :refined issue")
+    plan_parser.add_argument(
+        "--issue", type=int, default=None,
+        help="Target a specific issue number instead of using queue-based selection",
+    )
     spike_parser = sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
     spike_parser.add_argument(
         "--issue", type=int, default=None,
@@ -8868,6 +9088,7 @@ def main() -> int:
         "review-docs": cmd_review_docs,
         "merge": cmd_merge,
         "refine": cmd_refine,
+        "plan": cmd_plan,
         "spike": cmd_spike,
         "explore": cmd_explore,
         "cycle": cmd_cycle,

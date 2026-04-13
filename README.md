@@ -66,6 +66,7 @@ subprocess with no shared state.
 | `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
 | `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
 | `cai.py check-workflows` | `0 */6 * * *` (every 6 hours) | GitHub Actions failure monitor — fetches recent failed workflow runs (last 24 h), filters out bot branches, and runs a Haiku agent to group related failures and identify root causes; findings are published as `check-workflows` namespace issues. |
+| `cai.py plan` | `0 11 * * *` (daily 11:00 UTC) | Plan-select pipeline — clones the repo, runs 2 serial plan agents followed by a select agent on the oldest `:refined` issue, stores the chosen plan in the issue body inside `<!-- cai-plan-start/end -->` markers, and transitions the label to `auto-improve:planned`. |
 | `cai.py cycle` | _(startup + manual/on-demand)_ | Runs verify → fix → revise → review-pr → review-docs → merge → confirm in sequence. The entrypoint runs this once synchronously at `docker compose up -d` so the issue-solving pipeline produces immediate logs; not scheduled via cron (the individual steps have their own cron lines) |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
@@ -74,10 +75,10 @@ the env vars (`CAI_ANALYZER_SCHEDULE`, `CAI_FIX_SCHEDULE`,
 `CAI_REFINE_SCHEDULE`, `CAI_REVIEW_PR_SCHEDULE`, `CAI_MERGE_SCHEDULE`,
 `CAI_REVISE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`,
 `CAI_AUDIT_TRIAGE_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`,
-`CAI_PROPOSE_SCHEDULE`, `CAI_SPIKE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`, `CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`),
+`CAI_PROPOSE_SCHEDULE`, `CAI_SPIKE_SCHEDULE`, `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_CONFIRM_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`, `CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`, `CAI_PLAN_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. Analysis, audit,
-proposal, refine, spike, update-check, and check-workflows agents are **not** run at
+proposal, refine, spike, update-check, check-workflows, and plan agents are **not** run at
 startup — they wait for their own cron ticks so container restarts
 don't re-trigger token-heavy analysis passes.
 
