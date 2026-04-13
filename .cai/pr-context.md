@@ -139,3 +139,17 @@ Refs: robotsix-cai/cai#518
 
 ### New gaps / deferred
 - none
+
+## Revision 7 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:8175-8182` — added Phase 2.6 to `cmd_cycle` docstring Flow section
+
+### Decisions this revision
+- Inserted `2.6. plan one :refined issue (plan-select pipeline → store plan → :planned)` between 2.5 and 3 in the docstring to match implementation
+
+### New gaps / deferred
+- docs/cli.md, docs/configuration.md, docs/architecture.md findings from second review comment were already addressed in Revision 2 — no changes needed
