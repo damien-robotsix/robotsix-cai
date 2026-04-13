@@ -3784,6 +3784,9 @@ def cmd_revise(args) -> int:
                 flush=True,
             )
 
+            # 11a. Advance pipeline state: branch now has new commits.
+            _pr_set_pipeline_state(pr_number, LABEL_PR_EDITED)
+
             # 11. Post a summary comment describing what happened.
             if head_changed and has_uncommitted:
                 summary_suffix = (
@@ -6328,6 +6331,12 @@ def cmd_review_pr(args) -> int:
                 capture_output=True,
             )
 
+            # Advance pipeline state based on review outcome.
+            if has_findings:
+                _pr_set_pipeline_state(pr_number, LABEL_PR_REVIEWED_REJECT)
+            else:
+                _pr_set_pipeline_state(pr_number, LABEL_PR_REVIEWED_ACCEPT)
+
             _log_review_pr_findings(pr_number, head_sha, agent_output)
 
             finding_word = "with findings" if has_findings else "clean"
@@ -6379,13 +6388,6 @@ def cmd_review_pr(args) -> int:
 _DOCS_REVIEW_COMMENT_HEADING_PREFIX = "## cai docs review"
 _DOCS_REVIEW_COMMENT_HEADING_CLEAN = "## cai docs review (clean)"
 _DOCS_REVIEW_COMMENT_HEADING_APPLIED = "## cai docs review (applied)"
-
-# Commit-message subject used by `cmd_review_docs` when it pushes
-# automated documentation fixes. Recognized by the merge gate so a
-# docs-only follow-up commit doesn't force another full review-pr
-# pass (which would cascade into another review-docs pass, etc.).
-_REVIEW_DOCS_COMMIT_SUBJECT = "docs: update documentation per review-docs"
-
 
 def cmd_review_docs(args) -> int:
     """Fix stale documentation on open PRs and post findings for issues that cannot be fixed automatically."""
@@ -6453,28 +6455,14 @@ def cmd_review_docs(args) -> int:
             skipped += 1
             continue
 
-        # Gate: only review docs after review-pr has posted a CLEAN
-        # review at this SHA. Running review-docs while review-pr
-        # still has open findings lets the docs commit advance HEAD
-        # past an unresolved finding, which confuses revise's
-        # "comment already addressed" logic (the docs self-summary
-        # gets conflated with the real review-pr finding). Wait until
-        # the revise/review loop has converged before touching docs.
-        has_clean_code_review_at_sha = False
-        for comment in pr.get("comments", []):
-            body = (comment.get("body") or "")
-            first_line = body.split("\n", 1)[0]
-            if (
-                first_line.startswith(_REVIEW_COMMENT_HEADING_CLEAN)
-                and head_sha in first_line
-            ):
-                has_clean_code_review_at_sha = True
-                break
-
-        if not has_clean_code_review_at_sha:
+        # Gate: only review docs after `pr:reviewed-accept` label is set,
+        # meaning cmd_review_pr has posted a clean verdict for this PR.
+        # Bootstrap note: PRs already in flight with no pr:* label will be
+        # skipped here until the next natural cmd_review_pr run sets the label.
+        pr_labels = {l["name"] for l in pr.get("labels", [])}
+        if LABEL_PR_REVIEWED_ACCEPT not in pr_labels:
             print(
-                f"[cai review-docs] PR #{pr_number}: review-pr has not posted "
-                f"a clean review for {head_sha[:8]} yet; waiting for revise/review loop",
+                f"[cai review-docs] PR #{pr_number}: label `pr:reviewed-accept` not present; waiting",
                 flush=True,
             )
             skipped += 1
@@ -6574,7 +6562,7 @@ def cmd_review_docs(args) -> int:
                 # Commit and push the doc fixes.
                 _git(work_dir, "add", "-A")
                 _git(work_dir, "commit", "-m",
-                     f"{_REVIEW_DOCS_COMMIT_SUBJECT}\n\n"
+                     "docs: update documentation per review-docs\n\n"
                      "Applied by cai review-docs.")
                 push = _run(
                     ["git", "-C", str(work_dir), "push", "origin", branch],
@@ -6611,6 +6599,14 @@ def cmd_review_docs(args) -> int:
                  "--repo", REPO, "--body", comment_body],
                 capture_output=True,
             )
+
+            # Advance pipeline state based on docs review outcome.
+            if has_doc_changes:
+                # Docs fix was pushed — branch updated, re-enter revise/review cycle.
+                _pr_set_pipeline_state(pr_number, LABEL_PR_EDITED)
+            else:
+                # No doc changes needed — docs confirmed current.
+                _pr_set_pipeline_state(pr_number, LABEL_PR_DOCUMENTED)
 
             result_word = "fixes pushed" if has_doc_changes else "clean"
             print(
@@ -6896,6 +6892,8 @@ def cmd_merge(args) -> int:
         head_sha = pr["headRefOid"]
         branch = pr.get("headRefName", "")
         title = pr["title"]
+        # Collect PR label names once per iteration; used by filters 7 and 7b.
+        pr_labels = {l["name"] for l in pr.get("labels", [])}
 
         # Safety filter 1: only bot PRs.
         m = re.match(r"^auto-improve/(\d+)-", branch)
@@ -6943,105 +6941,24 @@ def cmd_merge(args) -> int:
         # `merge-blocked` label (and any `needs-human-review` label)
         # to restart the merge-evaluation cycle for those PRs.
 
-        # Safety filter 7: require `cai review-pr` to have reviewed
-        # the current head SHA before we run a merge verdict on it.
-        #
-        # Without this gate, `cmd_merge` runs on every new commit — in
-        # particular, every commit that `cmd_revise` pushes in response
-        # to a prior review's findings — BEFORE the reviewer has had a
-        # chance to walk the new diff. That produces a verdict on an
-        # un-reviewed SHA (uninformed by the ripple-effect scan) and,
-        # via `_pr_label_sweep`, flips the PR to `needs-human-review`
-        # while the fix/review/revise loop is still actively making
-        # progress. The PR then flaps through the label on every cycle
-        # until the reviewer finally reports clean. Refs #351
-        # post-mortem: 5+ premature verdicts, each one flagging the PR
-        # for human triage even though revise was still addressing
-        # ripple findings one round at a time.
-        #
-        # Matches either heading variant (findings or clean) because
-        # both start with `_REVIEW_COMMENT_HEADING_FINDINGS` and both
-        # include the head SHA on the heading line. Mirrors the
-        # already-reviewed check in `cmd_review_pr`.
-        #
-        # Exception: when `cai review-docs` fixes documentation it
-        # pushes a new commit with subject
-        # `_REVIEW_DOCS_COMMIT_SUBJECT`, advancing HEAD past the last
-        # review-pr SHA. Treat such follow-up commits as "already
-        # reviewed" — otherwise every docs push forces another
-        # review-pr pass, which in turn triggers another review-docs
-        # pass at the new SHA, cascading indefinitely for any tweak.
-        reviewed_shas = set()
-        for comment in pr.get("comments", []):
-            body = (comment.get("body") or "")
-            first_line = body.split("\n", 1)[0]
-            if not first_line.startswith(_REVIEW_COMMENT_HEADING_FINDINGS):
-                continue
-            m_sha = re.search(r"\u2014\s+([0-9a-f]{7,40})", first_line)
-            if m_sha:
-                reviewed_shas.add(m_sha.group(1))
-
-        has_review_at_sha = head_sha in reviewed_shas
-
-        if not has_review_at_sha and reviewed_shas:
-            # Accept an earlier review-pr SHA if every intervening
-            # commit up to HEAD is a review-docs self-commit.
-            try:
-                _commits_data = _gh_json([
-                    "pr", "view", str(pr_number),
-                    "--repo", REPO,
-                    "--json", "commits",
-                ])
-                _commit_list = _commits_data.get("commits", [])
-            except subprocess.CalledProcessError:
-                _commit_list = []
-
-            latest_reviewed_idx = -1
-            for idx, c in enumerate(_commit_list):
-                if c.get("oid") in reviewed_shas:
-                    latest_reviewed_idx = idx
-
-            if latest_reviewed_idx >= 0:
-                tail = _commit_list[latest_reviewed_idx + 1:]
-                if tail and all(
-                    (c.get("messageHeadline") or "").startswith(
-                        _REVIEW_DOCS_COMMIT_SUBJECT
-                    )
-                    for c in tail
-                ):
-                    has_review_at_sha = True
-                    print(
-                        f"[cai merge] PR #{pr_number}: accepting review-pr "
-                        f"at earlier SHA; {len(tail)} intervening "
-                        f"commit(s) are review-docs follow-ups",
-                        flush=True,
-                    )
-
-        if not has_review_at_sha:
+        # Safety filter 7: require a clean code review (`pr:reviewed-accept`)
+        # OR a completed docs review (`pr:documented`) before merging.
+        # pr_labels was computed once at the top of this loop.
+        # Bootstrap note: PRs already in flight with no pr:* label will be
+        # skipped here until the next natural cmd_review_pr run sets the label.
+        if LABEL_PR_REVIEWED_ACCEPT not in pr_labels and LABEL_PR_DOCUMENTED not in pr_labels:
             print(
-                f"[cai merge] PR #{pr_number}: review-pr has not reviewed "
-                f"{head_sha[:8]} yet; waiting",
+                f"[cai merge] PR #{pr_number}: neither `pr:reviewed-accept` nor "
+                f"`pr:documented` present; waiting",
                 flush=True,
             )
             continue
 
-        # Safety filter 7b: require `cai review-docs` to have reviewed
-        # the current head SHA before running a merge verdict.
-        has_docs_review_at_sha = False
-        for comment in pr.get("comments", []):
-            body = (comment.get("body") or "")
-            first_line = body.split("\n", 1)[0]
-            if (
-                first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_PREFIX)
-                and head_sha in first_line
-            ):
-                has_docs_review_at_sha = True
-                break
-
-        if not has_docs_review_at_sha:
+        # Safety filter 7b: require docs review sign-off (`pr:documented`).
+        # pr_labels was computed once at the top of this loop.
+        if LABEL_PR_DOCUMENTED not in pr_labels:
             print(
-                f"[cai merge] PR #{pr_number}: review-docs has not reviewed "
-                f"{head_sha[:8]} yet; waiting",
+                f"[cai merge] PR #{pr_number}: label `pr:documented` not present; waiting",
                 flush=True,
             )
             continue
