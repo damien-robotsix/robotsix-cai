@@ -681,6 +681,19 @@ def _select_fix_target(exclude: set[int] | None = None):
             label_names = {lbl["name"] for lbl in issue.get("labels", [])}
             if LABEL_IN_PROGRESS in label_names or LABEL_PR_OPEN in label_names:
                 continue
+            # Skip issues that already reached a terminal lifecycle state.
+            # An issue can carry both `human:plan-approved` and a terminal
+            # label (e.g. `:no-action`, `:merged`, `:needs-spike`) when an
+            # earlier transition forgot to strip the human approval. Without
+            # this guard, the fix loop keeps re-selecting the same issue and
+            # the cai-fix subagent correctly reports "no action needed" every
+            # run — wasting cycles forever.
+            if (
+                LABEL_NO_ACTION in label_names
+                or LABEL_MERGED in label_names
+                or LABEL_NEEDS_SPIKE in label_names
+            ):
+                continue
             if exclude and issue["number"] in exclude:
                 continue
             candidates[issue["number"]] = issue
@@ -2215,11 +2228,20 @@ def cmd_fix(args) -> int:
                  "--body", comment_body],
                 capture_output=True,
             )
-            # Transition: in-progress -> target_label (NOT back to :raised)
+            # Transition: in-progress -> target_label (NOT back to :raised).
+            # Strip the human approval labels as well — if we leave
+            # `human:plan-approved` / `human:requested` in place, the fix
+            # selector will keep re-picking this issue forever because it
+            # only gates on those two labels.
+            terminal_remove = [
+                LABEL_IN_PROGRESS,
+                LABEL_PLAN_APPROVED,
+                LABEL_REQUESTED,
+            ]
             if not _set_labels(
                 issue_number,
                 add=[target_label],
-                remove=[LABEL_IN_PROGRESS],
+                remove=terminal_remove,
             ):
                 print(
                     f"[cai fix] WARNING: label transition to {log_label} "
@@ -2229,7 +2251,7 @@ def cmd_fix(args) -> int:
                 if not _set_labels(
                     issue_number,
                     add=[target_label],
-                    remove=[LABEL_IN_PROGRESS],
+                    remove=terminal_remove,
                 ):
                     print(
                         f"[cai fix] WARNING: label transition to "
@@ -6857,13 +6879,13 @@ def cmd_merge(args) -> int:
             )
             if close_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: closed successfully", flush=True)
-                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
+                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING, LABEL_PLAN_APPROVED, LABEL_REQUESTED], log_prefix="cai merge"):
                     print(
                         f"[cai merge] WARNING: label transition to :no-action failed for "
                         f"#{issue_number} after closing PR #{pr_number}; retrying",
                         flush=True,
                     )
-                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING], log_prefix="cai merge"):
+                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING, LABEL_PLAN_APPROVED, LABEL_REQUESTED], log_prefix="cai merge"):
                         print(
                             f"[cai merge] WARNING: label transition to :no-action failed twice for "
                             f"#{issue_number} — issue may be stuck without a lifecycle label",
