@@ -75,3 +75,17 @@ Refs: damien-robotsix/robotsix-cai#544
 
 ### New gaps / deferred
 - none
+
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- All three review findings (cross_cutting_ref on _build_implement_user_message, cmd_implement import, and cleanup-pr-context.yml comment) were already applied in a prior commit; reviewer posted against an earlier commit state. No edits needed.
+
+### New gaps / deferred
+- none
