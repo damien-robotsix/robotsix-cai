@@ -103,3 +103,17 @@ Refs: damien-robotsix/robotsix-cai#544
 
 ### New gaps / deferred
 - none
+
+## Revision 5 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- Review comment from @damien-robotsix (cai review-docs) listed 6 "fix agent" → "implement agent" fixes in README.md (lines 166, 169, 187, 225, 229) and docs/architecture.md (line 23); all six locations already read "implement agent" / "Implement agent" in the current branch. Comment was posted against an earlier commit state. No edits needed.
+
+### New gaps / deferred
+- none
