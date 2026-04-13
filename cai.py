@@ -2478,6 +2478,36 @@ def _is_bot_comment(comment: dict) -> bool:
     return any(body.startswith(m) for m in _BOT_COMMENT_MARKERS)
 
 
+# Sentinel strings for the fixed boilerplate that cai review-pr wraps around
+# agent output. We strip these when inlining review-pr findings into the
+# revise user message — they are inert for the revise agent and just waste
+# tokens.
+_REVIEW_PR_FOOTER_SENTINEL = (
+    "_Pre-merge consistency review by `cai review-pr`."
+)
+_REVIEW_PR_PREAMBLE = "Now I have enough information to report findings."
+
+
+def _strip_review_pr_boilerplate(body: str) -> str:
+    """Strip known preamble/footer from a cai review-pr findings comment body.
+
+    The footer is the ``---`` separator line plus the attribution sentence
+    added by ``cmd_review_pr``.  The preamble is a fixed phrase the
+    ``cai-review-pr`` agent emits before its ``### Finding:`` blocks.
+    Both are inert for the revise agent.
+    """
+    # Strip trailing footer: find the last "---" separator whose following
+    # content is the review-pr attribution line.
+    footer_idx = body.rfind("\n---\n")
+    if footer_idx != -1:
+        after_sep = body[footer_idx + 5:].lstrip()
+        if after_sep.startswith(_REVIEW_PR_FOOTER_SENTINEL):
+            body = body[:footer_idx].rstrip()
+    # Strip the fixed agent preamble if present anywhere in the body.
+    body = body.replace(_REVIEW_PR_PREAMBLE, "").strip()
+    return body
+
+
 # Marker that revise/cmd_implement uses when its subagent decides no code
 # changes are needed in response to a comment. The presence of this
 # marker AFTER all human comments means the bot has acknowledged the
@@ -3320,6 +3350,15 @@ def cmd_revise(args) -> int:
                     author = c.get("author", {}).get("login", "unknown")
                     body = c.get("body", "")
                     created = c.get("createdAt", "")
+                    # Strip boilerplate from review-pr findings comments so
+                    # the revise agent only sees the actionable ### Finding:
+                    # blocks, not the fixed preamble/footer.
+                    stripped = body.lstrip()
+                    if (
+                        stripped.startswith(_REVIEW_COMMENT_HEADING_FINDINGS)
+                        and not stripped.startswith(_REVIEW_COMMENT_HEADING_CLEAN)
+                    ):
+                        body = _strip_review_pr_boilerplate(body)
                     comments_section += (
                         f"### Comment by @{author} ({created})\n\n"
                         f"{body}\n\n"
