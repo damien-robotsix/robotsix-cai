@@ -7588,7 +7588,7 @@ def _has_actionable_pending_prs() -> bool:
         it's in-flight or already red — is not something cai can
         advance by itself, so we don't block fix work on it.
 
-    When every open PR is stuck, the cycle should proceed to :planned
+    When every open PR is stuck, the cycle should proceed to :refined
     issues rather than idle draining — CI and humans will unblock the
     stuck PRs on their own schedule, and draining still runs every
     iteration to pick them back up once unblocked.
@@ -7675,7 +7675,6 @@ def cmd_cycle(args) -> int:
       1.5. recover stale locks (:in-progress / :revising)
       2. drain pending PRs (revise → review-pr → review-docs → merge)
       2.5. refine one :raised issue
-      2.6. plan one :refined issue (plan-select pipeline → store plan → :planned)
       3. loop: verify → fix/spike/explore → drain → refine → repeat
       4. final confirm
 
@@ -7742,12 +7741,6 @@ def _cmd_cycle_inner(args) -> int:
     # --- Phase 2.5: refine one :raised issue ------------------------------
     rc = _run_step("refine", cmd_refine, args)
     all_results["refine"] = rc
-    if rc != 0:
-        had_failure = True
-
-    # --- Phase 2.6: plan one :refined issue --------------------------------
-    rc = _run_step("plan", cmd_plan, args)
-    all_results["plan"] = rc
     if rc != 0:
         had_failure = True
 

@@ -49,7 +49,7 @@ dispatcher so each task is its own subprocess with no shared state.
 
 The issue-solving pipeline is driven by a single `cai.py cycle`
 cron line. A flock in `cmd_cycle` serializes overlapping runs, so
-issues are processed one at a time: each cycle refines, plans, fixes,
+issues are processed one at a time: each cycle refines, fixes,
 drains pending PRs, and only advances to the next issue when the
 current one is solved or has reached a blocking point (human review,
 `:merge-blocked`, etc.). The individual pipeline subcommands
@@ -59,7 +59,7 @@ no longer have their own cron lines.
 
 | Subcommand | Default schedule | What it does |
 |---|---|---|
-| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Full issue-solving pipeline: verify → confirm → drain pending PRs (revise → review-pr → review-docs → merge) → refine → plan → loop(fix/spike/explore → drain → refine). A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
+| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Full issue-solving pipeline: verify → confirm → drain pending PRs (revise → review-pr → review-docs → merge) → refine → loop(fix/spike/explore → drain → refine). A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL) and `:revising` (1-hour TTL) locks and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
 | `cai.py audit-triage` | `10 */6 * * *` (every 6 hours) | Triages `audit:raised` findings and emits close/passthrough/escalate verdicts |

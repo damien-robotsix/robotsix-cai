@@ -45,7 +45,7 @@
 2. **Recover stale locks** — roll back `:in-progress` and `:revising` issues past their timeout.
 3. **Ingest unlabeled** — attach `auto-improve` to any unlabeled issues that belong to the pipeline.
 4. **Drain PRs** — for each open auto-improve PR: revise → review-pr → review-docs → merge.
-5. **Refine one + plan** — call `refine` on the oldest `:raised` issue, then `plan` on the oldest `:refined` issue to generate and store a selected plan.
+5. **Refine one** — call `refine` on the oldest `:raised` issue to transition it to `:refined` so the fix loop has a candidate.
 6. **Fix loop** — repeatedly call `fix`, `spike`, or `explore` until no eligible issues remain, draining PRs after each fix.
 7. **Final confirm** — one last confirm pass.
 
