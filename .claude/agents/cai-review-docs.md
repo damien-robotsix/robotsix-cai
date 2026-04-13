@@ -55,16 +55,19 @@ limit. Use `Grep(pattern, path="<work_dir>")` for symbol search and
 
 In the user message, in order:
 
-1. **Work directory** — where the cloned PR branch lives
+1. **Work directory** — where the cloned PR branch lives (PR branch checked out)
 2. **PR metadata** — number, title, author, base branch, head SHA
 3. **Original issue** *(optional)* — if the PR references an issue,
    the full issue body is included. Use this to verify documentation
    changes align with the issue's stated scope.
-4. **PR diff** — the full unified diff of the PR
+4. **PR changes (stat summary)** — a `git diff origin/main..HEAD --stat`
+   summary showing which files changed and how many lines. The full
+   unified diff is **not** included — explore the clone directly.
 
 ## What to check
 
-Walk the diff and identify:
+Use the stat summary to identify which files changed, then read those files
+from the work directory to understand what changed. Look for:
 
 1. **User-facing behavior changes** — new/renamed CLI subcommands, env vars,
    config options, docker-compose entries, install-flow changes, cron/loop
@@ -91,20 +94,23 @@ Changes that **do NOT warrant documentation review**:
 
 ## How to work
 
-1. Read the diff carefully. Note user-facing changes AND any renamed or
-   removed symbols/labels/config keys.
-2. If an `## Original issue` section is present, read it and note
+1. Read the stat summary to identify which files changed.
+2. Use `Read` to open each changed file from the work directory —
+   the PR branch is checked out, so `Read("<work_dir>/path/to/file")`
+   gives the post-PR state. For large files use offset/limit.
+3. Note user-facing changes AND any renamed or removed symbols/labels/config keys.
+4. If an `## Original issue` section is present, read it and note
    what user-facing changes the issue describes. Ensure the documentation
    covers those changes (e.g., if the issue says "add CLI flag `--foo`",
    verify `--foo` is documented).
-3. For every rename, `Grep` the full work directory for the old name across
+5. For every rename, `Grep` the full work directory for the old name across
    `.md`, `.py`, `.sh`, `.yml`, and `.yaml` — this catches stale README lines,
    docstrings, inline comments, help strings, and workflow comments.
-4. Use `Glob("docs/**/*.md", path="<work_dir>")` and read `README.md` to check
+6. Use `Glob("docs/**/*.md", path="<work_dir>")` and read `README.md` to check
    prose against the post-PR code.
-5. For each stale reference, **directly edit the file** using `Edit` or
+7. For each stale reference, **directly edit the file** using `Edit` or
    `Write` — update prose, docstrings, comments, and help strings in place.
-6. After fixing, emit a `### Fixed: stale_docs` block documenting each change.
+8. After fixing, emit a `### Fixed: stale_docs` block documenting each change.
 
 If the `docs/` directory does not exist:
 - Emit a single `### Finding: stale_docs` block with file `docs/ (missing)`,

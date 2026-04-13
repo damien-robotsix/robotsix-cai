@@ -5928,7 +5928,7 @@ def cmd_review_pr(args) -> int:
             target_pr = _gh_json([
                 "pr", "view", str(args.pr),
                 "--repo", REPO,
-                "--json", "number,title,author,headRefOid,body,comments",
+                "--json", "number,title,author,headRefOid,headRefName,body,comments",
             ])
         except subprocess.CalledProcessError as e:
             print(f"[cai review-pr] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
@@ -5942,7 +5942,7 @@ def cmd_review_pr(args) -> int:
                 "--repo", REPO,
                 "--state", "open",
                 "--base", "main",
-                "--json", "number,title,author,headRefOid,body,comments",
+                "--json", "number,title,author,headRefOid,headRefName,body,comments",
                 "--limit", "50",
             ]) or []
         except subprocess.CalledProcessError as e:
@@ -5961,6 +5961,7 @@ def cmd_review_pr(args) -> int:
     for pr in prs:
         pr_number = pr["number"]
         head_sha = pr["headRefOid"]
+        branch = pr.get("headRefName", "")
         title = pr["title"]
 
         # Check if we already posted a review for this SHA. Match
@@ -5987,30 +5988,17 @@ def cmd_review_pr(args) -> int:
 
         print(f"[cai review-pr] reviewing PR #{pr_number}: {title}", flush=True)
 
-        # Get the diff.
-        diff_result = _run(
-            ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
-            capture_output=True,
-        )
-        if diff_result.returncode != 0:
-            print(
-                f"[cai review-pr] could not fetch diff for PR #{pr_number}:\n"
-                f"{diff_result.stderr}",
-                file=sys.stderr,
-            )
-            continue
-        pr_diff = diff_result.stdout
-
-        # Clone the repo for the agent to walk.
+        # Clone the repo and check out the PR branch so the agent can
+        # explore changed files directly via Read/Grep/Glob.
         _uid = uuid.uuid4().hex[:8]
         work_dir = Path(f"/tmp/cai-review-{pr_number}-{_uid}")
         try:
             if work_dir.exists():
                 shutil.rmtree(work_dir)
 
+            _run(["gh", "auth", "setup-git"], capture_output=True)
             clone = _run(
-                ["git", "clone", "--depth", "1",
-                 f"https://github.com/{REPO}.git", str(work_dir)],
+                ["gh", "repo", "clone", REPO, str(work_dir)],
                 capture_output=True,
             )
             if clone.returncode != 0:
@@ -6019,6 +6007,21 @@ def cmd_review_pr(args) -> int:
                     file=sys.stderr,
                 )
                 continue
+            if branch:
+                _git(work_dir, "fetch", "origin", branch)
+                _git(work_dir, "checkout", branch)
+
+            # Compute a --stat summary as a file-level map for the agent.
+            # The full unified diff is intentionally omitted — it is a
+            # large token sink and the agent can read changed files
+            # directly from the clone via Read/Grep/Glob.
+            stat_result = _git(
+                work_dir, "diff", "origin/main..HEAD", "--stat",
+                check=False,
+            )
+            pr_stat = (stat_result.stdout or "").strip() or (
+                "(no changes vs origin/main)"
+            )
 
             # Build the user message. The system prompt, tool
             # allowlist (Read/Grep/Glob), and hard rules all
@@ -6038,8 +6041,12 @@ def cmd_review_pr(args) -> int:
                 + "- **Base:** main\n"
                 + f"- **HEAD SHA:** {head_sha}\n\n"
                 + issue_block
-                + "## PR diff\n\n"
-                + f"```diff\n{pr_diff}\n```\n"
+                + "## PR changes (stat summary)\n\n"
+                + f"```\n{pr_stat}\n```\n\n"
+                + "The full unified diff is **not** included — it is a "
+                + "large token sink. The PR branch is checked out in the "
+                + f"work directory at `{work_dir}`. Use `Read`, `Grep`, "
+                + "and `Glob` to explore changed files directly.\n"
             )
 
             # Invoke the declared cai-review-pr subagent.
@@ -6259,20 +6266,6 @@ def cmd_review_docs(args) -> int:
 
         print(f"[cai review-docs] reviewing PR #{pr_number}: {title}", flush=True)
 
-        # Get the diff.
-        diff_result = _run(
-            ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
-            capture_output=True,
-        )
-        if diff_result.returncode != 0:
-            print(
-                f"[cai review-docs] could not fetch diff for PR #{pr_number}:\n"
-                f"{diff_result.stderr}",
-                file=sys.stderr,
-            )
-            continue
-        pr_diff = diff_result.stdout
-
         # Clone the repo and check out the PR branch so the agent can edit docs.
         _uid = uuid.uuid4().hex[:8]
         work_dir = Path(f"/tmp/cai-review-docs-{pr_number}-{_uid}")
@@ -6300,6 +6293,18 @@ def cmd_review_docs(args) -> int:
             _git(work_dir, "config", "user.name", name)
             _git(work_dir, "config", "user.email", email)
 
+            # Compute a --stat summary as a file-level map for the agent.
+            # The full unified diff is intentionally omitted — it is a
+            # large token sink and the agent can read changed files
+            # directly from the clone via Read/Grep/Glob/Edit/Write.
+            stat_result = _git(
+                work_dir, "diff", "origin/main..HEAD", "--stat",
+                check=False,
+            )
+            pr_stat = (stat_result.stdout or "").strip() or (
+                "(no changes vs origin/main)"
+            )
+
             author_login = pr.get("author", {}).get("login", "unknown")
             issue_block = _fetch_linked_issue_block(pr.get("body", ""))
             user_message = (
@@ -6312,8 +6317,13 @@ def cmd_review_docs(args) -> int:
                 + "- **Base:** main\n"
                 + f"- **HEAD SHA:** {head_sha}\n\n"
                 + issue_block
-                + "## PR diff\n\n"
-                + f"```diff\n{pr_diff}\n```\n"
+                + "## PR changes (stat summary)\n\n"
+                + f"```\n{pr_stat}\n```\n\n"
+                + "The full unified diff is **not** included — it is a "
+                + "large token sink. The PR branch is checked out in the "
+                + f"work directory at `{work_dir}`. Use `Read`, `Grep`, "
+                + "`Glob`, `Edit`, and `Write` to inspect and fix files "
+                + "directly.\n"
             )
 
             # Invoke the declared cai-review-docs subagent.
@@ -6905,6 +6915,13 @@ def cmd_merge(args) -> int:
             )
             continue
         pr_diff = diff_result.stdout
+        # Truncate very large diffs to prevent unbounded token cost.
+        _MERGE_MAX_DIFF_LEN = 40_000
+        if len(pr_diff) > _MERGE_MAX_DIFF_LEN:
+            pr_diff = (
+                pr_diff[:_MERGE_MAX_DIFF_LEN]
+                + "\n... (truncated — diff exceeds size limit)"
+            )
 
         # Gather PR comments for context.
         comment_texts = []
@@ -6921,7 +6938,7 @@ def cmd_merge(args) -> int:
             f"## Linked issue\n\n"
             f"### #{issue_full.get('number', issue_number)} \u2014 {issue_full.get('title', '')}\n\n"
             f"{issue_full.get('body') or '(no body)'}\n\n"
-            f"## PR diff\n\n"
+            f"## PR changes\n\n"
             f"```diff\n{pr_diff}\n```\n\n"
             f"## PR comments\n\n"
             f"{comments_section}\n"
