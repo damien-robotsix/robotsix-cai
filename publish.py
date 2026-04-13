@@ -71,6 +71,12 @@ UPDATE_CHECK_CATEGORIES = {
     "best_practice",
 }
 
+CHECK_WORKFLOWS_CATEGORIES = {
+    "workflow_failure",
+    "workflow_flake",
+    "workflow_config_error",
+}
+
 # Labels we ensure exist before creating issues. The first two are the
 # state labels; the rest are the category labels. Idempotent — `gh label
 # create` returns non-zero if the label already exists, which we ignore.
@@ -129,6 +135,14 @@ UPDATE_CHECK_LABELS = [
     ("category:feature_adoption", "0075ca", "New feature that could improve the workspace"),
     ("category:deprecation", "e11d48", "Deprecated flag or pattern we use"),
     ("category:best_practice", "5319e7", "Best-practice change from release notes"),
+]
+
+CHECK_WORKFLOWS_LABELS = [
+    ("check-workflows", "e11d48", "GitHub Actions workflow failure finding"),
+    ("check-workflows:raised", "d73a4a", "Workflow failure freshly raised"),
+    ("category:workflow_failure", "b60205", "GitHub Actions run failed"),
+    ("category:workflow_flake", "fbca04", "Flaky or intermittent workflow failure"),
+    ("category:workflow_config_error", "0075ca", "Workflow YAML misconfiguration"),
 ]
 
 
@@ -256,6 +270,8 @@ def _label_set_for(namespace: str):
         return CODE_AUDIT_LABELS
     if namespace == "update-check":
         return UPDATE_CHECK_LABELS
+    if namespace == "check-workflows":
+        return CHECK_WORKFLOWS_LABELS
     return LABELS
 
 
@@ -313,6 +329,9 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     elif namespace == "update-check":
         source_note = "cai update-check agent"
         source_file = ".claude/agents/cai-update-check.md"
+    elif namespace == "check-workflows":
+        source_note = "cai check-workflows agent"
+        source_file = ".claude/agents/cai-check-workflows.md"
     else:
         source_note = "cai self-analyzer"
         source_file = ".claude/agents/cai-analyze.md"
@@ -339,6 +358,12 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
             "audit:raised",
             f"category:{f.category}",
         ])
+    elif namespace == "check-workflows":
+        labels = ",".join([
+            "check-workflows",
+            "check-workflows:raised",
+            f"category:{f.category}",
+        ])
     else:
         labels = ",".join([
             "auto-improve",
@@ -363,7 +388,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
     parser.add_argument(
         "--namespace", default="auto-improve",
-        choices=["auto-improve", "audit", "code-audit", "update-check"],
+        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows"],
         help="Label namespace to use (default: auto-improve)",
     )
     args = parser.parse_args()
@@ -374,6 +399,8 @@ def main() -> int:
         valid_cats = CODE_AUDIT_CATEGORIES
     elif namespace == "update-check":
         valid_cats = UPDATE_CHECK_CATEGORIES
+    elif namespace == "check-workflows":
+        valid_cats = CHECK_WORKFLOWS_CATEGORIES
     else:
         valid_cats = VALID_CATEGORIES
 
