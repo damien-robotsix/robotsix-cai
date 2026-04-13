@@ -71,3 +71,17 @@ Refs: damien-robotsix/robotsix-cai#498
 
 ### New gaps / deferred
 - None
+
+## Revision 4 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-refine.md` (via staging) — added wrapper-behavior paragraph after `## Multi-Step Decomposition` template explaining that wrapper creates sub-issues, labels parent `auto-improve:parent`, and adds checklist
+
+### Decisions this revision
+- Added wrapper-behavior note between the closing ~~~ of the template and the "Multi-step guidelines:" list, matching the pattern in cai-audit-triage.md and cai-spike.md
+
+### New gaps / deferred
+- None

@@ -130,6 +130,11 @@ Produce a `## Multi-Step Decomposition` block **instead of**
 ...
 ~~~
 
+When the wrapper receives a `## Multi-Step Decomposition` output,
+it will: create sub-issues for each step, label the parent issue
+`auto-improve:parent`, and add a checklist to the parent issue
+tracking sub-issue completion.
+
 Multi-step guidelines:
 - Each step must be a standalone change (own PR, own tests)
 - Later steps may depend on earlier steps being merged first
