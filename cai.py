@@ -191,7 +191,12 @@ from cai_lib.logging_utils import (  # noqa: E402
 from cai_lib.subprocess_utils import _run, _run_claude_p  # noqa: E402
 
 
-from cai_lib.github import _gh_json, check_gh_auth, check_claude_auth, _transcript_dir_is_empty  # noqa: E402
+from cai_lib.github import (  # noqa: E402
+    _gh_json, check_gh_auth, check_claude_auth, _transcript_dir_is_empty,
+    _set_labels, _issue_has_label, _build_issue_block, _build_fix_user_message,
+)
+from cai_lib.cmd_lifecycle import _rollback_stale_in_progress  # noqa: E402
+from cai_lib.cmd_fix import _parse_decomposition  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -805,9 +810,6 @@ def _select_plan_target(issue_number: int | None = None):
     return min(candidates, key=lambda c: c.get("createdAt", ""))
 
 
-from cai_lib.github import _set_labels, _issue_has_label, _build_issue_block, _build_fix_user_message  # noqa: E402
-
-
 def _fetch_previous_fix_attempts(issue_number: int) -> list[dict]:
     """Retrieve closed, unmerged PRs for this issue and extract merge verdicts.
 
@@ -1315,10 +1317,6 @@ def _create_suggested_issues(
 # ---------------------------------------------------------------------------
 # Multi-step issue helpers
 # ---------------------------------------------------------------------------
-
-
-from cai_lib.cmd_fix import _parse_decomposition  # noqa: E402
-
 
 def _find_sub_issue(parent_number: int, step: int) -> int | None:
     """Return the issue number of an existing sub-issue for *parent_number*
@@ -3750,9 +3748,6 @@ def _cleanup_orphaned_branches() -> list[str]:
             print(f"[cai audit] deleted orphaned branch: {branch}", flush=True)
 
     return deleted
-
-
-from cai_lib.cmd_lifecycle import _rollback_stale_in_progress  # noqa: E402
 
 
 def _unstuck_stale_no_action() -> list[dict]:
