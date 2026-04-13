@@ -47,3 +47,17 @@ Refs: damien-robotsix/robotsix-cai#499
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- docs/cli.md:39 — `code-audit` description corrected to match argparse help string (removed "and dead code")
+
+### Decisions this revision
+- Verbatim correction to match cai.py:8495 argparse help string exactly per dossier invariant
+
+### New gaps / deferred
+- None
