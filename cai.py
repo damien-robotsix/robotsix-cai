@@ -4332,11 +4332,28 @@ def cmd_audit(args) -> int:
     if not cost_section:
         cost_section = "## Cost summary\n\n(no cost-log entries yet)\n"
 
+    # Outcome statistics for the audit agent to spot workflow_efficiency issues.
+    outcome_counts = _load_outcome_counts(days=90)
+    if outcome_counts:
+        outcome_lines = ["## Outcome statistics (last 90 days)\n",
+                         "| Category | Total | Solved | Rate |",
+                         "|---|---|---|---|"]
+        for cat, bucket in sorted(outcome_counts.items()):
+            total = bucket["total"]
+            solved = bucket["solved"]
+            rate = solved / total if total else 0.0
+            flag = " ⚠" if rate < 0.4 and total >= 3 else ""
+            outcome_lines.append(f"| {cat} | {total} | {solved} | {rate:.0%}{flag} |")
+        outcome_section = "\n".join(outcome_lines) + "\n"
+    else:
+        outcome_section = "## Outcome statistics (last 90 days)\n\n(no outcome-log entries yet)\n"
+
     user_message = (
         f"{issues_section}\n"
         f"{prs_section}\n"
         f"{log_section}\n"
         f"{cost_section}\n"
+        f"{outcome_section}\n"
         f"{closed_section}\n"
         f"{deterministic_section}"
     )
