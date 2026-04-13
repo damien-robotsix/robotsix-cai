@@ -3123,16 +3123,15 @@ def _select_revise_targets() -> list[dict]:
         # Skip PRs that are blocked on a human decision — revising
         # code won't unblock them and causes an infinite loop.
         # Issue #399.
+        #
+        # NOTE: :merge-blocked is handled below, *after* we've parsed
+        # comments, so a fresh human comment can auto-clear it and
+        # resume the revise loop (no more manual label toggling).
         pr_label_names = {lbl["name"] for lbl in pr.get("labels", [])}
-        if LABEL_MERGE_BLOCKED in label_names or LABEL_PR_NEEDS_HUMAN in pr_label_names:
-            skip_reason = []
-            if LABEL_MERGE_BLOCKED in label_names:
-                skip_reason.append(f"issue has :{LABEL_MERGE_BLOCKED}")
-            if LABEL_PR_NEEDS_HUMAN in pr_label_names:
-                skip_reason.append(f"PR has :{LABEL_PR_NEEDS_HUMAN}")
+        if LABEL_PR_NEEDS_HUMAN in pr_label_names:
             print(
                 f"[cai revise] PR #{pr['number']}: skipping — "
-                f"{', '.join(skip_reason)} (needs human decision)",
+                f"PR has :{LABEL_PR_NEEDS_HUMAN} (needs human decision)",
                 flush=True,
             )
             continue
@@ -3186,6 +3185,41 @@ def _select_revise_targets() -> list[dict]:
         # Filter: createdAt > commit_ts AND not bot AND not already
         # acknowledged by a "no additional changes" reply (loop guard).
         unaddressed = _filter_unaddressed_comments(comments, commit_ts)
+
+        # :merge-blocked auto-clear. If the issue carries :merge-blocked
+        # AND a human has posted an unaddressed comment since the last
+        # commit, treat the comment as the human decision to resume and
+        # strip the label so revise can act on it. If there are no new
+        # human comments, keep skipping — the PR is still waiting on a
+        # human. Previously humans had to remove the label by hand,
+        # which was easy to forget (see chicken-and-egg with cmd_merge
+        # holding the PR back on unaddressed review-pr comments that
+        # only revise can address).
+        if LABEL_MERGE_BLOCKED in label_names:
+            if not unaddressed:
+                print(
+                    f"[cai revise] PR #{pr['number']}: skipping — "
+                    f"issue has :{LABEL_MERGE_BLOCKED} (needs human decision)",
+                    flush=True,
+                )
+                continue
+            if not _set_labels(
+                issue_number,
+                remove=[LABEL_MERGE_BLOCKED],
+                log_prefix="cai revise",
+            ):
+                print(
+                    f"[cai revise] PR #{pr['number']}: failed to clear "
+                    f":{LABEL_MERGE_BLOCKED} on issue #{issue_number}; skipping",
+                    file=sys.stderr, flush=True,
+                )
+                continue
+            print(
+                f"[cai revise] PR #{pr['number']}: cleared "
+                f":{LABEL_MERGE_BLOCKED} on issue #{issue_number} — "
+                f"{len(unaddressed)} new human comment(s) since last commit",
+                flush=True,
+            )
 
         # Determine if the PR needs a rebase (unmergeable).
         needs_rebase = pr_detail.get("mergeable") == "CONFLICTING" or \
