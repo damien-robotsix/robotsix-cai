@@ -46,3 +46,17 @@ Refs: robotsix-cai/robotsix-cai#519
 
 ### New gaps / deferred
 - none
+
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- No edits made — review comment from @damien-robotsix (cai-review-pr pre-merge review) was already_addressed: all five claimed missing changes were verified present in the file — `_select_fix_target` uses `LABEL_PLAN_APPROVED` (line 665), `_get_plan_for_fix` helper exists (lines 1031-1046), `origin_raised_label` defaults to `LABEL_PLAN_APPROVED` (line 1955), lock step removes `LABEL_PLAN_APPROVED` (lines 1958-1962), plan header text updated (lines 2108-2115). Reviewer was reviewing an earlier commit state.
+
+### New gaps / deferred
+- none
