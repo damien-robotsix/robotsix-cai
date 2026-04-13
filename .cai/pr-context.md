@@ -65,6 +65,27 @@ Refs: damien-robotsix/robotsix-cai#504
 ### New gaps / deferred
 - Review comment "ok to merge" is an approval, no code change required
 
+## Revision 3 (2026-04-13)
+
+### Rebase
+- resolved: cai_lib/__init__.py, cai_lib/cmd_fix.py, cai_lib/cmd_lifecycle.py, cai_lib/config.py, cai_lib/github.py, tests/test_rollback.py (all "both added" — HEAD had Phase 1 versions; merged with PR's Phase 2 additions)
+
+### Files touched this revision
+- cai_lib/__init__.py — updated module names from `.logging`/`.subprocess` (HEAD) to `.logging_utils`/`.subprocess_utils`; added LABEL_HUMAN_SUBMITTED, LABEL_PLANNED, LABEL_PLAN_APPROVED to imports and __all__
+- cai_lib/cmd_fix.py — took HEAD's richer docstring
+- cai_lib/cmd_lifecycle.py — took HEAD's docstring; fixed import to `cai_lib.logging_utils` (not `.logging`)
+- cai_lib/config.py — took HEAD's docstring and section-header style; added 3 new labels from PR side
+- cai_lib/github.py — took HEAD's docstring; used `subprocess_utils` import + `check-workflows` in _BASE_NAMESPACES
+- tests/test_rollback.py — took HEAD's `patch("cai_lib.cmd_lifecycle....")` style
+- cai_lib/logging_utils.py:10 — fixed _write_active_job signature from (cmd, issue) to (cmd, target_type, target_id); schema updated to {pid, cmd, target_type, target_id, start_ts} to match all 18 call sites in cai.py
+
+### Decisions this revision
+- Used `logging_utils`/`subprocess_utils` module names (the PR's choice) since both `logging_utils.py` and `subprocess_utils.py` were already staged from the PR's first commit
+- Reverted _write_active_job to 3-arg signature to maintain backward compatibility with all call sites; this is option 2 from the reviewer's suggestion
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - All extracted symbols remain accessible from `cai` module via import re-exports
 - `cai_lib` dependency graph is acyclic: config → logging_utils → subprocess_utils → github → cmd_lifecycle
