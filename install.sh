@@ -83,7 +83,7 @@ echo
 echo "Enable Watchtower for automatic updates?"
 echo
 echo "Watchtower is a small sidecar container that polls Docker Hub"
-echo "every 30 minutes and automatically pulls + restarts cai when a"
+echo "every 12 hours and automatically pulls + restarts cai when a"
 echo "new image is published. Recommended for hands-off operation."
 echo
 echo "WARNING: if cai is mid-fix when watchtower restarts it, the"

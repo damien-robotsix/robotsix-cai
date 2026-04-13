@@ -23,3 +23,17 @@ Refs: robotsix-cai/cai#502
 ## Invariants this change relies on
 - Watchtower remains enabled; only the poll frequency changes
 - `cai.py` `timeout=1800` is a subagent timeout, unrelated to this interval
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `install.sh:86` — "every 30 minutes" → "every 12 hours" in user-facing Watchtower prompt
+
+### Decisions this revision
+- Used "every 12 hours" (without the `(43200 s)` parenthetical) to match the surrounding prose style of the existing `echo` lines
+
+### New gaps / deferred
+- None
