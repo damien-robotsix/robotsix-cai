@@ -645,13 +645,16 @@ def _select_fix_target(exclude: set[int] | None = None):
     This replaces the previous FIFO (oldest-first) selection.
 
     Eligible = labelled `human:plan-approved` or `human:requested`, NOT labelled
-    `:in-progress` or `:pr-open`.  `human:plan-approved` is the primary gate:
-    the `plan-all` step drives every :raised / :refined issue to
-    :planned, and a human then promotes :planned → human:plan-approved when
-    the plan looks good.  `human:requested` is an explicit human shortcut
-    that bypasses the plan gate (treat as "I've already validated this,
-    just fix it").  `:refined` and `:planned` issues sit outside the
-    fix pipeline until a human approves.
+    `:in-progress` or `:pr-open`, AND carrying a stored plan block in the
+    issue body (written by `cai plan`).  `human:plan-approved` is the
+    primary gate: the `plan-all` step drives every :raised / :refined
+    issue to :planned, and a human then promotes :planned →
+    human:plan-approved when the plan looks good.  `human:requested` is
+    an explicit human shortcut — it still requires the plan to have been
+    generated, but lets a human skip the approval handshake.  Issues with
+    either label but no stored plan are demoted back to `:refined` so
+    `plan-all` re-plans them.  `:refined` and `:planned` issues sit
+    outside the fix pipeline until a human approves.
 
     `audit:raised` issues are handled exclusively by the audit-triage
     agent — only issues that triage re-labels to `auto-improve:raised`
@@ -696,6 +699,25 @@ def _select_fix_target(exclude: set[int] | None = None):
             ):
                 continue
             if exclude and issue["number"] in exclude:
+                continue
+            # Hard plan gate: never let the fix subagent run on an
+            # issue that hasn't been through the plan step. Both
+            # `human:plan-approved` and `human:requested` require a
+            # stored plan block in the issue body (written by
+            # `cai plan`). Issues missing a plan are skipped here and
+            # re-routed to `:refined` so `plan-all` picks them up.
+            if _extract_stored_plan(issue.get("body", "")) is None:
+                print(
+                    f"[cai implement] #{issue['number']} has {label} but no "
+                    f"stored plan; demoting to {LABEL_REFINED}",
+                    flush=True,
+                )
+                _set_labels(
+                    issue["number"],
+                    add=[LABEL_REFINED],
+                    remove=[LABEL_PLAN_APPROVED, LABEL_REQUESTED],
+                    log_prefix="cai implement",
+                )
                 continue
             candidates[issue["number"]] = issue
 
@@ -1031,18 +1053,16 @@ def _extract_stored_plan(issue_body: str) -> str | None:
 def _get_plan_for_fix(issue: dict, origin_label: str) -> str | None:
     """Retrieve the implementation plan for a fix run.
 
-    For :plan-approved issues, the plan is extracted from the issue body
-    where `cai plan` stored it.  For :requested (admin bypass) issues,
-    no plan is expected — returns None for graceful degradation.
+    A stored plan is now required for every fix run (see the plan gate
+    in `_select_fix_target` and `cmd_implement`). This helper is only
+    called after that gate, so the plan should always be present; the
+    None branch is kept as a defensive WARNING rather than a hard abort.
     """
-    if origin_label == LABEL_REQUESTED:
-        print("[cai implement] :requested bypass — no stored plan expected", flush=True)
-        return None
     plan = _extract_stored_plan(issue.get("body", ""))
     if plan:
         print(f"[cai implement] using stored plan from issue body ({len(plan)} chars)", flush=True)
     else:
-        print("[cai implement] WARNING: :plan-approved issue has no stored plan in body — proceeding without plan", flush=True)
+        print("[cai implement] WARNING: plan gate bypassed — no stored plan in body", flush=True)
     return plan
 
 
@@ -1967,6 +1987,24 @@ def cmd_implement(args) -> int:
     label_names = {lbl["name"] for lbl in issue.get("labels", [])}
     origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_PLAN_APPROVED
     print(f"[cai implement] picked #{issue_number}: {title}", flush=True)
+
+    # Hard plan gate (also applied in `_select_fix_target`, duplicated
+    # here for direct `cai implement --issue N` invocations). Every fix run
+    # requires a stored plan in the issue body — no plan, no fix.
+    if _extract_stored_plan(issue.get("body", "")) is None:
+        print(
+            f"[cai implement] #{issue_number} has no stored plan; "
+            f"demoting to {LABEL_REFINED}",
+            flush=True,
+        )
+        _set_labels(
+            issue_number,
+            add=[LABEL_REFINED],
+            remove=[LABEL_PLAN_APPROVED, LABEL_REQUESTED],
+            log_prefix="cai implement",
+        )
+        log_run("implement", repo=REPO, issue=issue_number, result="no_stored_plan", exit=0)
+        return 0
 
     # 1. Lock — set :in-progress, drop :plan-approved and :requested.
     if not _set_labels(
