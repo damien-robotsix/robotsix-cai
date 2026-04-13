@@ -638,22 +638,25 @@ def _select_fix_target():
     Categories with fewer than 3 observations get a neutral prior of 0.60.
     This replaces the previous FIFO (oldest-first) selection.
 
-    Eligible = labelled `:refined` or `:requested`, NOT labelled
-    `:in-progress` or `:pr-open`.  `audit:raised` issues are handled
-    exclusively by the audit-triage agent — only issues that triage
-    re-labels to `auto-improve:raised` (and subsequently refine to
-    `auto-improve:refined`) enter the fix pipeline.
+    Eligible = labelled `:plan-approved` or `:requested`, NOT labelled
+    `:in-progress` or `:pr-open`.  `:plan-approved` is the primary gate:
+    the `plan-all` step drives every :raised / :refined issue to
+    :planned, and a human then promotes :planned → :plan-approved when
+    the plan looks good.  `:requested` is an explicit human shortcut
+    that bypasses the plan gate (treat as "I've already validated this,
+    just fix it").  `:refined` and `:planned` issues sit outside the
+    fix pipeline until a human approves.
+
+    `audit:raised` issues are handled exclusively by the audit-triage
+    agent — only issues that triage re-labels to `auto-improve:raised`
+    (and subsequently refine → plan → plan-approved) enter the fix
+    pipeline.
+
     If no candidates are found, attempts to recover stale `:pr-open`
     issues whose linked PR was closed unmerged or that have no linked PR.
-
-    NOTE: `:planned` and `:plan-approved` issues are intentionally NOT
-    picked up here.  `:planned` issues are waiting for human approval;
-    `:plan-approved` issues will be wired into this function in Step 3 of
-    the plan-gate sub-issue chain (#481).  Until then, they sit in the
-    queue without being consumed by the fix agent.
     """
     candidates: dict[int, dict] = {}
-    for label in (LABEL_REFINED, LABEL_REQUESTED):
+    for label in (LABEL_PLAN_APPROVED, LABEL_REQUESTED):
         try:
             issues = _gh_json([
                 "issue", "list",
@@ -1118,6 +1121,118 @@ def cmd_plan(args) -> int:
     finally:
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def _count_open_by_label(label: str) -> int:
+    """Return the number of open issues carrying *label*, or 0 on query failure."""
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", label,
+            "--state", "open",
+            "--json", "number",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError:
+        return 0
+    return len(issues)
+
+
+def cmd_plan_all(args) -> int:
+    """Drive every :raised / :human:submitted / :refined issue to :planned.
+
+    Each iteration runs one `refine` (if any :raised or
+    :human:submitted remain) or one `plan` (otherwise, if any
+    :refined remain). The loop exits when both queues are empty, an
+    iteration cap is reached, or two consecutive iterations make no
+    progress (to avoid spinning on a perpetually-failing issue).
+
+    This step produces the :planned backlog that humans review and
+    promote to :plan-approved. The fix loop in `cycle` only consumes
+    :plan-approved work, so without this step nothing new would ever
+    reach a state a human can approve.
+    """
+    t0 = time.monotonic()
+    print("[cai plan-all] draining :raised and :refined queues", flush=True)
+
+    refined_ct = 0
+    planned_ct = 0
+    refine_err = 0
+    plan_err = 0
+    had_failure = False
+
+    MAX_ITER = 50
+    last_state: tuple[int, int] | None = None
+    stuck_strikes = 0
+
+    for iteration in range(1, MAX_ITER + 1):
+        raised = (
+            _count_open_by_label(LABEL_RAISED)
+            + _count_open_by_label(LABEL_HUMAN_SUBMITTED)
+        )
+        refined = _count_open_by_label(LABEL_REFINED)
+
+        if raised == 0 and refined == 0:
+            print("[cai plan-all] queue drained; done", flush=True)
+            break
+
+        if last_state == (raised, refined):
+            stuck_strikes += 1
+            if stuck_strikes >= 2:
+                print(
+                    f"[cai plan-all] no progress for 2 iterations "
+                    f"(raised={raised} refined={refined}); bailing",
+                    flush=True,
+                )
+                had_failure = True
+                break
+        else:
+            stuck_strikes = 0
+        last_state = (raised, refined)
+
+        print(
+            f"[cai plan-all] iteration {iteration}: raised={raised} refined={refined}",
+            flush=True,
+        )
+
+        if raised > 0:
+            rc = cmd_refine(args)
+            if rc == 0:
+                refined_ct += 1
+            else:
+                refine_err += 1
+                had_failure = True
+        else:
+            rc = cmd_plan(args)
+            if rc == 0:
+                planned_ct += 1
+            else:
+                plan_err += 1
+                had_failure = True
+    else:
+        print(
+            f"[cai plan-all] hit iteration cap ({MAX_ITER}); stopping",
+            flush=True,
+        )
+
+    dur = f"{time.monotonic() - t0:.1f}s"
+    print(
+        f"[cai plan-all] done in {dur} — refined={refined_ct} "
+        f"planned={planned_ct} refine_err={refine_err} plan_err={plan_err}",
+        flush=True,
+    )
+    log_run(
+        "plan-all",
+        repo=REPO,
+        refined=refined_ct,
+        planned=planned_ct,
+        refine_err=refine_err,
+        plan_err=plan_err,
+        duration=dur,
+        exit=1 if had_failure else 0,
+    )
+    return 1 if had_failure else 0
 
 
 def _parse_suggested_issues(agent_output: str) -> list[dict]:
@@ -7302,7 +7417,7 @@ def _has_actionable_pending_prs() -> bool:
         it's in-flight or already red — is not something cai can
         advance by itself, so we don't block fix work on it.
 
-    When every open PR is stuck, the cycle should proceed to :planned
+    When every open PR is stuck, the cycle should proceed to :refined
     issues rather than idle draining — CI and humans will unblock the
     stuck PRs on their own schedule, and draining still runs every
     iteration to pick them back up once unblocked.
@@ -7388,9 +7503,11 @@ def cmd_cycle(args) -> int:
       1. verify + confirm  (sync label state)
       1.5. recover stale locks (:in-progress / :revising)
       2. drain pending PRs (revise → review-pr → review-docs → merge)
-      2.5. refine one :raised issue
-      2.6. plan one :refined issue (plan-select pipeline → store plan → :planned)
-      3. loop: verify → fix/spike/explore → drain → refine → repeat
+      3. loop: verify → fix/spike/explore → drain → repeat
+         (fix picks only :plan-approved / :requested — nothing raised
+         or refined is auto-consumed here)
+      3.5. plan-all — drive every remaining :raised / :refined issue
+         to :planned so humans have a queue to approve against
       4. final confirm
 
     A non-blocking flock on `_CYCLE_LOCK_PATH` ensures at most one
@@ -7453,19 +7570,10 @@ def _cmd_cycle_inner(args) -> int:
     if any(v != 0 for v in pr_results.values()):
         had_failure = True
 
-    # --- Phase 2.5: refine one :raised issue ------------------------------
-    rc = _run_step("refine", cmd_refine, args)
-    all_results["refine"] = rc
-    if rc != 0:
-        had_failure = True
-
-    # --- Phase 2.6: plan one :refined issue --------------------------------
-    rc = _run_step("plan", cmd_plan, args)
-    all_results["plan"] = rc
-    if rc != 0:
-        had_failure = True
-
-    # --- Phase 3: fix loop — pick → fix → drain → refine → repeat ------
+    # --- Phase 3: fix loop — pick → fix → drain → repeat ----------------
+    # Refining and planning are no longer interleaved in this loop; the
+    # dedicated `plan-all` phase below drives :raised/:refined through
+    # the refine → plan pipeline after the fix loop exits.
     # The loop also handles pr-open issues that need further
     # revise/review/merge passes, not just new fix targets.
     drain_only_passes = 0
@@ -7520,36 +7628,7 @@ def _cmd_cycle_inner(args) -> int:
             except subprocess.CalledProcessError:
                 pass
 
-        # Check for :raised or human:submitted issues that still need refining.
-        has_raised = False
         if not has_fix_target and not has_pending_prs and not has_spike and not has_exploration:
-            try:
-                raised = _gh_json([
-                    "issue", "list",
-                    "--repo", REPO,
-                    "--label", LABEL_RAISED,
-                    "--state", "open",
-                    "--json", "number",
-                    "--limit", "1",
-                ]) or []
-                has_raised = len(raised) > 0
-            except subprocess.CalledProcessError:
-                pass
-            if not has_raised:
-                try:
-                    human_submitted = _gh_json([
-                        "issue", "list",
-                        "--repo", REPO,
-                        "--label", LABEL_HUMAN_SUBMITTED,
-                        "--state", "open",
-                        "--json", "number",
-                        "--limit", "1",
-                    ]) or []
-                    has_raised = len(human_submitted) > 0
-                except subprocess.CalledProcessError:
-                    pass
-
-        if not has_fix_target and not has_pending_prs and not has_spike and not has_exploration and not has_raised:
             print("[cai cycle] no eligible issues and no pending PRs; exiting loop",
                   flush=True)
             break
@@ -7612,10 +7691,15 @@ def _cmd_cycle_inner(args) -> int:
             if step_rc != 0:
                 had_failure = True
 
-        # Refine one more :raised issue so the next iteration has
-        # something to fix.
-        rc = _run_step("refine", cmd_refine, args)
-        all_results[f"refine.{iteration}"] = rc
+    # --- Phase 3.5: plan-all — drive :raised/:refined to :planned -------
+    # The fix loop only acts on :plan-approved (or :requested) issues,
+    # so any :raised or :refined work would sit idle without this step.
+    # plan-all loops refine → plan until the queue is exhausted; humans
+    # then approve :planned → :plan-approved on their own schedule.
+    rc = _run_step("plan-all", cmd_plan_all, args)
+    all_results["plan-all"] = rc
+    if rc != 0:
+        had_failure = True
 
     # --- Phase 4: final confirm -----------------------------------------
     rc = _run_step("confirm-final", cmd_confirm, args)
@@ -8199,6 +8283,10 @@ def main() -> int:
         "--issue", type=int, default=None,
         help="Target a specific issue number instead of using queue-based selection",
     )
+    sub.add_parser(
+        "plan-all",
+        help="Drive every :raised/:refined issue to :planned (refine → plan loop)",
+    )
     spike_parser = sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
     spike_parser.add_argument(
         "--issue", type=int, default=None,
@@ -8269,6 +8357,7 @@ def main() -> int:
         "merge": cmd_merge,
         "refine": cmd_refine,
         "plan": cmd_plan,
+        "plan-all": cmd_plan_all,
         "spike": cmd_spike,
         "explore": cmd_explore,
         "cycle": cmd_cycle,

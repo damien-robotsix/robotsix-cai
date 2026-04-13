@@ -114,7 +114,7 @@ Invoke `cai-refine` on the oldest `auto-improve:raised` or `human:submitted` iss
 
 ## plan
 
-Run the plan-select pipeline on the oldest `auto-improve:refined` issue. Clones the repo, runs 2 serial plan agents followed by a select agent, stores the chosen plan in the issue body inside `<!-- cai-plan-start/end -->` markers, and transitions the label to `auto-improve:planned`. Invoked as part of `cai.py cycle`; also runnable manually on-demand.
+Run the plan-select pipeline on the oldest `auto-improve:refined` issue. Clones the repo, runs 2 serial plan agents followed by a select agent, stores the chosen plan in the issue body inside `<!-- cai-plan-start/end -->` markers, and transitions the label to `auto-improve:planned`. Runnable manually on-demand; no longer invoked automatically by `cai.py cycle`.
 
 | Argument | Type | Description |
 |---|---|---|

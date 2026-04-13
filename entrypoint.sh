@@ -5,14 +5,16 @@
 #
 # 1. Template the crontab from env vars. Tasks fall into two groups:
 #
-#    Pipeline (issue-solving) — a single `cai.py cycle` line drives
-#    the full refine → plan → fix → revise → review-pr → merge → confirm
-#    flow. A flock in cmd_cycle guarantees at most one cycle runs
-#    at a time, so issues are processed serially (one full cycle
-#    per issue from refine through merge). This replaces the older
-#    per-stage cron lines (fix, refine, plan, spike, revise,
-#    review-pr, merge, verify, confirm) which could interleave
-#    stages across different issues.
+#    Pipeline (issue-solving) — a `cai.py cycle` line drives the
+#    fix → revise → review-pr → merge → confirm flow on
+#    :plan-approved issues, while a separate `cai.py plan-all` line
+#    drives :raised and :refined issues through refine → plan → :planned
+#    so humans can review and approve plans out-of-band. A flock in
+#    cmd_cycle guarantees at most one cycle runs at a time, so issues
+#    are processed serially (one full cycle per issue from fix through
+#    merge). This replaces the older per-stage cron lines (fix, refine,
+#    plan, spike, revise, review-pr, merge, verify, confirm) which
+#    could interleave stages across different issues.
 #
 #    Orthogonal (independent) tasks — not part of the fix pipeline,
 #    so they keep their own schedules:
@@ -39,6 +41,7 @@
 set -euo pipefail
 
 CAI_CYCLE_SCHEDULE="${CAI_CYCLE_SCHEDULE:-0 * * * *}"
+CAI_PLAN_ALL_SCHEDULE="${CAI_PLAN_ALL_SCHEDULE:-30 * * * *}"
 CAI_ANALYZER_SCHEDULE="${CAI_ANALYZER_SCHEDULE:-0 0 * * *}"
 CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
 CAI_AUDIT_TRIAGE_SCHEDULE="${CAI_AUDIT_TRIAGE_SCHEDULE:-10 */6 * * *}"
@@ -56,6 +59,7 @@ cat > "$CRONTAB_PATH" <<CRONTAB
 # The single cycle line drives the full issue-solving pipeline;
 # other lines are orthogonal tasks with their own cadence.
 $CAI_CYCLE_SCHEDULE python /app/cai.py cycle
+$CAI_PLAN_ALL_SCHEDULE python /app/cai.py plan-all
 $CAI_ANALYZER_SCHEDULE python /app/cai.py analyze
 $CAI_AUDIT_SCHEDULE python /app/cai.py audit
 $CAI_AUDIT_TRIAGE_SCHEDULE python /app/cai.py audit-triage
