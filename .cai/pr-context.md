@@ -32,6 +32,20 @@ Refs: robotsix/robotsix-cai#529
 ### New gaps / deferred
 - None
 
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `publish.py`:127 — added `("category:workflow_efficiency", ...)` entry to `AUDIT_LABELS` so audit findings in this category get the audit-specific label description rather than the analyzer's label
+
+### Decisions this revision
+- Used reviewer's suggested color (`e4e669`) and description verbatim; consistent with adjacent `workflow_anomaly` entry
+
+### New gaps / deferred
+- None
+
 ## Out of scope / known gaps
 - `cmd_analyze` is not touched — outcome section is audit-only per scope guardrails
 - `_load_outcome_counts` internals not changed
