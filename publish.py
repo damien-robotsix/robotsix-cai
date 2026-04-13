@@ -82,19 +82,19 @@ CHECK_WORKFLOWS_CATEGORIES = {
 # create` returns non-zero if the label already exists, which we ignore.
 LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
-    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before fix subagent picks it up"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
     ("human:requested", "1d76db", "Human-requested fix (admin-only label)"),
-    ("auto-improve:in-progress", "fbca04", "fix subagent is actively working on this issue"),
-    ("auto-improve:pr-open", "5319e7", "fix subagent opened a PR"),
+    ("auto-improve:in-progress", "fbca04", "implement subagent is actively working on this issue"),
+    ("auto-improve:pr-open", "5319e7", "implement subagent opened a PR"),
     ("auto-improve:merged", "0e8a16", "PR was merged; awaiting verify"),
-    ("auto-improve:no-action", "c5def5", "Fix subagent reviewed and decided no code change is needed; awaiting human triage"),
+    ("auto-improve:no-action", "c5def5", "Implement subagent reviewed and decided no code change is needed; awaiting human triage"),
     ("auto-improve:needs-spike", "e99695", "Issue needs a research spike before code changes (handled by cai-spike, see #314)"),
     ("auto-improve:needs-exploration", "c2e0c6", "Issue needs autonomous exploration/benchmarking (handled by cai-explore)"),
-    ("auto-improve:refined", "0e8a16", "Issue has been reviewed/refined and is ready for the fix subagent"),
+    ("auto-improve:refined", "0e8a16", "Issue has been reviewed/refined and is ready for the implement subagent"),
     ("auto-improve:revising", "d4c5f9", "Revise subagent is actively iterating on a PR"),
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
     ("auto-improve:planned", "e4e669", "Plan generated and stored in issue body; awaiting human approval"),
-    ("human:plan-approved", "0e8a16", "Plan approved by human; ready for fix subagent"),
+    ("human:plan-approved", "0e8a16", "Plan approved by human; ready for implement subagent"),
     ("human:submitted", "bfd4f2", "Human-submitted issue awaiting refinement"),
     ("auto-improve:parent", "c5def5", "Parent issue with sub-issues"),
     ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
@@ -123,7 +123,7 @@ AUDIT_LABELS = [
 
 CODE_AUDIT_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
-    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before fix subagent picks it up"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
     ("category:cross_file_inconsistency", "d73a4a", "Constant/path/label mismatch across files"),
     ("category:dead_code", "c5def5", "Unreachable or unused code"),
     ("category:missing_reference", "e11d48", "Prompt or file reference that does not exist"),
@@ -135,7 +135,7 @@ CODE_AUDIT_LABELS = [
 
 UPDATE_CHECK_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
-    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before fix subagent picks it up"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
     ("category:version_update", "d73a4a", "New Claude Code version with relevant fixes"),
     ("category:feature_adoption", "0075ca", "New feature that could improve the workspace"),
     ("category:deprecation", "e11d48", "Deprecated flag or pattern we use"),

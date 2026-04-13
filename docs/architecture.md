@@ -8,7 +8,7 @@
 2. **Refine** — `cai refine` calls `cai-refine` to rewrite the issue into a structured plan with steps, verification, and scope guardrails. Label transitions to `auto-improve:refined`.
 3. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. Label transitions to `auto-improve:planned`, awaiting human approval.
 4. **Human Approval** — A human reviews the generated plan and applies `human:plan-approved` label to approve the issue for fixing.
-5. **Fix** — `cai fix` calls `cai-fix` on `human:plan-approved` issues in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
+5. **Fix** — `cai implement` calls `cai-implement` on `human:plan-approved` issues in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
 6. **Review** — `cai review-pr` checks for ripple-effect inconsistencies and posts findings as PR comments. `cai review-docs` then (and only after review-pr completes) checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. This ordering is enforced: review-docs skips PRs until review-pr has posted a review comment at the current HEAD SHA.
 7. **Revise** — `cai revise` calls `cai-revise` or `cai-rebase` to address review comments or rebase conflicts. Label transitions to `auto-improve:revising`.
 8. **Merge** — `cai merge` calls `cai-merge` to assess confidence and auto-merges PRs that meet the threshold. Label transitions to `auto-improve:merged`.
@@ -20,7 +20,7 @@
 |---|---|
 | `auto-improve:raised` | Newly filed, awaiting refinement |
 | `auto-improve:refined` | Has a structured plan, ready for the planning pipeline |
-| `auto-improve:in-progress` | Fix agent is running (lock; 6 h stale timeout) |
+| `auto-improve:in-progress` | Implement agent is running (lock; 6 h stale timeout) |
 | `auto-improve:pr-open` | PR created, awaiting review and merge |
 | `auto-improve:revising` | Revise agent is running (lock; 1 h stale timeout) |
 | `auto-improve:merged` | PR merged, awaiting confirmation |
@@ -30,7 +30,7 @@
 | `auto-improve:needs-exploration` | Needs autonomous exploration (`cai explore`) |
 | `human:requested` | Explicitly requested by a human |
 | `auto-improve:planned` | Plan generated and stored in issue body; awaiting human approval |
-| `human:plan-approved` | Plan approved by human; ready for fix subagent |
+| `human:plan-approved` | Plan approved by human; ready for implement subagent |
 | `auto-improve:parent` | Parent issue; child sub-issues carry the work |
 | `audit:raised` | Audit finding awaiting triage by `cai audit-triage` |
 | `audit:needs-human` | Audit finding escalated to human |
@@ -46,7 +46,7 @@
 2. **Recover stale locks** — roll back `:in-progress` and `:revising` issues past their timeout.
 3. **Ingest unlabeled** — attach `auto-improve` to any unlabeled issues that belong to the pipeline.
 4. **Drain PRs** — for each open auto-improve PR: revise → review-pr → review-docs → merge.
-5. **Fix loop** — repeatedly call `fix`, `spike`, or `explore` on `human:plan-approved` / `human:requested` issues until no eligible work remains, draining PRs after each fix. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the human:plan-approved gate.
+5. **Implement loop** — repeatedly call `implement`, `spike`, or `explore` on `human:plan-approved` / `human:requested` issues until no eligible work remains, draining PRs after each implementation. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the human:plan-approved gate.
 6. **Plan-all** — run `plan-all` to drain every open `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to review before the next cycle.
 7. **Final confirm** — one last confirm pass.
 
@@ -56,9 +56,9 @@
 
 ### Worktree agents
 
-`cai-code-audit`, `cai-fix`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-rebase`, `cai-review-docs`, `cai-review-pr`, `cai-revise`, `cai-select`, `cai-update-check` run in a **fresh git worktree clone**. The wrapper clones the repo and passes the clone path as the agent's work directory. The agent itself never runs `git push` or `gh` — the wrapper owns all remote state.
+`cai-code-audit`, `cai-implement`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-rebase`, `cai-review-docs`, `cai-review-pr`, `cai-revise`, `cai-select`, `cai-update-check` run in a **fresh git worktree clone**. The wrapper clones the repo and passes the clone path as the agent's work directory. The agent itself never runs `git push` or `gh` — the wrapper owns all remote state.
 
-For code-editing agents (`cai-fix`, `cai-revise`, `cai-rebase`), the wrapper also:
+For code-editing agents (`cai-implement`, `cai-revise`, `cai-rebase`), the wrapper also:
 - Creates an isolated branch (`auto-improve/<issue>-<slug>`)
 - Commits all changes, pushes the branch, and opens (or updates) a PR
 - Deletes the worktree on completion

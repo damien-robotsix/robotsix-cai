@@ -16,11 +16,11 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives fix → revise → review-pr → merge → confirm on `human:plan-approved` issues (flock-serialized, one issue at a time). `CAI_PLAN_ALL_SCHEDULE` drives every `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to approve; `plan-all` also runs at the end of each `cycle`. `:raised`, `:refined`, and `:planned` issues are never auto-fixed — a human must promote `:planned` → `human:plan-approved` before the fix loop touches them. Individual pipeline subcommands (`fix`, `refine`, `plan`, `plan-all`, `spike`, `revise`, `review-pr`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions.
+The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives implement → revise → review-pr → merge → confirm on `human:plan-approved` issues (flock-serialized, one issue at a time). `CAI_PLAN_ALL_SCHEDULE` drives every `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to approve; `plan-all` also runs at the end of each `cycle`. `:raised`, `:refined`, and `:planned` issues are never auto-fixed — a human must promote `:planned` → `human:plan-approved` before the implement loop touches them. Individual pipeline subcommands (`implement`, `refine`, `plan`, `plan-all`, `spike`, `revise`, `review-pr`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly fix pipeline on `human:plan-approved` issues (flock-serialized) |
+| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly implement pipeline on `human:plan-approved` issues (flock-serialized) |
 | `CAI_PLAN_ALL_SCHEDULE` | `30 * * * *` | Hourly (offset 30) — drain `:raised`/`:refined` into `:planned` |
 | `CAI_ANALYZER_SCHEDULE` | `0 0 * * *` | Daily transcript analysis and issue raising |
 | `CAI_AUDIT_SCHEDULE` | `0 */6 * * *` | Every 6 hours — queue/PR lifecycle audit |
@@ -47,7 +47,7 @@ Schedule values use standard cron format: `minute hour day month weekday`. To di
 
 Key fields:
 
-- **`permissions.allow`** — tool allowlist rules. Headless (`claude -p`) sessions inherit these rules. The fix/revise/rebase agents run with a restricted allowlist (no `Bash`, no `git push`) enforced by per-agent `tools:` frontmatter.
+- **`permissions.allow`** — tool allowlist rules. Headless (`claude -p`) sessions inherit these rules. The implement/revise/rebase agents run with a restricted allowlist (no `Bash`, no `git push`) enforced by per-agent `tools:` frontmatter.
 - **`model`** — default model for interactive sessions (agents override this via their own `model:` frontmatter).
 - **`env`** — environment variables injected into every Claude Code session.
 

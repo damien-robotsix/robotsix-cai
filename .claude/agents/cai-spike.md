@@ -112,7 +112,7 @@ concrete change; the wrapper will update the issue body and relabel it
 ### Outcome 2 — Refined Issue (hand directly to fix agent)
 
 Emit this when you have completed the spike AND can write a complete,
-verified, actionable plan that `cai-fix` can implement without further
+verified, actionable plan that `cai-implement` can implement without further
 research:
 
 ```

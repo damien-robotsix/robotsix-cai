@@ -49,7 +49,7 @@ Subcommands:
                             separate label namespace.
 
     python cai.py revise    Watch `:pr-open` PRs for new comments and
-                            let the fix subagent iterate on the same
+                            let the implement subagent iterate on the same
                             branch. Force-pushes revisions with
                             `--force-with-lease`.
 
@@ -142,7 +142,7 @@ Subcommands:
 
 The container runs `entrypoint.sh`, which executes `cai.py cycle` once
 synchronously at startup (driving the full issue-solving pipeline:
-verify → confirm → drain PRs → refine → plan → fix loop), then hands
+verify → confirm → drain PRs → refine → plan → implement loop), then hands
 off to supercronic. Each cron tick is a fresh process. The pipeline is
 driven by a single `CAI_CYCLE_SCHEDULE` cron line; a flock in
 `cmd_cycle` serializes overlapping runs so issues are processed one
@@ -193,11 +193,11 @@ from cai_lib.subprocess_utils import _run, _run_claude_p  # noqa: E402
 
 from cai_lib.github import (  # noqa: E402
     _gh_json, check_gh_auth, check_claude_auth, _transcript_dir_is_empty,
-    _set_labels, _issue_has_label, _build_issue_block, _build_fix_user_message,
+    _set_labels, _issue_has_label, _build_issue_block, _build_implement_user_message,
     _fetch_linked_issue_block,
 )
 from cai_lib.cmd_lifecycle import _rollback_stale_in_progress  # noqa: E402
-from cai_lib.cmd_fix import _parse_decomposition  # noqa: E402
+from cai_lib.cmd_implement import _parse_decomposition  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -550,7 +550,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
                     "## Auto-improve: rolling back to :raised\n\n"
                     "No linked PR found for this `:pr-open` issue. "
                     "Resetting to `:raised` so the refine subagent can re-structure it "
-                    "and the fix subagent can then attempt a fresh fix.\n\n"
+                    "and the implement subagent can then attempt a fresh fix.\n\n"
                     f"---\n_Rolled back automatically by `{log_prefix}`._"
                 )
                 _run(["gh", "issue", "comment", str(issue["number"]),
@@ -573,7 +573,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
                     f"Linked PR #{pr['number']} was closed without merging. "
                     "Resetting this issue to `:refined` so it can flow through "
                     "the refinement and planning cycle again before a human "
-                    "can re-approve it for the fix subagent.\n\n"
+                    "can re-approve it for the implement subagent.\n\n"
                     f"---\n_Rolled back automatically by `{log_prefix}`._"
                 )
                 _run(["gh", "issue", "comment", str(issue["number"]),
@@ -638,7 +638,7 @@ def _ingest_unlabeled_issues() -> list[dict]:
 
 
 def _select_fix_target(exclude: set[int] | None = None):
-    """Return the highest-scored open issue eligible for the fix subagent.
+    """Return the highest-scored open issue eligible for the implement subagent.
 
     Scoring: age_days × category_success_rate × (1 / max(1, prior_attempts)).
     Categories with fewer than 3 observations get a neutral prior of 0.60.
@@ -674,7 +674,7 @@ def _select_fix_target(exclude: set[int] | None = None):
             ]) or []
         except subprocess.CalledProcessError as e:
             print(
-                f"[cai fix] gh issue list (label={label}) failed:\n{e.stderr}",
+                f"[cai implement] gh issue list (label={label}) failed:\n{e.stderr}",
                 file=sys.stderr,
             )
             return None
@@ -686,8 +686,8 @@ def _select_fix_target(exclude: set[int] | None = None):
             # An issue can carry both `human:plan-approved` and a terminal
             # label (e.g. `:no-action`, `:merged`, `:needs-spike`) when an
             # earlier transition forgot to strip the human approval. Without
-            # this guard, the fix loop keeps re-selecting the same issue and
-            # the cai-fix subagent correctly reports "no action needed" every
+            # this guard, the implement loop keeps re-selecting the same issue and
+            # the cai-implement subagent correctly reports "no action needed" every
             # run — wasting cycles forever.
             if (
                 LABEL_NO_ACTION in label_names
@@ -714,7 +714,7 @@ def _select_fix_target(exclude: set[int] | None = None):
             ]) or []
         except subprocess.CalledProcessError:
             pr_open_issues = []
-        for issue in _recover_stale_pr_open(pr_open_issues, log_prefix="cai fix"):
+        for issue in _recover_stale_pr_open(pr_open_issues, log_prefix="cai implement"):
             if exclude and issue["number"] in exclude:
                 continue
             candidates[issue["number"]] = issue
@@ -941,7 +941,7 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
          "--dangerously-skip-permissions",
          "--max-budget-usd", "1.00",
          "--add-dir", str(work_dir)],
-        category="fix.plan",
+        category="implement.plan",
         agent="cai-plan",
         input=user_message,
         cwd="/app",
@@ -969,7 +969,7 @@ def _run_select_agent(issue: dict, plans: list[str], work_dir: Path) -> str:
         ["claude", "-p", "--agent", "cai-select",
          "--dangerously-skip-permissions",
          "--add-dir", str(work_dir)],
-        category="fix.select",
+        category="implement.select",
         agent="cai-select",
         input=user_message,
         cwd="/app",
@@ -1036,13 +1036,13 @@ def _get_plan_for_fix(issue: dict, origin_label: str) -> str | None:
     no plan is expected — returns None for graceful degradation.
     """
     if origin_label == LABEL_REQUESTED:
-        print("[cai fix] :requested bypass — no stored plan expected", flush=True)
+        print("[cai implement] :requested bypass — no stored plan expected", flush=True)
         return None
     plan = _extract_stored_plan(issue.get("body", ""))
     if plan:
-        print(f"[cai fix] using stored plan from issue body ({len(plan)} chars)", flush=True)
+        print(f"[cai implement] using stored plan from issue body ({len(plan)} chars)", flush=True)
     else:
-        print("[cai fix] WARNING: :plan-approved issue has no stored plan in body — proceeding without plan", flush=True)
+        print("[cai implement] WARNING: :plan-approved issue has no stored plan in body — proceeding without plan", flush=True)
     return plan
 
 
@@ -1187,7 +1187,7 @@ def cmd_plan_all(args) -> int:
     progress (to avoid spinning on a perpetually-failing issue).
 
     This step produces the :planned backlog that humans review and
-    promote to :plan-approved. The fix loop in `cycle` only consumes
+    promote to :plan-approved. The implement loop in `cycle` only consumes
     :plan-approved work, so without this step nothing new would ever
     reach a state a human can approve.
     """
@@ -1326,13 +1326,13 @@ def _parse_suggested_issues(agent_output: str) -> list[dict]:
 def _create_suggested_issues(
     suggested: list[dict], source_issue_number: int,
 ) -> int:
-    """Create GitHub issues raised by the fix subagent. Returns count created."""
+    """Create GitHub issues raised by the implement subagent. Returns count created."""
     created = 0
     for s in suggested:
         issue_body = (
             f"{s['body']}\n\n"
             f"---\n"
-            f"_Raised by the fix subagent while working on "
+            f"_Raised by the implement subagent while working on "
             f"#{source_issue_number}._\n"
         )
         labels = ",".join(["auto-improve", LABEL_RAISED])
@@ -1348,11 +1348,11 @@ def _create_suggested_issues(
         )
         if result.returncode == 0:
             url = result.stdout.strip()
-            print(f"[cai fix] created suggested issue: {url}", flush=True)
+            print(f"[cai implement] created suggested issue: {url}", flush=True)
             created += 1
         else:
             print(
-                f"[cai fix] failed to create suggested issue "
+                f"[cai implement] failed to create suggested issue "
                 f"'{s['title']}': {result.stderr}",
                 file=sys.stderr,
             )
@@ -1594,7 +1594,7 @@ def _update_parent_checklist_item(
 # exemption applies only to interactive Claude Code sessions, not
 # headless `-p` sessions.
 #
-# This means: a sub-agent invoked via `claude -p --agent cai-fix`
+# This means: a sub-agent invoked via `claude -p --agent cai-implement`
 # CANNOT use its Edit/Write tools to modify any `.claude/agents/*.md`
 # file, even the one for a different agent. The block is structural
 # and unbypassable from inside the session.
@@ -1770,7 +1770,7 @@ def _work_directory_block(work_dir: Path) -> str:
     happens, and how to update protected `.claude/agents/*.md`
     files via the staging directory.
 
-    All cloned-worktree subagents (cai-fix, cai-revise, cai-rebase,
+    All cloned-worktree subagents (cai-implement, cai-revise, cai-rebase,
     cai-review-pr, cai-review-docs, cai-code-audit, cai-propose, cai-propose-review,
     cai-update-check, cai-plan, cai-select, cai-git) are invoked with `cwd=/app`
     rather than `cwd=<clone>`. This makes their canonical agent
@@ -1843,15 +1843,15 @@ def _work_directory_block(work_dir: Path) -> str:
         "  - Write the FULL file, not a diff or patch. The wrapper "
         "does an unconditional full-file overwrite.\n"
         "  - Use the same basename as the target "
-        f"(e.g. `{staging_abs}/cai-fix.md` → "
-        f"`{work_dir}/.claude/agents/cai-fix.md`).\n"
+        f"(e.g. `{staging_abs}/cai-implement.md` → "
+        f"`{work_dir}/.claude/agents/cai-implement.md`).\n"
         "  - Do NOT attempt `Edit` or `Write` on the protected "
         f"`{work_dir}/.claude/agents/...` path — it will always "
         "fail. Go through the staging dir.\n\n"
         "Example:\n"
-        f"  - GOOD: `Write(\"{staging_abs}/cai-fix.md\", "
+        f"  - GOOD: `Write(\"{staging_abs}/cai-implement.md\", "
         "\"<full new file content>\")`\n"
-        f"  - BAD:  `Edit(\"{work_dir}/.claude/agents/cai-fix.md\", "
+        f"  - BAD:  `Edit(\"{work_dir}/.claude/agents/cai-implement.md\", "
         "...)`  (blocked by claude-code)\n"
     )
 
@@ -1904,7 +1904,7 @@ def _pre_screen_issue_actionability(issue: dict) -> tuple[str, str]:
         # avoids the overhead of an agent file for a call that never needs one.
         proc = _run_claude_p(
             ["claude", "-p", "--model", "claude-haiku-4-5", prompt_text],
-            category="fix.pre-screen",
+            category="implement.pre-screen",
         )
 
         raw = (proc.stdout or "").strip()
@@ -1922,15 +1922,15 @@ def _pre_screen_issue_actionability(issue: dict) -> tuple[str, str]:
 
     except Exception as e:  # noqa: BLE001
         print(
-            f"[cai fix] pre-screen error (falling through to actionable): {e}",
+            f"[cai implement] pre-screen error (falling through to actionable): {e}",
             file=sys.stderr,
             flush=True,
         )
         return ("actionable", f"pre-screen error: {e}")
 
 
-def cmd_fix(args) -> int:
-    """Run the fix subagent against one eligible issue."""
+def cmd_implement(args) -> int:
+    """Run the implement subagent against one eligible issue."""
     if getattr(args, "issue", None) is not None:
         try:
             issue = _gh_json([
@@ -1939,34 +1939,34 @@ def cmd_fix(args) -> int:
                 "--json", "number,title,body,labels,state,createdAt,comments",
             ])
         except subprocess.CalledProcessError as e:
-            print(f"[cai fix] gh issue view #{args.issue} failed:\n{e.stderr}", file=sys.stderr)
-            log_run("fix", repo=REPO, issue=args.issue, result="issue_lookup_failed", exit=1)
+            print(f"[cai implement] gh issue view #{args.issue} failed:\n{e.stderr}", file=sys.stderr)
+            log_run("implement", repo=REPO, issue=args.issue, result="issue_lookup_failed", exit=1)
             return 1
         if issue.get("state", "").upper() != "OPEN":
-            print(f"[cai fix] issue #{args.issue} is not open; nothing to do", flush=True)
-            log_run("fix", repo=REPO, issue=args.issue, result="not_open", exit=0)
+            print(f"[cai implement] issue #{args.issue} is not open; nothing to do", flush=True)
+            log_run("implement", repo=REPO, issue=args.issue, result="not_open", exit=0)
             return 0
         label_names = {lbl["name"] for lbl in issue.get("labels", [])}
         if LABEL_IN_PROGRESS in label_names or LABEL_PR_OPEN in label_names:
             print(
-                f"[cai fix] issue #{args.issue} is already locked "
+                f"[cai implement] issue #{args.issue} is already locked "
                 f"({LABEL_IN_PROGRESS} or {LABEL_PR_OPEN} present); skipping",
                 flush=True,
             )
-            log_run("fix", repo=REPO, issue=args.issue, result="already_locked", exit=0)
+            log_run("implement", repo=REPO, issue=args.issue, result="already_locked", exit=0)
             return 0
     else:
         issue = _select_fix_target()
         if issue is None:
-            print("[cai fix] no eligible issues; nothing to do", flush=True)
-            log_run("fix", repo=REPO, result="no_eligible_issues", exit=0)
+            print("[cai implement] no eligible issues; nothing to do", flush=True)
+            log_run("implement", repo=REPO, result="no_eligible_issues", exit=0)
             return 0
 
     issue_number = issue["number"]
     title = issue["title"]
     label_names = {lbl["name"] for lbl in issue.get("labels", [])}
     origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_PLAN_APPROVED
-    print(f"[cai fix] picked #{issue_number}: {title}", flush=True)
+    print(f"[cai implement] picked #{issue_number}: {title}", flush=True)
 
     # 1. Lock — set :in-progress, drop :plan-approved and :requested.
     if not _set_labels(
@@ -1974,11 +1974,11 @@ def cmd_fix(args) -> int:
         add=[LABEL_IN_PROGRESS],
         remove=[LABEL_PLAN_APPROVED, LABEL_REQUESTED],
     ):
-        print(f"[cai fix] could not lock #{issue_number}", file=sys.stderr)
-        log_run("fix", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
+        print(f"[cai implement] could not lock #{issue_number}", file=sys.stderr)
+        log_run("implement", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
         return 1
-    print(f"[cai fix] locked #{issue_number} (label {LABEL_IN_PROGRESS})", flush=True)
-    _write_active_job("fix", "issue", issue_number)
+    print(f"[cai implement] locked #{issue_number} (label {LABEL_IN_PROGRESS})", flush=True)
+    _write_active_job("implement", "issue", issue_number)
 
     # Make sure git can authenticate over HTTPS via the gh token. This
     # is also done in entrypoint.sh, but redoing it here is cheap and
@@ -1988,7 +1988,7 @@ def cmd_fix(args) -> int:
     # Pre-screen: cheap Haiku call to triage obvious non-actionable issues
     # before the expensive clone + plan-select pipeline.
     ps_verdict, ps_reason = _pre_screen_issue_actionability(issue)
-    print(f"[cai fix] pre-screen: verdict={ps_verdict} reason={ps_reason}", flush=True)
+    print(f"[cai implement] pre-screen: verdict={ps_verdict} reason={ps_reason}", flush=True)
 
     if ps_verdict == "spike":
         _set_labels(
@@ -2002,11 +2002,11 @@ def cmd_fix(args) -> int:
              "--body",
              f"## Pre-screen: needs a spike\n\n"
              f"{ps_reason}\n\n---\n"
-             f"_Flagged by `cai fix` pre-screen (Haiku). Re-label to "
+             f"_Flagged by `cai implement` pre-screen (Haiku). Re-label to "
              f"`{origin_raised_label}` to retry._"],
             capture_output=True,
         )
-        log_run("fix", repo=REPO, issue=issue_number, result="pre_screen_spike", exit=0)
+        log_run("implement", repo=REPO, issue=issue_number, result="pre_screen_spike", exit=0)
         _clear_active_job()
         return 0
 
@@ -2026,16 +2026,16 @@ def cmd_fix(args) -> int:
              "--body",
              f"## Pre-screen: ambiguous issue\n\n"
              f"{ps_reason}\n\n---\n"
-             f"_Flagged by `cai fix` pre-screen (Haiku). The issue "
+             f"_Flagged by `cai implement` pre-screen (Haiku). The issue "
              f"was returned to `{LABEL_REFINED}` for refinement._"],
             capture_output=True,
         )
-        log_run("fix", repo=REPO, issue=issue_number, result="pre_screen_ambiguous", exit=0)
+        log_run("implement", repo=REPO, issue=issue_number, result="pre_screen_ambiguous", exit=0)
         _clear_active_job()
         return 0
 
     _uid = uuid.uuid4().hex[:8]
-    work_dir = Path(f"/tmp/cai-fix-{issue_number}-{_uid}")
+    work_dir = Path(f"/tmp/cai-implement-{issue_number}-{_uid}")
     locked = True
 
     def rollback() -> None:
@@ -2059,16 +2059,16 @@ def cmd_fix(args) -> int:
             capture_output=True,
         )
         if clone.returncode != 0:
-            print(f"[cai fix] git clone failed:\n{clone.stderr}", file=sys.stderr)
+            print(f"[cai implement] git clone failed:\n{clone.stderr}", file=sys.stderr)
             rollback()
-            log_run("fix", repo=REPO, issue=issue_number, result="clone_failed", exit=1)
+            log_run("implement", repo=REPO, issue=issue_number, result="clone_failed", exit=1)
             return 1
 
         # 3. Configure git identity from the gh token's owner.
         name, email = _gh_user_identity()
         _git(work_dir, "config", "user.name", name)
         _git(work_dir, "config", "user.email", email)
-        print(f"[cai fix] git identity: {name} <{email}>", flush=True)
+        print(f"[cai implement] git identity: {name} <{email}>", flush=True)
 
         # 4. Branch.
         branch = f"auto-improve/{issue_number}-{_slugify(title)}"
@@ -2081,7 +2081,7 @@ def cmd_fix(args) -> int:
         attempt_history_block = _build_attempt_history_block(attempts)
         if attempt_history_block:
             print(
-                f"[cai fix] injecting {len(attempts)} previous fix attempt(s) for #{issue_number}",
+                f"[cai implement] injecting {len(attempts)} previous fix attempt(s) for #{issue_number}",
                 flush=True,
             )
 
@@ -2102,9 +2102,9 @@ def cmd_fix(args) -> int:
         #     `_setup_agent_edit_staging` / `_apply_agent_edit_staging`.
         _setup_agent_edit_staging(work_dir)
 
-        # 5. Run the cai-fix declarative subagent.
+        # 5. Run the cai-implement declarative subagent.
         #    System prompt, tool allowlist, and hard rules live in
-        #    `.claude/agents/cai-fix.md`. The wrapper passes the
+        #    `.claude/agents/cai-implement.md`. The wrapper passes the
         #    work-directory block (telling the agent where its clone
         #    is, how to use absolute paths, and how to stage
         #    `.claude/agents/*.md` updates) plus the dynamic per-run
@@ -2112,15 +2112,15 @@ def cmd_fix(args) -> int:
         #
         #    The agent runs with `cwd=/app`, NOT the clone. This
         #    lets it read its own definition and per-agent memory
-        #    from `/app/.claude/agents/cai-fix.md` and
-        #    `/app/.claude/agent-memory/cai-fix/MEMORY.md` directly
+        #    from `/app/.claude/agents/cai-implement.md` and
+        #    `/app/.claude/agent-memory/cai-implement/MEMORY.md` directly
         #    from the image / persistent volume — no copy in/out
         #    needed. `--add-dir` grants the agent's tools access to
         #    the clone (which is outside cwd).
         user_message = (
             _work_directory_block(work_dir)
             + "\n"
-            + _build_fix_user_message(issue, attempt_history_block)
+            + _build_implement_user_message(issue, attempt_history_block)
         )
         if selected_plan:
             user_message = (
@@ -2132,21 +2132,21 @@ def cmd_fix(args) -> int:
                 + "Follow this plan to implement the fix.\n\n"
                 + f"{selected_plan}\n\n"
                 + "---\n\n"
-                + _build_fix_user_message(issue, attempt_history_block)
+                + _build_implement_user_message(issue, attempt_history_block)
             )
-        print(f"[cai fix] running cai-fix subagent for {work_dir}", flush=True)
+        print(f"[cai implement] running cai-implement subagent for {work_dir}", flush=True)
         # `--dangerously-skip-permissions` is required for the
-        # remaining permission-mode gating (cai-fix needs to edit
+        # remaining permission-mode gating (cai-implement needs to edit
         # source files in the clone). Claude-code's hardcoded
         # protection on `.claude/agents/*.md` is NOT bypassed by
         # any flag — we route self-modifications through the
         # staging directory instead (see _work_directory_block).
         agent = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-fix",
+            ["claude", "-p", "--agent", "cai-implement",
              "--dangerously-skip-permissions",
              "--add-dir", str(work_dir)],
-            category="fix",
-            agent="cai-fix",
+            category="implement",
+            agent="cai-implement",
             input=user_message,
             cwd="/app",
         )
@@ -2154,12 +2154,12 @@ def cmd_fix(args) -> int:
             print(agent.stdout, flush=True)
         if agent.returncode != 0:
             print(
-                f"[cai fix] subagent claude -p failed (exit {agent.returncode}):\n"
+                f"[cai implement] subagent claude -p failed (exit {agent.returncode}):\n"
                 f"{agent.stderr}",
                 file=sys.stderr,
             )
             rollback()
-            log_run("fix", repo=REPO, issue=issue_number,
+            log_run("implement", repo=REPO, issue=issue_number,
                     result="subagent_failed", exit=agent.returncode)
             return agent.returncode
 
@@ -2168,7 +2168,7 @@ def cmd_fix(args) -> int:
         suggested = _parse_suggested_issues(agent_text)
         if suggested:
             n = _create_suggested_issues(suggested, issue_number)
-            print(f"[cai fix] created {n}/{len(suggested)} suggested issue(s)", flush=True)
+            print(f"[cai implement] created {n}/{len(suggested)} suggested issue(s)", flush=True)
 
         # 5c. Apply any `.claude/agents/*.md` updates the agent
         #     staged at `<work_dir>/.cai-staging/agents/`. These
@@ -2183,7 +2183,7 @@ def cmd_fix(args) -> int:
         applied = _apply_agent_edit_staging(work_dir)
         if applied:
             print(
-                f"[cai fix] applied {applied} staged "
+                f"[cai implement] applied {applied} staged "
                 f".claude/agents/*.md update(s)",
                 flush=True,
             )
@@ -2191,13 +2191,13 @@ def cmd_fix(args) -> int:
         # 6. Inspect the working tree. Empty diff = deliberate
         #    no-action OR a spike-shaped bail-out (the agent
         #    recognised the issue needs a spike, not a code change,
-        #    per the bullet in cai-fix.md).
+        #    per the bullet in cai-implement.md).
         status = _git(work_dir, "status", "--porcelain", check=False)
         if not status.stdout.strip():
             agent_text = agent.stdout or ""
             reasoning = agent_text.strip()[:2000]
 
-            # Detect the spike marker. The cai-fix agent emits a
+            # Detect the spike marker. The cai-implement agent emits a
             # `## Needs Spike` block when bailing on a spike-shaped
             # issue so the wrapper can route to :needs-spike instead
             # of the default :no-action.
@@ -2209,9 +2209,9 @@ def cmd_fix(args) -> int:
 
             if is_spike:
                 target_label = LABEL_NEEDS_SPIKE
-                comment_heading = "## Fix subagent: needs a spike"
+                comment_heading = "## Implement subagent: needs a spike"
                 comment_footer = (
-                    "_Set by `cai fix` after the subagent recognised "
+                    "_Set by `cai implement` after the subagent recognised "
                     "this issue as spike-shaped (research / verification "
                     "/ evaluation). The cai-spike subagent (#314) will "
                     "pick this up once it ships. Re-label to "
@@ -2222,9 +2222,9 @@ def cmd_fix(args) -> int:
                 log_label = "auto-improve:needs-spike"
             else:
                 target_label = LABEL_NO_ACTION
-                comment_heading = "## Fix subagent: no action needed"
+                comment_heading = "## Implement subagent: no action needed"
                 comment_footer = (
-                    "_Set by `cai fix` after the subagent reviewed and "
+                    "_Set by `cai implement` after the subagent reviewed and "
                     "decided no code change was needed. Re-label to "
                     f"`{origin_raised_label}` to retry, or close if "
                     "you agree._"
@@ -2233,7 +2233,7 @@ def cmd_fix(args) -> int:
                 log_label = "auto-improve:no-action"
 
             print(
-                f"[cai fix] subagent produced no changes for #{issue_number}; "
+                f"[cai implement] subagent produced no changes for #{issue_number}; "
                 f"marking {log_label}",
                 flush=True,
             )
@@ -2266,7 +2266,7 @@ def cmd_fix(args) -> int:
                 remove=terminal_remove,
             ):
                 print(
-                    f"[cai fix] WARNING: label transition to {log_label} "
+                    f"[cai implement] WARNING: label transition to {log_label} "
                     f"failed for #{issue_number}; retrying",
                     flush=True,
                 )
@@ -2276,17 +2276,17 @@ def cmd_fix(args) -> int:
                     remove=terminal_remove,
                 ):
                     print(
-                        f"[cai fix] WARNING: label transition to "
+                        f"[cai implement] WARNING: label transition to "
                         f"{log_label} failed twice for #{issue_number} "
                         "— issue may be stuck without a lifecycle label",
                         file=sys.stderr, flush=True,
                     )
                     rollback()
-                    log_run("fix", repo=REPO, issue=issue_number,
+                    log_run("implement", repo=REPO, issue=issue_number,
                             result="label_transition_failed", exit=1)
                     return 1
             locked = False
-            log_run("fix", repo=REPO, issue=issue_number,
+            log_run("implement", repo=REPO, issue=issue_number,
                     result=log_result, exit=0)
             return 0
 
@@ -2297,7 +2297,7 @@ def cmd_fix(args) -> int:
         _git(work_dir, "add", "-A")
         commit_msg = (
             f"auto-improve: {title}\n\n"
-            f"Generated by `cai fix` against issue #{issue_number}.\n\n"
+            f"Generated by `cai implement` against issue #{issue_number}.\n\n"
             f"Refs {REPO}#{issue_number}"
         )
         _git(work_dir, "commit", "-m", commit_msg)
@@ -2312,12 +2312,12 @@ def cmd_fix(args) -> int:
         )
         if test_result.returncode != 0:
             print(
-                f"[cai fix] regression tests failed — not opening PR\n"
+                f"[cai implement] regression tests failed — not opening PR\n"
                 f"{test_result.stdout}\n{test_result.stderr}",
                 file=sys.stderr,
             )
             rollback()
-            log_run("fix", repo=REPO, issue=issue_number,
+            log_run("implement", repo=REPO, issue=issue_number,
                     result="tests_failed", exit=1)
             return 1
 
@@ -2339,9 +2339,9 @@ def cmd_fix(args) -> int:
             capture_output=True,
         )
         if push.returncode != 0:
-            print(f"[cai fix] git push failed:\n{push.stderr}", file=sys.stderr)
+            print(f"[cai implement] git push failed:\n{push.stderr}", file=sys.stderr)
             rollback()
-            log_run("fix", repo=REPO, issue=issue_number,
+            log_run("implement", repo=REPO, issue=issue_number,
                     result="push_failed", exit=1)
             return 1
 
@@ -2371,7 +2371,7 @@ def cmd_fix(args) -> int:
             f"**Issue:** #{issue_number} — {title}\n\n"
             f"{pr_summary}\n\n"
             f"---\n"
-            f"_Auto-generated by `cai fix`. The fix subagent runs autonomously "
+            f"_Auto-generated by `cai implement`. The implement subagent runs autonomously "
             f"with full tool permissions — please review the diff carefully._\n"
         )
         pr = _run(
@@ -2386,14 +2386,14 @@ def cmd_fix(args) -> int:
             capture_output=True,
         )
         if pr.returncode != 0:
-            print(f"[cai fix] gh pr create failed:\n{pr.stderr}", file=sys.stderr)
+            print(f"[cai implement] gh pr create failed:\n{pr.stderr}", file=sys.stderr)
             rollback()
-            log_run("fix", repo=REPO, issue=issue_number,
+            log_run("implement", repo=REPO, issue=issue_number,
                     result="pr_create_failed", exit=1)
             return 1
 
         pr_url = pr.stdout.strip()
-        print(f"[cai fix] opened PR: {pr_url}", flush=True)
+        print(f"[cai implement] opened PR: {pr_url}", flush=True)
 
         # Extract PR number from the URL (last path segment).
         pr_number = pr_url.rstrip("/").rsplit("/", 1)[-1]
@@ -2407,7 +2407,7 @@ def cmd_fix(args) -> int:
             remove=[LABEL_IN_PROGRESS],
         ):
             print(
-                f"[cai fix] label transition to :pr-open failed for #{issue_number}; retrying",
+                f"[cai implement] label transition to :pr-open failed for #{issue_number}; retrying",
                 flush=True,
             )
             if not _set_labels(
@@ -2416,19 +2416,19 @@ def cmd_fix(args) -> int:
                 remove=[LABEL_IN_PROGRESS],
             ):
                 print(
-                    f"[cai fix] WARNING: label transition to :pr-open failed twice for "
+                    f"[cai implement] WARNING: label transition to :pr-open failed twice for "
                     f"#{issue_number} — issue may be orphaned from PR {pr_url}",
                     file=sys.stderr, flush=True,
                 )
         locked = False
-        log_run("fix", repo=REPO, issue=issue_number, branch=branch,
+        log_run("implement", repo=REPO, issue=issue_number, branch=branch,
                 pr=pr_number, diff_files=diff_files, exit=0)
         return 0
 
     except Exception as e:
-        print(f"[cai fix] unexpected failure: {e!r}", file=sys.stderr)
+        print(f"[cai implement] unexpected failure: {e!r}", file=sys.stderr)
         rollback()
-        log_run("fix", repo=REPO, issue=issue_number,
+        log_run("implement", repo=REPO, issue=issue_number,
                 result=f"unexpected_error", exit=1)
         return 1
     finally:
@@ -2442,7 +2442,7 @@ def cmd_fix(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-# Heading markers used by cmd_fix and cmd_revise when they post
+# Heading markers used by cmd_implement and cmd_revise when they post
 # comments to PRs/issues. The revise subcommand uses these to filter
 # out bot-generated comments from the "unaddressed" set, which would
 # otherwise cause self-loops (the bot acting on its own output).
@@ -2461,7 +2461,8 @@ def cmd_fix(args) -> int:
 # review" form is NOT filtered because it carries `### Finding:`
 # blocks that revise should address.
 _BOT_COMMENT_MARKERS = (
-    "## Fix subagent:",
+    "## Implement subagent:",
+    "## Fix subagent:",  # compat: pre-rename bot comments
     "## Revise subagent:",
     "## Revision summary",
     "## cai pre-merge review (clean)",
@@ -2477,7 +2478,7 @@ def _is_bot_comment(comment: dict) -> bool:
     return any(body.startswith(m) for m in _BOT_COMMENT_MARKERS)
 
 
-# Marker that revise/cmd_fix uses when its subagent decides no code
+# Marker that revise/cmd_implement uses when its subagent decides no code
 # changes are needed in response to a comment. The presence of this
 # marker AFTER all human comments means the bot has acknowledged the
 # request and explicitly chose not to act — so we should NOT keep
@@ -2791,7 +2792,7 @@ def _select_revise_targets() -> list[dict]:
 
 def _recover_stuck_rebase_prs() -> int:
     """Close PRs the rebase resolver gave up on so the issue can flow
-    through the planning cycle and the fix subagent can re-attempt from
+    through the planning cycle and the implement subagent can re-attempt from
     a fresh branch off current main.
 
     Trigger condition: an open `auto-improve/<N>-*` PR has a
@@ -2863,12 +2864,12 @@ def _recover_stuck_rebase_prs() -> int:
             "## Revise subagent: closing stuck PR for fresh attempt\n\n"
             "The rebase resolver could not land this branch onto "
             "current `main` and no further progress is possible from "
-            f"this branch. Closing so the fix subagent can re-open a "
+            f"this branch. Closing so the implement subagent can re-open a "
             f"fresh PR for #{issue_number} against the current `main`.\n\n"
             "---\n"
             "_Closed automatically by `cai revise` recovery. The "
             "linked issue has been reset to `auto-improve:refined` and "
-            "will be picked up on the next `cai fix` tick._"
+            "will be picked up on the next `cai implement` tick._"
         )
         close_res = _run(
             ["gh", "pr", "close", str(pr_number),
@@ -2885,7 +2886,7 @@ def _recover_stuck_rebase_prs() -> int:
 
         # Reset the linked issue back to the eligible-for-fix state.
         # NOTE: LABEL_MERGE_BLOCKED is intentionally NOT removed here.
-        # If cmd_fix opens a fresh PR for this issue, the revise guard
+        # If cmd_implement opens a fresh PR for this issue, the revise guard
         # in _select_revise_targets() must still see merge-blocked until
         # cmd_merge re-evaluates the new PR and removes it.  cmd_merge
         # explicitly does NOT skip on merge-blocked, so it will evaluate
@@ -2961,7 +2962,7 @@ def _close_orphaned_prs() -> int:
             "land it if it conflicts with `main`).\n\n"
             "---\n"
             "_Closed automatically by `cai revise` orphan recovery. "
-            "Reopen the issue if you want the fix subagent to retry._"
+            "Reopen the issue if you want the implement subagent to retry._"
         )
         close_res = _run(
             ["gh", "pr", "close", str(pr_number),
@@ -3251,10 +3252,10 @@ def cmd_revise(args) -> int:
             #     the clone itself (Read, Grep, Glob, and delegation
             #     to Explore) when it needs the actual content.
             #
-            #     When `.cai/pr-context.md` is present (`cai-fix`
+            #     When `.cai/pr-context.md` is present (`cai-implement`
             #     writes it on every non-empty PR), the dossier is
             #     the richer map and the agent Reads it first. When
-            #     it is missing (legacy PRs, or PRs where cai-fix
+            #     it is missing (legacy PRs, or PRs where cai-implement
             #     exited with zero diff), the stat alone is enough —
             #     the agent uses it as the entry point and explores
             #     from there, then writes a fresh dossier before
@@ -3289,7 +3290,7 @@ def cmd_revise(args) -> int:
                 pr_state_block = (
                     f"## Current PR state\n\n"
                     f"_No `.cai/pr-context.md` dossier was found — "
-                    f"this is a legacy PR or one where `cai-fix` "
+                    f"this is a legacy PR or one where `cai-implement` "
                     f"exited with zero diff. The full unified diff "
                     f"is **not** included either — it is a token "
                     f"sink on large PRs and you can reconstruct the "
@@ -3304,7 +3305,7 @@ def cmd_revise(args) -> int:
                     f"code changes in this revision — create a "
                     f"minimal dossier at "
                     f"`{work_dir}/.cai/pr-context.md` before exiting "
-                    f"(see `.claude/agents/cai-fix.md` → 'Before you "
+                    f"(see `.claude/agents/cai-implement.md` → 'Before you "
                     f"exit: write the PR context dossier') so the "
                     f"next revise cycle starts with one.\n\n"
                     f"```\n{pr_stat}\n```\n\n"
@@ -3641,7 +3642,7 @@ def cmd_verify(args) -> int:
 
     # Recovery: find open auto-improve PRs whose linked issue is missing
     # the :pr-open label.  This heals issues where the label transition
-    # in cmd_fix step 10 failed silently.
+    # in cmd_implement step 10 failed silently.
     try:
         open_prs = _gh_json([
             "pr", "list",
@@ -4181,7 +4182,7 @@ def cmd_audit_triage(args) -> int:
     issue as one of: close_duplicate, close_resolved, passthrough,
     escalate. The wrapper then executes deterministically — only
     `close_*` verdicts at `high` confidence are acted on; everything
-    else is left for the fix subagent or escalated to human triage
+    else is left for the implement subagent or escalated to human triage
     via the `audit:needs-human` label.
 
     Refs #193.
@@ -4457,7 +4458,7 @@ def cmd_audit_triage(args) -> int:
         else:
             # passthrough — relabel to auto-improve:raised so the refine
             # subagent can structure it, then transition to :refined for
-            # the fix subagent (fix no longer selects audit:raised directly,
+            # the implement subagent (fix no longer selects audit:raised directly,
             # ensuring all audit issues go through triage first).
             _set_labels(
                 n,
@@ -7953,22 +7954,22 @@ def _cmd_cycle_inner(args) -> int:
               flush=True)
 
     # --- Phase 2: drain any already-pending PRs -------------------------
-    print("\n[cai cycle] draining pending PRs before starting fix loop",
+    print("\n[cai cycle] draining pending PRs before starting implement loop",
           flush=True)
     pr_results = _drain_pending_prs(args)
     all_results.update(pr_results)
     if any(v != 0 for v in pr_results.values()):
         had_failure = True
 
-    # --- Phase 3+3.5: fix loop → plan-all, repeat while new fix targets appear
+    # --- Phase 3+3.5: implement loop → plan-all, repeat while new implement targets appear
     # plan-all may expose a fresh human:plan-approved (human promotes
-    # :planned mid-plan-all) — in that case we re-enter the fix loop
+    # :planned mid-plan-all) — in that case we re-enter the implement loop
     # instead of waiting for the next cycle tick.
     _MAX_DRAIN_ONLY_PASSES = 3  # cap drain-only iterations to avoid infinite loops
-    _MAX_OUTER_PASSES = 5  # cap plan-all ↔ fix-loop re-entries
-    # Issues whose fix failed in this cycle — skip them for the rest of
+    _MAX_OUTER_PASSES = 5  # cap plan-all ↔ implement-loop re-entries
+    # Issues whose implementation failed in this cycle — skip them for the rest of
     # the cycle so a persistent failure (e.g. push reject) doesn't block
-    # other fix targets or churn across outer passes.
+    # other implement targets or churn across outer passes.
     failed_fix_issues: set[int] = set()
     outer_pass = 0
     while True:
@@ -7984,7 +7985,7 @@ def _cmd_cycle_inner(args) -> int:
             iteration += 1
             print(f"\n[cai cycle] ---- iteration {iteration} ----", flush=True)
 
-            # Sync labels before each fix attempt so we see freshly-merged PRs.
+            # Sync labels before each implement attempt so we see freshly-merged PRs.
             _run_step("verify", cmd_verify, args)
 
             fix_target = _select_fix_target(exclude=failed_fix_issues)
@@ -8053,40 +8054,40 @@ def _cmd_cycle_inner(args) -> int:
                 drain_only_passes = 0  # reset when no pending PRs
 
             if has_fix_target and not has_pending_prs:
-                # Pin cmd_fix to the target we already selected (with the
+                # Pin cmd_implement to the target we already selected (with the
                 # failed-in-cycle exclusion applied) so it doesn't re-pick
                 # an issue that just failed in this cycle.
                 prev_issue = getattr(args, "issue", None)
                 args.issue = fix_target["number"]
                 try:
-                    rc = _run_step("fix", cmd_fix, args)
+                    rc = _run_step("implement", cmd_implement, args)
                 finally:
                     args.issue = prev_issue
-                key = f"fix.{iteration}"
+                key = f"implement.{iteration}"
                 all_results[key] = rc
 
                 if rc != 0:
                     had_failure = True
-                    # fix failed (e.g. push reject) — skip this issue for the
+                    # implement failed (e.g. push reject) — skip this issue for the
                     # rest of the cycle so a persistent failure doesn't block
-                    # other fix targets or prematurely bail to plan-all.
+                    # other implement targets or prematurely bail to plan-all.
                     failed_num = fix_target.get("number") if fix_target else None
                     if failed_num is not None:
                         failed_fix_issues.add(failed_num)
                         print(
-                            f"[cai cycle] fix step failed for #{failed_num}; "
+                            f"[cai cycle] implement step failed for #{failed_num}; "
                             f"skipping it for the rest of this cycle",
                             flush=True,
                         )
                     else:
                         print(
-                            "[cai cycle] fix step failed; stopping loop",
+                            "[cai cycle] implement step failed; stopping loop",
                             flush=True,
                         )
                         break
             elif has_fix_target and has_pending_prs:
                 print(
-                    "[cai cycle] fix target available but skipping — draining pending PR(s) first",
+                    "[cai cycle] implement target available but skipping — draining pending PR(s) first",
                     flush=True,
                 )
 
@@ -8099,7 +8100,7 @@ def _cmd_cycle_inner(args) -> int:
                 if rc != 0:
                     had_failure = True
 
-            # Run explore if no fix target but :needs-exploration issues exist.
+            # Run explore if no implement target but :needs-exploration issues exist.
             # Explore outcomes feed back: refine_and_retry → :raised,
             # refined → :refined, blocked → :needs-human, close → done.
             if not has_fix_target and has_exploration:
@@ -8108,7 +8109,7 @@ def _cmd_cycle_inner(args) -> int:
                 if rc != 0:
                     had_failure = True
 
-            # Drain pending PRs (from fix or pre-existing).
+            # Drain pending PRs (from implement or pre-existing).
             pr_results = _drain_pending_prs(args)
             for step, step_rc in pr_results.items():
                 all_results[f"{step}.{iteration}"] = step_rc
@@ -8116,22 +8117,22 @@ def _cmd_cycle_inner(args) -> int:
                     had_failure = True
 
         # --- Phase 3.5: plan-all — drive :raised/:refined to :planned ---
-        # The fix loop only acts on human:plan-approved (or human:requested)
+        # The implement loop only acts on human:plan-approved (or human:requested)
         # issues, so any :raised or :refined work would sit idle without this
         # step. plan-all loops refine → plan until the queue is exhausted or
         # a new human:plan-approved issue appears (so we can re-enter the
-        # fix loop without waiting for the next cycle tick).
+        # implement loop without waiting for the next cycle tick).
         rc = _run_step("plan-all", cmd_plan_all, args)
         all_results[f"plan-all.{outer_pass}"] = rc
         if rc != 0:
             had_failure = True
 
-        # If plan-all exposed a new fix target (human approved a :planned
-        # issue mid-plan), loop back into the fix loop. Otherwise we're done.
+        # If plan-all exposed a new implement target (human approved a :planned
+        # issue mid-plan), loop back into the implement loop. Otherwise we're done.
         if _select_fix_target(exclude=failed_fix_issues) is None:
             break
         print(
-            "[cai cycle] new fix target detected after plan-all; re-entering fix loop",
+            "[cai cycle] new implement target detected after plan-all; re-entering implement loop",
             flush=True,
         )
 
@@ -8667,8 +8668,8 @@ def main() -> int:
     sub.add_parser("init", help="Smoke test if no transcripts exist")
     sub.add_parser("analyze", help="Run the analyzer + publish findings")
 
-    fix_parser = sub.add_parser("fix", help="Run the fix subagent")
-    fix_parser.add_argument(
+    implement_parser = sub.add_parser("implement", help="Run the implement subagent")
+    implement_parser.add_argument(
         "--issue", type=int, default=None,
         help="Target a specific issue number instead of using automatic scoring-based selection",
     )
@@ -8777,7 +8778,7 @@ def main() -> int:
     handlers = {
         "init": cmd_init,
         "analyze": cmd_analyze,
-        "fix": cmd_fix,
+        "implement": cmd_implement,
         "revise": cmd_revise,
         "verify": cmd_verify,
         "audit": cmd_audit,

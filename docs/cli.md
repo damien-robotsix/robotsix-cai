@@ -68,9 +68,9 @@ Run `cai-explore` on the oldest `auto-improve:needs-exploration` issue. Outcomes
 |---|---|---|
 | `--issue INT` | optional | Target a specific issue number |
 
-## fix
+## implement
 
-Run the `cai-fix` agent against one eligible `human:plan-approved` issue in a fresh git worktree. The wrapper handles commit, push, and PR creation. The issue must have a plan pre-computed by `cai plan` and approved by a human reviewer.
+Run the `cai-implement` agent against one eligible `human:plan-approved` issue in a fresh git worktree. The wrapper handles commit, push, and PR creation. The issue must have a plan pre-computed by `cai plan` and approved by a human reviewer.
 
 | Argument | Type | Description |
 |---|---|---|

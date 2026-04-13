@@ -76,7 +76,7 @@ certainty — not optimism or best-effort guessing.
 ### Exemption: `.cai/pr-context.md`
 
 The file `.cai/pr-context.md` is an auto-generated dossier that the
-`cai-fix` and `cai-revise` agents use to share PR context across
+`cai-implement` and `cai-revise` agents use to share PR context across
 runs. It is expected in every auto-improve PR, and a
 `.github/workflows/cleanup-pr-context.yml` workflow deletes it from
 `main` right after the PR is merged, so it never ends up in the

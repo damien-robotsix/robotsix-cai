@@ -51,7 +51,7 @@ The issue-solving pipeline is split across two cron lines:
 
 - `cai.py cycle` drains pending PRs and fixes `human:plan-approved`
   issues only. `:raised`, `:refined`, and `:planned` issues are
-  invisible to the fix loop — a human approves a plan into
+  invisible to the implement loop — a human approves a plan into
   `human:plan-approved` before the cycle will act on it.
 - `cai.py plan-all` drives every `:raised` / `:refined` issue
   through refine → plan → `:planned`, producing the backlog humans
@@ -62,24 +62,24 @@ A flock in `cmd_cycle` serializes overlapping runs, so issues are
 processed one at a time: each cycle fixes, drains pending PRs, and
 only advances to the next issue when the current one is solved or
 has reached a blocking point (human review, `:merge-blocked`, etc.).
-The individual pipeline subcommands (`fix`, `refine`, `plan`,
+The individual pipeline subcommands (`implement`, `refine`, `plan`,
 `plan-all`, `spike`, `revise`, `review-pr`, `merge`, `verify`,
 `confirm`) remain available for manual/on-demand use.
 
 | Subcommand | Default schedule | What it does |
 |---|---|---|
-| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Fix pipeline on `human:plan-approved` issues: verify → confirm → drain pending PRs (revise → review-pr → review-docs → merge) → loop(fix/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
+| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Implement pipeline on `human:plan-approved` issues: verify → confirm → drain pending PRs (revise → review-pr → review-docs → merge) → loop(implement/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
 | `cai.py plan-all` | `30 * * * *` (hourly, offset 30) | Drains every open `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a queue to review. Also runs at the end of each `cycle`; the cron line provides a mid-cycle catch-up pass |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL) and `:revising` (1-hour TTL) locks and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
 | `cai.py audit-triage` | `10 */6 * * *` (every 6 hours) | Triages `audit:raised` findings and emits close/passthrough/escalate verdicts |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
-| `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the refine → fix pipeline |
+| `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the refine → implement pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
 | `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
 | `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
 | `cai.py check-workflows` | `0 */6 * * *` (every 6 hours) | GitHub Actions failure monitor — fetches recent failed workflow runs (last 24 h), filters out bot branches, and runs a Haiku agent to group related failures and identify root causes; findings are published as `check-workflows` namespace issues. |
-| `cai.py refine` / `plan` / `spike` / `fix` / `revise` / `review-pr` / `merge` / `verify` / `confirm` | _(invoked by `cycle`; also manual/on-demand)_ | Individual pipeline stages. See the lifecycle below for how `cycle` chains them. |
+| `cai.py refine` / `plan` / `spike` / `implement` / `revise` / `review-pr` / `merge` / `verify` / `confirm` | _(invoked by `cycle`; also manual/on-demand)_ | Individual pipeline stages. See the lifecycle below for how `cycle` chains them. |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
@@ -97,9 +97,9 @@ token-heavy analysis passes.
 
 ### Issue lifecycle
 
-The fix subagent transitions issues through a label-based state
+The implement subagent transitions issues through a label-based state
 machine. The lock label (`:in-progress`) is set as the **first** gh
-action so two concurrent `fix` runs can't pick the same issue.
+action so two concurrent `implement` runs can't pick the same issue.
 
 ```
                     raised / human:submitted
@@ -153,20 +153,20 @@ action so two concurrent `fix` runs can't pick the same issue.
     (close or :refined)   needs-human-review
 ```
 
-`:no-action` means the fix subagent reviewed the issue and decided no
+`:no-action` means the implement subagent reviewed the issue and decided no
 code change was needed. The agent's reasoning is posted as a comment
 on the issue. A human can either close the issue (agreeing with the
 bot), re-label to `:refined` to re-run through refine → plan → `:plan-approved` 
-before the fix subagent retries, or re-label to `:raised` to re-run through 
+before the implement subagent retries, or re-label to `:raised` to re-run through 
 the refine step first.
 
 ### Filing issues with multi-step plans
 
 When filing an auto-improve issue, you can optionally include a
-`### Plan` section with numbered steps. The fix agent will execute
+`### Plan` section with numbered steps. The implement agent will execute
 the steps **sequentially**, verifying each one before proceeding to
 the next. You can also include a `### Verification` section with
-explicit checks the fix agent should run after each step.
+explicit checks the implement agent should run after each step.
 
 Example of a well-structured multi-step issue:
 
@@ -184,7 +184,7 @@ Example of a well-structured multi-step issue:
 ```
 
 Each step should be a distinct, atomic action. If an issue has no
-`### Plan` section, the fix agent uses its standard single-pass
+`### Plan` section, the implement agent uses its standard single-pass
 approach and this guidance does not apply.
 
 If the refine subagent detects that work requires multiple independent steps, it produces a `## Multi-Step Decomposition` output. The wrapper then:
@@ -192,7 +192,7 @@ If the refine subagent detects that work requires multiple independent steps, it
 2. Creates one sub-issue per step (each sub-issue body includes a back-reference to the parent)
 3. Adds a checklist to the parent issue to track sub-issue completion
 
-You can watch the parent issue's checklist to monitor progress. Note: if an issue already has a structured `### Plan` section when filed, the refine subagent will skip refinement, and no sub-issues will be created — the fix subagent will execute the steps directly from the issue body.
+You can watch the parent issue's checklist to monitor progress. Note: if an issue already has a structured `### Plan` section when filed, the refine subagent will skip refinement, and no sub-issues will be created — the implement subagent will execute the steps directly from the issue body.
 
 ### Audit findings
 
@@ -204,7 +204,7 @@ first, which relabels eligible ones to `auto-improve:raised` so the
 `refine` subagent can structure them and transition them to
 `auto-improve:refined`. They then flow through `cai.py plan`
 to `:planned`, awaiting human approval to transition to `:plan-approved`
-before the fix subagent picks them up.
+before the implement subagent picks them up.
 
 | Label | Meaning |
 |---|---|
@@ -222,14 +222,14 @@ rolled back: `:in-progress` issues after 6 hours with no recent fix
 activity, and `:revising` issues after 1 hour with no recent revise
 activity — both are automatically rolled back to `:refined`. Stale
 `:no-action` issues (7+ days) are rolled back to `:raised` so the `refine`
-agent (and subsequently the fix agent) can retry with new context. Stale `:merged` issues (14+ days)
+agent (and subsequently the implement agent) can retry with new context. Stale `:merged` issues (14+ days)
 are flagged with `needs-human-review` since the automation cannot
 determine whether the fix worked. Additionally, remote `auto-improve/*`
 branches with no open PR — including branches for merged/closed PRs and
-branches pushed by the fix agent that never had a PR opened — are deleted
+branches pushed by the implement agent that never had a PR opened — are deleted
 automatically. Finally, `:pr-open` issues whose linked PR was closed without
 merging are rolled back to `:refined` to restart the refinement and planning
-cycle before a human can re-approve them for the fix subagent.
+cycle before a human can re-approve them for the implement subagent.
 
 ### Comment-driven PR iteration
 
@@ -262,7 +262,7 @@ The rule is simple: any comment with `createdAt` after the branch's
 most recent commit is treated as unaddressed. Once the bot pushes a
 new commit, all prior comments are considered addressed. Comments
 generated by the bot itself (recognized by their content headers
-like `## Fix subagent:` or `## Revision summary`) are filtered out
+like `## Implement subagent:` or `## Revision summary`) are filtered out
 to avoid self-loops. This content-based filtering is more reliable
 than login-based filtering because cai's default deployment uses
 the human operator's gh token, so "the bot" has the same GitHub
@@ -350,7 +350,7 @@ repo admins by `.github/workflows/admin-only-label.yml` — a non-admin who
 applies it gets the label removed and a comment explaining why. `human:submitted`
 is the non-admin entry point: a human labels their own issue to opt it into the
 pipeline through the normal refinement step. Both ultimately transition through
-`refine` → `fix`.
+`refine` → `implement`.
 
 ### Triggering tasks ad-hoc
 
@@ -386,7 +386,7 @@ A short alias makes this trivial:
 
 ```bash
 alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /app/cai.py'
-cai fix --issue 12
+cai implement --issue 12
 cai review-pr --pr 45
 cai review-docs --pr 45
 cai revise --pr 45
@@ -587,7 +587,7 @@ The container uses three Docker named volumes:
   the host permission issues that a bind-mount causes.
 
 The container runs as the non-root `cai` user (uid 1000). This is
-required by `claude-code` because the fix and revise subagents use
+required by `claude-code` because the implement and revise subagents use
 `--dangerously-skip-permissions` to allow self-modifying edits to
 `.claude/agents/*.md`, and `claude-code` refuses that flag when
 invoked as root.
@@ -631,7 +631,7 @@ docker run --rm -v cai_home:/data alpine ls -R /data
 
 A **run log** is written to `/var/log/cai/cai.log` inside the container
 (persisted in the `cai_logs` named volume). Each `init`, `analyze`,
-`fix`, `review-pr`, `review-docs`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, `merge`, and `health-report` invocation appends one key=value line so you can
+`implement`, `review-pr`, `review-docs`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, `merge`, and `health-report` invocation appends one key=value line so you can
 watch cycle activity:
 
 ```bash

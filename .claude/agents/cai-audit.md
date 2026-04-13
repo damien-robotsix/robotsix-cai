@@ -1,6 +1,6 @@
 ---
 name: cai-audit
-description: Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Report-only — findings go to humans for triage, not to the fix subagent.
+description: Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Report-only — findings go to humans for triage, not to the implement subagent.
 tools: Read, Grep, Glob
 model: claude-sonnet-4-6
 memory: project
@@ -76,7 +76,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Issue with mutually exclusive labels (e.g., both `:raised`/`:refined` and `:in-progress`) | `lock_corruption` |
 | `:raised` or `:refined` issue older than 7 days that the bot keeps skipping | `stale_lifecycle` |
 | Analyzer producing findings but no fix PRs landing in the same window | `loop_stuck` |
-| Multiple rules in `.claude/agents/cai-fix.md` that contradict each other | `prompt_contradiction` |
+| Multiple rules in `.claude/agents/cai-implement.md` that contradict each other | `prompt_contradiction` |
 | Tracking-only issue (no state label) older than 30 days with no human activity | `forgotten_backlog` |
 | A single `claude -p` invocation in the cost summary whose `cost` is >3× the mean cost of its category, OR a category whose `total cost (share)` exceeds 50% of the window total | `cost_outlier` |
 | Closed issue whose labels don't include a terminal state (`auto-improve:merged` or `auto-improve:no-action`) — may indicate manual close without proper resolution | `workflow_anomaly` |
@@ -93,9 +93,9 @@ did not actually succeed. Flag these as `silent_failure`.
 | `[publish] skipping finding with invalid category` | Findings dropped by validation; usually a prompt/parser mismatch |
 | `[publish] no findings parsed` immediately after a `[cai analyze]` or `[cai audit]` line that produced visible `### Finding:` blocks | Count mismatch — analyzer produced output but publish saw none |
 | `[publish] created=0 skipped=0 failed=0` after `parsed N finding(s)` where N > 0 | All findings silently lost |
-| `[fix] result=push_failed exit=1` (≥2 occurrences in window) | Recurring git push problem |
-| `[fix] result=clone_failed exit=1` (≥2 occurrences in window) | Recurring gh/git auth problem |
-| `[fix] result=no_eligible_issues` repeating ≥7 times in a row while open `:refined`/`human:requested` issues exist | Bot is skipping issues it should be picking |
+| `[implement] result=push_failed exit=1` (≥2 occurrences in window) | Recurring git push problem |
+| `[implement] result=clone_failed exit=1` (≥2 occurrences in window) | Recurring gh/git auth problem |
+| `[implement] result=no_eligible_issues` repeating ≥7 times in a row while open `:refined`/`human:requested` issues exist | Bot is skipping issues it should be picking |
 | `[cai analyze] claude -p failed (exit N)` | API errors (rate limit, auth, network) |
 | `[cai analyze] parse.py failed (exit N)` | Parser crash |
 | `level=error msg="..."` lines from supercronic itself | Scheduler errors |

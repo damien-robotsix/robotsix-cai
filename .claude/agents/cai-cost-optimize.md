@@ -42,8 +42,8 @@ Output exactly ONE proposal block, then the memory update:
 ```
 ### Proposal: <descriptive title>
 
-**Target:** <agent name or workflow name (e.g. "cai-fix", "propose", "fix")>
-**Key:** <short-slug-for-dedup (e.g. "cai-fix-model-sonnet")>
+**Target:** <agent name or workflow name (e.g. "cai-implement", "propose", "implement")>
+**Key:** <short-slug-for-dedup (e.g. "cai-implement-model-sonnet")>
 **Current cost:** <last-7d cost for the target, from the data>
 **Expected savings:** <estimated % or $ reduction per week>
 **Approach:**

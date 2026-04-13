@@ -60,7 +60,7 @@ RUN wget -nv -O /usr/local/bin/supercronic \
 # Create a non-root user. claude-code refuses
 # `--dangerously-skip-permissions` when running as root
 # ("cannot be used with root/sudo privileges for security reasons"),
-# which we need so the fix and revise subagents can edit
+# which we need so the implement and revise subagents can edit
 # `.claude/agents/*.md` files (auto-improve self-modifies its own
 # prompts). UID 1000 matches the typical first-host-user UID so the
 # named `cai_logs` volume mounted at `/var/log/cai` works without
