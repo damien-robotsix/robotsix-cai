@@ -20,6 +20,7 @@
 #      - health-report: automated pipeline health report with anomaly detection
 #      - cost-optimize: weekly cost-reduction proposal or evaluation
 #      - check-workflows: monitor GitHub Actions for failures
+#      - plan:            run plan-select pipeline on a :refined issue
 #    Each is its own crontab line so supercronic runs them as
 #    independent processes — natural concurrency, easy to add more.
 #
@@ -54,6 +55,7 @@ CAI_SPIKE_SCHEDULE="${CAI_SPIKE_SCHEDULE:-0 */2 * * *}"
 CAI_HEALTH_REPORT_SCHEDULE="${CAI_HEALTH_REPORT_SCHEDULE:-0 7 * * 1}"
 CAI_COST_OPTIMIZE_SCHEDULE="${CAI_COST_OPTIMIZE_SCHEDULE:-0 5 * * 0}"
 CAI_CHECK_WORKFLOWS_SCHEDULE="${CAI_CHECK_WORKFLOWS_SCHEDULE:-0 */6 * * *}"
+CAI_PLAN_SCHEDULE="${CAI_PLAN_SCHEDULE:-0 11 * * *}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -77,6 +79,7 @@ $CAI_MERGE_SCHEDULE python /app/cai.py merge
 $CAI_HEALTH_REPORT_SCHEDULE python /app/cai.py health-report
 $CAI_COST_OPTIMIZE_SCHEDULE python /app/cai.py cost-optimize
 $CAI_CHECK_WORKFLOWS_SCHEDULE python /app/cai.py check-workflows
+$CAI_PLAN_SCHEDULE python /app/cai.py plan
 CRONTAB
 
 echo "[entrypoint] crontab:"

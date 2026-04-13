@@ -38,3 +38,22 @@ Refs: robotsix-cai/cai#518
 - `_run_plan_select_pipeline` is called with `(issue, work_dir, attempt_history_block)` — signature unchanged
 - `LABEL_PLANNED` (`auto-improve:planned`) is already defined at line 217
 - `_set_labels`, `log_run`, `_fetch_previous_fix_attempts`, `_build_attempt_history_block`, `_run`, `_gh_json` all exist and accept the call signatures used
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:73` — added `plan` subcommand entry to module docstring (after `refine`)
+- `cai.py:131` — added clarifying note that `plan` runs on cron, not synchronous startup
+- `entrypoint.sh:22` — added `plan` to independent cron-scheduled tasks comment
+- `entrypoint.sh:56` — added `CAI_PLAN_SCHEDULE` env var (default `0 11 * * *`)
+- `entrypoint.sh:79` — added `$CAI_PLAN_SCHEDULE python /app/cai.py plan` cron entry
+
+### Decisions this revision
+- `plan` documented as cron-only (not startup) — matches its nature as an async planning step
+- Default schedule `0 11 * * *` (daily at 11:00) — arbitrary but consistent with other daily tasks
+
+### New gaps / deferred
+- `docker-compose.yml` and `install.sh` YAML templates not updated with `CAI_PLAN_SCHEDULE` — reviewer did not flag these; will surface in review-pr if needed

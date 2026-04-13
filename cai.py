@@ -77,6 +77,22 @@ Subcommands:
                             issue body, and transition the label to
                             `auto-improve:refined`.
 
+    python cai.py plan      Run the plan-select pipeline on the
+                            oldest issue labelled `auto-improve:
+                            refined`. Clones the repo into /tmp,
+                            runs 2 serial plan agents followed by
+                            a select agent, stores the chosen plan
+                            in the issue body inside
+                            `<!-- cai-plan-start/end -->` markers,
+                            and transitions the label from
+                            `auto-improve:refined` to
+                            `auto-improve:planned`. Runs on a cron
+                            schedule (CAI_PLAN_SCHEDULE); not part
+                            of the synchronous startup cycle.
+                            | Argument | Type | Description |
+                            |---|---|---|
+                            | `--issue INT` | optional | Target a specific issue |
+
     python cai.py spike     Pick the oldest issue labelled
                             `auto-improve:needs-spike`, clone the
                             repo into /tmp, and run the cai-spike
@@ -131,6 +147,8 @@ Subcommands:
 The container runs `entrypoint.sh`, which executes `init`, `analyze`,
 `verify`, `refine`, `spike`, `fix`, `revise`, `review-pr`, `review-docs`, `merge`, `audit`, `code-audit`, `propose`, `update-check`, and `confirm` once synchronously at
 startup, then hands off to supercronic. Each cron tick is a fresh process.
+`plan` is not part of the synchronous startup cycle — it runs only on its
+cron schedule (CAI_PLAN_SCHEDULE, default 0 11 * * *).
 
 The gh auth check is done once per subcommand invocation. We want a
 clear error message in docker logs if credentials ever disappear from
