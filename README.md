@@ -213,7 +213,8 @@ before the implement subagent picks them up.
 | `audit:needs-human` | Finding requires human judgement and cannot be resolved autonomously |
 
 Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
-`prompt_contradiction`, `topic_duplicate`, `silent_failure`.
+`prompt_contradiction`, `topic_duplicate`, `silent_failure`, `forgotten_backlog`,
+`cost_outlier`, `workflow_anomaly`, `fix_loop_efficiency`.
 
 There are five exceptions to "report-only": stale lock rollback,
 stale `:no-action` rollback, stale `:merged` flagging,
