@@ -67,4 +67,4 @@ Agent-level overrides live in `.claude/agents/<name>.md` YAML frontmatter (`tool
 | `/var/log/cai/cai-cost.jsonl` | Per-invocation cost log (input/output tokens + USD) |
 | `/var/log/cai/cai-outcomes.jsonl` | Fix/revise outcome log (issue number, verdict, PR URL) |
 | `/var/log/cai/review-pr-patterns.jsonl` | Review-PR finding category log (used by `cai analyze`) |
-| `/var/log/cai/cai-active.json` | Active job state — tracks the current long-running subcommand, target type (issue/PR/none), and start timestamp for observability monitoring. Contains `{pid, cmd, target_type, target_id, start_ts}`. Cleared when the subcommand completes. |
+| `/var/log/cai/cai-active.json` | Active job state — tracks the current long-running subcommand, target type (issue/pr/none), and start timestamp for observability monitoring. Contains `{pid, cmd, target_type, target_id, start_ts}`. Cleared when the subcommand completes. |

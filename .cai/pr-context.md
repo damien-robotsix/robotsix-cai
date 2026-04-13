@@ -57,3 +57,17 @@ Refs: robotsix/robotsix-cai#509
 
 ### New gaps / deferred
 - (none)
+
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `docs/configuration.md:70` — changed `(issue/PR/none)` to `(issue/pr/none)` to match actual string values used in `_write_active_job()` calls
+
+### Decisions this revision
+- Lowercase "pr" matches the actual `target_type` string values in the code; uppercase "PR" was a documentation typo
+
+### New gaps / deferred
+- (none)
