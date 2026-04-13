@@ -32,3 +32,17 @@ Refs: damien-robotsix/robotsix-cai#537
 ## Invariants this change relies on
 - All Python code references the labels via `LABEL_REQUESTED` / `LABEL_PLAN_APPROVED` constants, never as bare strings
 - `"human:"` is already in `_MANAGED_LABEL_PREFIXES` so these labels are excluded from auto-ingestion
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- Review comment from @damien-robotsix was the cai review-docs agent's own summary of what it fixed and committed (commit 7fd5b3d); all described changes already present in branch — no edits needed.
+
+### New gaps / deferred
+- none
