@@ -32,3 +32,17 @@ Refs: robotsix-cai/robotsix-cai#519
 - `LABEL_PLAN_APPROVED` is already defined and imported via `cai_lib.config`
 - `_extract_stored_plan` is defined before `_get_plan_for_fix` in the file
 - Issues reaching `cmd_fix` with `:plan-approved` label have a stored plan block in their body (best-effort; WARNING logged if missing)
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none — all documentation changes already committed at 241ad34
+
+### Decisions this revision
+- No edits made — review comment from @damien-robotsix (cai-review-docs) was already_addressed: the agent committed all described doc fixes at 241ad34 before posting the summary comment; wrapper incorrectly flagged the summary comment as unaddressed
+
+### New gaps / deferred
+- none
