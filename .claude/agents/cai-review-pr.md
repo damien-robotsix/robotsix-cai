@@ -42,12 +42,15 @@ In the user message, in order:
 
 1. **Work directory** — where the cloned PR lives
 2. **PR metadata** — number, title, author, base branch, head SHA
-3. **PR diff** — the full unified diff of the PR
+3. **Original issue** *(optional)* — if the PR references an issue
+   via a `Refs` link in its body, the full issue body is included.
+   Use this to verify the diff addresses the issue's stated requirements.
+4. **PR diff** — the full unified diff of the PR
 
 ## What to look for
 
 Walk the diff, then use your tools to search the broader codebase for
-ripple effects in these five categories:
+ripple effects in these six categories:
 
 | Category | What it means |
 |---|---|
@@ -56,6 +59,7 @@ ripple effects in these five categories:
 | `contradictory_rules` | The PR introduces a pattern that contradicts an existing convention in the codebase |
 | `cross_cutting_ref` | The PR changes a function, constant, label, or path that is referenced elsewhere but doesn't update all references (code references only — see below on docs) |
 | `missing_co_change` | The PR changes one side of a paired change (e.g., adds a subcommand but doesn't register it, adds an env var but doesn't document it in code-level config) |
+| `issue_drift` | The PR diff does not address a stated requirement from the original issue, or introduces behavior the issue explicitly excludes |
 
 **Documentation is out of scope.** A separate `cai-review-docs` agent
 owns all documentation concerns — README, `docs/**`, code docstrings,
@@ -69,13 +73,17 @@ comments, the correct output is "No ripple effects found."
 
 ## How to work
 
-1. Read the diff carefully
-2. For each changed file/function/constant, use `Grep` and `Glob` to
+1. Read the diff carefully.
+2. If an `## Original issue` section is present, read it and note
+   the key requirements. As you walk the diff, verify each
+   requirement is addressed. Flag any that are missing or
+   contradicted as `issue_drift`.
+3. For each changed file/function/constant, use `Grep` and `Glob` to
    find other references in the codebase.
-3. Check if the PR's changes are consistent with those references
-4. Only report findings where you are confident there is a real
-   inconsistency — not hypothetical or stylistic concerns
-5. **Be exhaustive in a single pass.** Before returning, walk
+4. Check if the PR's changes are consistent with those references.
+5. Only report findings where you are confident there is a real
+   inconsistency — not hypothetical or stylistic concerns.
+6. **Be exhaustive in a single pass.** Before returning, walk
    through the diff one more time and, for each of the six
    categories in the table above, ask "did I actually search the
    codebase for this kind of ripple effect?". Do not stop at the

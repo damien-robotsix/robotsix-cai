@@ -194,6 +194,7 @@ from cai_lib.subprocess_utils import _run, _run_claude_p  # noqa: E402
 from cai_lib.github import (  # noqa: E402
     _gh_json, check_gh_auth, check_claude_auth, _transcript_dir_is_empty,
     _set_labels, _issue_has_label, _build_issue_block, _build_fix_user_message,
+    _fetch_linked_issue_block,
 )
 from cai_lib.cmd_lifecycle import _rollback_stale_in_progress  # noqa: E402
 from cai_lib.cmd_fix import _parse_decomposition  # noqa: E402
@@ -5824,7 +5825,7 @@ def cmd_review_pr(args) -> int:
             target_pr = _gh_json([
                 "pr", "view", str(args.pr),
                 "--repo", REPO,
-                "--json", "number,title,author,headRefOid,comments",
+                "--json", "number,title,author,headRefOid,body,comments",
             ])
         except subprocess.CalledProcessError as e:
             print(f"[cai review-pr] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
@@ -5838,7 +5839,7 @@ def cmd_review_pr(args) -> int:
                 "--repo", REPO,
                 "--state", "open",
                 "--base", "main",
-                "--json", "number,title,author,headRefOid,comments",
+                "--json", "number,title,author,headRefOid,body,comments",
                 "--limit", "50",
             ]) or []
         except subprocess.CalledProcessError as e:
@@ -5923,6 +5924,7 @@ def cmd_review_pr(args) -> int:
             # where the cloned PR is) plus the dynamic per-run
             # context via stdin (#342).
             author_login = pr.get("author", {}).get("login", "unknown")
+            issue_block = _fetch_linked_issue_block(pr.get("body", ""))
             user_message = (
                 _work_directory_block(work_dir)
                 + "\n"
@@ -5932,6 +5934,7 @@ def cmd_review_pr(args) -> int:
                 + f"- **Author:** @{author_login}\n"
                 + f"- **Base:** main\n"
                 + f"- **HEAD SHA:** {head_sha}\n\n"
+                + issue_block
                 + f"## PR diff\n\n"
                 + f"```diff\n{pr_diff}\n```\n"
             )
@@ -6076,7 +6079,7 @@ def cmd_review_docs(args) -> int:
             target_pr = _gh_json([
                 "pr", "view", str(args.pr),
                 "--repo", REPO,
-                "--json", "number,title,author,headRefOid,headRefName,comments",
+                "--json", "number,title,author,headRefOid,headRefName,body,comments",
             ])
         except subprocess.CalledProcessError as e:
             print(f"[cai review-docs] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
@@ -6090,7 +6093,7 @@ def cmd_review_docs(args) -> int:
                 "--repo", REPO,
                 "--state", "open",
                 "--base", "main",
-                "--json", "number,title,author,headRefOid,headRefName,comments",
+                "--json", "number,title,author,headRefOid,headRefName,body,comments",
                 "--limit", "50",
             ]) or []
         except subprocess.CalledProcessError as e:
@@ -6202,6 +6205,7 @@ def cmd_review_docs(args) -> int:
             _git(work_dir, "config", "user.email", email)
 
             author_login = pr.get("author", {}).get("login", "unknown")
+            issue_block = _fetch_linked_issue_block(pr.get("body", ""))
             user_message = (
                 _work_directory_block(work_dir)
                 + "\n"
@@ -6211,6 +6215,7 @@ def cmd_review_docs(args) -> int:
                 + f"- **Author:** @{author_login}\n"
                 + f"- **Base:** main\n"
                 + f"- **HEAD SHA:** {head_sha}\n\n"
+                + issue_block
                 + f"## PR diff\n\n"
                 + f"```diff\n{pr_diff}\n```\n"
             )
