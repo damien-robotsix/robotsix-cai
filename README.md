@@ -330,7 +330,7 @@ The threshold defaults to `high` — only the most clear-cut PRs merge
 or close automatically. Relax to `medium` by editing the env var once
 trust builds.
 
-There are two human entry points into the pipeline. `auto-improve:requested`
+There are two human entry points into the pipeline. `human:requested`
 is the admin entry point: a human applies it to an arbitrary issue to opt it
 into the fix queue directly (bypassing refinement). The label is restricted to
 repo admins by `.github/workflows/admin-only-label.yml` — a non-admin who

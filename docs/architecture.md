@@ -6,7 +6,7 @@
 
 1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised` or `human:submitted`.
 2. **Refine** — `cai refine` calls `cai-refine` to rewrite the issue into a structured plan with steps, verification, and scope guardrails. Label transitions to `auto-improve:refined`.
-3. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. Label transitions to `auto-improve:planned` (or `auto-improve:plan-approved` if human-reviewed).
+3. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. Label transitions to `auto-improve:planned` (or `human:plan-approved` if human-reviewed).
 4. **Fix** — `cai fix` calls `cai-fix` in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
 5. **Review** — `cai review-pr` checks for ripple-effect inconsistencies and posts findings as PR comments. `cai review-docs` then (and only after review-pr completes) checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. This ordering is enforced: review-docs skips PRs until review-pr has posted a review comment at the current HEAD SHA.
 6. **Revise** — `cai revise` calls `cai-revise` or `cai-rebase` to address review comments or rebase conflicts. Label transitions to `auto-improve:revising`.
@@ -27,9 +27,9 @@
 | `auto-improve:no-action` | No fix needed (7 d stale timeout → re-queued to `:raised`) |
 | `auto-improve:needs-spike` | Needs research investigation (`cai spike`) |
 | `auto-improve:needs-exploration` | Needs autonomous exploration (`cai explore`) |
-| `auto-improve:requested` | Explicitly requested by a human |
+| `human:requested` | Explicitly requested by a human |
 | `auto-improve:planned` | Plan generated and stored in issue body; awaiting human approval |
-| `auto-improve:plan-approved` | Plan approved by human; ready for fix subagent |
+| `human:plan-approved` | Plan approved by human; ready for fix subagent |
 | `auto-improve:parent` | Parent issue; child sub-issues carry the work |
 | `audit:raised` | Audit finding awaiting triage by `cai audit-triage` |
 | `audit:needs-human` | Audit finding escalated to human |

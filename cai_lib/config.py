@@ -49,7 +49,7 @@ AGENT_MEMORY_DIR = Path("/app/.claude/agent-memory")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
-LABEL_REQUESTED = "auto-improve:requested"
+LABEL_REQUESTED = "human:requested"
 LABEL_IN_PROGRESS = "auto-improve:in-progress"
 LABEL_PR_OPEN = "auto-improve:pr-open"
 LABEL_MERGED = "auto-improve:merged"
@@ -65,7 +65,7 @@ LABEL_AUDIT_RAISED = "audit:raised"
 LABEL_AUDIT_NEEDS_HUMAN = "audit:needs-human"
 LABEL_HUMAN_SUBMITTED = "human:submitted"
 LABEL_PLANNED = "auto-improve:planned"
-LABEL_PLAN_APPROVED = "auto-improve:plan-approved"
+LABEL_PLAN_APPROVED = "human:plan-approved"
 
 # PR-level label applied by `cai merge` when the verdict is below the
 # auto-merge threshold. Lets a human filter open PRs that are waiting

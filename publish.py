@@ -83,7 +83,7 @@ CHECK_WORKFLOWS_CATEGORIES = {
 LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before fix subagent picks it up"),
-    ("auto-improve:requested", "1d76db", "Human-requested fix (admin-only label)"),
+    ("human:requested", "1d76db", "Human-requested fix (admin-only label)"),
     ("auto-improve:in-progress", "fbca04", "fix subagent is actively working on this issue"),
     ("auto-improve:pr-open", "5319e7", "fix subagent opened a PR"),
     ("auto-improve:merged", "0e8a16", "PR was merged; awaiting verify"),
@@ -94,7 +94,7 @@ LABELS = [
     ("auto-improve:revising", "d4c5f9", "Revise subagent is actively iterating on a PR"),
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
     ("auto-improve:planned", "e4e669", "Plan generated and stored in issue body; awaiting human approval"),
-    ("auto-improve:plan-approved", "0e8a16", "Plan approved by human; ready for fix subagent"),
+    ("human:plan-approved", "0e8a16", "Plan approved by human; ready for fix subagent"),
     ("human:submitted", "bfd4f2", "Human-submitted issue awaiting refinement"),
     ("auto-improve:parent", "c5def5", "Parent issue with sub-issues"),
     ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
