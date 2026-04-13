@@ -255,7 +255,7 @@ def _reconcile_interrupted(cmd: str, target_type: str, target_id: int | None) ->
     ``cai-active.json`` itself.  At most 2–3 ``gh`` subprocess calls.
     """
     _HANDLERS = {
-        "fix": _reconcile_fix,
+        "implement": _reconcile_fix,
         "revise": _reconcile_revise,
         "refine": _reconcile_refine,
     }

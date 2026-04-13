@@ -22,7 +22,7 @@ class TestReconcileFix(unittest.TestCase):
             [],   # matching-refs → empty
         ]
         self.assertEqual(
-            cai._reconcile_interrupted("fix", "issue", 123), "not_started"
+            cai._reconcile_interrupted("implement", "issue", 123), "not_started"
         )
 
     @patch(f"{_MOD}._gh_json")
@@ -33,7 +33,7 @@ class TestReconcileFix(unittest.TestCase):
             [{"ref": "refs/heads/auto-improve/123-abc"}],  # matching-refs → hit
         ]
         self.assertEqual(
-            cai._reconcile_interrupted("fix", "issue", 123), "partially_done"
+            cai._reconcile_interrupted("implement", "issue", 123), "partially_done"
         )
 
     @patch(f"{_MOD}._gh_json")
@@ -44,14 +44,14 @@ class TestReconcileFix(unittest.TestCase):
             # matching-refs not called
         ]
         self.assertEqual(
-            cai._reconcile_interrupted("fix", "issue", 123),
+            cai._reconcile_interrupted("implement", "issue", 123),
             "completed_externally",
         )
 
     def test_none_issue_number(self):
         """target_id=None → not_started without any gh calls."""
         self.assertEqual(
-            cai._reconcile_interrupted("fix", "issue", None), "not_started"
+            cai._reconcile_interrupted("implement", "issue", None), "not_started"
         )
 
 

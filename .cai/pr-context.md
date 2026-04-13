@@ -59,3 +59,19 @@ Refs: damien-robotsix/robotsix-cai#544
 
 ### New gaps / deferred
 - none
+
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai_lib/cmd_lifecycle.py`:258 — `"fix"` key → `"implement"` in `_reconcile_interrupted` handler dict
+- `tests/test_reconcile.py`:25,36,47,54 — four `_reconcile_interrupted("fix", ...)` calls → `"implement"`
+
+### Decisions this revision
+- `_reconcile_fix` function itself not renamed — it's an internal helper; only the dispatch key matters for correctness
+- Tests updated to exercise the renamed command verb, matching the active-job value written by `cmd_implement()`
+
+### New gaps / deferred
+- none
