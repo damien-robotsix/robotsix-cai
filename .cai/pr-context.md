@@ -18,6 +18,20 @@ Refs: robotsix/robotsix-cai#529
 - `sorted(outcome_counts.items())` — deterministic table order
 - Rejected: computing avg fix_attempt_count — would require additional log parsing; plan explicitly excluded it
 
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `publish.py`:55 — added `"workflow_efficiency"` to `AUDIT_CATEGORIES` set so the publish script accepts findings in the new category
+
+### Decisions this revision
+- Added single line to `AUDIT_CATEGORIES`; no other changes needed — category was already defined in `cai-audit.md` by the original fix
+
+### New gaps / deferred
+- None
+
 ## Out of scope / known gaps
 - `cmd_analyze` is not touched — outcome section is audit-only per scope guardrails
 - `_load_outcome_counts` internals not changed

@@ -52,6 +52,7 @@ AUDIT_CATEGORIES = {
     "forgotten_backlog",
     "cost_outlier",
     "workflow_anomaly",
+    "workflow_efficiency",
 }
 
 CODE_AUDIT_CATEGORIES = {
