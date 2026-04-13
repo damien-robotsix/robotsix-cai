@@ -7574,6 +7574,96 @@ def _drain_pending_prs(args) -> dict:
     return results
 
 
+def _has_actionable_pending_prs() -> bool:
+    """True iff any :pr-open issue has a PR cai can still drive forward.
+
+    A PR is *actionable* when the pipeline can still make progress on it
+    without human intervention. It is *stuck* (and therefore ignored by
+    this check) when any of the following hold:
+
+      - the issue carries :merge-blocked (cai attempted merge and failed)
+      - the PR carries :needs-human-review (human decision required)
+      - CI on the HEAD commit is not green (any FAILURE conclusion, or
+        any check still running/queued). A PR waiting on CI — whether
+        it's in-flight or already red — is not something cai can
+        advance by itself, so we don't block fix work on it.
+
+    When every open PR is stuck, the cycle should proceed to :planned
+    issues rather than idle draining — CI and humans will unblock the
+    stuck PRs on their own schedule, and draining still runs every
+    iteration to pick them back up once unblocked.
+    """
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_PR_OPEN,
+            "--state", "open",
+            "--json", "number,labels",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError:
+        # On query failure, fall back to conservative "none pending"
+        # rather than blocking fix work indefinitely.
+        return False
+
+    for issue in issues:
+        issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
+        if LABEL_MERGE_BLOCKED in issue_labels:
+            continue  # stuck: human must clear merge-blocked
+
+        pr = _find_linked_pr(issue["number"])
+        if pr is None:
+            # :pr-open but no linked PR — audit will recover this;
+            # treat as non-actionable so it doesn't block fix work.
+            continue
+
+        pr_number = pr.get("number")
+        if pr_number is None:
+            continue
+
+        try:
+            pr_detail = _gh_json([
+                "pr", "view", str(pr_number),
+                "--repo", REPO,
+                "--json", "labels,statusCheckRollup",
+            ])
+        except (subprocess.CalledProcessError, json.JSONDecodeError):
+            # If we can't read PR state, assume actionable (safer default:
+            # cycle will try to drain it).
+            return True
+
+        pr_labels = {lbl["name"] for lbl in pr_detail.get("labels", [])}
+        if LABEL_PR_NEEDS_HUMAN in pr_labels:
+            continue  # stuck: human decision requested
+
+        # CI must be fully green to count as actionable. Any check
+        # that is failing OR still running/queued means cai cannot
+        # drive the PR forward on this cycle — treat as stuck so we
+        # pick up new :planned issues instead of waiting.
+        ci_ready = True
+        for check in pr_detail.get("statusCheckRollup", []) or []:
+            conclusion = (check.get("conclusion") or "").upper()
+            status = (check.get("status") or "").upper()
+            # Terminal green states we accept.
+            green = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+            if conclusion and conclusion in green:
+                continue
+            if conclusion and conclusion not in green:
+                ci_ready = False  # FAILURE, CANCELLED, TIMED_OUT, ...
+                break
+            # No conclusion yet → still pending/running/queued.
+            if status and status != "COMPLETED":
+                ci_ready = False
+                break
+        if not ci_ready:
+            continue  # stuck: CI not green (running or failing)
+
+        return True  # found at least one actionable PR
+
+    return False
+
+
 _CYCLE_LOCK_PATH = "/tmp/cai-cycle.lock"
 
 
@@ -7677,19 +7767,12 @@ def _cmd_cycle_inner(args) -> int:
         has_fix_target = _select_fix_target() is not None
 
         # Check for pr-open issues that still need drain passes.
-        has_pending_prs = False
-        try:
-            pending = _gh_json([
-                "issue", "list",
-                "--repo", REPO,
-                "--label", LABEL_PR_OPEN,
-                "--state", "open",
-                "--json", "number",
-                "--limit", "1",
-            ]) or []
-            has_pending_prs = len(pending) > 0
-        except subprocess.CalledProcessError:
-            pass
+        # PRs stuck on humans (merge-blocked, needs-human-review, failed
+        # CI) are filtered out — we let the cycle advance to new :planned
+        # issues rather than idling until a human unblocks them. The
+        # drain step still runs every iteration so stuck PRs are picked
+        # back up as soon as CI turns green or labels are cleared.
+        has_pending_prs = _has_actionable_pending_prs()
 
         # Check for :needs-spike issues.
         has_spike = False
