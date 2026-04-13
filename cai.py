@@ -89,9 +89,6 @@ Subcommands:
                             `auto-improve:planned`. Runs on a cron
                             schedule (CAI_PLAN_SCHEDULE); not part
                             of the synchronous startup cycle.
-                            | Argument | Type | Description |
-                            |---|---|---|
-                            | `--issue INT` | optional | Target a specific issue |
 
     python cai.py spike     Pick the oldest issue labelled
                             `auto-improve:needs-spike`, clone the

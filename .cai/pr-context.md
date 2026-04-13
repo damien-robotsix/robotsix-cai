@@ -195,3 +195,17 @@ Refs: robotsix-cai/cai#518
 
 ### New gaps / deferred
 - none
+
+## Revision 10 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:92-94` — removed accidental markdown table (argument table) that was embedded inside the module docstring `plan` entry; plain-text prose only belongs in a module docstring
+
+### Decisions this revision
+- All five `stale_docs` findings from fifth review comment were already addressed except the embedded table: docs/cli.md, docs/configuration.md, docs/architecture.md, README.md changes all present; cai.py module docstring had the plan entry and cron note but also had 3 spurious table lines that were removed.
+
+### New gaps / deferred
+- none
