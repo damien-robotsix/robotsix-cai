@@ -31,3 +31,17 @@ Refs: robotsix-cai/robotsix-cai#492
 ## Invariants this change relies on
 - The docs/ directory is new — no existing docs were overwritten
 - Subcommand names in cli.md use hyphenated CLI form (cost-report), not Python underscore form
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- docs/agents.md:15 — changed cai-git mode from "Git ops" to "Worktree" to match cai.py:186 classification
+
+### Decisions this revision
+- Used "Worktree" rather than defining a new "Git ops" mode — cai.py explicitly classifies cai-git as a cloned-worktree agent; "Worktree" accurately reflects that it runs git commands in a clone via Bash
+
+### New gaps / deferred
+- none
