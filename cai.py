@@ -6417,6 +6417,28 @@ def cmd_review_docs(args) -> int:
             skipped += 1
             continue
 
+        # Gate: only review docs after review-pr has reviewed this SHA.
+        # This enforces the review-pr → review-docs → merge ordering.
+        has_code_review_at_sha = False
+        for comment in pr.get("comments", []):
+            body = (comment.get("body") or "")
+            first_line = body.split("\n", 1)[0]
+            if (
+                first_line.startswith(_REVIEW_COMMENT_HEADING_FINDINGS)
+                and head_sha in first_line
+            ):
+                has_code_review_at_sha = True
+                break
+
+        if not has_code_review_at_sha:
+            print(
+                f"[cai review-docs] PR #{pr_number}: review-pr has not reviewed "
+                f"{head_sha[:8]} yet; waiting",
+                flush=True,
+            )
+            skipped += 1
+            continue
+
         print(f"[cai review-docs] reviewing PR #{pr_number}: {title}", flush=True)
 
         # Get the diff.
