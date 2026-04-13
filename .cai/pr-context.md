@@ -44,6 +44,24 @@ Refs: robotsix-cai/cai#525
 ### New gaps / deferred
 - none
 
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `docs/cli.md:117` — updated review-docs description to mention direct-fix + Fixed/Finding output blocks
+- `docs/agents.md:22` — added Edit, Write to cai-review-docs tools; expanded description to mention direct fix capability
+- `docs/architecture.md:10` — updated Review step to describe direct-fix + push behavior
+- `docs/architecture.md:62` — removed cai-review-docs from "no commit or PR" group; added separate special-agent paragraph
+
+### Decisions this revision
+- Dossier Revision 1 claimed docs were fixed by cai-review-docs agent but those changes were never committed; applied them manually in this revision.
+- cai-review-docs kept in Worktree agent list (line 55) since it shares the same clone mechanism; only the post-run behavior differs.
+
+### New gaps / deferred
+- none
+
 ## Invariants this change relies on
 - `gh auth setup-git` must be called before `gh repo clone` to enable authenticated push
 - The PR branch must not be protected against bot pushes (auto-improve branches are bot-owned)
