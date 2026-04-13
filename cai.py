@@ -1213,6 +1213,19 @@ def cmd_plan_all(args) -> int:
             rc = cmd_plan(args)
             if rc == 0:
                 planned_ct += 1
+                # After each successful plan, yield back to the fix loop if
+                # a human approved a :planned issue while plan-all was
+                # running. Otherwise newly-approved work would wait an
+                # entire cycle for the fix loop to re-enter.
+                if (
+                    _count_open_by_label(LABEL_PLAN_APPROVED)
+                    + _count_open_by_label(LABEL_REQUESTED)
+                ) > 0:
+                    print(
+                        "[cai plan-all] fix target available; yielding to fix loop",
+                        flush=True,
+                    )
+                    break
             else:
                 plan_err += 1
                 had_failure = True
@@ -7886,163 +7899,180 @@ def _cmd_cycle_inner(args) -> int:
     if any(v != 0 for v in pr_results.values()):
         had_failure = True
 
-    # --- Phase 3: fix loop — pick → fix → drain → repeat ----------------
-    # Refining and planning are no longer interleaved in this loop; the
-    # dedicated `plan-all` phase below drives :raised/:refined through
-    # the refine → plan pipeline after the fix loop exits.
-    # The loop also handles pr-open issues that need further
-    # revise/review/merge passes, not just new fix targets.
-    drain_only_passes = 0
+    # --- Phase 3+3.5: fix loop → plan-all, repeat while new fix targets appear
+    # plan-all may expose a fresh human:plan-approved (human promotes
+    # :planned mid-plan-all) — in that case we re-enter the fix loop
+    # instead of waiting for the next cycle tick.
     _MAX_DRAIN_ONLY_PASSES = 3  # cap drain-only iterations to avoid infinite loops
-    # Issues whose fix failed in this cycle — skip them for the rest of the
-    # loop so a persistent failure (e.g. push reject) doesn't block the
-    # remaining fix targets or prematurely bail to plan-all.
+    _MAX_OUTER_PASSES = 5  # cap plan-all ↔ fix-loop re-entries
+    # Issues whose fix failed in this cycle — skip them for the rest of
+    # the cycle so a persistent failure (e.g. push reject) doesn't block
+    # other fix targets or churn across outer passes.
     failed_fix_issues: set[int] = set()
-
+    outer_pass = 0
     while True:
-        iteration += 1
-        print(f"\n[cai cycle] ---- iteration {iteration} ----", flush=True)
-
-        # Sync labels before each fix attempt so we see freshly-merged PRs.
-        _run_step("verify", cmd_verify, args)
-
-        fix_target = _select_fix_target(exclude=failed_fix_issues)
-        has_fix_target = fix_target is not None
-
-        # Check for pr-open issues that still need drain passes.
-        # PRs stuck on humans (merge-blocked, needs-human-review, failed
-        # CI) are filtered out — we let the cycle advance to new :planned
-        # issues rather than idling until a human unblocks them. The
-        # drain step still runs every iteration so stuck PRs are picked
-        # back up as soon as CI turns green or labels are cleared.
-        has_pending_prs = _has_actionable_pending_prs()
-
-        # Check for :needs-spike issues.
-        has_spike = False
-        if not has_fix_target:
-            try:
-                spike_issues = _gh_json([
-                    "issue", "list",
-                    "--repo", REPO,
-                    "--label", LABEL_NEEDS_SPIKE,
-                    "--state", "open",
-                    "--json", "number",
-                    "--limit", "1",
-                ]) or []
-                has_spike = len(spike_issues) > 0
-            except subprocess.CalledProcessError:
-                pass
-
-        # Check for :needs-exploration issues.
-        has_exploration = False
-        if not has_fix_target:
-            try:
-                exploration_issues = _gh_json([
-                    "issue", "list",
-                    "--repo", REPO,
-                    "--label", LABEL_NEEDS_EXPLORATION,
-                    "--state", "open",
-                    "--json", "number",
-                    "--limit", "1",
-                ]) or []
-                has_exploration = len(exploration_issues) > 0
-            except subprocess.CalledProcessError:
-                pass
-
-        if not has_fix_target and not has_pending_prs and not has_spike and not has_exploration:
-            print("[cai cycle] no eligible issues and no pending PRs; exiting loop",
-                  flush=True)
-            break
-
-        if has_pending_prs:
-            drain_only_passes += 1
-            if drain_only_passes > _MAX_DRAIN_ONLY_PASSES:
-                print(
-                    f"[cai cycle] {drain_only_passes - 1} drain-only passes with PRs "
-                    "still open; exiting (PRs likely need human attention)",
-                    flush=True,
-                )
-                break
+        outer_pass += 1
+        if outer_pass > _MAX_OUTER_PASSES:
             print(
-                f"[cai cycle] pending PR(s) still open; "
-                f"draining (pass {drain_only_passes}/{_MAX_DRAIN_ONLY_PASSES})",
+                f"[cai cycle] hit outer pass cap ({_MAX_OUTER_PASSES}); stopping",
                 flush=True,
             )
-        else:
-            drain_only_passes = 0  # reset when no pending PRs
+            break
+        drain_only_passes = 0
+        while True:
+            iteration += 1
+            print(f"\n[cai cycle] ---- iteration {iteration} ----", flush=True)
 
-        if has_fix_target and not has_pending_prs:
-            # Pin cmd_fix to the target we already selected (with the
-            # failed-in-cycle exclusion applied) so it doesn't re-pick
-            # an issue that just failed in this cycle.
-            prev_issue = getattr(args, "issue", None)
-            args.issue = fix_target["number"]
-            try:
-                rc = _run_step("fix", cmd_fix, args)
-            finally:
-                args.issue = prev_issue
-            key = f"fix.{iteration}"
-            all_results[key] = rc
+            # Sync labels before each fix attempt so we see freshly-merged PRs.
+            _run_step("verify", cmd_verify, args)
 
-            if rc != 0:
-                had_failure = True
-                # fix failed (e.g. push reject) — skip this issue for the
-                # rest of the cycle so a persistent failure doesn't block
-                # other fix targets or prematurely bail to plan-all.
-                failed_num = fix_target.get("number") if fix_target else None
-                if failed_num is not None:
-                    failed_fix_issues.add(failed_num)
+            fix_target = _select_fix_target(exclude=failed_fix_issues)
+            has_fix_target = fix_target is not None
+
+            # Check for pr-open issues that still need drain passes.
+            # PRs stuck on humans (merge-blocked, needs-human-review, failed
+            # CI) are filtered out — we let the cycle advance to new :planned
+            # issues rather than idling until a human unblocks them. The
+            # drain step still runs every iteration so stuck PRs are picked
+            # back up as soon as CI turns green or labels are cleared.
+            has_pending_prs = _has_actionable_pending_prs()
+
+            # Check for :needs-spike issues.
+            has_spike = False
+            if not has_fix_target:
+                try:
+                    spike_issues = _gh_json([
+                        "issue", "list",
+                        "--repo", REPO,
+                        "--label", LABEL_NEEDS_SPIKE,
+                        "--state", "open",
+                        "--json", "number",
+                        "--limit", "1",
+                    ]) or []
+                    has_spike = len(spike_issues) > 0
+                except subprocess.CalledProcessError:
+                    pass
+
+            # Check for :needs-exploration issues.
+            has_exploration = False
+            if not has_fix_target:
+                try:
+                    exploration_issues = _gh_json([
+                        "issue", "list",
+                        "--repo", REPO,
+                        "--label", LABEL_NEEDS_EXPLORATION,
+                        "--state", "open",
+                        "--json", "number",
+                        "--limit", "1",
+                    ]) or []
+                    has_exploration = len(exploration_issues) > 0
+                except subprocess.CalledProcessError:
+                    pass
+
+            if not has_fix_target and not has_pending_prs and not has_spike and not has_exploration:
+                print("[cai cycle] no eligible issues and no pending PRs; exiting loop",
+                      flush=True)
+                break
+
+            if has_pending_prs:
+                drain_only_passes += 1
+                if drain_only_passes > _MAX_DRAIN_ONLY_PASSES:
                     print(
-                        f"[cai cycle] fix step failed for #{failed_num}; "
-                        f"skipping it for the rest of this cycle",
-                        flush=True,
-                    )
-                else:
-                    print(
-                        "[cai cycle] fix step failed; stopping loop",
+                        f"[cai cycle] {drain_only_passes - 1} drain-only passes with PRs "
+                        "still open; exiting (PRs likely need human attention)",
                         flush=True,
                     )
                     break
-        elif has_fix_target and has_pending_prs:
-            print(
-                "[cai cycle] fix target available but skipping — draining pending PR(s) first",
-                flush=True,
-            )
+                print(
+                    f"[cai cycle] pending PR(s) still open; "
+                    f"draining (pass {drain_only_passes}/{_MAX_DRAIN_ONLY_PASSES})",
+                    flush=True,
+                )
+            else:
+                drain_only_passes = 0  # reset when no pending PRs
 
-        # Run spike if no fix target but :needs-spike issues exist.
-        # Spike outcomes feed back: refine_and_retry → :raised,
-        # refined → :refined, blocked → :needs-human, close → done.
-        if not has_fix_target and has_spike:
-            rc = _run_step("spike", cmd_spike, args)
-            all_results[f"spike.{iteration}"] = rc
-            if rc != 0:
-                had_failure = True
+            if has_fix_target and not has_pending_prs:
+                # Pin cmd_fix to the target we already selected (with the
+                # failed-in-cycle exclusion applied) so it doesn't re-pick
+                # an issue that just failed in this cycle.
+                prev_issue = getattr(args, "issue", None)
+                args.issue = fix_target["number"]
+                try:
+                    rc = _run_step("fix", cmd_fix, args)
+                finally:
+                    args.issue = prev_issue
+                key = f"fix.{iteration}"
+                all_results[key] = rc
 
-        # Run explore if no fix target but :needs-exploration issues exist.
-        # Explore outcomes feed back: refine_and_retry → :raised,
-        # refined → :refined, blocked → :needs-human, close → done.
-        if not has_fix_target and has_exploration:
-            rc = _run_step("explore", cmd_explore, args)
-            all_results[f"explore.{iteration}"] = rc
-            if rc != 0:
-                had_failure = True
+                if rc != 0:
+                    had_failure = True
+                    # fix failed (e.g. push reject) — skip this issue for the
+                    # rest of the cycle so a persistent failure doesn't block
+                    # other fix targets or prematurely bail to plan-all.
+                    failed_num = fix_target.get("number") if fix_target else None
+                    if failed_num is not None:
+                        failed_fix_issues.add(failed_num)
+                        print(
+                            f"[cai cycle] fix step failed for #{failed_num}; "
+                            f"skipping it for the rest of this cycle",
+                            flush=True,
+                        )
+                    else:
+                        print(
+                            "[cai cycle] fix step failed; stopping loop",
+                            flush=True,
+                        )
+                        break
+            elif has_fix_target and has_pending_prs:
+                print(
+                    "[cai cycle] fix target available but skipping — draining pending PR(s) first",
+                    flush=True,
+                )
 
-        # Drain pending PRs (from fix or pre-existing).
-        pr_results = _drain_pending_prs(args)
-        for step, step_rc in pr_results.items():
-            all_results[f"{step}.{iteration}"] = step_rc
-            if step_rc != 0:
-                had_failure = True
+            # Run spike if no fix target but :needs-spike issues exist.
+            # Spike outcomes feed back: refine_and_retry → :raised,
+            # refined → :refined, blocked → :needs-human, close → done.
+            if not has_fix_target and has_spike:
+                rc = _run_step("spike", cmd_spike, args)
+                all_results[f"spike.{iteration}"] = rc
+                if rc != 0:
+                    had_failure = True
 
-    # --- Phase 3.5: plan-all — drive :raised/:refined to :planned -------
-    # The fix loop only acts on human:plan-approved (or human:requested) issues,
-    # so any :raised or :refined work would sit idle without this step.
-    # plan-all loops refine → plan until the queue is exhausted; humans
-    # then approve :planned → human:plan-approved on their own schedule.
-    rc = _run_step("plan-all", cmd_plan_all, args)
-    all_results["plan-all"] = rc
-    if rc != 0:
-        had_failure = True
+            # Run explore if no fix target but :needs-exploration issues exist.
+            # Explore outcomes feed back: refine_and_retry → :raised,
+            # refined → :refined, blocked → :needs-human, close → done.
+            if not has_fix_target and has_exploration:
+                rc = _run_step("explore", cmd_explore, args)
+                all_results[f"explore.{iteration}"] = rc
+                if rc != 0:
+                    had_failure = True
+
+            # Drain pending PRs (from fix or pre-existing).
+            pr_results = _drain_pending_prs(args)
+            for step, step_rc in pr_results.items():
+                all_results[f"{step}.{iteration}"] = step_rc
+                if step_rc != 0:
+                    had_failure = True
+
+        # --- Phase 3.5: plan-all — drive :raised/:refined to :planned ---
+        # The fix loop only acts on human:plan-approved (or human:requested)
+        # issues, so any :raised or :refined work would sit idle without this
+        # step. plan-all loops refine → plan until the queue is exhausted or
+        # a new human:plan-approved issue appears (so we can re-enter the
+        # fix loop without waiting for the next cycle tick).
+        rc = _run_step("plan-all", cmd_plan_all, args)
+        all_results[f"plan-all.{outer_pass}"] = rc
+        if rc != 0:
+            had_failure = True
+
+        # If plan-all exposed a new fix target (human approved a :planned
+        # issue mid-plan), loop back into the fix loop. Otherwise we're done.
+        if _select_fix_target(exclude=failed_fix_issues) is None:
+            break
+        print(
+            "[cai cycle] new fix target detected after plan-all; re-entering fix loop",
+            flush=True,
+        )
 
     # --- Phase 4: final confirm -----------------------------------------
     rc = _run_step("confirm-final", cmd_confirm, args)
