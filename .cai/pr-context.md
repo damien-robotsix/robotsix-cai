@@ -92,3 +92,20 @@ Refs: robotsix-cai/cai#518
 
 ### New gaps / deferred
 - none
+
+## Revision 4 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:950` — added `LABEL_PLAN_APPROVED: 3` and `LABEL_PLANNED: 3` to `_STATE_PRIORITY` dict so `_issue_state_label` reports these states correctly instead of "other"
+- `cai.py:1187` — added NOTE comment to `_select_fix_target` docstring explaining `:planned`/`:plan-approved` issues are intentionally excluded until Step 3
+- `cai.py:4011` — added `LABEL_PLANNED` to `cmd_verify` recovery cleanup list so conflicting `:planned` + `:pr-open` states are resolved correctly
+
+### Decisions this revision
+- `LABEL_PLANNED` and `LABEL_PLAN_APPROVED` both assigned priority 3 (same as `LABEL_REFINED`) — they are all "queued/ready" states at similar pipeline depth; collision is harmless since the dict picks the one that appears first when labels co-occur
+- `_select_fix_target` unchanged per scope guardrails; comment added instead to document the intentional gap and point to Step 3
+
+### New gaps / deferred
+- none

@@ -951,7 +951,9 @@ def cmd_analyze(args) -> int:
         LABEL_IN_PROGRESS: 0,
         LABEL_PR_OPEN: 1,
         LABEL_NEEDS_SPIKE: 2,
+        LABEL_PLAN_APPROVED: 3,
         LABEL_REFINED: 3,
+        LABEL_PLANNED: 3,
         LABEL_RAISED: 4,
         LABEL_HUMAN_SUBMITTED: 4,
         LABEL_MERGED: 5,
@@ -1191,6 +1193,12 @@ def _select_fix_target():
     `auto-improve:refined`) enter the fix pipeline.
     If no candidates are found, attempts to recover stale `:pr-open`
     issues whose linked PR was closed unmerged or that have no linked PR.
+
+    NOTE: `:planned` and `:plan-approved` issues are intentionally NOT
+    picked up here.  `:planned` issues are waiting for human approval;
+    `:plan-approved` issues will be wired into this function in Step 3 of
+    the plan-gate sub-issue chain (#481).  Until then, they sit in the
+    queue without being consumed by the fix agent.
     """
     candidates: dict[int, dict] = {}
     for label in (LABEL_REFINED, LABEL_REQUESTED):
@@ -4008,7 +4016,7 @@ def cmd_verify(args) -> int:
         if LABEL_PR_OPEN in iss_labels:
             continue
         # Issue is open, has an open PR, but missing :pr-open — recover.
-        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_RAISED, LABEL_HUMAN_SUBMITTED, LABEL_AUDIT_RAISED) if l in iss_labels]
+        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_RAISED, LABEL_HUMAN_SUBMITTED, LABEL_AUDIT_RAISED) if l in iss_labels]
         if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove, log_prefix="cai verify"):
             print(
                 f"[cai verify] recovered #{issue_num}: added :pr-open "
