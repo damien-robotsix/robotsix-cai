@@ -94,7 +94,7 @@ LABELS = [
     ("auto-improve:revising", "d4c5f9", "Revise subagent is actively iterating on a PR"),
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
     ("auto-improve:planned", "e4e669", "Plan generated and stored in issue body; awaiting human approval"),
-    ("human:plan-approved", "0e8a16", "Plan approved by human; ready for fix subagent"),
+    ("human:plan-approved", "0e8a16", "Plan approved by human; ready for implement subagent"),
     ("human:submitted", "bfd4f2", "Human-submitted issue awaiting refinement"),
     ("auto-improve:parent", "c5def5", "Parent issue with sub-issues"),
     ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
@@ -135,7 +135,7 @@ CODE_AUDIT_LABELS = [
 
 UPDATE_CHECK_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
-    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before fix subagent picks it up"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
     ("category:version_update", "d73a4a", "New Claude Code version with relevant fixes"),
     ("category:feature_adoption", "0075ca", "New feature that could improve the workspace"),
     ("category:deprecation", "e11d48", "Deprecated flag or pattern we use"),

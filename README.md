@@ -587,7 +587,7 @@ The container uses three Docker named volumes:
   the host permission issues that a bind-mount causes.
 
 The container runs as the non-root `cai` user (uid 1000). This is
-required by `claude-code` because the fix and revise subagents use
+required by `claude-code` because the implement and revise subagents use
 `--dangerously-skip-permissions` to allow self-modifying edits to
 `.claude/agents/*.md`, and `claude-code` refuses that flag when
 invoked as root.

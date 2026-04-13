@@ -714,7 +714,7 @@ def _select_fix_target(exclude: set[int] | None = None):
             ]) or []
         except subprocess.CalledProcessError:
             pr_open_issues = []
-        for issue in _recover_stale_pr_open(pr_open_issues, log_prefix="cai fix"):
+        for issue in _recover_stale_pr_open(pr_open_issues, log_prefix="cai implement"):
             if exclude and issue["number"] in exclude:
                 continue
             candidates[issue["number"]] = issue
