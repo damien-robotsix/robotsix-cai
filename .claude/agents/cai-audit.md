@@ -36,7 +36,8 @@ The user message contains:
    `claude -p --output-format json`'s `total_cost_usd` field, so
    they reflect what Anthropic actually billed. Use this section to
    spot `cost_outlier` patterns (see categories below).
-5. **Recently closed auto-improve issues** — number, title, labels at
+5. **Outcome statistics** — per-category success rate and total attempt count over the last 90 days, sourced from `cai-outcome.jsonl`. Rows flagged with ⚠ have a success rate below 40% with at least 3 recorded outcomes.
+6. **Recently closed auto-improve issues** — number, title, labels at
    close time, close date, and the last human rationale comment (if any).
    Use this to verify that issues transitioned through the expected
    lifecycle states before closing, and that PRs linked to closed issues
@@ -82,6 +83,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Closed issue whose labels don't include a terminal state (`auto-improve:merged` or `auto-improve:no-action`) — may indicate manual close without proper resolution | `workflow_anomaly` |
 | Merged PR whose linked `auto-improve` issue is still open (check recent PRs for matching branch/title against open issues) | `workflow_anomaly` |
 | Closed-unmerged PR whose linked issue is not rolled back to `:refined` | `workflow_anomaly` |
+| A category in the outcome statistics table flagged ⚠ (success rate <40% with ≥3 outcomes in 90 days) | `fix_loop_efficiency` |
 
 ### Log-level patterns
 
@@ -151,6 +153,7 @@ already been rolled back before your context is assembled.
 | `forgotten_backlog` | Tracking-only issue (no state label) older than 30 days with no human activity |
 | `cost_outlier` | A `claude -p` invocation (or category aggregate) in the cost summary that dominates token spend disproportionately to its functional value |
 | `workflow_anomaly` | Issue or PR whose lifecycle transitions don't match expected workflow (e.g., closed without terminal label, merged PR with open issue) |
+| `fix_loop_efficiency` | A fix category where the loop is structurally struggling — success rate below 40% over the last 90 days (with ≥3 outcomes), suggesting a prompt, scope, or tooling problem rather than a one-off failure |
 
 ## Output format
 
@@ -159,7 +162,7 @@ For each anomaly, output a markdown block:
 ```markdown
 ### Finding: <short imperative title>
 
-- **Category:** <one of the 9 categories above>
+- **Category:** <one of the 10 categories above>
 - **Key:** <stable-slug-for-deduplication>
 - **Confidence:** low | medium | high
 - **Evidence:**
@@ -177,7 +180,7 @@ No findings.
 
 - Every finding must be grounded in the data you received — no
   speculation about issues you can't see.
-- Stick to the 9 categories above; do not invent new ones.
+- Stick to the 10 categories above; do not invent new ones.
 - Keep titles short and imperative.
 - These findings are **report-only** — they go to humans for triage.
   Do not suggest automated fixes beyond what the deterministic
