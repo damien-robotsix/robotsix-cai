@@ -118,7 +118,7 @@ def _issue_has_label(issue_number: int, label: str) -> bool:
         ])
     except subprocess.CalledProcessError:
         return False
-    return label in [l["name"] for l in (issue or {}).get("labels", [])]
+    return label in [l["name"] for l in (issue or {}).get("labels", [])]  # noqa: E741
 
 
 def _build_issue_block(issue: dict) -> str:

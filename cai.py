@@ -178,7 +178,7 @@ from cai_lib.config import *  # noqa: E402,F403
 
 
 from cai_lib.logging_utils import (  # noqa: E402
-    _write_active_job, _clear_active_job, log_run, log_cost,
+    _write_active_job, _clear_active_job, log_run, log_cost,  # noqa: F401
     _get_issue_category, _log_outcome, _load_outcome_counts,
     _load_outcome_stats, _load_cost_log, _row_ts, _build_cost_summary,
 )
@@ -1728,8 +1728,8 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
             shutil.copytree(str(plugin_staging), str(plugin_target),
                             dirs_exist_ok=True)
             print(
-                f"[cai] applied staged plugin tree: .claude/plugins/ "
-                f"(merged from .cai-staging/plugins/)",
+                "[cai] applied staged plugin tree: .claude/plugins/ "
+                "(merged from .cai-staging/plugins/)",
                 flush=True,
             )
             applied += 1
@@ -2429,7 +2429,7 @@ def cmd_implement(args) -> int:
         print(f"[cai implement] unexpected failure: {e!r}", file=sys.stderr)
         rollback()
         log_run("implement", repo=REPO, issue=issue_number,
-                result=f"unexpected_error", exit=1)
+                result="unexpected_error", exit=1)
         return 1
     finally:
         _clear_active_job()
@@ -3333,7 +3333,7 @@ def cmd_revise(args) -> int:
                 _work_directory_block(work_dir)
                 + "\n"
                 + f"{rebase_state_block}\n"
-                + f"## Original issue\n\n"
+                + "## Original issue\n\n"
                 + f"### #{issue_data['number']} — {issue_data.get('title', '')}\n\n"
                 + f"{issue_data.get('body') or '(no body)'}\n\n"
                 + pr_state_block
@@ -3674,11 +3674,11 @@ def cmd_verify(args) -> int:
             continue
         if (iss.get("state") or "").upper() != "OPEN":
             continue
-        iss_labels = {l["name"] for l in iss.get("labels", [])}
+        iss_labels = {l["name"] for l in iss.get("labels", [])}  # noqa: E741
         if LABEL_PR_OPEN in iss_labels:
             continue
         # Issue is open, has an open PR, but missing :pr-open — recover.
-        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED, LABEL_RAISED, LABEL_HUMAN_SUBMITTED, LABEL_AUDIT_RAISED) if l in iss_labels]
+        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED, LABEL_RAISED, LABEL_HUMAN_SUBMITTED, LABEL_AUDIT_RAISED) if l in iss_labels]  # noqa: E741
         if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove, log_prefix="cai verify"):
             print(
                 f"[cai verify] recovered #{issue_num}: added :pr-open "
@@ -5974,14 +5974,14 @@ def cmd_review_pr(args) -> int:
             user_message = (
                 _work_directory_block(work_dir)
                 + "\n"
-                + f"## PR metadata\n\n"
+                + "## PR metadata\n\n"
                 + f"- **Number:** #{pr_number}\n"
                 + f"- **Title:** {title}\n"
                 + f"- **Author:** @{author_login}\n"
-                + f"- **Base:** main\n"
+                + "- **Base:** main\n"
                 + f"- **HEAD SHA:** {head_sha}\n\n"
                 + issue_block
-                + f"## PR diff\n\n"
+                + "## PR diff\n\n"
                 + f"```diff\n{pr_diff}\n```\n"
             )
 
@@ -6248,14 +6248,14 @@ def cmd_review_docs(args) -> int:
             user_message = (
                 _work_directory_block(work_dir)
                 + "\n"
-                + f"## PR metadata\n\n"
+                + "## PR metadata\n\n"
                 + f"- **Number:** #{pr_number}\n"
                 + f"- **Title:** {title}\n"
                 + f"- **Author:** @{author_login}\n"
-                + f"- **Base:** main\n"
+                + "- **Base:** main\n"
                 + f"- **HEAD SHA:** {head_sha}\n\n"
                 + issue_block
-                + f"## PR diff\n\n"
+                + "## PR diff\n\n"
                 + f"```diff\n{pr_diff}\n```\n"
             )
 
@@ -6437,7 +6437,7 @@ def _pr_label_sweep() -> tuple[int, int]:
         pr_number = pr["number"]
         comments = pr.get("comments", [])
         merge_state = pr.get("mergeStateStatus", "")
-        labels = {l.get("name", "") for l in pr.get("labels", [])}
+        labels = {l.get("name", "") for l in pr.get("labels", [])}  # noqa: E741
         currently_labeled = LABEL_PR_NEEDS_HUMAN in labels
 
         # Scope signals to comments newer than the latest commit so
@@ -6601,7 +6601,7 @@ def cmd_merge(args) -> int:
             )
             continue
 
-        issue_labels = [l["name"] for l in issue.get("labels", [])]
+        issue_labels = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
         if LABEL_PR_OPEN not in issue_labels:
             continue
         # NOTE: do NOT skip on `merge-blocked`. The label
@@ -6899,7 +6899,6 @@ def cmd_merge(args) -> int:
 
         confidence = verdict["confidence"]
         action = verdict["action"]
-        reasoning = verdict["reasoning"]
         evaluated += 1
 
         # Post the verdict as a PR comment.
@@ -8222,7 +8221,7 @@ def cmd_health_report(args) -> int:
 
             rows_md = []
             for agent in all_agents:
-                l = last_by_agent.get(agent, 0.0)
+                l = last_by_agent.get(agent, 0.0)  # noqa: E741
                 p = prior_by_agent.get(agent, 0.0)
                 delta = ((l - p) / p * 100) if p > 0 else float("nan")
                 delta_str = f"{delta:+.1f}%" if p > 0 else "n/a"
@@ -8274,7 +8273,7 @@ def cmd_health_report(args) -> int:
                  "--json", "number", "--limit", "200"]
             )
             counts[name] = len(items) if items else 0
-    except Exception as exc:
+    except Exception:
         throughput_status = "🟡"
         counts = {name: -1 for name, _ in label_states}
 
