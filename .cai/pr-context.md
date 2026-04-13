@@ -46,6 +46,20 @@ Refs: robotsix/robotsix-cai#529
 ### New gaps / deferred
 - None
 
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-audit.md` (via staging) — swapped items 5 and 6 in "What you receive" list so Outcome statistics is #5 and Recently closed issues is #6, matching the actual delivery order in cai.py
+
+### Decisions this revision
+- Chose reviewer option (b): update docs to match code order, since outcome stats logically pair with the cost summary as current-loop performance metrics, before historical closed-issue data
+
+### New gaps / deferred
+- None
+
 ## Out of scope / known gaps
 - `cmd_analyze` is not touched — outcome section is audit-only per scope guardrails
 - `_load_outcome_counts` internals not changed

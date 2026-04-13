@@ -36,12 +36,12 @@ The user message contains:
    `claude -p --output-format json`'s `total_cost_usd` field, so
    they reflect what Anthropic actually billed. Use this section to
    spot `cost_outlier` patterns (see categories below).
-5. **Recently closed auto-improve issues** — number, title, labels at
+5. **Outcome statistics** — per-category success rate and total attempt count over the last 90 days, sourced from `cai-outcome.jsonl`. Rows flagged with ⚠ have a success rate below 40% with at least 3 recorded outcomes.
+6. **Recently closed auto-improve issues** — number, title, labels at
    close time, close date, and the last human rationale comment (if any).
    Use this to verify that issues transitioned through the expected
    lifecycle states before closing, and that PRs linked to closed issues
    were actually merged.
-6. **Outcome statistics** — per-category success rate and total attempt count over the last 90 days, sourced from `cai-outcome.jsonl`. Rows flagged with ⚠ have a success rate below 40% with at least 3 recorded outcomes.
 
 ## Lifecycle states — tracking vs active
 
