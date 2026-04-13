@@ -22,7 +22,7 @@ from cai_lib.config import (
     _STALE_REVISING_HOURS,
 )
 from cai_lib.github import _gh_json, _set_labels
-from cai_lib.logging import log_run
+from cai_lib.logging_utils import log_run
 
 
 def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:

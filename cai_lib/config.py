@@ -63,6 +63,9 @@ LABEL_PARENT = "auto-improve:parent"
 LABEL_MERGE_BLOCKED = "merge-blocked"
 LABEL_AUDIT_RAISED = "audit:raised"
 LABEL_AUDIT_NEEDS_HUMAN = "audit:needs-human"
+LABEL_HUMAN_SUBMITTED = "human:submitted"
+LABEL_PLANNED = "auto-improve:planned"
+LABEL_PLAN_APPROVED = "auto-improve:plan-approved"
 
 # PR-level label applied by `cai merge` when the verdict is below the
 # auto-merge threshold. Lets a human filter open PRs that are waiting

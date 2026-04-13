@@ -1,0 +1,38 @@
+# PR Context Dossier
+Refs: damien-robotsix/robotsix-cai#504
+
+## Files touched
+- cai_lib/__init__.py — new package init (empty)
+- cai_lib/config.py — constants block (lines 148–223) + stale TTL constants
+- cai_lib/logging_utils.py — 11 logging functions (lines 226–480)
+- cai_lib/subprocess_utils.py — _run and _run_claude_p (lines 487–641)
+- cai_lib/github.py — 8 GitHub helpers from two locations (lines 644–710, 1251–1319)
+- cai_lib/cmd_fix.py — _parse_decomposition (lines 1589–1629)
+- cai_lib/cmd_lifecycle.py — _rollback_stale_in_progress (lines 3927–4046)
+- cai.py — replaced 8 extracted blocks with import statements (bottom-up)
+- tests/test_rollback.py — updated patches from cai.* to cai_lib.cmd_lifecycle.*
+
+## Files read (not touched) that matter
+- tests/test_multistep.py — imports `from cai import _parse_decomposition`; still works via re-export
+- tests/test_rollback.py — patches cai-level symbols; had to change to lifecycle-module patches
+
+## Key symbols
+- `_rollback_stale_in_progress` (cai_lib/cmd_lifecycle.py:18) — uses _gh_json/_set_labels from cai_lib.github and LOG_PATH from cai_lib.config
+- `_parse_decomposition` (cai_lib/cmd_fix.py:7) — standalone, only stdlib re
+- `_run_claude_p` (cai_lib/subprocess_utils.py:17) — depends on log_cost from logging_utils
+
+## Design decisions
+- Bottom-up edits to cai.py — preserves line number stability during sequential edits
+- `from cai_lib.config import *` — wildcard import at module level re-exports all ~30 constants so callers in cai.py and tests don't break
+- Kept `# noqa: E402` on all mid-file imports — they appear after non-import code (functions above them were replaced but comments remain)
+- Rejected: explicit import list for config (too many symbols, wildcard is simpler)
+
+## Out of scope / known gaps
+- `_cleanup_orphaned_branches` (lines 3849–3924) not extracted — not in the issue scope
+- `_fetch_previous_fix_attempts` not extracted — not in scope
+- No refactoring of extracted logic — pure move only
+
+## Invariants this change relies on
+- All extracted symbols remain accessible from `cai` module via import re-exports
+- `cai_lib` dependency graph is acyclic: config → logging_utils → subprocess_utils → github → cmd_lifecycle
+- `test_rollback.py` patches must target `cai_lib.cmd_lifecycle.*` since that's where the function's symbol lookups resolve
