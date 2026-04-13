@@ -24,3 +24,18 @@ Refs: robotsix-cai/robotsix-cai#522
 ## Invariants this change relies on
 - `cai review-pr` always posts a comment whose first line starts with `_REVIEW_COMMENT_HEADING_FINDINGS` and contains the head SHA
 - PR comments are fetched with sufficient depth in `cmd_review_docs` to include review-pr comments
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `docs/cli.md:115` — added Note block explaining review-pr → review-docs ordering enforcement
+- `docs/architecture.md:10` — expanded Review step description to document ordering constraint and enforcement mechanism
+
+### Decisions this revision
+- Verbatim wording from reviewer suggestion used for both doc sites — accurate and consistent
+
+### New gaps / deferred
+- None
