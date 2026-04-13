@@ -2280,8 +2280,20 @@ def cmd_fix(args) -> int:
             return 1
 
         # 8. Push.
+        #    The branch name is scoped to the issue
+        #    (`auto-improve/<num>-<slug>`) and each fix cycle
+        #    rewrites it from scratch off the current main, so any
+        #    pre-existing remote branch with that name is a stale
+        #    artefact from a previous attempt. The shallow clone at
+        #    depth 1 is single-branch by default, so we have no
+        #    remote-tracking ref to compare against and
+        #    `--force-with-lease` cannot be used meaningfully here.
+        #    Plain `--force` is the right call: we own the branch
+        #    namespace and the fresh commit off current main is
+        #    authoritative.
         push = _run(
-            ["git", "-C", str(work_dir), "push", "-u", "origin", branch],
+            ["git", "-C", str(work_dir), "push",
+             "--force", "-u", "origin", branch],
             capture_output=True,
         )
         if push.returncode != 0:
