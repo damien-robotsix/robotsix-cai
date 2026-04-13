@@ -14,7 +14,7 @@ Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `desc
 | `cai-fix` | Autonomous code-editing subagent — makes the smallest targeted change for an issue | Read, Edit, Write, Grep, Glob, TodoWrite | sonnet | Worktree |
 | `cai-git` | Lightweight subagent that executes git operations on behalf of other agents | Bash | haiku | Worktree |
 | `cai-merge` | Assess whether a PR correctly implements its linked issue and emit a merge verdict | Read | opus | Inline-only |
-| `cai-plan` | Generate a detailed fix plan for an issue (first of two serial planners) | Read, Grep, Glob, Agent | sonnet | Worktree |
+| `cai-plan` | Generate a detailed fix plan for an issue (first of two serial planners) | Read, Grep, Glob, Agent | opus | Worktree |
 | `cai-propose` | Weekly creative agent that proposes ambitious improvements | Read, Grep, Glob | sonnet | Worktree |
 | `cai-propose-review` | Evaluate creative proposals for feasibility and value before filing issues | Read, Grep, Glob | sonnet | Worktree |
 | `cai-rebase` | Lightweight rebase conflict resolution for PRs with no unaddressed review comments | Read, Edit, Write, Grep, Glob, Agent | haiku | Worktree |
