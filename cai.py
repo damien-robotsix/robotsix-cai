@@ -631,7 +631,7 @@ def _ingest_unlabeled_issues() -> list[dict]:
     return ingested
 
 
-def _select_fix_target():
+def _select_fix_target(exclude: set[int] | None = None):
     """Return the highest-scored open issue eligible for the fix subagent.
 
     Scoring: age_days × category_success_rate × (1 / max(1, prior_attempts)).
@@ -676,6 +676,8 @@ def _select_fix_target():
             label_names = {lbl["name"] for lbl in issue.get("labels", [])}
             if LABEL_IN_PROGRESS in label_names or LABEL_PR_OPEN in label_names:
                 continue
+            if exclude and issue["number"] in exclude:
+                continue
             candidates[issue["number"]] = issue
 
     if not candidates:
@@ -694,6 +696,8 @@ def _select_fix_target():
         except subprocess.CalledProcessError:
             pr_open_issues = []
         for issue in _recover_stale_pr_open(pr_open_issues, log_prefix="cai fix"):
+            if exclude and issue["number"] in exclude:
+                continue
             candidates[issue["number"]] = issue
 
     if not candidates:
@@ -7517,7 +7521,9 @@ def cmd_cycle(args) -> int:
       2. drain pending PRs (revise → review-pr → review-docs → merge)
       3. loop: verify → fix/spike/explore → drain → repeat
          (fix picks only :plan-approved / :requested — nothing raised
-         or refined is auto-consumed here)
+         or refined is auto-consumed here; an issue whose fix fails
+         is skipped for the rest of the cycle so the remaining fix
+         targets still get a chance before plan-all runs)
       3.5. plan-all — drive every remaining :raised / :refined issue
          to :planned so humans have a queue to approve against
       4. final confirm
@@ -7590,6 +7596,10 @@ def _cmd_cycle_inner(args) -> int:
     # revise/review/merge passes, not just new fix targets.
     drain_only_passes = 0
     _MAX_DRAIN_ONLY_PASSES = 3  # cap drain-only iterations to avoid infinite loops
+    # Issues whose fix failed in this cycle — skip them for the rest of the
+    # loop so a persistent failure (e.g. push reject) doesn't block the
+    # remaining fix targets or prematurely bail to plan-all.
+    failed_fix_issues: set[int] = set()
 
     while True:
         iteration += 1
@@ -7598,7 +7608,8 @@ def _cmd_cycle_inner(args) -> int:
         # Sync labels before each fix attempt so we see freshly-merged PRs.
         _run_step("verify", cmd_verify, args)
 
-        has_fix_target = _select_fix_target() is not None
+        fix_target = _select_fix_target(exclude=failed_fix_issues)
+        has_fix_target = fix_target is not None
 
         # Check for pr-open issues that still need drain passes.
         # PRs stuck on humans (merge-blocked, needs-human-review, failed
@@ -7663,15 +7674,37 @@ def _cmd_cycle_inner(args) -> int:
             drain_only_passes = 0  # reset when no pending PRs
 
         if has_fix_target and not has_pending_prs:
-            rc = _run_step("fix", cmd_fix, args)
+            # Pin cmd_fix to the target we already selected (with the
+            # failed-in-cycle exclusion applied) so it doesn't re-pick
+            # an issue that just failed in this cycle.
+            prev_issue = getattr(args, "issue", None)
+            args.issue = fix_target["number"]
+            try:
+                rc = _run_step("fix", cmd_fix, args)
+            finally:
+                args.issue = prev_issue
             key = f"fix.{iteration}"
             all_results[key] = rc
 
             if rc != 0:
                 had_failure = True
-                # fix failed (error) — stop looping.
-                print("[cai cycle] fix step failed; stopping loop", flush=True)
-                break
+                # fix failed (e.g. push reject) — skip this issue for the
+                # rest of the cycle so a persistent failure doesn't block
+                # other fix targets or prematurely bail to plan-all.
+                failed_num = fix_target.get("number") if fix_target else None
+                if failed_num is not None:
+                    failed_fix_issues.add(failed_num)
+                    print(
+                        f"[cai cycle] fix step failed for #{failed_num}; "
+                        f"skipping it for the rest of this cycle",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "[cai cycle] fix step failed; stopping loop",
+                        flush=True,
+                    )
+                    break
         elif has_fix_target and has_pending_prs:
             print(
                 "[cai cycle] fix target available but skipping — draining pending PR(s) first",
