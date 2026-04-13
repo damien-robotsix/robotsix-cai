@@ -31,3 +31,19 @@ Refs: damien-robotsix/robotsix-cai#499
 ## Invariants this change relies on
 - just-the-docs theme renders nav_order as sidebar position; pages without nav_order may be hidden
 - Subcommand descriptions sourced from cai.py argparse help strings — will drift if cai.py is updated
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- docs/cli.md:31 — `analyze` description corrected to match argparse help string ("Run the analyzer + publish findings")
+- docs/cli.md:38 — `audit-triage` description corrected to match argparse help string ("no PRs" not "no PRs opened")
+- docs/cli.md:46 — `init` description corrected to match argparse help string ("if no transcripts exist" not "yet")
+
+### Decisions this revision
+- All three changes are verbatim corrections to match cai.py argparse help strings — no paraphrasing
+
+### New gaps / deferred
+- None
