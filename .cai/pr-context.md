@@ -31,3 +31,27 @@ Refs: robotsix-cai/cai#517
 ## Invariants this change relies on
 - `_set_labels` does not error when asked to remove a label that isn't present on the issue
 - `_ingest_unlabeled_issues` checks `_MANAGED_LABEL_PREFIXES` to determine if an issue is already managed
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:929` — added `LABEL_HUMAN_SUBMITTED: 4` to `_STATE_PRIORITY` dict
+- `cai.py:1060` — updated `_recover_stale_pr_open` to preserve `LABEL_HUMAN_SUBMITTED` on rollback (ternary chain)
+- `cai.py:3802` — added `LABEL_HUMAN_SUBMITTED` to `cmd_verify` remove list for `:pr-open` recovery
+- `cai.py:7244` — added `LABEL_HUMAN_SUBMITTED` to early-return remove list ("No Refinement Needed" path)
+- `cai.py:7267` — added `LABEL_HUMAN_SUBMITTED` to early-return remove list (multi-step decomposition path)
+- `cai.py:8006-8030` — added second `LABEL_HUMAN_SUBMITTED` check in `cmd_cycle` fallback eligibility block
+- `docs/cli.md:109` — updated refine description to mention `human:submitted`
+- `docs/architecture.md:7` — updated Raise phase to mention `human:submitted`
+- `docs/architecture.md:29-34` — added `auto-improve:planned`, `auto-improve:plan-approved`, `human:submitted` rows to Lifecycle Labels table
+
+### Decisions this revision
+- `LABEL_HUMAN_SUBMITTED` gets same priority (4) as `LABEL_RAISED` in `_STATE_PRIORITY` — they are equivalent entry-point states
+- `cmd_cycle` fallback check uses a second separate `gh issue list` call (same pattern as other checks) rather than combining labels, for consistency
+- `_recover_stale_pr_open` ternary preserves `LABEL_HUMAN_SUBMITTED` if present, otherwise falls back to `LABEL_RAISED` (matching the intent of the existing `LABEL_AUDIT_RAISED` preservation logic)
+
+### New gaps / deferred
+- None; all five review-pr findings and all three review-docs findings addressed

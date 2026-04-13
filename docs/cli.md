@@ -106,7 +106,7 @@ No arguments.
 
 ## refine
 
-Invoke `cai-refine` on the oldest `auto-improve:raised` issue to produce a structured implementation plan (transitions to `:refined`).
+Invoke `cai-refine` on the oldest `auto-improve:raised` or `human:submitted` issue to produce a structured implementation plan (transitions to `:refined`).
 
 | Argument | Type | Description |
 |---|---|---|
