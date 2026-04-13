@@ -2466,6 +2466,7 @@ _BOT_COMMENT_MARKERS = (
     "## Revision summary",
     "## cai pre-merge review (clean)",
     "## cai docs review (clean)",
+    "## cai docs review (applied)",
     "## cai merge verdict",
 )
 
@@ -6079,31 +6080,24 @@ def cmd_review_pr(args) -> int:
 # review-docs — pre-merge documentation review
 # ---------------------------------------------------------------------------
 
-# docs-review posts two comment variants depending on the outcome:
+# docs-review is self-contained: the agent has Edit/Write in a
+# worktree, so anything it finds it also fixes. There is no
+# "actionable for revise" path — the only outcomes are:
 #
-#   * `_DOCS_REVIEW_COMMENT_HEADING_FINDINGS` — used in two cases:
-#     (1) The agent fixed stale docs and pushed a commit to the PR
-#         branch. The comment is posted at the *new* SHA and may
-#         contain `### Fixed: stale_docs` blocks plus any remaining
-#         `### Finding: stale_docs` blocks for issues it could not
-#         fix automatically.
-#     (2) The agent found unfixable issues and did not push. The
-#         comment is posted at the original SHA and contains
-#         `### Finding: stale_docs` blocks that the revise subagent
-#         can pick up and address.
-#     NOT in `_BOT_COMMENT_MARKERS` so the revise subagent considers
-#     it actionable; when all items are already fixed (case 1) the
-#     revise agent will see no open findings and skip it naturally.
+#   * `_DOCS_REVIEW_COMMENT_HEADING_APPLIED` — the agent fixed stale
+#     docs and pushed a commit to the PR branch. Posted at the *new*
+#     SHA.
+#   * `_DOCS_REVIEW_COMMENT_HEADING_CLEAN` — nothing to fix. Posted
+#     at the original SHA.
 #
-#   * `_DOCS_REVIEW_COMMENT_HEADING_CLEAN` — informational only, says
-#     "no documentation updates needed". IS in `_BOT_COMMENT_MARKERS`
-#     so the revise subagent skips it (no actionable content).
-#
-# Both forms include the head SHA at the end of the heading line so
-# the SHA-idempotency check can recognize either as "already
-# reviewed at this commit".
-_DOCS_REVIEW_COMMENT_HEADING_FINDINGS = "## cai docs review"
+# Both are in `_BOT_COMMENT_MARKERS` so revise never picks them up
+# (#564 — the prior FINDINGS variant looped revise into a no-op
+# "already addressed" reply on every tick). Both share the bare
+# `## cai docs review` prefix so the SHA-idempotency check and the
+# merge gate's `startswith` recognize either as "already reviewed".
+_DOCS_REVIEW_COMMENT_HEADING_PREFIX = "## cai docs review"
 _DOCS_REVIEW_COMMENT_HEADING_CLEAN = "## cai docs review (clean)"
+_DOCS_REVIEW_COMMENT_HEADING_APPLIED = "## cai docs review (applied)"
 
 # Commit-message subject used by `cmd_review_docs` when it pushes
 # automated documentation fixes. Recognized by the merge gate so a
@@ -6165,7 +6159,7 @@ def cmd_review_docs(args) -> int:
             body = (comment.get("body") or "")
             first_line = body.split("\n", 1)[0]
             if (
-                first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_FINDINGS)
+                first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_PREFIX)
                 and head_sha in first_line
             ):
                 already_reviewed = True
@@ -6311,7 +6305,7 @@ def cmd_review_docs(args) -> int:
                     continue
                 new_sha = _git(work_dir, "rev-parse", "HEAD").stdout.strip()
                 comment_body = (
-                    f"{_DOCS_REVIEW_COMMENT_HEADING_FINDINGS} \u2014 {new_sha}\n\n"
+                    f"{_DOCS_REVIEW_COMMENT_HEADING_APPLIED} \u2014 {new_sha}\n\n"
                     f"{agent_output}\n\n"
                     f"---\n"
                     f"_Documentation updated automatically by `cai review-docs`._"
@@ -6321,27 +6315,12 @@ def cmd_review_docs(args) -> int:
                     flush=True,
                 )
             else:
-                # No file changes — post clean or findings comment at original SHA.
-                has_text_findings = (
-                    "### Finding:" in agent_output
-                    and "No documentation updates needed" not in agent_output
+                comment_body = (
+                    f"{_DOCS_REVIEW_COMMENT_HEADING_CLEAN} \u2014 {head_sha}\n\n"
+                    f"No documentation updates needed.\n\n"
+                    f"---\n"
+                    f"_Pre-merge documentation review by `cai review-docs`._"
                 )
-                if has_text_findings:
-                    comment_body = (
-                        f"{_DOCS_REVIEW_COMMENT_HEADING_FINDINGS} \u2014 {head_sha}\n\n"
-                        f"{agent_output}\n\n"
-                        f"---\n"
-                        f"_Pre-merge documentation review by `cai review-docs`. "
-                        f"Address the findings above or explain why they don't "
-                        f"apply, then push a new commit to trigger a re-review._"
-                    )
-                else:
-                    comment_body = (
-                        f"{_DOCS_REVIEW_COMMENT_HEADING_CLEAN} \u2014 {head_sha}\n\n"
-                        f"No documentation updates needed.\n\n"
-                        f"---\n"
-                        f"_Pre-merge documentation review by `cai review-docs`._"
-                    )
 
             _run(
                 ["gh", "pr", "comment", str(pr_number),
@@ -6349,10 +6328,7 @@ def cmd_review_docs(args) -> int:
                 capture_output=True,
             )
 
-            result_word = "fixes pushed" if has_doc_changes else (
-                "with findings" if not has_doc_changes and "### Finding:" in agent_output
-                else "clean"
-            )
+            result_word = "fixes pushed" if has_doc_changes else "clean"
             print(
                 f"[cai review-docs] posted review on PR #{pr_number} ({result_word})",
                 flush=True,
@@ -6730,7 +6706,7 @@ def cmd_merge(args) -> int:
             body = (comment.get("body") or "")
             first_line = body.split("\n", 1)[0]
             if (
-                first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_FINDINGS)
+                first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_PREFIX)
                 and head_sha in first_line
             ):
                 has_docs_review_at_sha = True
