@@ -16,7 +16,7 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-The issue-solving pipeline (refine → plan → fix → revise → review-pr → merge → confirm) is driven by a single `CAI_CYCLE_SCHEDULE` line. A flock in `cmd_cycle` serializes overlapping runs, so issues are processed one at a time — each cycle refines, plans, fixes, drains PRs, and only moves to the next issue when the current one is solved or has reached a blocking point (human review requested, `:merge-blocked`, etc.). Individual pipeline subcommands (`fix`, `refine`, `plan`, `spike`, `revise`, `review-pr`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions but no longer have their own cron lines.
+The issue-solving pipeline (refine → fix → revise → review-pr → merge → confirm) is driven by a single `CAI_CYCLE_SCHEDULE` line. A flock in `cmd_cycle` serializes overlapping runs, so issues are processed one at a time — each cycle refines, fixes, drains PRs, and only moves to the next issue when the current one is solved or has reached a blocking point (human review requested, `:merge-blocked`, etc.). Individual pipeline subcommands (`fix`, `refine`, `plan`, `spike`, `revise`, `review-pr`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions but no longer have their own cron lines.
 
 | Variable | Default | Description |
 |---|---|---|
