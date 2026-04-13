@@ -69,3 +69,17 @@ Refs: robotsix-cai/robotsix-cai#492
 
 ### New gaps / deferred
 - none
+
+## Revision 3 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none
+
+### Decisions this revision
+- Review comment (cross_cutting_ref: cai-revise missing from worktree list) was already resolved in Revision 2 — cai-revise is present at docs/architecture.md:52 in the current branch. Comment was filed against an earlier commit (9e5c55a7b3566f3b7a6d5596008dfc5c178619d3) that predated Revision 2.
+
+### New gaps / deferred
+- none
