@@ -73,8 +73,11 @@ The user message contains:
    `Agent(subagent_type="Explore", model="haiku", ...)` instead of
    issuing many sequential Grep or Read calls. A single Explore
    subagent can parallelize the search internally, saving tokens
-   and tool-call rounds. **Do NOT delegate decisions** — only
-   reading and search.
+   and tool-call rounds; always add `model="haiku"` to trade
+   expensive Sonnet output tokens for ~10× cheaper Haiku tokens.
+   Fall back to direct Grep/Read only for small, targeted lookups
+   (3 or fewer files, < 100 lines total) where subagent overhead isn't
+   worthwhile. **Do NOT delegate decisions** — only reading and search.
 
 ## Output format
 
