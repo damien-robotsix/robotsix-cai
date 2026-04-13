@@ -40,3 +40,19 @@ Refs: robotsix/robotsix-cai#377
 
 ### New gaps / deferred
 - review-docs comment (opus→sonnet in docs/agents.md) was already applied before this revision; this revision undoes that since the model is reverting to opus
+
+## Revision 2 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-plan.md`:5 — changed `model: claude-opus-4-6` to `model: claude-sonnet-4-6` (via staging dir)
+- `docs/agents.md`:17 — updated cai-plan model column from `opus` to `sonnet`
+
+### Decisions this revision
+- Switched model to sonnet per reviewer explicit override ("now we MUST switch to sonnet") — overrides the prior "keep opus" decision from Revision 1
+- Both files updated for consistency: agent definition frontmatter + docs table
+
+### New gaps / deferred
+- None
