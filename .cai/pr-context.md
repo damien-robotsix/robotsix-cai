@@ -45,3 +45,17 @@ Refs: damien-robotsix/robotsix-cai#544
 - `cai implement` is only invoked internally by `cycle` and the handlers dict — both updated atomically
 - The `cai-implement.md` staging mechanism correctly creates the new agent file via `.cai-staging/agents/`
 - The `cai-fix.md` staging mechanism overwrites the old protected file with a deprecated stub
+
+## Revision 1 (2026-04-13)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- none — all changes already applied
+
+### Decisions this revision
+- Review comment from @damien-robotsix (cai review-docs) was an informational summary, not a change request — all four fixes (README.md:590, publish.py:97+138, Dockerfile:63, cai.py:717) were already applied and committed before the review comment was posted.
+
+### New gaps / deferred
+- none
