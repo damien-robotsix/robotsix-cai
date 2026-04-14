@@ -18,7 +18,7 @@ from cai_lib.fsm import (
 from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED, LABEL_REFINING,
     LABEL_PLANNING, LABEL_PLANNED,
-    LABEL_HUMAN_NEEDED, LABEL_PARENT,
+    LABEL_HUMAN_NEEDED, LABEL_PARENT, LABEL_TRIAGING,
 )
 
 
@@ -392,7 +392,12 @@ class TestTransientStatesShape(unittest.TestCase):
             for t in ISSUE_TRANSITIONS
             if t.from_state == IssueState.RAISED
         }
-        self.assertEqual(dests, {IssueState.REFINING, IssueState.HUMAN_NEEDED})
+        self.assertIn(IssueState.TRIAGING, dests,
+            "RAISED must be able to reach TRIAGING via raise_to_triaging")
+        self.assertIn(IssueState.REFINING, dests,
+            "raise_to_refining bypass must still exist")
+        self.assertIn(IssueState.HUMAN_NEEDED, dests,
+            "raise_to_human must still exist")
 
     def test_refining_can_fall_back_to_human(self):
         """Every transient working state must have a path to HUMAN_NEEDED."""
@@ -453,6 +458,40 @@ class TestTransientStatesShape(unittest.TestCase):
         self.assertEqual(forbidden, [],
             "PR_HUMAN_NEEDED → MERGED must not exist; admins funnel back "
             "through REVISION_PENDING / APPROVED")
+
+
+class TestTriagingState(unittest.TestCase):
+    """Pin the TRIAGING transient-state FSM shape."""
+
+    def test_raise_to_triaging_exists(self):
+        t = find_transition("raise_to_triaging")
+        self.assertEqual(t.from_state, IssueState.RAISED)
+        self.assertEqual(t.to_state, IssueState.TRIAGING)
+
+    def test_triaging_to_refining_exists(self):
+        t = find_transition("triaging_to_refining")
+        self.assertEqual(t.from_state, IssueState.TRIAGING)
+        self.assertEqual(t.to_state, IssueState.REFINING)
+
+    def test_triaging_to_human_exists(self):
+        t = find_transition("triaging_to_human")
+        self.assertEqual(t.from_state, IssueState.TRIAGING)
+        self.assertEqual(t.to_state, IssueState.HUMAN_NEEDED)
+
+    def test_triaging_can_fall_back_to_human(self):
+        """TRIAGING must have an explicit path to HUMAN_NEEDED."""
+        dests = {
+            t.to_state
+            for t in ISSUE_TRANSITIONS
+            if t.from_state == IssueState.TRIAGING
+        }
+        self.assertIn(IssueState.HUMAN_NEEDED, dests)
+
+    def test_raise_to_refining_bypass_still_exists(self):
+        """Direct bypass from RAISED → REFINING must remain."""
+        t = find_transition("raise_to_refining")
+        self.assertEqual(t.from_state, IssueState.RAISED)
+        self.assertEqual(t.to_state, IssueState.REFINING)
 
 
 if __name__ == "__main__":

@@ -72,6 +72,9 @@ LABEL_REFINING = "auto-improve:refining"
 LABEL_PLANNING = "auto-improve:planning"
 LABEL_HUMAN_NEEDED    = "auto-improve:human-needed"    # IssueState.HUMAN_NEEDED
 LABEL_PR_HUMAN_NEEDED = "auto-improve:pr-human-needed" # PRState.PR_HUMAN_NEEDED
+LABEL_TRIAGING         = "auto-improve:triaging"
+LABEL_KIND_CODE        = "kind:code"
+LABEL_KIND_MAINTENANCE = "kind:maintenance"
 
 # PR-level label applied by `cai merge` when the verdict is below the
 # auto-merge threshold. Lets a human filter open PRs that are waiting
