@@ -5,6 +5,7 @@
 
 | File | Purpose |
 |------|---------|
+| `.cai/pr-context.md` | Per-PR dossier with touched files, key symbols, and design decisions for the CI-fix subagent |
 | `.claude/agents/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
 | `.claude/agents/cai-audit-triage.md` | Agent: triage `audit:raised` findings with structured verdicts |
 | `.claude/agents/cai-audit.md` | Agent: audit issue queue and lifecycle state machine |
@@ -14,9 +15,8 @@
 | `.claude/agents/cai-cost-optimize.md` | Agent: weekly cost-reduction analysis |
 | `.claude/agents/cai-explore.md` | Agent: autonomous exploration and benchmarking |
 | `.claude/agents/cai-fix-ci.md` | Agent: diagnose and fix failing CI checks on auto-improve PRs |
-| `.claude/agents/cai-fix.md` | Agent: smallest targeted code change for an auto-improve issue (deprecated — see cai-implement) |
 | `.claude/agents/cai-git.md` | Agent: lightweight git operations subagent |
-| `.claude/agents/cai-implement.md` | Agent: autonomous code-editing subagent — canonical successor to cai-fix |
+| `.claude/agents/cai-implement.md` | Agent: autonomous code-editing subagent for code-editing tasks |
 | `.claude/agents/cai-merge.md` | Agent: assess PR correctness and emit merge verdict |
 | `.claude/agents/cai-plan.md` | Agent: generate detailed fix plan for an issue |
 | `.claude/agents/cai-propose-review.md` | Agent: review creative proposals for feasibility |
