@@ -176,6 +176,9 @@ from publish import ensure_all_labels
 
 
 from cai_lib.config import *  # noqa: E402,F403
+from cai_lib.config import (  # noqa: E402
+    _STALE_NO_ACTION_DAYS, _STALE_MERGED_DAYS,
+)
 
 
 from cai_lib.logging_utils import (  # noqa: E402
