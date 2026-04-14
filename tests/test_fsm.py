@@ -11,7 +11,8 @@ from cai_lib.fsm import (
     ISSUE_TRANSITIONS, PR_TRANSITIONS,
     get_issue_state, render_fsm_mermaid,
     apply_transition, apply_transition_with_confidence, find_transition,
-    parse_confidence, parse_resume_target, resume_transition_for,
+    parse_confidence, parse_resume_target,
+    resume_transition_for, resume_pr_transition_for,
     render_pending_marker, parse_pending_marker, strip_pending_marker,
 )
 from cai_lib.config import (
@@ -310,6 +311,36 @@ class TestResumeFromHuman(unittest.TestCase):
             resolved = resume_transition_for(t.to_state.name)
             self.assertIs(resolved, t,
                 f"resume_transition_for({t.to_state.name}) did not return {t.name}")
+
+
+class TestResumePRTransition(unittest.TestCase):
+
+    def test_known_pr_targets(self):
+        for name in ("REVIEWING", "REVISION_PENDING", "APPROVED", "MERGED"):
+            t = resume_pr_transition_for(name)
+            self.assertIsNotNone(t, f"no PR resume transition for {name}")
+            self.assertEqual(t.from_state, PRState.PR_HUMAN_NEEDED)
+            self.assertEqual(t.to_state, PRState[name])
+
+    def test_unknown_returns_none(self):
+        self.assertIsNone(resume_pr_transition_for("NOT_A_STATE"))
+        self.assertIsNone(resume_pr_transition_for(""))
+        # PRState has no OPEN→from-PR_HUMAN_NEEDED path.
+        self.assertIsNone(resume_pr_transition_for("OPEN"))
+
+    def test_issue_and_pr_resolvers_disambiguate_merged(self):
+        """MERGED exists in both enums — the two resolvers keep them separate."""
+        issue_t = resume_transition_for("SOLVED")  # Issue path uses SOLVED, not MERGED
+        pr_t = resume_pr_transition_for("MERGED")
+        self.assertIsNotNone(issue_t)
+        self.assertIsNotNone(pr_t)
+        self.assertEqual(issue_t.to_state, IssueState.SOLVED)
+        self.assertEqual(pr_t.to_state, PRState.MERGED)
+
+        # Passing a PRState name to the issue resolver must return None.
+        self.assertIsNone(resume_transition_for("REVIEWING"))
+        # Passing an IssueState-only name to the PR resolver must return None.
+        self.assertIsNone(resume_pr_transition_for("REFINED"))
 
 
 if __name__ == "__main__":

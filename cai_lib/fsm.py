@@ -443,6 +443,32 @@ def resume_transition_for(target_state_name: str) -> Optional[Transition]:
     return None
 
 
+def resume_pr_transition_for(target_state_name: str) -> Optional[Transition]:
+    """PR-submachine counterpart of :func:`resume_transition_for`.
+
+    Maps a ``ResumeTo: <STATE>`` token to the matching
+    ``pr_human_to_<state>`` transition whose ``from_state`` is
+    :attr:`PRState.PR_HUMAN_NEEDED`. Returns ``None`` when the name is
+    not a known :class:`PRState` member or no resume transition lands
+    on that state.
+
+    The two resolvers are split (rather than unified) because
+    :attr:`IssueState.MERGED` and :attr:`PRState.MERGED` share a name —
+    the caller already knows whether it's acting on an issue or a PR,
+    so each side stays unambiguous by construction.
+    """
+    if not target_state_name:
+        return None
+    try:
+        target = PRState[target_state_name.upper()]
+    except KeyError:
+        return None
+    for t in PR_TRANSITIONS:
+        if t.from_state == PRState.PR_HUMAN_NEEDED and t.to_state == target:
+            return t
+    return None
+
+
 def render_fsm_mermaid(transitions: list[Transition], title: str = "FSM") -> str:
     """Render *transitions* as a Mermaid stateDiagram-v2 block."""
     lines = ["stateDiagram-v2"]
