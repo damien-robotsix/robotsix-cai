@@ -114,7 +114,7 @@ No arguments.
 
 ## triage
 
-Invoke `cai-triage` on the oldest `auto-improve:raised` issue. The driver fires `raise_to_triaging`, runs the agent to classify the issue as REFINE, DISMISS_DUPLICATE, DISMISS_RESOLVED, or HUMAN. On DISMISS verdicts at HIGH confidence the issue is closed; on REFINE or HUMAN verdicts the issue transitions to `:refining` (with a `kind:{code,maintenance}` label) or `:human-needed` respectively.
+Invoke `cai-triage` on the oldest `auto-improve:raised` issue. The driver fires `raise_to_triaging`, runs the agent to classify the issue as REFINE, DISMISS_DUPLICATE, DISMISS_RESOLVED, PLAN_APPROVE, APPLY, or HUMAN. On DISMISS verdicts at HIGH confidence the issue is closed; PLAN_APPROVE and APPLY with HIGH skip-confidence skip ahead to `:plan-approved` (code) or `:applying` (maintenance) respectively; otherwise the issue transitions to `:refining` (with a `kind:{code,maintenance}` label) or `:human-needed`.
 
 | Argument | Type | Description |
 |---|---|---|

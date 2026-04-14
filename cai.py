@@ -7638,12 +7638,14 @@ def cmd_merge(args) -> int:
 
 
 def cmd_triage(args) -> int:
-    """Classify the oldest :raised issue as REFINE, DISMISS_*, or HUMAN.
+    """Classify the oldest :raised issue and route it through the FSM.
 
     Moves RAISED → TRIAGING, runs the cai-triage agent inline, then
     executes the verdict:
     - DISMISS_DUPLICATE / DISMISS_RESOLVED at HIGH confidence → close issue.
-    - REFINE (or DISMISS at non-HIGH confidence) → TRIAGING → REFINING + kind label.
+    - PLAN_APPROVE with HIGH skip-confidence + code kind → TRIAGING → PLAN_APPROVED (embedded plan in issue body).
+    - APPLY with HIGH skip-confidence + maintenance kind → TRIAGING → APPLYING.
+    - REFINE (or DISMISS/PLAN_APPROVE/APPLY at non-HIGH confidence) → TRIAGING → REFINING + kind label.
     - HUMAN → TRIAGING → HUMAN_NEEDED.
     """
     print("[cai triage] looking for :raised issues to triage", flush=True)
