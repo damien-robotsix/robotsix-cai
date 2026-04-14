@@ -65,6 +65,11 @@ LABEL_AUDIT_RAISED = "audit:raised"
 LABEL_AUDIT_NEEDS_HUMAN = "audit:needs-human"
 LABEL_PLANNED = "auto-improve:planned"
 LABEL_PLAN_APPROVED = "human:plan-approved"
+# Transient "actively working" states — the driver sets these while the
+# corresponding agent runs. Confidence gates on their exit transitions
+# divert to :human-needed instead of the nominal target.
+LABEL_REFINING = "auto-improve:refining"
+LABEL_PLANNING = "auto-improve:planning"
 LABEL_IN_PR           = "auto-improve:in-pr"           # IssueState.PR — issue has an active PR
 LABEL_HUMAN_NEEDED    = "auto-improve:human-needed"    # IssueState.HUMAN_NEEDED
 LABEL_PR_HUMAN_NEEDED = "auto-improve:pr-human-needed" # PRState.PR_HUMAN_NEEDED
