@@ -1827,7 +1827,8 @@ CLAUDEMD_STAGING_REL = Path(".cai-staging") / "claudemd"
 
 def _setup_agent_edit_staging(work_dir: Path) -> Path:
     """Create the staging directories where agents write proposed
-    `.claude/agents/*.md` and `.claude/plugins/` updates. Idempotent.
+    `.claude/agents/*.md`, `.claude/plugins/`, and `CLAUDE.md` updates.
+    Idempotent.
 
     Returns the absolute agent-staging directory path so the caller can
     pass it to the agent via the user message.
@@ -1845,7 +1846,9 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
     """Copy any files staged at `<work_dir>/.cai-staging/agents/`
     back to `<work_dir>/.claude/agents/`, copy any plugin tree staged
     at `<work_dir>/.cai-staging/plugins/` to `<work_dir>/.claude/plugins/`,
-    then remove the staging directory so it doesn't land in the PR.
+    copy any CLAUDE.md files staged at `<work_dir>/.cai-staging/claudemd/`
+    to their matching paths in `<work_dir>/`, then remove the staging
+    directory so it doesn't land in the PR.
 
     Security boundaries:
 
@@ -1854,11 +1857,14 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
          created; if one exists it is overwritten.
       2. Staged plugin trees are merged into `<work_dir>/.claude/plugins/`
          using shutil.copytree with dirs_exist_ok=True.
-      3. The staging dir lives entirely inside `work_dir` so escapes
+      3. CLAUDE.md files are copied from the staging tree to `<work_dir>/`,
+         preserving their relative paths. Only files literally named
+         `CLAUDE.md` are copied — stray files in the staging tree are ignored.
+      4. The staging dir lives entirely inside `work_dir` so escapes
          via `..` are not possible (the wrapper iterates one
          directory level via `iterdir()` and copies whole files).
-      4. The staging dir is removed before commit if all staging
-         operations succeeded. If plugin staging fails, the staging
+      5. The staging dir is removed before commit if all staging
+         operations succeeded. If any staging operation fails, the staging
          dir is preserved for inspection and the function returns
          early so staged content is not silently lost.
 
