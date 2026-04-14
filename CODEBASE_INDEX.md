@@ -5,7 +5,6 @@
 
 | File | Purpose |
 |------|---------|
-| `.cai/pr-context.md` | Per-PR dossier with touched files, key symbols, and design decisions for the CI-fix subagent |
 | `.claude/agents/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
 | `.claude/agents/cai-audit-triage.md` | Agent: triage `audit:raised` findings with structured verdicts |
 | `.claude/agents/cai-audit.md` | Agent: audit issue queue and lifecycle state machine |
@@ -46,13 +45,13 @@
 | `cai.py` | Main CLI dispatcher — 16+ subcommands for the self-improvement loop |
 | `cai_lib/__init__.py` | Package init for cai_lib library modules |
 | `cai_lib/cmd_implement.py` | Helpers for the implement-subagent pipeline |
-| `cai_lib/watchdog.py` | Stale-lock watchdog that rolls back orphaned :in-progress / :revising labels |
 | `cai_lib/cmd_unblock.py` | Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock) |
 | `cai_lib/config.py` | Shared constants and path definitions |
 | `cai_lib/fsm.py` | FSM data structures + transition application helpers (Confidence enum, apply_transition, divert-to-human, pending markers) |
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
 | `cai_lib/subprocess_utils.py` | Subprocess helpers extracted from cai.py |
+| `cai_lib/watchdog.py` | Stale-lock watchdog that rolls back orphaned :in-progress / :revising labels |
 | `docker-compose.yml` | Multi-service orchestration with named volumes |
 | `docs/_config.yml` | Jekyll configuration for GitHub Pages docs |
 | `docs/agents.md` | Documentation: agent definitions and pipeline phase mapping |
