@@ -100,6 +100,9 @@ Produce your plan in exactly this structure:
 
 ### Risks and edge cases
 - <anything the fix agent should watch out for>
+
+### Scope guardrails
+- <what the fix agent must NOT touch; boundaries of the change>
 ```
 
 Be concrete and specific. Name functions, variables, and line

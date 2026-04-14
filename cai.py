@@ -2512,11 +2512,58 @@ _BOT_COMMENT_MARKERS = (
 
 
 # Maximum number of characters of the original issue body to inline into the
-# revise agent's user message.  The full body is redundant once a PR exists —
-# the agent needs intent and acceptance criteria, not the full proposal.  When
-# the body exceeds this limit it is truncated and a pointer to the GitHub issue
-# is appended so the agent can fetch the rest if needed.
+# revise agent's user message when no recognisable section headings are found
+# (old-format issues).  Structured issues are handled by _extract_revise_context
+# which extracts only the relevant sections instead of truncating.
 _REVISE_ISSUE_BODY_MAX_CHARS = 1500
+
+# Ordered list of section headings to extract from an issue body for the
+# revise agent. Each entry is (preferred_heading, *fallback_headings).
+# The revise agent needs intent and scope, not detailed implementation steps.
+_REVISE_CONTEXT_HEADINGS: tuple[tuple[str, ...], ...] = (
+    ("### Description", "### Problem"),
+    ("### Summary",),
+    ("### Files to change", "### Files likely to touch"),
+    ("### Scope guardrails",),
+    ("### Review considerations",),
+)
+
+
+def _extract_revise_context(body: str) -> str:
+    """Return only the sections relevant to cai-revise from an issue body.
+
+    Splits on level-3 headings and keeps only the entries listed in
+    _REVISE_CONTEXT_HEADINGS (first matching alias wins).  Falls back to
+    the first _REVISE_ISSUE_BODY_MAX_CHARS characters when the body has
+    no recognisable headings (old-format issues).
+    """
+    parts = body.split("\n### ")
+    if len(parts) <= 1:
+        return body[:_REVISE_ISSUE_BODY_MAX_CHARS]
+
+    # Build {normalised_heading: full_section_text} from the split parts.
+    sections: dict[str, str] = {}
+    for part in parts[1:]:
+        nl = part.find("\n")
+        if nl == -1:
+            heading, content = part.strip(), ""
+        else:
+            heading, content = part[:nl].strip(), part[nl + 1:]
+        sections[heading.lower()] = f"### {heading}\n{content}"
+
+    extracted: list[str] = []
+    for aliases in _REVISE_CONTEXT_HEADINGS:
+        for alias in aliases:
+            key = alias.lstrip("# ").lower()
+            if key in sections:
+                extracted.append(sections[key].rstrip())
+                break
+
+    if not extracted:
+        # No target headings found — old-format issue, fall back.
+        return body[:_REVISE_ISSUE_BODY_MAX_CHARS]
+
+    return "\n\n".join(extracted)
 
 
 def _is_bot_comment(comment: dict) -> bool:
@@ -3577,13 +3624,7 @@ def cmd_revise(args) -> int:
 
             _issue_body_raw = issue_data.get("body") or "(no body)"
             _issue_num = issue_data["number"]
-            if len(_issue_body_raw) > _REVISE_ISSUE_BODY_MAX_CHARS:
-                _issue_body = (
-                    _issue_body_raw[:_REVISE_ISSUE_BODY_MAX_CHARS]
-                    + f"\n\n… (truncated — see #{_issue_num} for full body)"
-                )
-            else:
-                _issue_body = _issue_body_raw
+            _issue_body = _extract_revise_context(_issue_body_raw)
 
             user_message = (
                 _work_directory_block(work_dir)

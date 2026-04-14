@@ -58,7 +58,7 @@ Produce exactly one fenced block in this format:
 ~~~
 ## Refined Issue
 
-### Problem
+### Description
 <concrete problem statement derived from the human's text — what is
 wrong or missing, and why it matters>
 
@@ -74,7 +74,7 @@ file Z looks like ...">
 ### Scope guardrails
 <what NOT to touch; what is out of scope for this change>
 
-### Files likely to touch
+### Files to change
 <best-guess list of files based on the repo state>
 ~~~
 
@@ -96,7 +96,7 @@ Produce a `## Multi-Step Decomposition` block **instead of**
 
 ### Step 1: <title>
 
-### Problem
+### Description
 <what this step fixes or adds>
 
 ### Plan
@@ -109,12 +109,12 @@ Produce a `## Multi-Step Decomposition` block **instead of**
 ### Scope guardrails
 <what NOT to touch in this step>
 
-### Files likely to touch
+### Files to change
 <file list for this step>
 
 ### Step 2: <title>
 
-### Problem
+### Description
 <what this step fixes or adds>
 
 ### Plan
@@ -126,7 +126,7 @@ Produce a `## Multi-Step Decomposition` block **instead of**
 ### Scope guardrails
 ...
 
-### Files likely to touch
+### Files to change
 ...
 ~~~
 
@@ -152,6 +152,6 @@ Multi-step guidelines:
   addresses the human's intent. Do not add scope.
 - **Preserve intent.** If the human's request is ambiguous, pick
   the most likely interpretation and note the ambiguity in the
-  Problem section.
+  Description section.
 - **Keep it short.** The fix agent reads this plan as context. A
   wall of text is counterproductive.
