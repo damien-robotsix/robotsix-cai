@@ -670,7 +670,7 @@ def _select_fix_target(exclude: set[int] | None = None):
 
     `audit:raised` issues are handled exclusively by the audit-triage
     agent — only issues that triage re-labels to `auto-improve:raised`
-    (and subsequently refine → plan → :plan-approved) enter the fix
+    (and subsequently triage → refine → plan → :plan-approved) enter the fix
     pipeline.
 
     If no candidates are found, attempts to recover stale `:pr-open`
@@ -9008,7 +9008,7 @@ def cmd_cycle(args) -> int:
          is skipped for the rest of the cycle so the remaining fix
          targets still get a chance before plan-all runs)
       3.5. plan-all — drive every remaining :raised / :refined issue
-         through refine → plan. HIGH-confidence plans auto-promote to
+         through triage → refine → plan. HIGH-confidence plans auto-promote to
          :plan-approved; lower-confidence plans divert to
          :human-needed for admin review.
       4. final confirm
@@ -9232,7 +9232,7 @@ def _cmd_cycle_inner(args) -> int:
         # --- Phase 3.5: plan-all — drive :raised/:refined to :planned ---
         # The implement loop only acts on :plan-approved
         # issues, so any :raised or :refined work would sit idle without this
-        # step. plan-all loops refine → plan until the queue is exhausted or
+        # step. plan-all loops triage → refine → plan until the queue is exhausted or
         # a new :plan-approved issue appears (so we can re-enter the
         # implement loop without waiting for the next cycle tick).
         rc = _run_step("plan-all", cmd_plan_all, args)
