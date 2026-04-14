@@ -10,8 +10,11 @@ from cai_lib.fsm import (
     IssueState, PRState, Transition,
     ISSUE_TRANSITIONS, PR_TRANSITIONS,
     get_issue_state, render_fsm_mermaid,
+    apply_transition, find_transition,
 )
-from cai_lib.config import LABEL_IN_PROGRESS
+from cai_lib.config import (
+    LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED, LABEL_HUMAN_SUBMITTED,
+)
 
 
 class TestFsm(unittest.TestCase):
@@ -74,6 +77,70 @@ class TestFsm(unittest.TestCase):
                 f"from_state {t.from_state!r} is not a PRState member")
             self.assertIsInstance(t.to_state, PRState,
                 f"to_state {t.to_state!r} is not a PRState member")
+
+
+class TestApplyTransition(unittest.TestCase):
+
+    def _recording_set_labels(self):
+        calls = []
+        def _fake(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            calls.append({
+                "issue_number": issue_number,
+                "add": list(add),
+                "remove": list(remove),
+                "log_prefix": log_prefix,
+            })
+            return True
+        return calls, _fake
+
+    def test_happy_path_applies_labels(self):
+        calls, fake = self._recording_set_labels()
+        ok = apply_transition(
+            42, "raise_to_refine",
+            current_labels=[LABEL_RAISED],
+            set_labels=fake,
+        )
+        self.assertTrue(ok)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["issue_number"], 42)
+        self.assertIn(LABEL_REFINED, calls[0]["add"])
+        self.assertIn(LABEL_RAISED, calls[0]["remove"])
+
+    def test_extra_remove_is_forwarded(self):
+        calls, fake = self._recording_set_labels()
+        apply_transition(
+            7, "raise_to_refine",
+            current_labels=[LABEL_RAISED],
+            extra_remove=[LABEL_HUMAN_SUBMITTED],
+            set_labels=fake,
+        )
+        self.assertIn(LABEL_HUMAN_SUBMITTED, calls[0]["remove"])
+        self.assertIn(LABEL_RAISED, calls[0]["remove"])
+
+    def test_state_mismatch_refuses(self):
+        calls, fake = self._recording_set_labels()
+        ok = apply_transition(
+            9, "raise_to_refine",
+            current_labels=[LABEL_REFINED],  # wrong from_state
+            set_labels=fake,
+        )
+        self.assertFalse(ok)
+        self.assertEqual(calls, [])
+
+    def test_unknown_transition_raises(self):
+        with self.assertRaises(KeyError):
+            apply_transition(1, "not_a_real_transition", current_labels=[LABEL_RAISED])
+
+    def test_skip_validation_when_no_current_labels(self):
+        calls, fake = self._recording_set_labels()
+        ok = apply_transition(1, "raise_to_refine", set_labels=fake)
+        self.assertTrue(ok)
+        self.assertEqual(len(calls), 1)
+
+    def test_find_transition_roundtrip(self):
+        t = find_transition("raise_to_refine")
+        self.assertEqual(t.from_state, IssueState.RAISED)
+        self.assertEqual(t.to_state, IssueState.REFINED)
 
 
 if __name__ == "__main__":

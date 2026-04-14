@@ -198,6 +198,7 @@ from cai_lib.github import (  # noqa: E402
     _fetch_linked_issue_block,
 )
 from cai_lib.cmd_lifecycle import _rollback_stale_in_progress, _reconcile_interrupted  # noqa: E402
+from cai_lib.fsm import apply_transition  # noqa: E402
 from cai_lib.cmd_implement import _parse_decomposition  # noqa: E402
 
 
@@ -1157,10 +1158,9 @@ def cmd_plan(args) -> int:
             return 1
 
         # 6. Transition labels: :refined → :planned.
-        _set_labels(
-            issue_number,
-            add=[LABEL_PLANNED],
-            remove=[LABEL_REFINED],
+        apply_transition(
+            issue_number, "refine_to_plan",
+            current_labels=[l["name"] for l in issue.get("labels", [])],  # noqa: E741
             log_prefix="cai plan",
         )
 
@@ -7594,6 +7594,7 @@ def cmd_refine(args) -> int:
         return result.returncode
 
     stdout = result.stdout
+    issue_label_names = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
 
     # 4. Check for early-exit (already structured).
     if "## No Refinement Needed" in stdout:
@@ -7602,10 +7603,10 @@ def cmd_refine(args) -> int:
             f"transitioning to :refined",
             flush=True,
         )
-        _set_labels(
-            issue_number,
-            add=[LABEL_REFINED],
-            remove=[LABEL_RAISED, LABEL_HUMAN_SUBMITTED],
+        apply_transition(
+            issue_number, "raise_to_refine",
+            current_labels=issue_label_names,
+            extra_remove=[LABEL_HUMAN_SUBMITTED],
             log_prefix="cai refine",
         )
         dur = f"{int(time.monotonic() - t0)}s"
@@ -7689,10 +7690,10 @@ def cmd_refine(args) -> int:
         return 1
 
     # 8. Transition labels: :raised / human:submitted → :refined.
-    _set_labels(
-        issue_number,
-        add=[LABEL_REFINED],
-        remove=[LABEL_RAISED, LABEL_HUMAN_SUBMITTED],
+    apply_transition(
+        issue_number, "raise_to_refine",
+        current_labels=issue_label_names,
+        extra_remove=[LABEL_HUMAN_SUBMITTED],
         log_prefix="cai refine",
     )
 
