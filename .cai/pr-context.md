@@ -20,3 +20,17 @@ Refs: robotsix-cai/robotsix-cai#619
 
 ## Invariants this change relies on
 - No caller in `cai.py` or workflows uses `--agent cai-fix`; confirmed by Grep before deletion
+
+## Revision 1 (2026-04-14)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `scripts/generate-index.sh`:39 — removed orphaned DESCRIPTIONS entry for deleted cai-fix.md
+
+### Decisions this revision
+- Removed the cai-fix.md entry from the DESCRIPTIONS array in generate-index.sh to keep the script's source of truth in sync with actual tracked files
+
+### New gaps / deferred
+- None

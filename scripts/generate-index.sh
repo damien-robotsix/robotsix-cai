@@ -36,7 +36,6 @@ declare -A DESCRIPTIONS=(
   [".claude/agents/cai-confirm.md"]="Agent: verify merged PRs actually resolved their issues"
   [".claude/agents/cai-cost-optimize.md"]="Agent: weekly cost-reduction analysis"
   [".claude/agents/cai-explore.md"]="Agent: autonomous exploration and benchmarking"
-  [".claude/agents/cai-fix.md"]="Agent: smallest targeted code change for an auto-improve issue (deprecated — see cai-implement)"
   [".claude/agents/cai-fix-ci.md"]="Agent: diagnose and fix failing CI checks on auto-improve PRs"
   [".claude/agents/cai-git.md"]="Agent: lightweight git operations subagent"
   [".claude/agents/cai-implement.md"]="Agent: autonomous code-editing subagent — canonical successor to cai-fix"
