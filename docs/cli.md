@@ -112,9 +112,17 @@ Clone the repo and run `cai-propose` (creative improvements) followed by `cai-pr
 
 No arguments.
 
+## triage
+
+Invoke `cai-triage` on the oldest `auto-improve:raised` issue. The driver fires `raise_to_triaging`, runs the agent to classify the issue as REFINE, DISMISS_DUPLICATE, DISMISS_RESOLVED, or HUMAN. On DISMISS verdicts at HIGH confidence the issue is closed; on REFINE or HUMAN verdicts the issue transitions to `:refining` (with a `kind:{code,maintenance}` label) or `:human-needed` respectively.
+
+| Argument | Type | Description |
+|---|---|---|
+| `--issue INT` | optional | Target a specific issue number |
+
 ## refine
 
-Invoke `cai-refine` on the oldest `auto-improve:raised` or `auto-improve:refining` issue. The driver fires `raise_to_refining` on fresh intake (so observers see the transient working state), runs the agent, then transitions based on its `NextStep: PLAN | EXPLORE` line: on `PLAN` the issue advances to `:refined` for `cmd_plan` to pick up; on `EXPLORE` it moves to `:needs-exploration` for `cmd_explore`, and `cmd_explore` loops it back to `:refining` on completion.
+Invoke `cai-refine` on the oldest `auto-improve:refining` issue (or `auto-improve:raised` if invoked manually). The driver fires `raise_to_refining` on fresh intake (so observers see the transient working state), runs the agent, then transitions based on its `NextStep: PLAN | EXPLORE` line: on `PLAN` the issue advances to `:refined` for `cmd_plan` to pick up; on `EXPLORE` it moves to `:needs-exploration` for `cmd_explore`, and `cmd_explore` loops it back to `:refining` on completion.
 
 | Argument | Type | Description |
 |---|---|---|

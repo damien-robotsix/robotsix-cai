@@ -18,6 +18,7 @@ from cai_lib.config import (
     LABEL_PLANNED, LABEL_PLAN_APPROVED,
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
+    LABEL_TRIAGING,
 )
 
 
@@ -98,6 +99,7 @@ def parse_resume_target(text: str) -> Optional[str]:
 
 class IssueState(str, Enum):
     RAISED            = LABEL_RAISED
+    TRIAGING          = LABEL_TRIAGING     # cai-triage is actively running
     REFINING          = LABEL_REFINING     # cai-refine is actively running
     REFINED           = LABEL_REFINED      # refine done, awaiting plan pickup
     PLANNING          = LABEL_PLANNING     # cai-plan is actively running
@@ -149,6 +151,16 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_RAISED],            labels_add=[LABEL_REFINING]),
     Transition("raise_to_human",             IssueState.RAISED,            IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_RAISED],            labels_add=[LABEL_HUMAN_NEEDED]),
+
+    # TRIAGING is transient — cai-triage is classifying the issue.
+    # raise_to_triaging is the normal entry; raise_to_refining still
+    # exists as a bypass (direct/manual refinement, cai-refine --issue N).
+    Transition("raise_to_triaging",        IssueState.RAISED,    IssueState.TRIAGING,
+               labels_remove=[LABEL_RAISED],   labels_add=[LABEL_TRIAGING]),
+    Transition("triaging_to_refining",     IssueState.TRIAGING,  IssueState.REFINING,
+               labels_remove=[LABEL_TRIAGING], labels_add=[LABEL_REFINING]),
+    Transition("triaging_to_human",        IssueState.TRIAGING,  IssueState.HUMAN_NEEDED,
+               labels_remove=[LABEL_TRIAGING], labels_add=[LABEL_HUMAN_NEEDED]),
 
     # REFINING is transient — cai-refine is running. The confidence gate
     # on refining_to_refined diverts to HUMAN_NEEDED when refinement

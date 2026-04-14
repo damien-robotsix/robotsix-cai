@@ -670,7 +670,7 @@ def _select_fix_target(exclude: set[int] | None = None):
 
     `audit:raised` issues are handled exclusively by the audit-triage
     agent — only issues that triage re-labels to `auto-improve:raised`
-    (and subsequently refine → plan → :plan-approved) enter the fix
+    (and subsequently triage → refine → plan → :plan-approved) enter the fix
     pipeline.
 
     If no candidates are found, attempts to recover stale `:pr-open`
@@ -1276,13 +1276,13 @@ def _count_open_by_label(label: str) -> int:
 
 
 def cmd_plan_all(args) -> int:
-    """Drive every :raised / :refined issue to :planned.
+    """Drive every :raised / :refining / :refined issue to :planned.
 
-    Each iteration runs one `refine` (if any :raised remain) or one
-    `plan` (otherwise, if any :refined remain). The loop exits when
-    both queues are empty, an iteration cap is reached, or two
-    consecutive iterations make no progress (to avoid spinning on a
-    perpetually-failing issue).
+    Each iteration runs one `triage` (if any :raised remain), one
+    `refine` (if any :refining remain), or one `plan` (otherwise, if
+    any :refined remain). The loop exits when all three queues are
+    empty, an iteration cap is reached, or two consecutive iterations
+    make no progress (to avoid spinning on a perpetually-failing issue).
 
     This step produces the :plan-approved backlog the implement loop
     consumes. HIGH-confidence plans auto-promote to :plan-approved;
@@ -1291,46 +1291,57 @@ def cmd_plan_all(args) -> int:
     the implement pipeline.
     """
     t0 = time.monotonic()
-    print("[cai plan-all] draining :raised and :refined queues", flush=True)
+    print("[cai plan-all] draining :raised, :refining, and :refined queues", flush=True)
 
     refined_ct = 0
     planned_ct = 0
+    triage_ct  = 0
+    triage_err = 0
     refine_err = 0
     plan_err = 0
     had_failure = False
 
     MAX_ITER = 50
-    last_state: tuple[int, int] | None = None
+    last_state: tuple[int, int, int] | None = None
     stuck_strikes = 0
 
     for iteration in range(1, MAX_ITER + 1):
-        raised = _count_open_by_label(LABEL_RAISED)
-        refined = _count_open_by_label(LABEL_REFINED)
+        raised   = _count_open_by_label(LABEL_RAISED)
+        refining = _count_open_by_label(LABEL_REFINING)
+        refined  = _count_open_by_label(LABEL_REFINED)
 
-        if raised == 0 and refined == 0:
+        if raised == 0 and refining == 0 and refined == 0:
             print("[cai plan-all] queue drained; done", flush=True)
             break
 
-        if last_state == (raised, refined):
+        if last_state == (raised, refining, refined):
             stuck_strikes += 1
             if stuck_strikes >= 2:
                 print(
                     f"[cai plan-all] no progress for 2 iterations "
-                    f"(raised={raised} refined={refined}); bailing",
+                    f"(raised={raised} refining={refining} refined={refined}); bailing",
                     flush=True,
                 )
                 had_failure = True
                 break
         else:
             stuck_strikes = 0
-        last_state = (raised, refined)
+        last_state = (raised, refining, refined)
 
         print(
-            f"[cai plan-all] iteration {iteration}: raised={raised} refined={refined}",
+            f"[cai plan-all] iteration {iteration}: "
+            f"raised={raised} refining={refining} refined={refined}",
             flush=True,
         )
 
         if raised > 0:
+            rc = cmd_triage(args)
+            if rc == 0:
+                triage_ct += 1
+            else:
+                triage_err += 1
+                had_failure = True
+        elif refining > 0:
             rc = cmd_refine(args)
             if rc == 0:
                 refined_ct += 1
@@ -1362,15 +1373,17 @@ def cmd_plan_all(args) -> int:
 
     dur = f"{time.monotonic() - t0:.1f}s"
     print(
-        f"[cai plan-all] done in {dur} — refined={refined_ct} "
-        f"planned={planned_ct} refine_err={refine_err} plan_err={plan_err}",
+        f"[cai plan-all] done in {dur} — triaged={triage_ct} refined={refined_ct} "
+        f"planned={planned_ct} triage_err={triage_err} refine_err={refine_err} plan_err={plan_err}",
         flush=True,
     )
     log_run(
         "plan-all",
         repo=REPO,
+        triaged=triage_ct,
         refined=refined_ct,
         planned=planned_ct,
+        triage_err=triage_err,
         refine_err=refine_err,
         plan_err=plan_err,
         duration=dur,
@@ -4640,6 +4653,45 @@ def _parse_triage_verdicts(text: str) -> list[dict]:
     return verdicts
 
 
+def _parse_issue_triage_verdict(text: str) -> dict:
+    """Parse the structured output from the cai-triage agent.
+
+    Expected format (one field per line):
+        RoutingDecision: DISMISS_DUPLICATE | DISMISS_RESOLVED | REFINE | HUMAN
+        RoutingConfidence: LOW | MEDIUM | HIGH
+        Kind: code | maintenance          (required for REFINE verdict)
+        DuplicateOf: #N                   (required for DISMISS_DUPLICATE)
+        Reasoning: <1-3 sentences>
+
+    Returns a dict with lowercase keys: decision, confidence, kind,
+    duplicate_of (int or None), reasoning. Returns an empty dict if the
+    required fields cannot be parsed.
+    """
+    result: dict = {}
+    for line in text.splitlines():
+        m = re.match(r"^RoutingDecision:\s*(\w+)", line, re.IGNORECASE)
+        if m:
+            result["decision"] = m.group(1).upper()
+            continue
+        m = re.match(r"^RoutingConfidence:\s*(\w+)", line, re.IGNORECASE)
+        if m:
+            result["confidence"] = m.group(1).upper()
+            continue
+        m = re.match(r"^Kind:\s*(\w+)", line, re.IGNORECASE)
+        if m:
+            result["kind"] = m.group(1).lower()
+            continue
+        m = re.match(r"^DuplicateOf:\s*#?(\d+)", line, re.IGNORECASE)
+        if m:
+            result["duplicate_of"] = int(m.group(1))
+            continue
+        m = re.match(r"^Reasoning:\s*(.+)$", line, re.IGNORECASE)
+        if m:
+            result["reasoning"] = m.group(1).strip()
+            continue
+    return result
+
+
 def cmd_audit_triage(args) -> int:
     """Autonomously resolve `audit:raised` findings without opening a PR.
 
@@ -7599,6 +7651,191 @@ def cmd_merge(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Triage — route raised issues before refinement
+# ---------------------------------------------------------------------------
+
+
+def cmd_triage(args) -> int:
+    """Classify the oldest :raised issue as REFINE, DISMISS_*, or HUMAN.
+
+    Moves RAISED → TRIAGING, runs the cai-triage agent inline, then
+    executes the verdict:
+    - DISMISS_DUPLICATE / DISMISS_RESOLVED at HIGH confidence → close issue.
+    - REFINE (or DISMISS at non-HIGH confidence) → TRIAGING → REFINING + kind label.
+    - HUMAN → TRIAGING → HUMAN_NEEDED.
+    """
+    print("[cai triage] looking for :raised issues to triage", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Find oldest :raised issue.
+    try:
+        candidates = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_RAISED,
+            "--state", "open",
+            "--json", "number,title,body,labels,createdAt",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai triage] gh issue list failed:\n{e.stderr}", file=sys.stderr)
+        log_run("triage", repo=REPO, result="list_failed", exit=1)
+        return 1
+
+    if not candidates:
+        print("[cai triage] no :raised issues; nothing to do", flush=True)
+        log_run("triage", repo=REPO, result="no_issues", exit=0)
+        return 0
+
+    issue = min(candidates, key=lambda i: i["createdAt"])
+    issue_number = issue["number"]
+    title = issue["title"]
+    print(f"[cai triage] picked #{issue_number}: {title}", flush=True)
+
+    # 2. RAISED → TRIAGING.
+    issue_labels = [lb["name"] for lb in issue.get("labels", [])]
+    apply_transition(
+        issue_number, "raise_to_triaging",
+        current_labels=issue_labels,
+        log_prefix="cai triage",
+    )
+
+    # 3. Gather context: other open auto-improve* issues + recent PRs.
+    try:
+        context_issues = _gh_json([
+            "issue", "list", "--repo", REPO,
+            "--label", "auto-improve",
+            "--state", "open",
+            "--json", "number,title,labels,body",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError:
+        context_issues = []
+
+    try:
+        recent_prs = _gh_json([
+            "pr", "list", "--repo", REPO,
+            "--state", "all",
+            "--json", "number,title,state,mergedAt",
+            "--limit", "30",
+        ]) or []
+    except subprocess.CalledProcessError:
+        recent_prs = []
+
+    # Exclude the issue being triaged from context.
+    context_issues = [ci for ci in context_issues if ci["number"] != issue_number]
+
+    # 4. Build user message.
+    ci_lines = "\n".join(
+        f"  #{ci['number']} [{', '.join(lb['name'] for lb in ci.get('labels', []))}] {ci['title']}"
+        for ci in context_issues[:50]
+    )
+    pr_lines = "\n".join(
+        f"  #{pr['number']} [{pr['state']}] {pr['title']}"
+        + (f" (merged {pr['mergedAt'][:10]})" if pr.get("mergedAt") else "")
+        for pr in recent_prs
+    )
+    user_message = (
+        f"## Issue to triage: #{issue_number}\n\n"
+        f"**Title:** {title}\n\n"
+        f"**Body:**\n{issue.get('body', '')}\n\n"
+        f"## Other open auto-improve issues\n{ci_lines or '(none)'}\n\n"
+        f"## Recent PRs\n{pr_lines or '(none)'}\n"
+    )
+
+    # 5. Run cai-triage agent.
+    _write_active_job("triage", "issue", issue_number)
+    try:
+        result = _run_claude_p(
+            ["claude", "-p", "--agent", "cai-triage",
+             "--dangerously-skip-permissions"],
+            category="triage",
+            agent="cai-triage",
+            input=user_message,
+        )
+    finally:
+        _clear_active_job()
+    print(result.stdout, flush=True)
+
+    if result.returncode != 0:
+        print(
+            f"[cai triage] claude -p failed (exit {result.returncode}):\n"
+            f"{result.stderr}",
+            flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("triage", repo=REPO, issue=issue_number,
+                duration=dur, result="agent_failed", exit=result.returncode)
+        return result.returncode
+
+    # 6. Parse verdict.
+    verdict = _parse_issue_triage_verdict(result.stdout)
+    decision   = verdict.get("decision", "")
+    confidence = verdict.get("confidence", "")
+    kind       = verdict.get("kind", "code")
+    dup_of     = verdict.get("duplicate_of")
+    reasoning  = verdict.get("reasoning", "(no reasoning)")
+
+    print(
+        f"[cai triage] verdict: decision={decision} confidence={confidence} "
+        f"kind={kind} reasoning={reasoning}",
+        flush=True,
+    )
+
+    dur = f"{int(time.monotonic() - t0)}s"
+
+    # 7. Execute verdict.
+    if decision in ("DISMISS_DUPLICATE", "DISMISS_RESOLVED") and confidence == "HIGH":
+        reason_flag = "not-planned"
+        if decision == "DISMISS_DUPLICATE" and dup_of:
+            comment = f"Closed as duplicate of #{dup_of} by cai-triage. Reasoning: {reasoning}"
+        else:
+            comment = f"Closed as resolved by cai-triage. Reasoning: {reasoning}"
+        close_res = _run(
+            ["gh", "issue", "close", str(issue_number),
+             "--repo", REPO,
+             "--reason", reason_flag,
+             "--comment", comment],
+            capture_output=True,
+        )
+        if close_res.returncode != 0:
+            print(f"[cai triage] gh issue close failed:\n{close_res.stderr}", file=sys.stderr)
+            log_run("triage", repo=REPO, issue=issue_number,
+                    duration=dur, result="close_failed", exit=1)
+            return 1
+        # Remove the triaging label (issue is closed but label cleanup is tidy).
+        _set_labels(issue_number, remove=[LABEL_TRIAGING], log_prefix="cai triage")
+        action_taken = decision.lower()
+    elif decision == "HUMAN":
+        apply_transition(
+            issue_number, "triaging_to_human",
+            current_labels=[LABEL_TRIAGING],
+            log_prefix="cai triage",
+        )
+        action_taken = "human"
+    else:
+        # REFINE, or DISMISS at sub-HIGH confidence → fall through to REFINE.
+        if decision in ("DISMISS_DUPLICATE", "DISMISS_RESOLVED"):
+            print(
+                f"[cai triage] #{issue_number}: dismiss at {confidence} confidence "
+                f"— downgrading to REFINE",
+                flush=True,
+            )
+        apply_transition(
+            issue_number, "triaging_to_refining",
+            current_labels=[LABEL_TRIAGING],
+            log_prefix="cai triage",
+        )
+        kind_label = LABEL_KIND_MAINTENANCE if kind == "maintenance" else LABEL_KIND_CODE
+        _set_labels(issue_number, add=[kind_label], log_prefix="cai triage")
+        action_taken = "refine"
+
+    log_run("triage", repo=REPO, issue=issue_number,
+            duration=dur, result=action_taken, exit=0)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Refine — turn human-filed issues into structured plans
 # ---------------------------------------------------------------------------
 
@@ -8789,7 +9026,7 @@ def cmd_cycle(args) -> int:
          is skipped for the rest of the cycle so the remaining fix
          targets still get a chance before plan-all runs)
       3.5. plan-all — drive every remaining :raised / :refined issue
-         through refine → plan. HIGH-confidence plans auto-promote to
+         through triage → refine → plan. HIGH-confidence plans auto-promote to
          :plan-approved; lower-confidence plans divert to
          :human-needed for admin review.
       4. final confirm
@@ -9013,7 +9250,7 @@ def _cmd_cycle_inner(args) -> int:
         # --- Phase 3.5: plan-all — drive :raised/:refined to :planned ---
         # The implement loop only acts on :plan-approved
         # issues, so any :raised or :refined work would sit idle without this
-        # step. plan-all loops refine → plan until the queue is exhausted or
+        # step. plan-all loops triage → refine → plan until the queue is exhausted or
         # a new :plan-approved issue appears (so we can re-enter the
         # implement loop without waiting for the next cycle tick).
         rc = _run_step("plan-all", cmd_plan_all, args)
@@ -9607,6 +9844,11 @@ def main() -> int:
         "--issue", type=int, default=None,
         help="Target a specific issue number instead of using queue-based selection",
     )
+    triage_parser = sub.add_parser("triage", help="Triage :raised issues (REFINE / DISMISS / HUMAN routing)")
+    triage_parser.add_argument(
+        "--issue", type=int, default=None,
+        help="(reserved) target a specific issue number",
+    )
     plan_parser = sub.add_parser("plan", help="Run plan-select pipeline on a :refined issue")
     plan_parser.add_argument(
         "--issue", type=int, default=None,
@@ -9614,7 +9856,7 @@ def main() -> int:
     )
     sub.add_parser(
         "plan-all",
-        help="Drive every :raised/:refined issue to :planned (refine → plan loop)",
+        help="Drive every :raised/:refining/:refined issue to :planned (triage → refine → plan loop)",
     )
     spike_parser = sub.add_parser("spike", help="Run the spike agent on :needs-spike issues")
     spike_parser.add_argument(
@@ -9697,6 +9939,7 @@ def main() -> int:
         "review-docs": cmd_review_docs,
         "merge": cmd_merge,
         "refine": cmd_refine,
+        "triage":      cmd_triage,
         "plan": cmd_plan,
         "plan-all": cmd_plan_all,
         "spike": cmd_spike,
