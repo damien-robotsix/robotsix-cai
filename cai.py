@@ -198,8 +198,8 @@ from cai_lib.subprocess_utils import _run, _run_claude_p  # noqa: E402
 
 from cai_lib.github import (  # noqa: E402
     _gh_json, check_gh_auth, check_claude_auth, _transcript_dir_is_empty,
-    _set_labels, _issue_has_label, _build_issue_block, _build_implement_user_message,
-    _fetch_linked_issue_block,
+    _set_labels, _set_pr_labels, _issue_has_label, _build_issue_block,
+    _build_implement_user_message, _fetch_linked_issue_block,
 )
 from cai_lib.cmd_lifecycle import (  # noqa: E402
     _rollback_stale_in_progress, _reconcile_interrupted,
@@ -209,7 +209,10 @@ from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.fsm import (  # noqa: E402
     apply_transition,
     apply_transition_with_confidence,
+    apply_pr_transition,
     IssueState,
+    PRState,
+    get_pr_state,
     render_pending_marker,
     strip_pending_marker,
 )
@@ -3986,8 +3989,35 @@ def cmd_revise(args) -> int:
                 flush=True,
             )
 
-            # 11a. Advance pipeline state: branch now has new commits.
-            _pr_set_pipeline_state(pr_number, LABEL_PR_EDITED)
+            # 11a. Advance FSM state: branch now has new commits, so any
+            # post-review state must drop back to REVIEWING_CODE for the
+            # new SHA.
+            try:
+                pr_now = _gh_json([
+                    "pr", "view", str(pr_number),
+                    "--repo", REPO, "--json", "labels,merged,mergedAt,state",
+                ])
+            except subprocess.CalledProcessError:
+                pr_now = {}
+            current_state = get_pr_state(pr_now) if pr_now else None
+            if current_state == PRState.REVISION_PENDING:
+                apply_pr_transition(
+                    pr_number, "revision_pending_to_reviewing_code",
+                    log_prefix="cai revise",
+                )
+            elif current_state == PRState.CI_FAILING:
+                apply_pr_transition(
+                    pr_number, "ci_failing_to_reviewing_code",
+                    log_prefix="cai revise",
+                )
+            elif current_state == PRState.REVIEWING_DOCS:
+                apply_pr_transition(
+                    pr_number, "reviewing_docs_to_reviewing_code",
+                    log_prefix="cai revise",
+                )
+            # REVIEWING_CODE is already correct; OPEN / PR_HUMAN_NEEDED
+            # / MERGED are unexpected here and left for the sweep to
+            # reconcile.
 
             # 11. Post a summary comment describing what happened.
             if head_changed and has_uncommitted:
@@ -6603,11 +6633,26 @@ def cmd_review_pr(args) -> int:
                 capture_output=True,
             )
 
-            # Advance pipeline state based on review outcome.
+            # Advance FSM state based on review outcome. PRs entering
+            # review without a pipeline label (OPEN) are first bumped
+            # to REVIEWING_CODE so the outgoing transition's from_state
+            # check passes.
+            current_state = get_pr_state(pr)
+            if current_state == PRState.OPEN:
+                apply_pr_transition(
+                    pr_number, "open_to_reviewing_code",
+                    log_prefix="cai review-pr",
+                )
             if has_findings:
-                _pr_set_pipeline_state(pr_number, LABEL_PR_REVIEWED_REJECT)
+                apply_pr_transition(
+                    pr_number, "reviewing_code_to_revision_pending",
+                    log_prefix="cai review-pr",
+                )
             else:
-                _pr_set_pipeline_state(pr_number, LABEL_PR_REVIEWED_ACCEPT)
+                apply_pr_transition(
+                    pr_number, "reviewing_code_to_reviewing_docs",
+                    log_prefix="cai review-pr",
+                )
 
             _log_review_pr_findings(pr_number, head_sha, agent_output)
 
@@ -6720,19 +6765,6 @@ def cmd_review_docs(args) -> int:
                 already_reviewed = True
                 break
         if already_reviewed:
-            # Recovery: if we already posted a docs-review comment at this
-            # HEAD, docs are current — but an older `_pr_set_pipeline_state`
-            # call (before code and docs gates were decoupled) may have
-            # cleared `pr:documented`. Re-apply it so the merge gate
-            # doesn't wait forever. Safe to call when already present.
-            pr_labels = {l["name"] for l in pr.get("labels", [])}
-            if LABEL_PR_DOCUMENTED not in pr_labels:
-                print(
-                    f"[cai review-docs] PR #{pr_number}: re-applying "
-                    f"`pr:documented` for prior review at {head_sha[:8]}",
-                    flush=True,
-                )
-                _pr_set_pipeline_state(pr_number, LABEL_PR_DOCUMENTED)
             print(
                 f"[cai review-docs] PR #{pr_number}: already reviewed at {head_sha[:8]}; skipping",
                 flush=True,
@@ -6740,14 +6772,13 @@ def cmd_review_docs(args) -> int:
             skipped += 1
             continue
 
-        # Gate: only review docs after `pr:reviewed-accept` label is set,
-        # meaning cmd_review_pr has posted a clean verdict for this PR.
-        # Bootstrap note: PRs already in flight with no pr:* label will be
-        # skipped here until the next natural cmd_review_pr run sets the label.
-        pr_labels = {l["name"] for l in pr.get("labels", [])}
-        if LABEL_PR_REVIEWED_ACCEPT not in pr_labels:
+        # Gate: only run docs review when the FSM says REVIEWING_DOCS.
+        # That state is entered by cmd_review_pr after a clean code
+        # review. Bootstrap: PRs still in OPEN / REVIEWING_CODE wait
+        # for the next natural cmd_review_pr run.
+        if get_pr_state(pr) != PRState.REVIEWING_DOCS:
             print(
-                f"[cai review-docs] PR #{pr_number}: label `pr:reviewed-accept` not present; waiting",
+                f"[cai review-docs] PR #{pr_number}: not in REVIEWING_DOCS state; waiting",
                 flush=True,
             )
             skipped += 1
@@ -6885,13 +6916,14 @@ def cmd_review_docs(args) -> int:
                 capture_output=True,
             )
 
-            # Advance pipeline state based on docs review outcome.
+            # Advance FSM state based on docs review outcome.
             if has_doc_changes:
-                # Docs fix was pushed — branch updated, re-enter revise/review cycle.
-                _pr_set_pipeline_state(pr_number, LABEL_PR_EDITED)
-            else:
-                # No doc changes needed — docs confirmed current.
-                _pr_set_pipeline_state(pr_number, LABEL_PR_DOCUMENTED)
+                # Docs fix was pushed — branch updated, re-enter code review.
+                apply_pr_transition(
+                    pr_number, "reviewing_docs_to_reviewing_code",
+                    log_prefix="cai review-docs",
+                )
+            # else: stay in REVIEWING_DOCS so cmd_merge can advance.
 
             result_word = "fixes pushed" if has_doc_changes else "clean"
             print(
@@ -6955,72 +6987,10 @@ def _pr_set_needs_human(pr_number: int, needs: bool) -> None:
         )
 
 
-# PR pipeline-state labels (Step 1 of #557).  All live here so they remain
-# co-located with _pr_set_pipeline_state and avoid star-import visibility
-# issues that would arise if underscore-prefixed names were placed in config.
-LABEL_PR_EDITED          = "pr:edited"
-LABEL_PR_REVIEWED_REJECT = "pr:reviewed-reject"
-LABEL_PR_REVIEWED_ACCEPT = "pr:reviewed-accept"
-LABEL_PR_DOCUMENTED      = "pr:documented"
-
-# Code-review gate: exactly one of these labels at a time. `pr:edited`
-# means the branch changed and needs re-review; accept/reject are
-# terminal outcomes for a given HEAD.
-CODE_REVIEW_PIPELINE_LABELS = (
-    LABEL_PR_EDITED,
-    LABEL_PR_REVIEWED_REJECT,
-    LABEL_PR_REVIEWED_ACCEPT,
-)
-# Docs-review gate: independent from the code-review gate — a PR needs
-# both to merge, so setting a code-review label must not clear this one.
-DOCS_REVIEW_PIPELINE_LABELS = (
-    LABEL_PR_DOCUMENTED,
-)
-PR_PIPELINE_LABELS = CODE_REVIEW_PIPELINE_LABELS + DOCS_REVIEW_PIPELINE_LABELS
-
-
-def _pr_set_pipeline_state(pr_number: int, label: str) -> None:
-    """Set a PR pipeline-state label, clearing only labels in the same gate.
-
-    Code-review labels ({edited, reviewed-reject, reviewed-accept}) and
-    docs-review labels ({documented}) are independent gates — both must
-    be satisfied to merge. Setting one must not clear the other.
-
-    `pr:edited` is the one cross-gate case: it signals the branch just
-    changed, so any prior docs review is stale — we clear `pr:documented`
-    alongside the other code-review labels in that case.
-
-    Idempotent: gh silently no-ops if the label is already/not present.
-    Logged but not fatal on failure — labelling is a UX nicety.
-    """
-    if label in CODE_REVIEW_PIPELINE_LABELS:
-        to_remove = [lbl for lbl in CODE_REVIEW_PIPELINE_LABELS if lbl != label]
-        if label == LABEL_PR_EDITED:
-            # Branch changed: prior docs review is for a stale SHA.
-            to_remove.append(LABEL_PR_DOCUMENTED)
-    elif label in DOCS_REVIEW_PIPELINE_LABELS:
-        to_remove = [lbl for lbl in DOCS_REVIEW_PIPELINE_LABELS if lbl != label]
-    else:
-        to_remove = []
-
-    for lbl in to_remove:
-        # Swallow non-zero returns — the label simply wasn't on the PR.
-        _run(
-            ["gh", "pr", "edit", str(pr_number),
-             "--repo", REPO, "--remove-label", lbl],
-            capture_output=True,
-        )
-    res = _run(
-        ["gh", "pr", "edit", str(pr_number),
-         "--repo", REPO, "--add-label", label],
-        capture_output=True,
-    )
-    if res.returncode != 0:
-        print(
-            f"[cai] PR #{pr_number}: could not add pipeline label "
-            f"`{label}`:\n{res.stderr}",
-            file=sys.stderr,
-        )
+# PR pipeline-state labels are now first-class PRState members (see
+# cai_lib/fsm.PRState and LABEL_PR_* in cai_lib/config.py). Transitions
+# are applied via apply_pr_transition; there is no longer a separate
+# two-gate (code-review / docs-review) wrapper scheme.
 
 
 def _pr_label_sweep() -> tuple[int, int]:
@@ -7128,11 +7098,12 @@ def _pr_label_sweep() -> tuple[int, int]:
         if not needs and merge_state == "DIRTY":
             needs = True
 
-        # Step 3/3 (#567): If the PR carries a stale pipeline label
-        # (pr:reviewed-accept or pr:documented) and a non-bot commit was
-        # pushed AFTER the most recent bot pipeline comment, reset the
-        # label to pr:edited so the pipeline re-enters review.
-        stale_pipeline_labels = {LABEL_PR_REVIEWED_ACCEPT, LABEL_PR_DOCUMENTED}
+        # Step 3/3 (#567): If the PR is in a post-review state
+        # (pr:reviewing-docs) and a non-bot commit was pushed AFTER
+        # the most recent bot pipeline comment, drop the PR back to
+        # REVIEWING_CODE so the pipeline re-enters review on the new
+        # SHA.
+        stale_pipeline_labels = {LABEL_PR_REVIEWING_DOCS}
         if labels & stale_pipeline_labels and commits:
             # Proxy for "when was the pipeline label last applied":
             # find the most recent bot pipeline comment timestamp.
@@ -7165,7 +7136,10 @@ def _pr_label_sweep() -> tuple[int, int]:
                     or last_author_login.endswith("[bot]")  # any other bot account
                 )
                 if not is_bot_commit and commit_ts > latest_bot_comment_ts:
-                    _pr_set_pipeline_state(pr_number, LABEL_PR_EDITED)
+                    apply_pr_transition(
+                        pr_number, "reviewing_docs_to_reviewing_code",
+                        log_prefix="cai sweep",
+                    )
 
         if needs and not currently_labeled:
             _pr_set_needs_human(pr_number, True)
@@ -7302,24 +7276,31 @@ def cmd_merge(args) -> int:
         # `merge-blocked` label (and any `needs-human-review` label)
         # to restart the merge-evaluation cycle for those PRs.
 
-        # Safety filter 7: require a clean code review (`pr:reviewed-accept`)
-        # OR a completed docs review (`pr:documented`) before merging.
-        # pr_labels was computed once at the top of this loop.
-        # Bootstrap note: PRs already in flight with no pr:* label will be
-        # skipped here until the next natural cmd_review_pr run sets the label.
-        if LABEL_PR_REVIEWED_ACCEPT not in pr_labels and LABEL_PR_DOCUMENTED not in pr_labels:
+        # Safety filter 7: require FSM state == REVIEWING_DOCS AND a
+        # clean docs-review comment at the current HEAD. REVIEWING_DOCS
+        # means review-pr passed cleanly; the HEAD-scoped comment check
+        # confirms review-docs also ran cleanly on this exact SHA.
+        if get_pr_state(pr) != PRState.REVIEWING_DOCS:
             print(
-                f"[cai merge] PR #{pr_number}: neither `pr:reviewed-accept` nor "
-                f"`pr:documented` present; waiting",
+                f"[cai merge] PR #{pr_number}: not in REVIEWING_DOCS state; waiting",
                 flush=True,
             )
             continue
 
-        # Safety filter 7b: require docs review sign-off (`pr:documented`).
-        # pr_labels was computed once at the top of this loop.
-        if LABEL_PR_DOCUMENTED not in pr_labels:
+        head_sha_merge = pr.get("headRefOid", "")
+        docs_clean_at_head = False
+        for comment in pr.get("comments", []):
+            body_line = (comment.get("body") or "").split("\n", 1)[0]
+            if (
+                body_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_CLEAN)
+                and head_sha_merge in body_line
+            ):
+                docs_clean_at_head = True
+                break
+        if not docs_clean_at_head:
             print(
-                f"[cai merge] PR #{pr_number}: label `pr:documented` not present; waiting",
+                f"[cai merge] PR #{pr_number}: no clean docs-review comment "
+                f"for HEAD {head_sha_merge[:8]}; waiting",
                 flush=True,
             )
             continue
@@ -8696,6 +8677,34 @@ def cmd_fix_ci(args) -> int:
             had_failure = True
             continue
 
+        # 1a. Advance PR FSM into CI_FAILING. The wrapper detected red
+        # checks via _select_ci_fix_targets; formalize that in the FSM
+        # so the diagram matches what's actually happening.
+        try:
+            pr_now = _gh_json([
+                "pr", "view", str(pr_number),
+                "--repo", REPO, "--json", "labels,merged,mergedAt,state",
+            ])
+        except subprocess.CalledProcessError:
+            pr_now = {}
+        current_state = get_pr_state(pr_now) if pr_now else None
+        if current_state == PRState.REVIEWING_CODE:
+            apply_pr_transition(
+                pr_number, "reviewing_code_to_ci_failing",
+                log_prefix="cai fix-ci",
+            )
+        elif current_state == PRState.REVISION_PENDING:
+            apply_pr_transition(
+                pr_number, "revision_pending_to_ci_failing",
+                log_prefix="cai fix-ci",
+            )
+        elif current_state == PRState.REVIEWING_DOCS:
+            apply_pr_transition(
+                pr_number, "reviewing_docs_to_ci_failing",
+                log_prefix="cai fix-ci",
+            )
+        # OPEN / CI_FAILING / PR_HUMAN_NEEDED: no transition needed.
+
         _run(["gh", "auth", "setup-git"], capture_output=True)
         _write_active_job("fix-ci", "issue", issue_number)
 
@@ -8856,6 +8865,14 @@ def cmd_fix_ci(args) -> int:
                     )
                 else:
                     print(f"[cai fix-ci] pushed fix for PR #{pr_number}", flush=True)
+                    # Exit CI_FAILING now that new commits are up; the
+                    # next tick re-evaluates check status, and if still
+                    # red _select_ci_fix_targets re-queues the PR
+                    # (which re-enters CI_FAILING via step 1a above).
+                    apply_pr_transition(
+                        pr_number, "ci_failing_to_reviewing_code",
+                        log_prefix="cai fix-ci",
+                    )
             else:
                 print(
                     f"[cai fix-ci] no changes produced by agent for PR #{pr_number}",
