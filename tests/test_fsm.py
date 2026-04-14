@@ -432,6 +432,19 @@ class TestRefineAsRouter(unittest.TestCase):
         }
         self.assertEqual(dests, {IssueState.REFINED, IssueState.HUMAN_NEEDED})
 
+    def test_no_refine_to_in_progress_shortcut(self):
+        """REFINED must not bypass the plan step by jumping to IN_PROGRESS."""
+        names = {t.name for t in ISSUE_TRANSITIONS}
+        self.assertNotIn("refine_to_in_progress", names,
+            "REFINED → IN_PROGRESS must not exist — every issue must pass "
+            "through PLANNED → PLAN_APPROVED before implement can run")
+        # Defensive: assert nothing else sneaks REFINED → IN_PROGRESS back in.
+        self.assertFalse(
+            any(t.from_state == IssueState.REFINED and t.to_state == IssueState.IN_PROGRESS
+                for t in ISSUE_TRANSITIONS),
+            "No transition may go REFINED → IN_PROGRESS under any name",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

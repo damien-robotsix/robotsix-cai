@@ -157,8 +157,6 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_PLAN_APPROVED]),
     Transition("approved_to_in_progress", IssueState.PLAN_APPROVED,     IssueState.IN_PROGRESS,
                labels_remove=[LABEL_PLAN_APPROVED],     labels_add=[LABEL_IN_PROGRESS]),
-    Transition("refine_to_in_progress",   IssueState.REFINED,           IssueState.IN_PROGRESS,
-               labels_remove=[LABEL_REFINED],           labels_add=[LABEL_IN_PROGRESS]),
     Transition("in_progress_to_pr",       IssueState.IN_PROGRESS,       IssueState.PR,
                labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_IN_PR]),
     Transition("pr_to_merged",            IssueState.PR,                IssueState.MERGED,

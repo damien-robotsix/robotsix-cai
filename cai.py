@@ -7577,14 +7577,12 @@ def cmd_refine(args) -> int:
         title = issue["title"]
         print(f"[cai refine] picked #{issue_number}: {title}", flush=True)
 
-    # 3. Determine kind. :refined issues coming back from exploration enter
-    #    cmd_refine in "post-exploration" mode — the agent emits only a
-    #    NextStep decision, no body rewrite.
-    issue_label_names_initial = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
-    kind = "post-exploration" if LABEL_REFINED in issue_label_names_initial else "fresh"
-    print(f"[cai refine] kind={kind}", flush=True)
-
-    user_message = f"Kind: {kind}\n\n" + _build_issue_block(issue)
+    # 3. Build user message. Every invocation is treated as a fresh pass —
+    #    the agent may rewrite the body to incorporate exploration findings
+    #    and re-decide NextStep. The wrapper tells raise_to_refine apart
+    #    from "already :refined, re-deciding" by inspecting the labels,
+    #    not by an input-side Kind flag.
+    user_message = _build_issue_block(issue)
     _write_active_job("refine", "issue", issue_number)
     try:
         result = _run_claude_p(
@@ -7611,38 +7609,7 @@ def cmd_refine(args) -> int:
 
     stdout = result.stdout
     issue_label_names = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
-
-    # Post-exploration mode: no body rewrite, no raise_to_refine.
-    # The agent's job is only to decide NextStep on an already-refined issue.
-    if kind == "post-exploration":
-        next_step = _parse_refine_next_step(stdout)
-        dur = f"{int(time.monotonic() - t0)}s"
-        if next_step == "EXPLORE":
-            apply_transition(
-                issue_number, "refine_to_exploration",
-                current_labels=[LABEL_REFINED],
-                log_prefix="cai refine",
-            )
-            print(
-                f"[cai refine] #{issue_number} post-exploration routed back to "
-                f":needs-exploration in {dur}",
-                flush=True,
-            )
-            log_run("refine", repo=REPO, issue=issue_number,
-                    duration=dur, result="post_exploration_explore", exit=0)
-            return 0
-
-        # PLAN or missing: mark the issue as decided so we don't re-pick
-        # it on the next cmd_refine run. cmd_plan will drain it.
-        if _apply_refine_decided_marker(issue_number, issue.get("body") or ""):
-            print(
-                f"[cai refine] #{issue_number} post-exploration decided PLAN; "
-                f"marker applied in {dur}",
-                flush=True,
-            )
-        log_run("refine", repo=REPO, issue=issue_number,
-                duration=dur, result="post_exploration_plan", exit=0)
-        return 0
+    already_refined = LABEL_REFINED in issue_label_names
 
     # 4. Check for early-exit (already structured).
     if "## No Refinement Needed" in stdout:
@@ -7651,11 +7618,12 @@ def cmd_refine(args) -> int:
             f"transitioning to :refined",
             flush=True,
         )
-        apply_transition(
-            issue_number, "raise_to_refine",
-            current_labels=issue_label_names,
-            log_prefix="cai refine",
-        )
+        if not already_refined:
+            apply_transition(
+                issue_number, "raise_to_refine",
+                current_labels=issue_label_names,
+                log_prefix="cai refine",
+            )
         # Pre-structured issues go straight to planning — no NextStep
         # decision path applies. Mark them so cmd_refine doesn't re-pick.
         _apply_refine_decided_marker(issue_number, issue.get("body") or "")
@@ -7745,12 +7713,16 @@ def cmd_refine(args) -> int:
                 duration=dur, result="edit_failed", exit=1)
         return 1
 
-    # 8. Transition labels: :raised → :refined.
-    apply_transition(
-        issue_number, "raise_to_refine",
-        current_labels=issue_label_names,
-        log_prefix="cai refine",
-    )
+    # 8. Transition labels: :raised → :refined. Skipped on re-refinement
+    #    (the issue is already at :refined after coming back from
+    #    exploration), so the only label movement is the possible
+    #    downstream refine_to_exploration below.
+    if not already_refined:
+        apply_transition(
+            issue_number, "raise_to_refine",
+            current_labels=issue_label_names,
+            log_prefix="cai refine",
+        )
 
     # 9. Routing decision: if the refine agent requested exploration,
     #    fire the second transition so the issue moves off :refined and

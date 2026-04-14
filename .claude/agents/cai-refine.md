@@ -15,24 +15,20 @@ plan that the implement subagent can execute.
 
 ## What you receive
 
-The user message starts with a `Kind:` header telling you which
-mode to operate in:
+The user message contains the full current issue body. That may be:
 
-- `Kind: fresh` — the default. The issue has just been raised (or
-  the body is still unstructured). Produce a `## Refined Issue`
-  block and decide `NextStep`.
-- `Kind: post-exploration` — the issue went through exploration and
-  came back to `:refined` with findings appended to the body. **Do
-  not rewrite the body.** Read the existing refined content plus
-  the exploration findings, then emit `NextStep` only. Your reply
-  must contain the NextStep + Confidence lines and a one-paragraph
-  rationale — nothing else. In this mode you must NOT output a
-  `## No Refinement Needed` early-exit or a new `## Refined Issue`
-  block.
+- Fresh human text that still needs structuring.
+- A pre-structured finding filed by another agent (analyzer,
+  code-audit, …).
+- A previously refined body with exploration findings appended —
+  you were here before, the `cai-explore` agent has since added
+  new information, and the wrapper has handed the issue back to
+  you for a fresh decision.
 
-After the `Kind:` header, the raw issue body follows — the text a
-human typed when filing the issue, or (in post-exploration) the
-refined body plus exploration findings.
+Always treat each run as new: re-read everything, rewrite the
+`## Refined Issue` block to incorporate whatever is now known, and
+emit a fresh `NextStep` decision. Do not assume prior exploration
+is sufficient — you may request more.
 
 ## Memory
 
@@ -43,10 +39,9 @@ runs (e.g., "issues about X usually mean Y in the codebase").
 
 ## Early exit
 
-If the issue body already contains structured headings like
-`### Remediation`, `### Plan`, `## Evidence`, or `### Problem`
-(i.e., it was filed by the analyzer, code-audit, or another agent
-and is already structured), output exactly:
+If the issue body already contains a `### Remediation` section
+— the signature of an analyzer / code-audit / audit finding that
+came in pre-structured — output exactly:
 
 ~~~
 ## No Refinement Needed
@@ -56,6 +51,12 @@ a structured Remediation section.">
 ~~~
 
 Then stop. Do not produce a `## Refined Issue` block.
+
+**Important:** do NOT take the early exit just because the body
+contains `## Refined Issue`, `### Plan`, `### Verification`, etc.
+Those headings mean *you* refined this issue on a previous run and
+it has since come back (typically from exploration). Treat the
+body as input, not as a reason to skip work.
 
 ## Process
 
