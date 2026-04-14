@@ -27,7 +27,7 @@ absolute paths under the work directory from the user message.
 for targeted reads. Git operations go through `cai-git` if needed — you
 have no Bash.
 
-## Self-modifying agent files (staging directory)
+## Self-modifying agent files, plugins, and CLAUDE.md (staging directory)
 
 Claude-code blocks `Edit`/`Write` on `.claude/agents/*.md` paths.
 Use the staging directory the wrapper pre-creates:
@@ -37,9 +37,14 @@ Use the staging directory the wrapper pre-creates:
   it over `.claude/agents/<basename>.md` after you exit.
 - **Plugin files:** Write to
   `<work_dir>/.cai-staging/plugins/<same-relative-path>`.
+  The wrapper merges it into `.claude/plugins/` after you exit.
+- **`CLAUDE.md` files:** Write to
+  `<work_dir>/.cai-staging/claudemd/<same-relative-path>/CLAUDE.md`.
+  The wrapper scans for files named `CLAUDE.md` and copies each to
+  the matching path in `<work_dir>/` after you exit.
 
 Rules: write the FULL file (unconditional overwrite), use exact
-basename, never try `Edit`/`Write` on the protected paths.
+relative path, never try `Edit`/`Write` on the protected paths.
 
 ## Hard rules — remote and git
 
