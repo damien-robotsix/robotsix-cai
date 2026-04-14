@@ -98,6 +98,8 @@ LABELS = [
     ("auto-improve:planned", "e4e669", "Plan generated and stored in issue body; awaiting human approval"),
     ("human:plan-approved", "0e8a16", "Plan approved by human; ready for implement subagent"),
     ("auto-improve:parent", "c5def5", "Parent issue with sub-issues"),
+    ("auto-improve:human-needed", "e11d48", "Issue parked awaiting admin comment (cai-unblock resume)"),
+    ("auto-improve:pr-human-needed", "e11d48", "PR parked awaiting admin comment (cai-unblock resume)"),
     ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
     ("needs-human-review", "e11d48", "PR needs a human decision before merge"),
     ("pr:edited",          "e4e669", "Branch was pushed; needs review-pr"),
@@ -118,6 +120,7 @@ LABELS_TO_DELETE = [
     "human:submitted",                # removed — folded back into auto-improve:raised
     "auto-improve:merge-blocked",     # stale — superseded by merge-blocked
     "auto-improve:needs-refinement",  # stale — superseded by the refine agent deciding on exploration
+    "auto-improve:in-pr",             # dead — FSM drift with auto-improve:pr-open; aligned on :pr-open
 ]
 
 AUDIT_LABELS = [

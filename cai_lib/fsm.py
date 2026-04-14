@@ -16,7 +16,7 @@ from typing import Optional, Sequence
 from cai_lib.config import (
     LABEL_RAISED, LABEL_REFINING, LABEL_REFINED, LABEL_PLANNING,
     LABEL_PLANNED, LABEL_PLAN_APPROVED,
-    LABEL_IN_PROGRESS, LABEL_IN_PR, LABEL_MERGED, LABEL_SOLVED,
+    LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
 )
 
@@ -104,7 +104,7 @@ class IssueState(str, Enum):
     PLANNED           = LABEL_PLANNED      # plan stored, awaiting approval
     PLAN_APPROVED     = LABEL_PLAN_APPROVED
     IN_PROGRESS       = LABEL_IN_PROGRESS
-    PR                = LABEL_IN_PR        # currently in the PR submachine
+    PR                = LABEL_PR_OPEN      # currently in the PR submachine
     MERGED            = LABEL_MERGED
     SOLVED            = LABEL_SOLVED
     NEEDS_EXPLORATION = LABEL_NEEDS_EXPLORATION
@@ -192,9 +192,9 @@ ISSUE_TRANSITIONS: list[Transition] = [
     Transition("approved_to_in_progress",    IssueState.PLAN_APPROVED,     IssueState.IN_PROGRESS,
                labels_remove=[LABEL_PLAN_APPROVED],     labels_add=[LABEL_IN_PROGRESS]),
     Transition("in_progress_to_pr",          IssueState.IN_PROGRESS,       IssueState.PR,
-               labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_IN_PR]),
+               labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_PR_OPEN]),
     Transition("pr_to_merged",               IssueState.PR,                IssueState.MERGED,
-               labels_remove=[LABEL_IN_PR],             labels_add=[LABEL_MERGED]),
+               labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_MERGED]),
     Transition("merged_to_solved",           IssueState.MERGED,            IssueState.SOLVED,
                labels_remove=[LABEL_MERGED],            labels_add=[LABEL_SOLVED]),
 
