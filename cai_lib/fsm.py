@@ -73,6 +73,28 @@ def parse_confidence(text: str) -> Optional[Confidence]:
     return Confidence[m.group(1).upper()]
 
 
+_RESUME_RE = re.compile(
+    r"^\s*ResumeTo\s*[:=]\s*([A-Z_]+)\s*$",
+    re.MULTILINE,
+)
+
+
+def parse_resume_target(text: str) -> Optional[str]:
+    """Extract ``ResumeTo: <STATE_NAME>`` from a cai-unblock agent reply.
+
+    Returns the raw state name as written by the agent (uppercased per
+    our structured-output convention) or ``None`` if the marker is
+    missing. The caller decides whether the returned name maps to a
+    real IssueState/PRState member.
+    """
+    if not text:
+        return None
+    m = _RESUME_RE.search(text)
+    if not m:
+        return None
+    return m.group(1).upper()
+
+
 class IssueState(str, Enum):
     RAISED            = LABEL_RAISED
     REFINED           = LABEL_REFINED
@@ -143,6 +165,18 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_NEEDS_EXPLORATION], labels_add=[LABEL_REFINED]),
     Transition("human_to_raised",         IssueState.HUMAN_NEEDED,      IssueState.RAISED,
                labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_RAISED]),
+    # Admin-comment-driven re-entries out of HUMAN_NEEDED. Fired by
+    # cmd_unblock after a Haiku agent classifies the admin's reply.
+    Transition("human_to_refined",        IssueState.HUMAN_NEEDED,      IssueState.REFINED,
+               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_REFINED]),
+    Transition("human_to_planned",        IssueState.HUMAN_NEEDED,      IssueState.PLANNED,
+               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_PLANNED]),
+    Transition("human_to_plan_approved",  IssueState.HUMAN_NEEDED,      IssueState.PLAN_APPROVED,
+               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_PLAN_APPROVED]),
+    Transition("human_to_exploration",    IssueState.HUMAN_NEEDED,      IssueState.NEEDS_EXPLORATION,
+               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_NEEDS_EXPLORATION]),
+    Transition("human_to_solved",         IssueState.HUMAN_NEEDED,      IssueState.SOLVED,
+               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_SOLVED]),
 ]
 
 
@@ -160,6 +194,13 @@ PR_TRANSITIONS: list[Transition] = [
     Transition("pr_to_human",                   PRState.REVIEWING,        PRState.PR_HUMAN_NEEDED,
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     Transition("pr_human_to_reviewing",         PRState.PR_HUMAN_NEEDED,  PRState.REVIEWING,
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    # Admin-comment-driven re-entries out of PR_HUMAN_NEEDED.
+    Transition("pr_human_to_revision_pending",  PRState.PR_HUMAN_NEEDED,  PRState.REVISION_PENDING,
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("pr_human_to_approved",          PRState.PR_HUMAN_NEEDED,  PRState.APPROVED,
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("pr_human_to_merged",            PRState.PR_HUMAN_NEEDED,  PRState.MERGED,
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
 ]
 
@@ -381,6 +422,25 @@ def apply_transition_with_confidence(
         log_prefix=log_prefix,
     )
     return ok, True
+
+
+def resume_transition_for(target_state_name: str) -> Optional[Transition]:
+    """Map a ``ResumeTo: <STATE>`` token to the matching ``human_to_<state>`` transition.
+
+    Only transitions whose ``from_state`` is :attr:`IssueState.HUMAN_NEEDED`
+    are considered. Returns ``None`` when the name does not correspond to
+    a known IssueState or no resume transition lands on that state.
+    """
+    if not target_state_name:
+        return None
+    try:
+        target = IssueState[target_state_name.upper()]
+    except KeyError:
+        return None
+    for t in ISSUE_TRANSITIONS:
+        if t.from_state == IssueState.HUMAN_NEEDED and t.to_state == target:
+            return t
+    return None
 
 
 def render_fsm_mermaid(transitions: list[Transition], title: str = "FSM") -> str:
