@@ -61,8 +61,9 @@ Subcommands:
                             then escalated to `:needs-human-review`.
 
     python cai.py review-pr Walk open PRs against main, run a
-                            consistency review for ripple effects, and
-                            post findings as PR comments. Skips PRs
+                            consistency review for ripple effects. Post
+                            findings as PR comments; out-of-scope findings
+                            become separate GitHub issues. Skips PRs
                             already reviewed at their current HEAD SHA.
 
     python cai.py merge     Confidence-gated auto-merge for bot PRs.
@@ -1335,6 +1336,76 @@ def _parse_suggested_issues(agent_output: str) -> list[dict]:
         if title:
             issues.append({"title": title, "body": body})
     return issues
+
+
+def _parse_oob_issues(agent_output: str) -> list[dict]:
+    """Extract out-of-scope issue blocks from cai-review-pr agent output.
+
+    The agent can emit blocks like:
+
+        ## Out-of-scope Issue
+        ### Title
+        <title text>
+        ### Body
+        <body text>
+
+    Returns a list of dicts with 'title' and 'body' keys.
+    """
+    issues: list[dict] = []
+    parts = re.split(r"^## Out-of-scope Issue\s*$", agent_output, flags=re.MULTILINE)
+    for part in parts[1:]:  # skip everything before the first marker
+        title = ""
+        body = ""
+        title_match = re.search(
+            r"^### Title\s*\n(.*?)(?=^### |\Z)",
+            part,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        body_match = re.search(
+            r"^### Body\s*\n(.*?)(?=^## |\Z)",
+            part,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        if title_match:
+            title = title_match.group(1).strip()
+        if body_match:
+            body = body_match.group(1).strip()
+        if title:
+            issues.append({"title": title, "body": body})
+    return issues
+
+
+def _create_oob_issues(issues: list[dict], pr_number: int) -> int:
+    """Create GitHub issues for out-of-scope findings from cai-review-pr. Returns count created."""
+    created = 0
+    for s in issues:
+        issue_body = (
+            f"{s['body']}\n\n"
+            f"---\n"
+            f"_Raised by `cai review-pr` while reviewing PR #{pr_number}._\n"
+        )
+        labels = ",".join(["auto-improve", LABEL_RAISED])
+        result = _run(
+            [
+                "gh", "issue", "create",
+                "--repo", REPO,
+                "--title", s["title"],
+                "--body", issue_body,
+                "--label", labels,
+            ],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            print(f"[cai review-pr] created out-of-scope issue: {url}", flush=True)
+            created += 1
+        else:
+            print(
+                f"[cai review-pr] failed to create out-of-scope issue "
+                f"'{s['title']}': {result.stderr}",
+                file=sys.stderr,
+            )
+    return created
 
 
 def _create_suggested_issues(
@@ -6176,7 +6247,7 @@ _REVIEW_COMMENT_HEADING_CLEAN = "## cai pre-merge review (clean)"
 
 
 def cmd_review_pr(args) -> int:
-    """Review open PRs for ripple effects and post findings as PR comments."""
+    """Review open PRs for ripple effects. Post findings as PR comments; create issues for out-of-scope findings."""
     print("[cai review-pr] checking open PRs against main", flush=True)
     t0 = time.monotonic()
 
@@ -6334,6 +6405,19 @@ def cmd_review_pr(args) -> int:
                 continue
 
             agent_output = (agent.stdout or "").strip()
+
+            # Parse and create any out-of-scope issues emitted by the agent,
+            # then strip them from agent_output so they don't appear in the
+            # PR comment.
+            oob_issues = _parse_oob_issues(agent_output)
+            if oob_issues:
+                _create_oob_issues(oob_issues, pr_number)
+                agent_output = re.sub(
+                    r"^## Out-of-scope Issue\s*\n.*?(?=^## Out-of-scope Issue|\Z)",
+                    "",
+                    agent_output,
+                    flags=re.MULTILINE | re.DOTALL,
+                ).strip()
 
             # Determine if there are findings.
             has_findings = (

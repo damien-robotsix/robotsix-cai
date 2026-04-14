@@ -291,11 +291,20 @@ changes that are internally consistent but create inconsistencies with
 the rest of the codebase (stale docs, dead config, missed cross-cutting
 references, etc.).
 
-Findings are posted as a single PR comment starting with
-`## cai pre-merge review — <sha>`. The SHA prevents re-reviewing PRs
-that haven't changed. Because findings are PR comments, the `revise`
-subagent picks them up on the next tick and can address them
-automatically — no separate issue is created.
+Findings are reported in two ways:
+
+1. **Regular findings** are posted as a single PR comment starting with
+   `## cai pre-merge review — <sha>`. The SHA prevents re-reviewing PRs
+   that haven't changed. Because findings are PR comments, the `revise`
+   subagent picks them up on the next tick and can address them
+   automatically.
+
+2. **Out-of-scope findings** (pre-existing problems, systemic patterns the
+   PR merely exposes, or issues that belong in a separate component) are
+   converted to separate GitHub issues (labeled `auto-improve:raised`)
+   instead of PR comments. These are not addressable by the current PR
+   and are stripped from the PR comment so reviewers see only actionable
+   findings.
 
 This replaces the post-merge consistency review originally proposed in
 issue #45. Pre-merge review catches ripple effects before they land in
