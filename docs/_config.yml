@@ -11,3 +11,7 @@ baseurl: /robotsix-cai
 # Header link to the source repository
 aux_links:
   GitHub: https://github.com/damien-robotsix/robotsix-cai
+
+# Enable native Mermaid rendering (just-the-docs built-in).
+mermaid:
+  version: "10.9.0"
