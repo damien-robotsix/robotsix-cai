@@ -1447,7 +1447,7 @@ def _create_sub_issues(
             f"_Sub-issue of #{parent_number} ({parent_title}). "
             f"Step {s['step']} of {total}._\n"
         )
-        title = f"[Step {s['step']}/{total}] {s['title']}"
+        title = f"[#{parent_number} Step {s['step']}/{total}] {s['title']}"
         labels = ",".join(["auto-improve", LABEL_RAISED])
         result = _run(
             [
