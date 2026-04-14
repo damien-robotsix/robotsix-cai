@@ -44,10 +44,15 @@ maps to a `human_to_<state>` transition defined in
 |---------------------|-------------------------------------------------------------|
 | `RAISED`            | "start over" / "re-triage this" / comment is ambiguous      |
 | `REFINED`           | "skip refinement, it's clear enough, go to plan"            |
-| `PLANNED`           | "accept the stored plan as-is" (rare)                       |
-| `PLAN_APPROVED`     | "approve the plan — let the implement agent run"            |
+| `PLAN_APPROVED`     | "approve the existing plan — let the implement agent run"   |
 | `NEEDS_EXPLORATION` | "investigate further before doing anything"                 |
 | `SOLVED`            | "close this — not worth doing" / "already fixed elsewhere"  |
+
+(`PLANNED` is not a valid resume target — the plan block only exists
+after the plan agent has run, so there is no admin pathway that
+justifies jumping directly there. Resume to `REFINED` to have the
+plan agent produce a plan, or to `PLAN_APPROVED` to accept one that
+already exists.)
 
 ## PR resume targets (Kind: pr)
 

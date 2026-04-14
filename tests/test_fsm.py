@@ -286,7 +286,7 @@ class TestResumeFromHuman(unittest.TestCase):
         self.assertIsNone(parse_resume_target("no resume line here"))
 
     def test_resume_transition_for_known_targets(self):
-        for name in ("RAISED", "REFINED", "PLANNED", "PLAN_APPROVED",
+        for name in ("RAISED", "REFINED", "PLAN_APPROVED",
                      "NEEDS_EXPLORATION", "SOLVED"):
             t = resume_transition_for(name)
             self.assertIsNotNone(t, f"no resume transition for {name}")
@@ -299,6 +299,9 @@ class TestResumeFromHuman(unittest.TestCase):
         # States that exist but have no human_to_* path must return None.
         self.assertIsNone(resume_transition_for("IN_PROGRESS"))
         self.assertIsNone(resume_transition_for("MERGED"))
+        # PLANNED is deliberately excluded: admins cannot jump straight
+        # to PLANNED because the plan block only exists post-plan-agent.
+        self.assertIsNone(resume_transition_for("PLANNED"))
 
     def test_every_widened_transition_is_reachable(self):
         """Every human_to_<state> transition must be discoverable via resume_transition_for."""
@@ -306,7 +309,7 @@ class TestResumeFromHuman(unittest.TestCase):
             t for t in ISSUE_TRANSITIONS
             if t.from_state == IssueState.HUMAN_NEEDED
         ]
-        self.assertGreaterEqual(len(widened), 6)
+        self.assertGreaterEqual(len(widened), 5)
         for t in widened:
             resolved = resume_transition_for(t.to_state.name)
             self.assertIs(resolved, t,

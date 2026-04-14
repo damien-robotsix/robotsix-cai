@@ -169,8 +169,11 @@ ISSUE_TRANSITIONS: list[Transition] = [
     # cmd_unblock after a Haiku agent classifies the admin's reply.
     Transition("human_to_refined",        IssueState.HUMAN_NEEDED,      IssueState.REFINED,
                labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_REFINED]),
-    Transition("human_to_planned",        IssueState.HUMAN_NEEDED,      IssueState.PLANNED,
-               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_PLANNED]),
+    # NOTE: no human_to_planned — PLANNED means the plan block already
+    # exists in the issue body, which only happens after the plan agent
+    # runs. An admin who wants to plan should resume to REFINED; an
+    # admin who wants to approve an existing plan should resume to
+    # PLAN_APPROVED.
     Transition("human_to_plan_approved",  IssueState.HUMAN_NEEDED,      IssueState.PLAN_APPROVED,
                labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_PLAN_APPROVED]),
     Transition("human_to_exploration",    IssueState.HUMAN_NEEDED,      IssueState.NEEDS_EXPLORATION,
