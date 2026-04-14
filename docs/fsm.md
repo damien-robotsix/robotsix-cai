@@ -19,7 +19,6 @@ stateDiagram-v2
     REFINED --> PLANNED : refine_to_plan [≥HIGH]
     PLANNED --> PLAN_APPROVED : plan_to_approved [≥HIGH]
     PLAN_APPROVED --> IN_PROGRESS : approved_to_in_progress [≥HIGH]
-    REFINED --> IN_PROGRESS : refine_to_in_progress [≥HIGH]
     IN_PROGRESS --> PR : in_progress_to_pr [≥HIGH]
     PR --> MERGED : pr_to_merged [≥HIGH]
     MERGED --> SOLVED : merged_to_solved [≥HIGH]

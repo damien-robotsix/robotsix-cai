@@ -157,8 +157,6 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_PLAN_APPROVED]),
     Transition("approved_to_in_progress", IssueState.PLAN_APPROVED,     IssueState.IN_PROGRESS,
                labels_remove=[LABEL_PLAN_APPROVED],     labels_add=[LABEL_IN_PROGRESS]),
-    Transition("refine_to_in_progress",   IssueState.REFINED,           IssueState.IN_PROGRESS,
-               labels_remove=[LABEL_REFINED],           labels_add=[LABEL_IN_PROGRESS]),
     Transition("in_progress_to_pr",       IssueState.IN_PROGRESS,       IssueState.PR,
                labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_IN_PR]),
     Transition("pr_to_merged",            IssueState.PR,                IssueState.MERGED,
@@ -317,6 +315,48 @@ def strip_pending_marker(body: str) -> str:
     new = _PENDING_MARKER_RE.sub("", body)
     # Collapse the blank lines the marker may have left behind.
     return re.sub(r"\n{3,}", "\n\n", new).rstrip() + ("\n" if body.endswith("\n") else "")
+
+
+# ---------------------------------------------------------------------------
+# Refine-decided marker
+#
+# cmd_refine writes this marker on the issue body once it has routed the
+# issue with NextStep: PLAN. Its only job is to tell cmd_refine's own
+# candidate selector "you've already decided on this :refined issue, skip
+# it". :refined issues that come back from :needs-exploration arrive
+# WITHOUT the marker, so refine re-picks them up and re-decides — that's
+# the exploration → refine loop. cmd_plan ignores the marker entirely.
+# ---------------------------------------------------------------------------
+
+REFINE_DECIDED_MARKER = "<!-- cai-refine-decided -->"
+_REFINE_DECIDED_RE = re.compile(r"<!--\s*cai-refine-decided\s*-->")
+
+
+def has_refine_decided_marker(body: str) -> bool:
+    """True if *body* contains the refine-decided marker."""
+    if not body:
+        return False
+    return bool(_REFINE_DECIDED_RE.search(body))
+
+
+def strip_refine_decided_marker(body: str) -> str:
+    """Remove the refine-decided marker (and any collapsed blank lines) from *body*."""
+    if not body:
+        return body
+    new = _REFINE_DECIDED_RE.sub("", body)
+    return re.sub(r"\n{3,}", "\n\n", new).rstrip() + ("\n" if body.endswith("\n") else "")
+
+
+def append_refine_decided_marker(body: str) -> str:
+    """Return *body* with the refine-decided marker ensured at the end.
+
+    Idempotent — if a marker is already present, returns *body* unchanged.
+    """
+    if has_refine_decided_marker(body):
+        return body
+    trailing_newline = "\n" if body.endswith("\n") else ""
+    base = body.rstrip()
+    return f"{base}\n\n{REFINE_DECIDED_MARKER}{trailing_newline}"
 
 
 def apply_transition(

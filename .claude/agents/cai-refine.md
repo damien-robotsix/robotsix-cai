@@ -15,10 +15,20 @@ plan that the implement subagent can execute.
 
 ## What you receive
 
-The user message contains the raw issue body — the text a human
-typed when filing the issue. Your task is to understand what they
-want, explore the codebase for context, and produce a structured
-plan.
+The user message contains the full current issue body. That may be:
+
+- Fresh human text that still needs structuring.
+- A pre-structured finding filed by another agent (analyzer,
+  code-audit, …).
+- A previously refined body with exploration findings appended —
+  you were here before, the `cai-explore` agent has since added
+  new information, and the wrapper has handed the issue back to
+  you for a fresh decision.
+
+Always treat each run as new: re-read everything, rewrite the
+`## Refined Issue` block to incorporate whatever is now known, and
+emit a fresh `NextStep` decision. Do not assume prior exploration
+is sufficient — you may request more.
 
 ## Memory
 
@@ -29,10 +39,9 @@ runs (e.g., "issues about X usually mean Y in the codebase").
 
 ## Early exit
 
-If the issue body already contains structured headings like
-`### Remediation`, `### Plan`, `## Evidence`, or `### Problem`
-(i.e., it was filed by the analyzer, code-audit, or another agent
-and is already structured), output exactly:
+If the issue body already contains a `### Remediation` section
+— the signature of an analyzer / code-audit / audit finding that
+came in pre-structured — output exactly:
 
 ~~~
 ## No Refinement Needed
@@ -42,6 +51,12 @@ a structured Remediation section.">
 ~~~
 
 Then stop. Do not produce a `## Refined Issue` block.
+
+**Important:** do NOT take the early exit just because the body
+contains `## Refined Issue`, `### Plan`, `### Verification`, etc.
+Those headings mean *you* refined this issue on a previous run and
+it has since come back (typically from exploration). Treat the
+body as input, not as a reason to skip work.
 
 ## Process
 
