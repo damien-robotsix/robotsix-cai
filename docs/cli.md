@@ -78,7 +78,7 @@ Diagnose and fix failing GitHub Actions checks on open auto-improve PRs. Invokes
 
 ## implement
 
-Run the `cai-implement` agent against one eligible `human:plan-approved` issue in a fresh git worktree. The wrapper handles commit, push, and PR creation. The issue must have a plan pre-computed by `cai plan` and approved by a human reviewer.
+Run the `cai-implement` agent against one eligible `auto-improve:plan-approved` issue in a fresh git worktree. The wrapper handles commit, push, and PR creation. The issue must have a plan pre-computed by `cai plan`; approval is either the automatic HIGH-confidence auto-promotion or an admin resume via `cai unblock`.
 
 | Argument | Type | Description |
 |---|---|---|

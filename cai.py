@@ -14,10 +14,11 @@ Subcommands:
 
     python cai.py fix       Score eligible issues by age, category
                             success rate, and prior fix attempts; pick
-                            the highest scorer labelled `human:
-                            plan-approved` or `human:
-                            requested` (audit issues reach fix via
-                            triage relabelling), run a cheap Haiku
+                            the highest scorer labelled
+                            `auto-improve:plan-approved` (reached
+                            either automatically on a HIGH-confidence
+                            plan or via admin resume from
+                            `:human-needed`), run a cheap Haiku
                             pre-screen to classify the issue; spike/
                             ambiguous issues are returned to their origin
                             label without cloning; if actionable, lock it
@@ -205,7 +206,13 @@ from cai_lib.cmd_lifecycle import (  # noqa: E402
     _migrate_legacy_human_submitted,
 )
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
-from cai_lib.fsm import apply_transition  # noqa: E402
+from cai_lib.fsm import (  # noqa: E402
+    apply_transition,
+    apply_transition_with_confidence,
+    IssueState,
+    render_pending_marker,
+    strip_pending_marker,
+)
 from cai_lib.cmd_implement import _parse_decomposition  # noqa: E402
 
 
@@ -651,19 +658,19 @@ def _select_fix_target(exclude: set[int] | None = None):
     Categories with fewer than 3 observations get a neutral prior of 0.60.
     This replaces the previous FIFO (oldest-first) selection.
 
-    Eligible = labelled `human:plan-approved`, NOT labelled `:in-progress`
-    or `:pr-open`, AND carrying a stored plan block in the issue body
-    (written by `cai plan`).  `human:plan-approved` is the gate: the
-    `plan-all` step drives every :raised / :refined issue to :planned,
-    and a human then promotes :planned → human:plan-approved when the
-    plan looks good.  Issues with that label but no stored plan are
-    demoted back to `:refined` so `plan-all` re-plans them.  `:refined`
-    and `:planned` issues sit outside the fix pipeline until a human
-    approves.
+    Eligible = labelled `auto-improve:plan-approved`, NOT labelled
+    `:in-progress` or `:pr-open`, AND carrying a stored plan block in
+    the issue body (written by `cai plan`).  `:plan-approved` is the
+    gate: `cai plan` auto-promotes a :planned issue to :plan-approved
+    when the select agent's confidence is HIGH; lower confidence diverts
+    to `:human-needed` for admin review, and the admin resumes into
+    `:plan-approved` via `cai unblock`.  Issues with the label but no
+    stored plan are demoted back to `:refined` so `plan-all` re-plans
+    them.
 
     `audit:raised` issues are handled exclusively by the audit-triage
     agent — only issues that triage re-labels to `auto-improve:raised`
-    (and subsequently refine → plan → human:plan-approved) enter the fix
+    (and subsequently refine → plan → :plan-approved) enter the fix
     pipeline.
 
     If no candidates are found, attempts to recover stale `:pr-open`
@@ -691,9 +698,9 @@ def _select_fix_target(exclude: set[int] | None = None):
             if LABEL_IN_PROGRESS in label_names or LABEL_PR_OPEN in label_names:
                 continue
             # Skip issues that already reached a terminal lifecycle state.
-            # An issue can carry both `human:plan-approved` and a terminal
+            # An issue can carry both `:plan-approved` and a terminal
             # label (e.g. `:no-action`, `:merged`, `:needs-spike`) when an
-            # earlier transition forgot to strip the human approval. Without
+            # earlier transition forgot to strip the approval. Without
             # this guard, the implement loop keeps re-selecting the same issue and
             # the cai-implement subagent correctly reports "no action needed" every
             # run — wasting cycles forever.
@@ -707,7 +714,7 @@ def _select_fix_target(exclude: set[int] | None = None):
                 continue
             # Hard plan gate: never let the fix subagent run on an
             # issue that hasn't been through the plan step.
-            # `human:plan-approved` requires a stored plan block in the
+            # `:plan-approved` requires a stored plan block in the
             # issue body (written by `cai plan`). Issues missing a plan
             # are skipped here and
             # re-routed to `:refined` so `plan-all` picks them up.
@@ -1006,15 +1013,25 @@ def _run_select_agent(issue: dict, plans: list[str], work_dir: Path) -> str:
     return result.stdout or ""
 
 
-def _run_plan_select_pipeline(issue: dict, work_dir: Path, attempt_history_block: str = "") -> str | None:
-    """Run the serial 2-plan → select pipeline and return the selected plan.
+def _run_plan_select_pipeline(
+    issue: dict, work_dir: Path, attempt_history_block: str = "",
+) -> tuple[str, "Confidence | None"] | None:
+    """Run the serial 2-plan → select pipeline.
 
     Plan 1 runs first; Plan 2 receives Plan 1's output and is asked
-    to find an alternative approach. The select agent then picks the best.
+    to find an alternative approach. The select agent then picks the
+    best and emits a trailing ``Confidence: HIGH|MEDIUM|LOW`` line
+    indicating how sure it is that the chosen plan will succeed.
 
-    Returns the selected plan text to prepend to the fix agent's
-    user message, or None if the pipeline fails.
+    Returns ``(plan_text, confidence)`` — the confidence line is
+    stripped from ``plan_text`` before it is stored on the issue so
+    the implement agent receives only the plan. ``confidence`` is
+    ``None`` when the select agent omits the marker (treated as
+    below-threshold by the caller).
+    Returns ``None`` if the pipeline fails to produce any output.
     """
+    from cai_lib.fsm import parse_confidence
+
     issue_number = issue["number"]
 
     # Step 1: Run Plan 1.
@@ -1036,8 +1053,22 @@ def _run_plan_select_pipeline(issue: dict, work_dir: Path, attempt_history_block
         print("[cai plan] select agent produced no output; skipping pipeline", flush=True)
         return None
 
-    print(f"[cai plan] select agent produced {len(selection)} chars", flush=True)
-    return selection
+    confidence = parse_confidence(selection)
+    # Strip the trailing ``Confidence: X`` line so the stored plan is
+    # clean — the confidence drives the FSM transition, not the plan body.
+    plan_text = re.sub(
+        r"(?im)^\s*Confidence\s*[:=]\s*(LOW|MEDIUM|HIGH)\s*$",
+        "",
+        selection,
+    ).rstrip() + "\n"
+
+    conf_name = confidence.name if confidence else "MISSING"
+    print(
+        f"[cai plan] select agent produced {len(plan_text)} chars "
+        f"(confidence={conf_name})",
+        flush=True,
+    )
+    return plan_text, confidence
 
 
 def _extract_stored_plan(issue_body: str) -> str | None:
@@ -1138,19 +1169,23 @@ def cmd_plan(args) -> int:
             )
 
         # 4. Run plan-select pipeline.
-        selected_plan = _run_plan_select_pipeline(
+        pipeline_result = _run_plan_select_pipeline(
             issue, work_dir, attempt_history_block,
         )
-        if selected_plan is None:
+        if pipeline_result is None:
             print(f"[cai plan] plan pipeline failed for #{issue_number}",
                   file=sys.stderr)
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("plan", repo=REPO, issue=issue_number,
                     duration=dur, result="pipeline_failed", exit=1)
             return 1
+        selected_plan, plan_confidence = pipeline_result
 
         # 5. Store plan in issue body (strip any old plan block first).
         current_body = _strip_stored_plan_block(issue.get("body", "") or "")
+        # Also strip any stale pending marker left from a prior run — the
+        # upcoming confidence gate will re-add one if it diverts.
+        current_body = strip_pending_marker(current_body)
         plan_block = (
             "<!-- cai-plan-start -->\n"
             "## Selected Implementation Plan\n\n"
@@ -1171,21 +1206,52 @@ def cmd_plan(args) -> int:
                     duration=dur, result="edit_failed", exit=1)
             return 1
 
-        # 6. Transition labels: :planning → :planned.
+        # 6. Transition labels: :planning → :planned (waypoint).
         apply_transition(
             issue_number, "planning_to_planned",
             current_labels=[LABEL_PLANNING],
             log_prefix="cai plan",
         )
 
+        # 7. Confidence-gated auto-approval. HIGH → :plan-approved
+        #    (enters the implement pipeline). Below HIGH (or MISSING)
+        #    diverts to :human-needed with a pending marker so an admin
+        #    can review the plan and resume via cai-unblock.
+        ok, diverted = apply_transition_with_confidence(
+            issue_number, "planned_to_plan_approved", plan_confidence,
+            current_labels=[LABEL_PLANNED],
+            log_prefix="cai plan",
+        )
+        if diverted:
+            # Append a pending marker so cai-unblock knows what we were
+            # trying to do when the admin comments. Re-read the body
+            # because the label write above may have been accompanied by
+            # issue_edit elsewhere; we want the freshest body.
+            marker = render_pending_marker(
+                transition_name="planned_to_plan_approved",
+                from_state=IssueState.PLANNED,
+                intended_state=IssueState.PLAN_APPROVED,
+                confidence=plan_confidence,
+            )
+            marker_body = f"{new_body}\n\n{marker}\n"
+            _run(
+                ["gh", "issue", "edit", str(issue_number),
+                 "--repo", REPO, "--body", marker_body],
+                capture_output=True,
+            )
+
         dur = f"{int(time.monotonic() - t0)}s"
+        conf_name = plan_confidence.name if plan_confidence else "MISSING"
+        final_state = "human-needed" if diverted else "plan-approved"
         print(
             f"[cai plan] #{issue_number} planned and transitioned to "
-            f":planned in {dur}",
+            f":{final_state} in {dur} (confidence={conf_name})",
             flush=True,
         )
         log_run("plan", repo=REPO, issue=issue_number,
-                duration=dur, result="ok", exit=0)
+                duration=dur, result="ok",
+                confidence=conf_name, diverted=int(diverted),
+                exit=0)
         return 0
 
     finally:
@@ -1218,10 +1284,11 @@ def cmd_plan_all(args) -> int:
     consecutive iterations make no progress (to avoid spinning on a
     perpetually-failing issue).
 
-    This step produces the :planned backlog that humans review and
-    promote to :plan-approved. The implement loop in `cycle` only consumes
-    :plan-approved work, so without this step nothing new would ever
-    reach a state a human can approve.
+    This step produces the :plan-approved backlog the implement loop
+    consumes. HIGH-confidence plans auto-promote to :plan-approved;
+    lower-confidence plans divert to :human-needed for admin review
+    via `cai unblock`. Without this step nothing new would ever reach
+    the implement pipeline.
     """
     t0 = time.monotonic()
     print("[cai plan-all] draining :raised and :refined queues", flush=True)
@@ -2129,7 +2196,7 @@ def cmd_implement(args) -> int:
 
     if ps_verdict == "ambiguous":
         # Bounce to :refined (not :plan-approved) so the issue re-flows
-        # through refine → plan → human approval. Returning to
+        # through refine → plan → confidence-gated approval. Returning to
         # :plan-approved would make _select_fix_target pick it up again
         # immediately and loop on the same pre-screen verdict.
         _set_labels(
@@ -2203,8 +2270,9 @@ def cmd_implement(args) -> int:
             )
 
         # 4c. Retrieve the pre-computed plan from the issue body.
-        #     `cai plan` stored the plan; a human approved it via
-        #     `human:plan-approved`.
+        #     `cai plan` stored the plan; it was auto-approved on HIGH
+        #     confidence, or an admin resumed it via cai-unblock. Either
+        #     way it now carries `:plan-approved`.
         selected_plan = _get_plan_for_fix(issue)
 
         # 4d. Pre-create the `.cai-staging/agents/` directory so the
@@ -2367,8 +2435,8 @@ def cmd_implement(args) -> int:
                 capture_output=True,
             )
             # Transition: in-progress -> target_label (NOT back to :raised).
-            # Strip the human approval label as well — if we leave
-            # `human:plan-approved` in place, the fix selector will keep
+            # Strip the approval label as well — if we leave
+            # `:plan-approved` in place, the fix selector will keep
             # re-picking this issue forever because it gates on that label.
             terminal_remove = [
                 LABEL_IN_PROGRESS,
@@ -8698,12 +8766,14 @@ def cmd_cycle(args) -> int:
       1.5. recover stale locks (:in-progress / :revising)
       2. drain pending PRs (revise → fix-ci → review-pr → review-docs → merge)
       3. loop: verify → fix/spike/explore → drain → repeat
-         (fix picks only human:plan-approved — nothing raised
-         or refined is auto-consumed here; an issue whose fix fails
+         (fix picks only :plan-approved — nothing :raised / :refined
+         / :planned is auto-consumed here; an issue whose fix fails
          is skipped for the rest of the cycle so the remaining fix
          targets still get a chance before plan-all runs)
       3.5. plan-all — drive every remaining :raised / :refined issue
-         to :planned so humans have a queue to approve against
+         through refine → plan. HIGH-confidence plans auto-promote to
+         :plan-approved; lower-confidence plans divert to
+         :human-needed for admin review.
       4. final confirm
 
     A non-blocking flock on `_CYCLE_LOCK_PATH` ensures at most one
@@ -8767,9 +8837,10 @@ def _cmd_cycle_inner(args) -> int:
         had_failure = True
 
     # --- Phase 3+3.5: implement loop → plan-all, repeat while new implement targets appear
-    # plan-all may expose a fresh human:plan-approved (human promotes
-    # :planned mid-plan-all) — in that case we re-enter the implement loop
-    # instead of waiting for the next cycle tick.
+    # plan-all may expose a fresh :plan-approved (HIGH-confidence plan
+    # auto-promoted, or an admin resumed one mid-plan-all) — in that
+    # case we re-enter the implement loop instead of waiting for the
+    # next cycle tick.
     _MAX_DRAIN_ONLY_PASSES = 3  # cap drain-only iterations to avoid infinite loops
     _MAX_OUTER_PASSES = 5  # cap plan-all ↔ implement-loop re-entries
     # Issues whose implementation failed in this cycle — skip them for the rest of
@@ -8922,10 +8993,10 @@ def _cmd_cycle_inner(args) -> int:
                     had_failure = True
 
         # --- Phase 3.5: plan-all — drive :raised/:refined to :planned ---
-        # The implement loop only acts on human:plan-approved
+        # The implement loop only acts on :plan-approved
         # issues, so any :raised or :refined work would sit idle without this
         # step. plan-all loops refine → plan until the queue is exhausted or
-        # a new human:plan-approved issue appears (so we can re-enter the
+        # a new :plan-approved issue appears (so we can re-enter the
         # implement loop without waiting for the next cycle tick).
         rc = _run_step("plan-all", cmd_plan_all, args)
         all_results[f"plan-all.{outer_pass}"] = rc
@@ -9063,7 +9134,7 @@ def cmd_health_report(args) -> int:
         ("raised", LABEL_RAISED),
         ("refined", LABEL_REFINED),
         ("planned", LABEL_PLANNED),
-        ("h:plan-approved", LABEL_PLAN_APPROVED),
+        ("plan-approved", LABEL_PLAN_APPROVED),
         ("in-progress", LABEL_IN_PROGRESS),
         ("pr-open", LABEL_PR_OPEN),
         ("merged", LABEL_MERGED),

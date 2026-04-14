@@ -6,9 +6,9 @@
 
 1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised` (the sole entry point — the former `human:submitted` label has been folded into `:raised`).
 2. **Refine** — `cai refine` calls `cai-refine` to rewrite the issue into a structured plan with steps, verification, and scope guardrails. Label transitions to `auto-improve:refined`.
-3. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. Label transitions to `auto-improve:planned`, awaiting human approval.
-4. **Human Approval** — A human reviews the generated plan and applies `human:plan-approved` label to approve the issue for fixing.
-5. **Fix** — `cai implement` calls `cai-implement` on `human:plan-approved` issues in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
+3. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. The select agent emits a trailing `Confidence:` line: at `HIGH` the label auto-transitions to `auto-improve:plan-approved`; at `MEDIUM` / `LOW` / missing it diverts to `auto-improve:human-needed` with a pending marker so an admin can review the plan.
+4. **Admin Resume (low-confidence only)** — `cai unblock` classifies an admin's comment on a `:human-needed` issue; a HIGH-confidence `PLAN_APPROVED` verdict fires `human_to_plan_approved` and the issue continues. Ambiguous or dissenting admin comments send the issue back through the planner.
+5. **Fix** — `cai implement` calls `cai-implement` on `auto-improve:plan-approved` issues in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
 6. **Review** — `cai review-pr` checks for ripple-effect inconsistencies, posts findings as PR comments, and sets the `pr:reviewed-accept` or `pr:reviewed-reject` label. `cai review-docs` then (and only after review-pr has set `pr:reviewed-accept`) checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. This ordering is enforced: review-docs skips PRs until the `pr:reviewed-accept` label is present.
 7. **Revise** — `cai revise` calls `cai-revise` or `cai-rebase` to address review comments or rebase conflicts. Label transitions to `auto-improve:revising`.
 7.5. **CI Fix** — `cai fix-ci` calls `cai-fix-ci` to diagnose and fix failing GitHub Actions checks on open PRs. The subagent reads the failure log (last 200 lines, up to 2 failing checks), locates the root cause in the clone, and makes the minimal fix. A per-SHA marker comment (`## CI-fix subagent: fix attempt`) is always posted after each run — whether or not a fix was produced — so the loop guard fires on the next tick if CI is still red. PRs with unaddressed review comments are skipped (left for `cai revise`); PRs with `:needs-human-review` or `:merge-blocked` are always skipped.
@@ -29,8 +29,8 @@
 | `auto-improve:no-action` | No fix needed (7 d stale timeout → re-queued to `:raised`) |
 | `auto-improve:needs-spike` | Needs research investigation (`cai spike`) |
 | `auto-improve:needs-exploration` | Needs autonomous exploration (`cai explore`) |
-| `auto-improve:planned` | Plan generated and stored in issue body; awaiting human approval |
-| `human:plan-approved` | Plan approved by human; ready for implement subagent |
+| `auto-improve:planned` | Plan generated and stored in issue body; confidence gate pending |
+| `auto-improve:plan-approved` | Plan approved (HIGH confidence auto-approval or admin resume); ready for implement subagent |
 | `auto-improve:parent` | Parent issue; child sub-issues carry the work |
 | `audit:raised` | Audit finding awaiting triage by `cai audit-triage` |
 | `audit:needs-human` | Audit finding escalated to human |
@@ -49,8 +49,8 @@
 2. **Recover stale locks** — roll back `:in-progress` and `:revising` issues past their timeout.
 3. **Ingest unlabeled** — attach `auto-improve` to any unlabeled issues that belong to the pipeline.
 4. **Drain PRs** — for each open auto-improve PR: revise → fix-ci → review-pr → review-docs → merge.
-5. **Implement loop** — repeatedly call `implement`, `spike`, or `explore` on `human:plan-approved` issues until no eligible work remains, draining PRs after each implementation. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the human:plan-approved gate.
-6. **Plan-all** — run `plan-all` to drain every open `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to review before the next cycle.
+5. **Implement loop** — repeatedly call `implement`, `spike`, or `explore` on `auto-improve:plan-approved` issues until no eligible work remains, draining PRs after each implementation. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the auto-improve:plan-approved gate.
+6. **Plan-all** — run `plan-all` to drain every open `:raised` / `:refined` issue through refine → plan. HIGH-confidence plans auto-promote to `:plan-approved` and feed the implement loop; lower-confidence plans land in `:human-needed` for admin review.
 7. **Final confirm** — one last confirm pass.
 
 `plan-all` also runs on its own cron line (default `30 * * * *`) so the `:planned` queue stays current between cycles.

@@ -49,14 +49,16 @@ dispatcher so each task is its own subprocess with no shared state.
 
 The issue-solving pipeline is split across two cron lines:
 
-- `cai.py cycle` drains pending PRs and fixes `human:plan-approved`
+- `cai.py cycle` drains pending PRs and fixes `auto-improve:plan-approved`
   issues only. `:raised`, `:refined`, and `:planned` issues are
-  invisible to the implement loop — a human approves a plan into
-  `human:plan-approved` before the cycle will act on it.
+  invisible to the implement loop.
 - `cai.py plan-all` drives every `:raised` / `:refined` issue
-  through refine → plan → `:planned`, producing the backlog humans
-  review. It also runs at the end of each `cycle` so the next
-  approval pass has a fresh queue.
+  through refine → plan. HIGH-confidence plans auto-promote to
+  `:plan-approved` and feed the implement loop on the next tick;
+  lower-confidence plans divert to `:human-needed` for admin review,
+  where an admin comment resumes them via `cai unblock`. `plan-all`
+  also runs at the end of each `cycle` so the next approval pass has
+  a fresh queue.
 
 A flock in `cmd_cycle` serializes overlapping runs, so issues are
 processed one at a time: each cycle fixes, drains pending PRs, and
@@ -68,7 +70,7 @@ The individual pipeline subcommands (`implement`, `refine`, `plan`,
 
 | Subcommand | Default schedule | What it does |
 |---|---|---|
-| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Implement pipeline on `human:plan-approved` issues: verify → confirm → drain pending PRs (revise → fix-ci → review-pr → review-docs → merge) → loop(implement/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
+| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Implement pipeline on `auto-improve:plan-approved` issues: verify → confirm → drain pending PRs (revise → fix-ci → review-pr → review-docs → merge) → loop(implement/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
 | `cai.py plan-all` | `30 * * * *` (hourly, offset 30) | Drains every open `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a queue to review. Also runs at the end of each `cycle`; the cron line provides a mid-cycle catch-up pass |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL) and `:revising` (1-hour TTL) locks and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
@@ -111,15 +113,19 @@ action so two concurrent `implement` runs can't pick the same issue.
                                 │ plan
                                 ▼
                              planned  ◄──┐
-                                │       │ (PR closed
-                    (human approval)   │  unmerged, or
-                                │       │  pre-screen ambiguous
-                                ▼       │  → rolled back to
-                        plan-approved  │  origin label)
                                 │       │
-                                │ fix   │
-                                ▼       │
-                          in-progress   │
+                     (confidence gate)   │ (PR closed unmerged,
+                     HIGH /    \ low     │  or pre-screen
+                          ▼     ▼        │  ambiguous → rolled
+                 plan-approved  │        │  back to origin label)
+                     ▲          ▼        │
+                     │    human-needed   │
+                     │       │ unblock   │
+                     └───────┘           │
+                                │        │
+                                │ fix    │
+                                ▼        │
+                          in-progress    │
                                 │       │
                           pre-screen    │
                             (Haiku)     │
@@ -357,8 +363,9 @@ trust builds.
 (the former `human:submitted` label has been folded back into `:raised`).
 It is restricted to repo admins by `.github/workflows/admin-only-label.yml` — a non-admin who
 applies it gets the label removed and a comment explaining why. Issues labelled `auto-improve:raised`
-transition through the full planning pipeline: `refine` → `plan` → `human:plan-approved`
-(admin grants approval) → `implement`. On `refine`, the agent additionally decides whether to route the
+transition through the full planning pipeline: `refine` → `plan` → `auto-improve:plan-approved`
+(auto on HIGH confidence, else `:human-needed` until an admin comment resumes via `cai unblock`) → `implement`.
+On `refine`, the agent additionally decides whether to route the
 issue through `auto-improve:needs-exploration` first by emitting `NextStep: EXPLORE`.
 
 ### Triggering tasks ad-hoc
