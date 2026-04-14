@@ -204,6 +204,7 @@ from cai_lib.github import (  # noqa: E402
 from cai_lib.cmd_lifecycle import (  # noqa: E402
     _rollback_stale_in_progress, _reconcile_interrupted,
     _migrate_legacy_human_submitted,
+    _migrate_legacy_pr_pipeline_labels,
 )
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.fsm import (  # noqa: E402
@@ -7004,11 +7005,11 @@ def _pr_label_sweep() -> tuple[int, int]:
     `rebase resolution failed` once would never be labelled, since
     that failure path doesn't go through the merge agent. Refs #223.
 
-    Also detects when a non-bot commit was pushed after a stale
-    pipeline label (pr:reviewed-accept or pr:documented) and resets
-    the label to pr:edited to re-enter the review pipeline. This
-    ensures that human or external bot commits on auto-improve
-    branches trigger a re-review, even if no review comments are
+    Also detects when a non-bot commit was pushed after the PR
+    advanced to `pr:reviewing-docs` and transitions it back to
+    `pr:reviewing-code` so the review pipeline re-evaluates the new
+    SHA. Ensures human or external bot commits on auto-improve
+    branches trigger a re-review, even when no review comments are
     posted. Refs #567.
 
     Signals (each scoped to comments AFTER the latest commit so a
@@ -7020,7 +7021,7 @@ def _pr_label_sweep() -> tuple[int, int]:
     - any `## Revise subagent: no additional changes` comment
     - mergeStateStatus is DIRTY (unresolved conflict against main)
     - a non-bot commit pushed after the most recent bot pipeline
-      comment while PR carries pr:reviewed-accept or pr:documented
+      comment while PR is in `pr:reviewing-docs`
 
     Returns (added, removed) for the run summary (counts of
     `needs-human-review` labels added/removed; pipeline-state resets
@@ -9078,6 +9079,14 @@ def _cmd_cycle_inner(args) -> int:
     iteration = 0
     all_results: dict[str, int] = {}
     had_failure = False
+
+    # --- Phase 0: legacy PR-label migration (idempotent) ------------------
+    # Relabel any in-flight PRs still carrying retired
+    # pr:edited / pr:reviewed-* / pr:documented labels to the new
+    # PRState labels. Once the queue is empty this becomes a no-op.
+    migrated_prs = _migrate_legacy_pr_pipeline_labels()
+    if migrated_prs:
+        print(f"[cai cycle] migrated {migrated_prs} legacy PR label(s)", flush=True)
 
     # --- Phase 1: verify + confirm (initial state sync) -----------------
     for step_name, handler in [("verify", cmd_verify), ("confirm", cmd_confirm)]:

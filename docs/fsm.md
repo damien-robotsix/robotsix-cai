@@ -42,13 +42,18 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-    OPEN --> REVIEWING : pr_open_to_reviewing [≥HIGH]
-    REVIEWING --> REVISION_PENDING : reviewing_to_revision_pending [≥HIGH]
-    REVISION_PENDING --> REVIEWING : revision_pending_to_reviewing [≥HIGH]
-    REVIEWING --> APPROVED : reviewing_to_approved [≥HIGH]
-    APPROVED --> MERGED : approved_to_merged [≥HIGH]
-    REVIEWING --> PR_HUMAN_NEEDED : pr_to_human [≥HIGH]
-    PR_HUMAN_NEEDED --> REVIEWING : pr_human_to_reviewing [≥HIGH]
+    OPEN --> REVIEWING_CODE : open_to_reviewing_code [≥HIGH]
+    REVIEWING_CODE --> REVISION_PENDING : reviewing_code_to_revision_pending [≥HIGH]
+    REVIEWING_CODE --> REVIEWING_DOCS : reviewing_code_to_reviewing_docs [≥HIGH]
+    REVISION_PENDING --> REVIEWING_CODE : revision_pending_to_reviewing_code [≥HIGH]
+    REVIEWING_DOCS --> REVIEWING_CODE : reviewing_docs_to_reviewing_code [≥HIGH]
+    REVIEWING_DOCS --> MERGED : reviewing_docs_to_merged [≥HIGH]
+    REVIEWING_CODE --> CI_FAILING : reviewing_code_to_ci_failing [≥HIGH]
+    REVISION_PENDING --> CI_FAILING : revision_pending_to_ci_failing [≥HIGH]
+    REVIEWING_DOCS --> CI_FAILING : reviewing_docs_to_ci_failing [≥HIGH]
+    CI_FAILING --> REVIEWING_CODE : ci_failing_to_reviewing_code [≥HIGH]
+    REVIEWING_CODE --> PR_HUMAN_NEEDED : reviewing_code_to_human [≥HIGH]
+    PR_HUMAN_NEEDED --> REVIEWING_CODE : pr_human_to_reviewing_code [≥HIGH]
     PR_HUMAN_NEEDED --> REVISION_PENDING : pr_human_to_revision_pending [≥HIGH]
-    PR_HUMAN_NEEDED --> APPROVED : pr_human_to_approved [≥HIGH]
+    PR_HUMAN_NEEDED --> REVIEWING_DOCS : pr_human_to_reviewing_docs [≥HIGH]
 ```

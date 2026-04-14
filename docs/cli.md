@@ -140,7 +140,7 @@ Run the plan-select pipeline on the oldest `auto-improve:refined` issue. Clones 
 
 Review open PRs for stale documentation using `cai-review-docs`. Directly fixes stale documentation it finds and pushes commits to the PR branch. Posts `### Fixed: stale_docs` blocks for successfully fixed docs, and `### Finding: stale_docs` blocks for issues that cannot be fixed automatically.
 
-**Note:** `review-docs` skips PRs until the `pr:reviewed-accept` label is set (set by `cai review-pr`). This enforces the `review-pr` → `review-docs` → `merge` ordering.
+**Note:** `review-docs` only runs on PRs in the `pr:reviewing-docs` state (set by `cai review-pr` after a clean code review). This enforces the `review-pr` → `review-docs` → `merge` ordering.
 
 | Argument | Type | Description |
 |---|---|---|

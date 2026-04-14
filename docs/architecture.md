@@ -10,7 +10,7 @@
 5. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. The select agent emits a trailing `Confidence:` line: at `HIGH` the label auto-transitions to `auto-improve:plan-approved`; at `MEDIUM` / `LOW` / missing it diverts to `auto-improve:human-needed` with a pending marker so an admin can review the plan.
 6. **Admin Resume (low-confidence only)** — `cai unblock` classifies an admin's comment on a `:human-needed` issue; a HIGH-confidence `PLAN_APPROVED` verdict fires `human_to_plan_approved` and the issue continues. Ambiguous or dissenting admin comments send the issue back through the planner.
 7. **Fix** — `cai implement` calls `cai-implement` on `auto-improve:plan-approved` issues in a fresh git worktree. The wrapper commits, pushes, and opens a PR. Label transitions to `auto-improve:in-progress` → `auto-improve:pr-open`.
-8. **Review** — `cai review-pr` checks for ripple-effect inconsistencies, posts findings as PR comments, and sets the `pr:reviewed-accept` or `pr:reviewed-reject` label. `cai review-docs` then (and only after review-pr has set `pr:reviewed-accept`) checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. This ordering is enforced: review-docs skips PRs until the `pr:reviewed-accept` label is present.
+8. **Review** — `cai review-pr` checks for ripple-effect inconsistencies, posts findings as PR comments, and transitions the PR into `pr:reviewing-docs` (clean) or `pr:revision-pending` (findings). `cai review-docs` only runs on PRs in `pr:reviewing-docs`: it checks for stale documentation, directly fixes issues it can resolve, and commits/pushes those changes to the PR branch. Remaining unfixable issues are posted as `### Finding: stale_docs` comments. Docs review is terminal — on clean the PR stays in `pr:reviewing-docs` so `cai merge` can advance; on a docs push the PR drops back to `pr:reviewing-code` for re-review.
 9. **Revise** — `cai revise` calls `cai-revise` or `cai-rebase` to address review comments or rebase conflicts. Label transitions to `auto-improve:revising`.
 9.5. **CI Fix** — `cai fix-ci` calls `cai-fix-ci` to diagnose and fix failing GitHub Actions checks on open PRs. The subagent reads the failure log (last 200 lines, up to 2 failing checks), locates the root cause in the clone, and makes the minimal fix. A per-SHA marker comment (`## CI-fix subagent: fix attempt`) is always posted after each run — whether or not a fix was produced — so the loop guard fires on the next tick if CI is still red. PRs with unaddressed review comments are skipped (left for `cai revise`); PRs with `:needs-human-review` or `:merge-blocked` are always skipped.
 10. **Merge** — `cai merge` calls `cai-merge` to assess confidence and auto-merges PRs that meet the threshold. Label transitions to `auto-improve:merged`.
@@ -39,10 +39,10 @@
 | `audit:needs-human` | Audit finding escalated to human |
 | `merge-blocked` | PR has a blocking review finding; will not auto-merge |
 | `needs-human-review` | Issue or PR requires human attention |
-| `pr:edited` | PR branch has been updated by `cai revise`, `cai review-docs`, or polling sweep (when non-bot commits are detected after a stale pipeline label) |
-| `pr:reviewed-accept` | `cai review-pr` completed and posted a clean verdict (no findings) |
-| `pr:reviewed-reject` | `cai review-pr` completed and posted findings (changes needed) |
-| `pr:documented` | `cai review-docs` completed (documentation is current) |
+| `pr:reviewing-code` | PR is in code review (`cai review-pr`); a new SHA lands here on any push |
+| `pr:revision-pending` | `cai review-pr` posted findings; `cai revise` will address them |
+| `pr:reviewing-docs` | Code review clean; docs review is next, and merge fires from this state once a clean docs comment lands at HEAD |
+| `pr:ci-failing` | Checks are red; `cai fix-ci` is the action — returns to `pr:reviewing-code` after a push |
 
 ## The Cycle Command
 
