@@ -16,6 +16,7 @@ from cai_lib.config import (
     LABEL_IN_PROGRESS,
     LABEL_REVISING,
     LABEL_REFINED,
+    LABEL_RAISED,
     LABEL_AUDIT_RAISED,
     LABEL_NEEDS_SPIKE,
     _STALE_IN_PROGRESS_HOURS,
@@ -23,6 +24,53 @@ from cai_lib.config import (
 )
 from cai_lib.github import _gh_json, _set_labels, _issue_has_label
 from cai_lib.logging_utils import log_run
+
+
+# Label retired in favour of folding human submissions directly into
+# :raised. Helper below migrates any open issue still carrying it.
+_LEGACY_HUMAN_SUBMITTED_LABEL = "human:submitted"
+
+
+def _migrate_legacy_human_submitted() -> int:
+    """Relabel open issues carrying the retired ``human:submitted`` to ``:raised``.
+
+    Idempotent — safe to invoke at the top of every cmd_refine run; once
+    the queue is empty the function becomes a single gh call that does
+    nothing. Returns the number of issues relabelled this invocation.
+    """
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", _LEGACY_HUMAN_SUBMITTED_LABEL,
+            "--state", "open",
+            "--json", "number,labels",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai refine] migration gh issue list failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        return 0
+
+    migrated = 0
+    for issue in issues:
+        num = issue["number"]
+        labels = {lbl["name"] for lbl in issue.get("labels", [])}
+        add = [] if LABEL_RAISED in labels else [LABEL_RAISED]
+        if _set_labels(
+            num,
+            add=add,
+            remove=[_LEGACY_HUMAN_SUBMITTED_LABEL],
+            log_prefix="cai refine",
+        ):
+            migrated += 1
+            print(
+                f"[cai refine] migrated #{num}: human:submitted -> :raised",
+                flush=True,
+            )
+    return migrated
 
 
 def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:

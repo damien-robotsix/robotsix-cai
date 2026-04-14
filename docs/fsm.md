@@ -14,8 +14,8 @@ nav_order: 5
 ```mermaid
 stateDiagram-v2
     RAISED --> REFINED : raise_to_refine [≥HIGH]
-    RAISED --> NEEDS_EXPLORATION : raise_to_exploration [≥HIGH]
     RAISED --> HUMAN_NEEDED : raise_to_human [≥HIGH]
+    REFINED --> NEEDS_EXPLORATION : refine_to_exploration [≥HIGH]
     REFINED --> PLANNED : refine_to_plan [≥HIGH]
     PLANNED --> PLAN_APPROVED : plan_to_approved [≥HIGH]
     PLAN_APPROVED --> IN_PROGRESS : approved_to_in_progress [≥HIGH]

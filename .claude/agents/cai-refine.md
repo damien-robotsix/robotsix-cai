@@ -49,7 +49,15 @@ Then stop. Do not produce a `## Refined Issue` block.
 2. Use `Read`, `Grep`, and `Glob` to explore the codebase for
    context — find the files, functions, constants, and patterns
    that relate to what the human is asking for.
-3. Synthesize your findings into a concrete, actionable plan.
+3. Consult your memory pool (see **Memory** above) and any recent
+   merged PRs referenced in the codebase history. Refinement that
+   repeats prior failed attempts wastes cycles — if the issue looks
+   like a retry of something already tried and merged, say so in
+   the Description section.
+4. Synthesize your findings into a concrete, actionable plan.
+5. Decide whether the refined plan is sufficient for the plan agent
+   to proceed, or whether exploration is needed first (see
+   **Routing decision** below).
 
 ## Output format
 
@@ -77,6 +85,36 @@ file Z looks like ...">
 ### Files to change
 <best-guess list of files based on the repo state>
 ~~~
+
+## Routing decision
+
+After the `## Refined Issue` block (or after `## No Refinement
+Needed`), emit exactly one line — in this casing — naming what the
+pipeline should do next:
+
+```
+NextStep: PLAN
+```
+
+or
+
+```
+NextStep: EXPLORE
+```
+
+- Use `NextStep: PLAN` when the refined plan is concrete enough that
+  the plan agent can write an implementation plan against it with no
+  further investigation.
+- Use `NextStep: EXPLORE` when the plan references behaviour that
+  needs benchmarking, empirical validation, or codebase-wide
+  archaeology before a plan can be committed to. The wrapper will
+  transition the issue to `auto-improve:needs-exploration` and the
+  `cai-explore` agent will run next; its findings come back to you
+  for a second refinement pass.
+
+If you emit neither line, the wrapper treats it as `NextStep: PLAN`
+— that preserves the current behaviour but defeats the routing
+decision, so prefer being explicit.
 
 ## Multi-step issues
 

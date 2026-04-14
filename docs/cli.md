@@ -56,7 +56,7 @@ Print a human-readable cost report from `/var/log/cai/cai-cost.jsonl`.
 
 ## cycle
 
-Continuously run the full pipeline until nothing is left to do: verify + confirm → recover stale locks → drain pending PRs (revise → fix-ci → review-pr → review-docs → merge) → refine one `:raised` or `human:submitted` issue → fix/spike/explore loop → final confirm.
+Continuously run the full pipeline until nothing is left to do: verify + confirm → recover stale locks → drain pending PRs (revise → fix-ci → review-pr → review-docs → merge) → refine one `:raised` issue → fix/spike/explore loop → final confirm.
 
 No arguments.
 
@@ -114,7 +114,7 @@ No arguments.
 
 ## refine
 
-Invoke `cai-refine` on the oldest `auto-improve:raised` or `human:submitted` issue to produce a structured implementation plan (transitions to `:refined`).
+Invoke `cai-refine` on the oldest `auto-improve:raised` issue to produce a structured implementation plan (transitions to `:refined`). The agent emits `NextStep: PLAN | EXPLORE`; on `EXPLORE` the wrapper additionally fires the `refine_to_exploration` transition so the issue moves to `auto-improve:needs-exploration`.
 
 | Argument | Type | Description |
 |---|---|---|

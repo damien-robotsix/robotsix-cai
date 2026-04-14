@@ -48,7 +48,7 @@
 | `cai_lib/cmd_implement.py` | Helpers for the implement-subagent pipeline |
 | `cai_lib/cmd_lifecycle.py` | Pipeline state-transition helpers |
 | `cai_lib/config.py` | Shared constants and path definitions |
-| `cai_lib/fsm.py` | TODO: add description |
+| `cai_lib/fsm.py` | FSM data structures + transition application helpers (Confidence enum, apply_transition, divert-to-human, pending markers) |
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
 | `cai_lib/subprocess_utils.py` | Subprocess helpers extracted from cai.py |
@@ -68,7 +68,7 @@
 | `scripts/generate-fsm-docs.py` | Generator script for docs/fsm.md (renders cai_lib.fsm transitions as Mermaid) |
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
 | `tests/__init__.py` | Test package init |
-| `tests/test_fsm.py` | TODO: add description |
+| `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
 | `tests/test_parse.py` | Tests for parse.py signal extraction |

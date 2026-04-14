@@ -4,7 +4,7 @@
 
 `robotsix-cai` is a self-improving agent system. The continuous loop runs inside a long-lived Docker container and drives GitHub issues through a well-defined lifecycle:
 
-1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised` or `human:submitted`.
+1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised` (the sole entry point — the former `human:submitted` label has been folded into `:raised`).
 2. **Refine** — `cai refine` calls `cai-refine` to rewrite the issue into a structured plan with steps, verification, and scope guardrails. Label transitions to `auto-improve:refined`.
 3. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. Label transitions to `auto-improve:planned`, awaiting human approval.
 4. **Human Approval** — A human reviews the generated plan and applies `human:plan-approved` label to approve the issue for fixing.
@@ -34,7 +34,6 @@
 | `auto-improve:parent` | Parent issue; child sub-issues carry the work |
 | `audit:raised` | Audit finding awaiting triage by `cai audit-triage` |
 | `audit:needs-human` | Audit finding escalated to human |
-| `human:submitted` | Human-submitted issue awaiting refinement |
 | `merge-blocked` | PR has a blocking review finding; will not auto-merge |
 | `needs-human-review` | Issue or PR requires human attention |
 | `pr:edited` | PR branch has been updated by `cai revise`, `cai review-docs`, or polling sweep (when non-bot commits are detected after a stale pipeline label) |
