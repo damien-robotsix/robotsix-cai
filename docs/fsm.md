@@ -26,7 +26,6 @@ stateDiagram-v2
     NEEDS_EXPLORATION --> REFINED : exploration_to_refine [≥HIGH]
     HUMAN_NEEDED --> RAISED : human_to_raised [≥HIGH]
     HUMAN_NEEDED --> REFINED : human_to_refined [≥HIGH]
-    HUMAN_NEEDED --> PLANNED : human_to_planned [≥HIGH]
     HUMAN_NEEDED --> PLAN_APPROVED : human_to_plan_approved [≥HIGH]
     HUMAN_NEEDED --> NEEDS_EXPLORATION : human_to_exploration [≥HIGH]
     HUMAN_NEEDED --> SOLVED : human_to_solved [≥HIGH]

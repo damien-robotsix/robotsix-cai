@@ -11,7 +11,8 @@ from cai_lib.fsm import (
     ISSUE_TRANSITIONS, PR_TRANSITIONS,
     get_issue_state, render_fsm_mermaid,
     apply_transition, apply_transition_with_confidence, find_transition,
-    parse_confidence, parse_resume_target, resume_transition_for,
+    parse_confidence, parse_resume_target,
+    resume_transition_for, resume_pr_transition_for,
     render_pending_marker, parse_pending_marker, strip_pending_marker,
 )
 from cai_lib.config import (
@@ -285,7 +286,7 @@ class TestResumeFromHuman(unittest.TestCase):
         self.assertIsNone(parse_resume_target("no resume line here"))
 
     def test_resume_transition_for_known_targets(self):
-        for name in ("RAISED", "REFINED", "PLANNED", "PLAN_APPROVED",
+        for name in ("RAISED", "REFINED", "PLAN_APPROVED",
                      "NEEDS_EXPLORATION", "SOLVED"):
             t = resume_transition_for(name)
             self.assertIsNotNone(t, f"no resume transition for {name}")
@@ -298,6 +299,9 @@ class TestResumeFromHuman(unittest.TestCase):
         # States that exist but have no human_to_* path must return None.
         self.assertIsNone(resume_transition_for("IN_PROGRESS"))
         self.assertIsNone(resume_transition_for("MERGED"))
+        # PLANNED is deliberately excluded: admins cannot jump straight
+        # to PLANNED because the plan block only exists post-plan-agent.
+        self.assertIsNone(resume_transition_for("PLANNED"))
 
     def test_every_widened_transition_is_reachable(self):
         """Every human_to_<state> transition must be discoverable via resume_transition_for."""
@@ -305,11 +309,41 @@ class TestResumeFromHuman(unittest.TestCase):
             t for t in ISSUE_TRANSITIONS
             if t.from_state == IssueState.HUMAN_NEEDED
         ]
-        self.assertGreaterEqual(len(widened), 6)
+        self.assertGreaterEqual(len(widened), 5)
         for t in widened:
             resolved = resume_transition_for(t.to_state.name)
             self.assertIs(resolved, t,
                 f"resume_transition_for({t.to_state.name}) did not return {t.name}")
+
+
+class TestResumePRTransition(unittest.TestCase):
+
+    def test_known_pr_targets(self):
+        for name in ("REVIEWING", "REVISION_PENDING", "APPROVED", "MERGED"):
+            t = resume_pr_transition_for(name)
+            self.assertIsNotNone(t, f"no PR resume transition for {name}")
+            self.assertEqual(t.from_state, PRState.PR_HUMAN_NEEDED)
+            self.assertEqual(t.to_state, PRState[name])
+
+    def test_unknown_returns_none(self):
+        self.assertIsNone(resume_pr_transition_for("NOT_A_STATE"))
+        self.assertIsNone(resume_pr_transition_for(""))
+        # PRState has no OPEN→from-PR_HUMAN_NEEDED path.
+        self.assertIsNone(resume_pr_transition_for("OPEN"))
+
+    def test_issue_and_pr_resolvers_disambiguate_merged(self):
+        """MERGED exists in both enums — the two resolvers keep them separate."""
+        issue_t = resume_transition_for("SOLVED")  # Issue path uses SOLVED, not MERGED
+        pr_t = resume_pr_transition_for("MERGED")
+        self.assertIsNotNone(issue_t)
+        self.assertIsNotNone(pr_t)
+        self.assertEqual(issue_t.to_state, IssueState.SOLVED)
+        self.assertEqual(pr_t.to_state, PRState.MERGED)
+
+        # Passing a PRState name to the issue resolver must return None.
+        self.assertIsNone(resume_transition_for("REVIEWING"))
+        # Passing an IssueState-only name to the PR resolver must return None.
+        self.assertIsNone(resume_pr_transition_for("REFINED"))
 
 
 if __name__ == "__main__":
