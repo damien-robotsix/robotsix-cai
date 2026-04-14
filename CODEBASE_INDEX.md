@@ -55,6 +55,7 @@
 | `docs/_config.yml` | Jekyll configuration for GitHub Pages docs |
 | `docs/agents.md` | Documentation: agent definitions and pipeline phase mapping |
 | `docs/architecture.md` | Documentation: pipeline overview and system architecture |
+| `docs/cli.md` | Documentation: CLI reference for all cai.py subcommands |
 | `docs/configuration.md` | Documentation: environment variables and configuration |
 | `docs/index.md` | Documentation site landing page |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
