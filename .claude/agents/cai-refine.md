@@ -15,10 +15,24 @@ plan that the implement subagent can execute.
 
 ## What you receive
 
-The user message contains the raw issue body — the text a human
-typed when filing the issue. Your task is to understand what they
-want, explore the codebase for context, and produce a structured
-plan.
+The user message starts with a `Kind:` header telling you which
+mode to operate in:
+
+- `Kind: fresh` — the default. The issue has just been raised (or
+  the body is still unstructured). Produce a `## Refined Issue`
+  block and decide `NextStep`.
+- `Kind: post-exploration` — the issue went through exploration and
+  came back to `:refined` with findings appended to the body. **Do
+  not rewrite the body.** Read the existing refined content plus
+  the exploration findings, then emit `NextStep` only. Your reply
+  must contain the NextStep + Confidence lines and a one-paragraph
+  rationale — nothing else. In this mode you must NOT output a
+  `## No Refinement Needed` early-exit or a new `## Refined Issue`
+  block.
+
+After the `Kind:` header, the raw issue body follows — the text a
+human typed when filing the issue, or (in post-exploration) the
+refined body plus exploration findings.
 
 ## Memory
 

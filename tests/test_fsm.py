@@ -14,6 +14,8 @@ from cai_lib.fsm import (
     parse_confidence, parse_resume_target,
     resume_transition_for, resume_pr_transition_for,
     render_pending_marker, parse_pending_marker, strip_pending_marker,
+    REFINE_DECIDED_MARKER, has_refine_decided_marker,
+    strip_refine_decided_marker, append_refine_decided_marker,
 )
 from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED,
@@ -344,6 +346,41 @@ class TestResumePRTransition(unittest.TestCase):
         self.assertIsNone(resume_transition_for("REVIEWING"))
         # Passing an IssueState-only name to the PR resolver must return None.
         self.assertIsNone(resume_pr_transition_for("REFINED"))
+
+
+class TestRefineDecidedMarker(unittest.TestCase):
+
+    def test_has_marker_detects(self):
+        self.assertFalse(has_refine_decided_marker(""))
+        self.assertFalse(has_refine_decided_marker("plain body"))
+        self.assertTrue(has_refine_decided_marker(f"body\n{REFINE_DECIDED_MARKER}\n"))
+        # Whitespace tolerant
+        self.assertTrue(has_refine_decided_marker("<!--   cai-refine-decided   -->"))
+
+    def test_append_is_idempotent(self):
+        body = "existing body"
+        once = append_refine_decided_marker(body)
+        twice = append_refine_decided_marker(once)
+        self.assertEqual(once, twice)
+        self.assertTrue(has_refine_decided_marker(once))
+
+    def test_append_preserves_trailing_newline(self):
+        with_nl = append_refine_decided_marker("body\n")
+        self.assertTrue(with_nl.endswith("\n"))
+        without_nl = append_refine_decided_marker("body")
+        self.assertFalse(without_nl.endswith("\n"))
+
+    def test_strip_roundtrip(self):
+        body = "Refined content\nmore text"
+        marked = append_refine_decided_marker(body)
+        self.assertTrue(has_refine_decided_marker(marked))
+        stripped = strip_refine_decided_marker(marked)
+        self.assertFalse(has_refine_decided_marker(stripped))
+        self.assertIn("Refined content", stripped)
+
+    def test_strip_noop_when_absent(self):
+        self.assertEqual(strip_refine_decided_marker("plain"), "plain")
+        self.assertEqual(strip_refine_decided_marker(""), "")
 
 
 class TestRefineNextStepParser(unittest.TestCase):

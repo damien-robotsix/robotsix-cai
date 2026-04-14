@@ -201,7 +201,11 @@ from cai_lib.cmd_lifecycle import (  # noqa: E402
     _rollback_stale_in_progress, _reconcile_interrupted,
     _migrate_legacy_human_submitted,
 )
-from cai_lib.fsm import apply_transition  # noqa: E402
+from cai_lib.fsm import (  # noqa: E402
+    apply_transition,
+    append_refine_decided_marker,
+    has_refine_decided_marker,
+)
 from cai_lib.cmd_implement import _parse_decomposition  # noqa: E402
 
 
@@ -7531,15 +7535,28 @@ def cmd_refine(args) -> int:
         title = issue["title"]
         print(f"[cai refine] targeting #{issue_number}: {title}", flush=True)
     else:
+        # cmd_refine now consumes TWO candidate pools:
+        #   1. :raised issues — fresh intake, refine produces a structured body
+        #   2. :refined issues without the cai-refine-decided marker —
+        #      issues returning from exploration that need a re-decision on
+        #      whether the exploration was enough to plan.
+        # :refined issues WITH the marker are cmd_plan's territory; skipping
+        # them here keeps the two commands from fighting over the queue.
+        candidates: list[dict] = []
         try:
-            issues = _gh_json([
-                "issue", "list",
-                "--repo", REPO,
-                "--label", LABEL_RAISED,
-                "--state", "open",
-                "--json", "number,title,body,labels,createdAt,comments",
-                "--limit", "100",
-            ]) or []
+            for label in (LABEL_RAISED, LABEL_REFINED):
+                batch = _gh_json([
+                    "issue", "list",
+                    "--repo", REPO,
+                    "--label", label,
+                    "--state", "open",
+                    "--json", "number,title,body,labels,createdAt,comments",
+                    "--limit", "100",
+                ]) or []
+                if label == LABEL_REFINED:
+                    batch = [i for i in batch
+                             if not has_refine_decided_marker(i.get("body") or "")]
+                candidates.extend(batch)
         except subprocess.CalledProcessError as e:
             print(
                 f"[cai refine] gh issue list failed:\n{e.stderr}",
@@ -7548,19 +7565,26 @@ def cmd_refine(args) -> int:
             log_run("refine", repo=REPO, result="list_failed", exit=1)
             return 1
 
-        if not issues:
-            print("[cai refine] no :raised issues; nothing to do", flush=True)
+        if not candidates:
+            print("[cai refine] no eligible :raised or :refined issues; "
+                  "nothing to do", flush=True)
             log_run("refine", repo=REPO, result="no_eligible_issues", exit=0)
             return 0
 
-        # 2. Pick the oldest.
-        issue = min(issues, key=lambda i: i["createdAt"])
+        # 2. Pick the oldest across both pools.
+        issue = min(candidates, key=lambda i: i["createdAt"])
         issue_number = issue["number"]
         title = issue["title"]
         print(f"[cai refine] picked #{issue_number}: {title}", flush=True)
 
-    # 3. Build user message and invoke cai-refine (read-only, no clone needed).
-    user_message = _build_issue_block(issue)
+    # 3. Determine kind. :refined issues coming back from exploration enter
+    #    cmd_refine in "post-exploration" mode — the agent emits only a
+    #    NextStep decision, no body rewrite.
+    issue_label_names_initial = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
+    kind = "post-exploration" if LABEL_REFINED in issue_label_names_initial else "fresh"
+    print(f"[cai refine] kind={kind}", flush=True)
+
+    user_message = f"Kind: {kind}\n\n" + _build_issue_block(issue)
     _write_active_job("refine", "issue", issue_number)
     try:
         result = _run_claude_p(
@@ -7588,6 +7612,38 @@ def cmd_refine(args) -> int:
     stdout = result.stdout
     issue_label_names = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
 
+    # Post-exploration mode: no body rewrite, no raise_to_refine.
+    # The agent's job is only to decide NextStep on an already-refined issue.
+    if kind == "post-exploration":
+        next_step = _parse_refine_next_step(stdout)
+        dur = f"{int(time.monotonic() - t0)}s"
+        if next_step == "EXPLORE":
+            apply_transition(
+                issue_number, "refine_to_exploration",
+                current_labels=[LABEL_REFINED],
+                log_prefix="cai refine",
+            )
+            print(
+                f"[cai refine] #{issue_number} post-exploration routed back to "
+                f":needs-exploration in {dur}",
+                flush=True,
+            )
+            log_run("refine", repo=REPO, issue=issue_number,
+                    duration=dur, result="post_exploration_explore", exit=0)
+            return 0
+
+        # PLAN or missing: mark the issue as decided so we don't re-pick
+        # it on the next cmd_refine run. cmd_plan will drain it.
+        if _apply_refine_decided_marker(issue_number, issue.get("body") or ""):
+            print(
+                f"[cai refine] #{issue_number} post-exploration decided PLAN; "
+                f"marker applied in {dur}",
+                flush=True,
+            )
+        log_run("refine", repo=REPO, issue=issue_number,
+                duration=dur, result="post_exploration_plan", exit=0)
+        return 0
+
     # 4. Check for early-exit (already structured).
     if "## No Refinement Needed" in stdout:
         print(
@@ -7600,6 +7656,9 @@ def cmd_refine(args) -> int:
             current_labels=issue_label_names,
             log_prefix="cai refine",
         )
+        # Pre-structured issues go straight to planning — no NextStep
+        # decision path applies. Mark them so cmd_refine doesn't re-pick.
+        _apply_refine_decided_marker(issue_number, issue.get("body") or "")
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("refine", repo=REPO, issue=issue_number,
                 duration=dur, result="already_structured", exit=0)
@@ -7655,6 +7714,10 @@ def cmd_refine(args) -> int:
     refined_body = stdout[marker_pos:].strip()
 
     # 6. Build the new issue body: refined content + original text quoted.
+    # The decided marker is appended only when the agent's NextStep is PLAN;
+    # EXPLORE routes the issue off :refined so a marker here would persist
+    # through the exploration loop and prevent re-decision on return.
+    next_step = _parse_refine_next_step(stdout)
     original_body = _strip_stored_plan_block(issue.get("body") or "(no body)")
     quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
     new_body = (
@@ -7663,6 +7726,8 @@ def cmd_refine(args) -> int:
         f"> **Original issue text:**\n>\n"
         f"{quoted_original}\n"
     )
+    if next_step != "EXPLORE":
+        new_body = append_refine_decided_marker(new_body)
 
     # 7. Update the issue body.
     update = _run(
@@ -7690,8 +7755,8 @@ def cmd_refine(args) -> int:
     # 9. Routing decision: if the refine agent requested exploration,
     #    fire the second transition so the issue moves off :refined and
     #    onto :needs-exploration for cmd_explore to pick up. Otherwise
-    #    the issue stays at :refined and cmd_plan drains it as usual.
-    next_step = _parse_refine_next_step(stdout)
+    #    the issue stays at :refined (with the decided marker appended
+    #    above) and cmd_plan drains it.
     dur = f"{int(time.monotonic() - t0)}s"
     if next_step == "EXPLORE":
         # Re-fetch labels — the previous apply_transition moved us to :refined.
@@ -7717,6 +7782,32 @@ def cmd_refine(args) -> int:
     log_run("refine", repo=REPO, issue=issue_number,
             duration=dur, result="refined", exit=0)
     return 0
+
+
+def _apply_refine_decided_marker(issue_number: int, current_body: str) -> bool:
+    """Ensure the cai-refine-decided marker is present on *issue_number*.
+
+    Idempotent — does nothing if the marker is already in the body.
+    Returns True on success (or no-op), False on gh failure. Used by
+    cmd_refine at the end of a PLAN decision path so the candidate
+    selector skips the issue on the next run.
+    """
+    if has_refine_decided_marker(current_body):
+        return True
+    new_body = append_refine_decided_marker(current_body)
+    update = _run(
+        ["gh", "issue", "edit", str(issue_number),
+         "--repo", REPO, "--body", new_body],
+        capture_output=True,
+    )
+    if update.returncode != 0:
+        print(
+            f"[cai refine] failed to append decided marker on #{issue_number}:\n"
+            f"{update.stderr}",
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 _REFINE_NEXT_STEP_RE = re.compile(
