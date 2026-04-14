@@ -6400,7 +6400,7 @@ def cmd_review_docs(args) -> int:
             target_pr = _gh_json([
                 "pr", "view", str(args.pr),
                 "--repo", REPO,
-                "--json", "number,title,author,headRefOid,headRefName,body,comments",
+                "--json", "number,title,author,headRefOid,headRefName,body,comments,labels",
             ])
         except subprocess.CalledProcessError as e:
             print(f"[cai review-docs] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
@@ -6414,7 +6414,7 @@ def cmd_review_docs(args) -> int:
                 "--repo", REPO,
                 "--state", "open",
                 "--base", "main",
-                "--json", "number,title,author,headRefOid,headRefName,body,comments",
+                "--json", "number,title,author,headRefOid,headRefName,body,comments,labels",
                 "--limit", "50",
             ]) or []
         except subprocess.CalledProcessError as e:
@@ -6855,7 +6855,7 @@ def cmd_merge(args) -> int:
             target_pr = _gh_json([
                 "pr", "view", str(args.pr),
                 "--repo", REPO,
-                "--json", "number,title,headRefName,headRefOid,comments,mergeable",
+                "--json", "number,title,headRefName,headRefOid,comments,mergeable,labels",
             ])
         except subprocess.CalledProcessError as e:
             print(f"[cai merge] gh pr view #{args.pr} failed:\n{e.stderr}", file=sys.stderr)
@@ -6869,7 +6869,7 @@ def cmd_merge(args) -> int:
                 "--repo", REPO,
                 "--state", "open",
                 "--base", "main",
-                "--json", "number,title,headRefName,headRefOid,comments,mergeable",
+                "--json", "number,title,headRefName,headRefOid,comments,mergeable,labels",
                 "--limit", "50",
             ]) or []
         except subprocess.CalledProcessError as e:
