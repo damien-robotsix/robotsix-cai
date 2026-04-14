@@ -6475,15 +6475,33 @@ def cmd_review_pr(args) -> int:
             )
             if agent.stdout:
                 print(agent.stdout, flush=True)
-            if agent.returncode != 0:
+
+            agent_output = (agent.stdout or "").strip()
+
+            # A nonzero exit combined with a usable verdict in stdout
+            # happens when the run hits --max-budget-usd after the
+            # agent already produced its final answer (the result
+            # envelope arrives with subtype=error_max_budget_usd and
+            # no `result` field, so _run_claude_p salvages the last
+            # assistant text). Post the salvaged verdict instead of
+            # discarding the work.
+            has_verdict = (
+                "### Finding:" in agent_output
+                or "No ripple effects found" in agent_output
+            )
+            if agent.returncode != 0 and not has_verdict:
                 print(
                     f"[cai review-pr] agent failed for PR #{pr_number} "
                     f"(exit {agent.returncode}):\n{agent.stderr}",
                     file=sys.stderr,
                 )
                 continue
-
-            agent_output = (agent.stdout or "").strip()
+            if agent.returncode != 0 and has_verdict:
+                print(
+                    f"[cai review-pr] agent exited {agent.returncode} "
+                    f"for PR #{pr_number} but produced a verdict; salvaging",
+                    flush=True,
+                )
 
             # Parse and create any out-of-scope issues emitted by the agent,
             # then strip them from agent_output so they don't appear in the
