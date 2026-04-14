@@ -15,6 +15,9 @@ nav_order: 5
 stateDiagram-v2
     RAISED --> REFINING : raise_to_refining [≥HIGH]
     RAISED --> HUMAN_NEEDED : raise_to_human [≥HIGH]
+    RAISED --> TRIAGING : raise_to_triaging [≥HIGH]
+    TRIAGING --> REFINING : triaging_to_refining [≥HIGH]
+    TRIAGING --> HUMAN_NEEDED : triaging_to_human [≥HIGH]
     REFINING --> REFINED : refining_to_refined [≥HIGH]
     REFINING --> NEEDS_EXPLORATION : refining_to_exploration [≥HIGH]
     REFINING --> HUMAN_NEEDED : refining_to_human [≥HIGH]

@@ -28,6 +28,7 @@
 | `.claude/agents/cai-revise.md` | Agent: handle review comments on auto-improve PRs |
 | `.claude/agents/cai-select.md` | Agent: evaluate and select best fix plan |
 | `.claude/agents/cai-spike.md` | Agent: research spike for needs-spike issues |
+| `.claude/agents/cai-triage.md` | TODO: add description |
 | `.claude/agents/cai-unblock.md` | Agent: classify admin comments on :human-needed issues into FSM resume targets |
 | `.claude/agents/cai-update-check.md` | Agent: check for new Claude Code releases |
 | `.claude/settings.json` | Claude Code harness configuration |
