@@ -121,6 +121,24 @@ If you find **no** ripple effects, output exactly:
 No ripple effects found.
 ```
 
+If you find a real problem that is **clearly out of scope for this PR**
+(a pre-existing bug, a systemic pattern this PR merely exposes, or an
+issue that belongs in a separate component), do **not** emit a
+`### Finding:` block for it. Instead emit an `## Out-of-scope Issue`
+block so the wrapper can file a separate GitHub issue:
+
+```
+## Out-of-scope Issue
+### Title
+<short issue title — one line>
+### Body
+<what the problem is, why it matters, and what a fix would look like>
+```
+
+You may emit multiple `## Out-of-scope Issue` blocks. They will be
+stripped from the PR comment — reviewers will not see them; a new
+GitHub issue will be created automatically instead.
+
 ## Hard rules
 
 1. **Only report real inconsistencies.** Do not flag style, naming
@@ -141,6 +159,11 @@ No ripple effects found.
    inline comment, or help-text findings. `cai-review-docs` handles
    all of that. If a finding you're about to emit only concerns
    `.md` files or prose inside code, drop it.
+8. **Use `## Out-of-scope Issue` for pre-existing problems.** If a
+   finding is real but clearly predates or exceeds the scope of this
+   PR, emit an `## Out-of-scope Issue` block (see Output format)
+   rather than a `### Finding:` block. Do not block the PR on work
+   that belongs in a separate issue.
 
 ## Agent-specific efficiency guidance
 
