@@ -7,13 +7,16 @@ from collections import deque
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cai_lib.fsm import (
-    IssueState, PRState, Transition,
+    IssueState, PRState, Transition, Confidence,
     ISSUE_TRANSITIONS, PR_TRANSITIONS,
     get_issue_state, render_fsm_mermaid,
-    apply_transition, find_transition,
+    apply_transition, apply_transition_with_confidence, find_transition,
+    parse_confidence,
+    render_pending_marker, parse_pending_marker, strip_pending_marker,
 )
 from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED, LABEL_HUMAN_SUBMITTED,
+    LABEL_HUMAN_NEEDED,
 )
 
 
@@ -63,10 +66,8 @@ class TestFsm(unittest.TestCase):
         for t in ISSUE_TRANSITIONS:
             self.assertIn(t.name, result,
                 f"Transition {t.name!r} missing from mermaid output")
-        for t in ISSUE_TRANSITIONS:
-            if t.min_confidence > 0.0:
-                self.assertIn(f"[≥{t.min_confidence}]", result,
-                    f"Confidence annotation missing for {t.name!r}")
+            self.assertIn(f"[≥{t.min_confidence.name}]", result,
+                f"Confidence annotation missing for {t.name!r}")
 
     def test_pr_transitions_are_transition_objects(self):
         self.assertTrue(len(PR_TRANSITIONS) > 0)
@@ -77,6 +78,31 @@ class TestFsm(unittest.TestCase):
                 f"from_state {t.from_state!r} is not a PRState member")
             self.assertIsInstance(t.to_state, PRState,
                 f"to_state {t.to_state!r} is not a PRState member")
+
+
+class TestConfidenceEnum(unittest.TestCase):
+
+    def test_ordering(self):
+        self.assertTrue(Confidence.LOW < Confidence.MEDIUM < Confidence.HIGH)
+        self.assertTrue(Confidence.HIGH >= Confidence.HIGH)
+        self.assertFalse(Confidence.LOW >= Confidence.HIGH)
+
+    def test_parse_valid(self):
+        self.assertEqual(parse_confidence("Confidence: HIGH"), Confidence.HIGH)
+        self.assertEqual(parse_confidence("some text\nConfidence: medium\nmore"), Confidence.MEDIUM)
+        self.assertEqual(parse_confidence("Confidence=LOW"), Confidence.LOW)
+
+    def test_parse_missing_returns_none(self):
+        self.assertIsNone(parse_confidence(""))
+        self.assertIsNone(parse_confidence("no confidence line here"))
+        self.assertIsNone(parse_confidence("Confidence: BOGUS"))
+
+    def test_transition_accepts(self):
+        t = find_transition("raise_to_refine")
+        # default threshold is HIGH
+        self.assertTrue(t.accepts(Confidence.HIGH))
+        self.assertFalse(t.accepts(Confidence.MEDIUM))
+        self.assertFalse(t.accepts(None))
 
 
 class TestApplyTransition(unittest.TestCase):
@@ -121,7 +147,7 @@ class TestApplyTransition(unittest.TestCase):
         calls, fake = self._recording_set_labels()
         ok = apply_transition(
             9, "raise_to_refine",
-            current_labels=[LABEL_REFINED],  # wrong from_state
+            current_labels=[LABEL_REFINED],
             set_labels=fake,
         )
         self.assertFalse(ok)
@@ -141,6 +167,110 @@ class TestApplyTransition(unittest.TestCase):
         t = find_transition("raise_to_refine")
         self.assertEqual(t.from_state, IssueState.RAISED)
         self.assertEqual(t.to_state, IssueState.REFINED)
+
+
+class TestApplyTransitionWithConfidence(unittest.TestCase):
+
+    def _recording_set_labels(self):
+        calls = []
+        def _fake(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            calls.append({
+                "issue_number": issue_number,
+                "add": list(add),
+                "remove": list(remove),
+                "log_prefix": log_prefix,
+            })
+            return True
+        return calls, _fake
+
+    def test_high_confidence_applies_nominal_transition(self):
+        calls, fake = self._recording_set_labels()
+        ok, diverted = apply_transition_with_confidence(
+            11, "raise_to_refine", Confidence.HIGH,
+            current_labels=[LABEL_RAISED],
+            set_labels=fake,
+        )
+        self.assertTrue(ok)
+        self.assertFalse(diverted)
+        self.assertIn(LABEL_REFINED, calls[0]["add"])
+
+    def test_medium_confidence_diverts_to_human(self):
+        calls, fake = self._recording_set_labels()
+        ok, diverted = apply_transition_with_confidence(
+            12, "raise_to_refine", Confidence.MEDIUM,
+            current_labels=[LABEL_RAISED],
+            set_labels=fake,
+        )
+        self.assertTrue(ok)
+        self.assertTrue(diverted)
+        self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
+        self.assertIn(LABEL_RAISED, calls[0]["remove"])
+        self.assertNotIn(LABEL_REFINED, calls[0]["add"])
+
+    def test_missing_confidence_diverts_to_human(self):
+        calls, fake = self._recording_set_labels()
+        ok, diverted = apply_transition_with_confidence(
+            13, "raise_to_refine", None,
+            current_labels=[LABEL_RAISED],
+            set_labels=fake,
+        )
+        self.assertTrue(ok)
+        self.assertTrue(diverted)
+        self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
+
+    def test_divert_respects_from_state_mismatch(self):
+        calls, fake = self._recording_set_labels()
+        ok, diverted = apply_transition_with_confidence(
+            14, "raise_to_refine", None,
+            current_labels=[LABEL_REFINED],  # wrong state
+            set_labels=fake,
+        )
+        self.assertFalse(ok)
+        self.assertFalse(diverted)
+        self.assertEqual(calls, [])
+
+
+class TestPendingMarker(unittest.TestCase):
+
+    def test_roundtrip_with_confidence(self):
+        marker = render_pending_marker(
+            transition_name="raise_to_refine",
+            from_state=IssueState.RAISED,
+            intended_state=IssueState.REFINED,
+            confidence=Confidence.MEDIUM,
+        )
+        parsed = parse_pending_marker(f"body text\n{marker}\nmore text")
+        self.assertEqual(parsed["transition"], "raise_to_refine")
+        self.assertEqual(parsed["from"], "RAISED")
+        self.assertEqual(parsed["intended"], "REFINED")
+        self.assertEqual(parsed["conf"], "MEDIUM")
+
+    def test_roundtrip_with_missing_confidence(self):
+        marker = render_pending_marker(
+            transition_name="raise_to_refine",
+            from_state=IssueState.RAISED,
+            intended_state=IssueState.REFINED,
+            confidence=None,
+        )
+        parsed = parse_pending_marker(marker)
+        self.assertEqual(parsed["conf"], "MISSING")
+
+    def test_parse_returns_none_when_absent(self):
+        self.assertIsNone(parse_pending_marker("a plain issue body"))
+        self.assertIsNone(parse_pending_marker(""))
+
+    def test_strip_removes_marker(self):
+        marker = render_pending_marker(
+            transition_name="raise_to_refine",
+            from_state=IssueState.RAISED,
+            intended_state=IssueState.REFINED,
+            confidence=Confidence.LOW,
+        )
+        body = f"leading text\n\n{marker}\n\ntrailing text\n"
+        stripped = strip_pending_marker(body)
+        self.assertNotIn("cai-fsm-pending", stripped)
+        self.assertIn("leading text", stripped)
+        self.assertIn("trailing text", stripped)
 
 
 if __name__ == "__main__":

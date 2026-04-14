@@ -13,29 +13,29 @@ nav_order: 5
 
 ```mermaid
 stateDiagram-v2
-    RAISED --> REFINED : raise_to_refine [≥0.6]
-    RAISED --> NEEDS_EXPLORATION : raise_to_exploration
-    RAISED --> HUMAN_NEEDED : raise_to_human
-    REFINED --> PLANNED : refine_to_plan
-    PLANNED --> PLAN_APPROVED : plan_to_approved
-    PLAN_APPROVED --> IN_PROGRESS : approved_to_in_progress
-    REFINED --> IN_PROGRESS : refine_to_in_progress
-    IN_PROGRESS --> PR : in_progress_to_pr
-    PR --> MERGED : pr_to_merged [≥0.8]
-    MERGED --> SOLVED : merged_to_solved [≥0.7]
-    NEEDS_EXPLORATION --> REFINED : exploration_to_refine
-    HUMAN_NEEDED --> RAISED : human_to_raised
+    RAISED --> REFINED : raise_to_refine [≥HIGH]
+    RAISED --> NEEDS_EXPLORATION : raise_to_exploration [≥HIGH]
+    RAISED --> HUMAN_NEEDED : raise_to_human [≥HIGH]
+    REFINED --> PLANNED : refine_to_plan [≥HIGH]
+    PLANNED --> PLAN_APPROVED : plan_to_approved [≥HIGH]
+    PLAN_APPROVED --> IN_PROGRESS : approved_to_in_progress [≥HIGH]
+    REFINED --> IN_PROGRESS : refine_to_in_progress [≥HIGH]
+    IN_PROGRESS --> PR : in_progress_to_pr [≥HIGH]
+    PR --> MERGED : pr_to_merged [≥HIGH]
+    MERGED --> SOLVED : merged_to_solved [≥HIGH]
+    NEEDS_EXPLORATION --> REFINED : exploration_to_refine [≥HIGH]
+    HUMAN_NEEDED --> RAISED : human_to_raised [≥HIGH]
 ```
 
 ## PR state machine
 
 ```mermaid
 stateDiagram-v2
-    OPEN --> REVIEWING : pr_open_to_reviewing
-    REVIEWING --> REVISION_PENDING : reviewing_to_revision_pending
-    REVISION_PENDING --> REVIEWING : revision_pending_to_reviewing
-    REVIEWING --> APPROVED : reviewing_to_approved
-    APPROVED --> MERGED : approved_to_merged [≥0.8]
-    REVIEWING --> PR_HUMAN_NEEDED : pr_to_human
-    PR_HUMAN_NEEDED --> REVIEWING : pr_human_to_reviewing
+    OPEN --> REVIEWING : pr_open_to_reviewing [≥HIGH]
+    REVIEWING --> REVISION_PENDING : reviewing_to_revision_pending [≥HIGH]
+    REVISION_PENDING --> REVIEWING : revision_pending_to_reviewing [≥HIGH]
+    REVIEWING --> APPROVED : reviewing_to_approved [≥HIGH]
+    APPROVED --> MERGED : approved_to_merged [≥HIGH]
+    REVIEWING --> PR_HUMAN_NEEDED : pr_to_human [≥HIGH]
+    PR_HUMAN_NEEDED --> REVIEWING : pr_human_to_reviewing [≥HIGH]
 ```

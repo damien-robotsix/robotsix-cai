@@ -1,5 +1,6 @@
 """cai_lib.config — shared constants and path definitions."""
 
+import os
 from pathlib import Path
 
 
@@ -94,3 +95,24 @@ _STALE_IN_PROGRESS_HOURS = 6
 _STALE_REVISING_HOURS = 1
 _STALE_NO_ACTION_DAYS = 7
 _STALE_MERGED_DAYS = 14
+
+
+# ---------------------------------------------------------------------------
+# Admin identity
+#
+# Comma-separated list of GitHub logins whose comments on :human-needed
+# issues/PRs are allowed to wake the FSM resume loop. Parsed once at
+# import time; empty / unset means no one can unblock via comments (safe
+# default).
+# ---------------------------------------------------------------------------
+
+ADMIN_LOGINS: frozenset[str] = frozenset(
+    login.strip()
+    for login in os.environ.get("CAI_ADMIN_LOGINS", "").split(",")
+    if login.strip()
+)
+
+
+def is_admin_login(login: str) -> bool:
+    """True if *login* is configured as an admin via ``CAI_ADMIN_LOGINS``."""
+    return bool(login) and login in ADMIN_LOGINS
