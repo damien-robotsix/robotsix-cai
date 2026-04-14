@@ -16,11 +16,11 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives implement → revise → fix-ci → review-pr → review-docs → merge → confirm on `human:plan-approved` issues (flock-serialized, one issue at a time). `CAI_PLAN_ALL_SCHEDULE` drives every `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to approve; `plan-all` also runs at the end of each `cycle`. `:raised`, `:refined`, and `:planned` issues are never auto-fixed — a human must promote `:planned` → `human:plan-approved` before the implement loop touches them. Individual pipeline subcommands (`implement`, `refine`, `plan`, `plan-all`, `spike`, `revise`, `fix-ci`, `review-pr`, `review-docs`, `merge`, `verify`, `confirm`) remain callable manually or from GitHub Actions.
+The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives implement → revise → fix-ci → review-pr → review-docs → merge → confirm on `auto-improve:plan-approved` issues (flock-serialized, one issue at a time). `CAI_PLAN_ALL_SCHEDULE` drives every `:raised` / `:refined` issue through refine → plan; `plan-all` also runs at the end of each `cycle`. The plan step is confidence-gated: at HIGH confidence the issue auto-promotes to `:plan-approved` and enters the implement loop on the next tick; at MEDIUM / LOW / missing confidence it diverts to `:human-needed` with a pending marker, where an admin comment resumes it via `cai unblock`. `:raised`, `:refined`, and `:planned` are never picked up by the implement loop. Individual pipeline subcommands (`implement`, `refine`, `plan`, `plan-all`, `spike`, `revise`, `fix-ci`, `review-pr`, `review-docs`, `merge`, `verify`, `confirm`, `unblock`) remain callable manually or from GitHub Actions.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly implement pipeline on `human:plan-approved` issues (flock-serialized) |
+| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly implement pipeline on `auto-improve:plan-approved` issues (flock-serialized) |
 | `CAI_PLAN_ALL_SCHEDULE` | `30 * * * *` | Hourly (offset 30) — drain `:raised`/`:refined` into `:planned` |
 | `CAI_ANALYZER_SCHEDULE` | `0 0 * * *` | Daily transcript analysis and issue raising |
 | `CAI_AUDIT_SCHEDULE` | `0 */6 * * *` | Every 6 hours — queue/PR lifecycle audit |

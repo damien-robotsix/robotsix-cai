@@ -7,7 +7,7 @@
 #
 #    Pipeline (issue-solving) — a `cai.py cycle` line drives the
 #    fix → revise → review-pr → merge → confirm flow on
-#    human:plan-approved issues, while a separate `cai.py plan-all` line
+#    auto-improve:plan-approved issues, while a separate `cai.py plan-all` line
 #    drives :raised and :refined issues through refine → plan → :planned
 #    so humans can review and approve plans out-of-band. A flock in
 #    cmd_cycle guarantees at most one cycle runs at a time, so issues

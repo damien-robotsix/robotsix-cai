@@ -58,11 +58,28 @@ Assess each plan on these criteria, in order of importance:
 
 Output **only** the chosen plan — paste it exactly as provided with
 no modifications. Do not emit any selection metadata, plan numbers,
-reasoning, or wrapper headings. Your entire response should be the
-plan text and nothing else.
+reasoning, or wrapper headings. The plan text must be followed by
+exactly one trailing line:
+
+```
+Confidence: HIGH | MEDIUM | LOW
+```
+
+That confidence line drives the FSM. At **HIGH**, the wrapper
+auto-approves the plan and sends the issue straight into the
+implement pipeline — pick HIGH only when the chosen plan is
+correct, minimal, specific, and you see no material risks. At
+**MEDIUM** or **LOW**, the wrapper parks the issue in
+`auto-improve:human-needed` for an admin to review the plan
+before it is implemented — use these levels whenever either
+plan has ambiguity, unclear scope, non-trivial risk of
+regressions, or you are choosing a least-bad option.
 
 If all plans are equally bad or none correctly addresses the issue,
-pick the least-bad option. You may insert a single `> **Note:** …`
-blockquote at the very top of the output (before the plan content)
-to flag critical weaknesses for the fix agent, but keep it to one
-sentence.
+pick the least-bad option and emit `Confidence: LOW`. You may
+insert a single `> **Note:** …` blockquote at the very top of the
+output (before the plan content) to flag critical weaknesses for
+the fix agent, but keep it to one sentence.
+
+Do not emit any other text, headings, or metadata besides the plan
+body and the trailing `Confidence:` line.
