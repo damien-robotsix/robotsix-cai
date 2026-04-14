@@ -363,8 +363,7 @@ The threshold defaults to `high` — only the most clear-cut PRs merge
 or close automatically. Relax to `medium` by editing the env var once
 trust builds.
 
-`auto-improve:raised` is the sole human entry point into the pipeline
-(the former `human:submitted` label has been folded back into `:raised`).
+`auto-improve:raised` is the sole human entry point into the pipeline.
 It is restricted to repo admins by `.github/workflows/admin-only-label.yml` — a non-admin who
 applies it gets the label removed and a comment explaining why. Issues labelled `auto-improve:raised`
 transition through the full planning pipeline: `refine` → `plan` → `auto-improve:plan-approved`
