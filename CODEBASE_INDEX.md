@@ -48,6 +48,7 @@
 | `cai_lib/cmd_implement.py` | Helpers for the implement-subagent pipeline |
 | `cai_lib/cmd_lifecycle.py` | Pipeline state-transition helpers |
 | `cai_lib/config.py` | Shared constants and path definitions |
+| `cai_lib/fsm.py` | FSM data structures for the auto-improve lifecycle (IssueState, PRState, transitions) |
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
 | `cai_lib/subprocess_utils.py` | Subprocess helpers extracted from cai.py |
@@ -65,6 +66,7 @@
 | `pyproject.toml` | Python project configuration (ruff lint settings) |
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
 | `tests/__init__.py` | Test package init |
+| `tests/test_fsm.py` | Tests for FSM data structures (IssueState, PRState, transitions, render) |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
 | `tests/test_parse.py` | Tests for parse.py signal extraction |
