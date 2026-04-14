@@ -7597,26 +7597,38 @@ def cmd_triage(args) -> int:
     - REFINE (or DISMISS/PLAN_APPROVE/APPLY at non-HIGH confidence) → TRIAGING → REFINING + kind label.
     - HUMAN → TRIAGING → HUMAN_NEEDED.
     """
-    print("[cai triage] looking for :raised issues to triage", flush=True)
+    print("[cai triage] looking for issues to triage", flush=True)
     t0 = time.monotonic()
 
-    # 1. Find oldest :raised issue.
+    # 1. cmd_triage consumes two pools:
+    #   1. :raised    — fresh intake; the driver fires raise_to_triaging
+    #                   before invoking the agent
+    #   2. :triaging  — issues already in the transient working state,
+    #                   typically left behind by a crashed prior run. The
+    #                   agent is safely idempotent (body rewrites strip
+    #                   the old plan block; issue-close is a no-op if
+    #                   already closed), so re-picking them lets the
+    #                   pipeline self-heal without the stale-lock watchdog.
+    candidates: list[dict] = []
     try:
-        candidates = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_RAISED,
-            "--state", "open",
-            "--json", "number,title,body,labels,createdAt",
-            "--limit", "100",
-        ]) or []
+        for label in (LABEL_RAISED, LABEL_TRIAGING):
+            batch = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", label,
+                "--state", "open",
+                "--json", "number,title,body,labels,createdAt",
+                "--limit", "100",
+            ]) or []
+            candidates.extend(batch)
     except subprocess.CalledProcessError as e:
         print(f"[cai triage] gh issue list failed:\n{e.stderr}", file=sys.stderr)
         log_run("triage", repo=REPO, result="list_failed", exit=1)
         return 1
 
     if not candidates:
-        print("[cai triage] no :raised issues; nothing to do", flush=True)
+        print("[cai triage] no eligible :raised or :triaging issues; "
+              "nothing to do", flush=True)
         log_run("triage", repo=REPO, result="no_issues", exit=0)
         return 0
 
@@ -7625,13 +7637,15 @@ def cmd_triage(args) -> int:
     title = issue["title"]
     print(f"[cai triage] picked #{issue_number}: {title}", flush=True)
 
-    # 2. RAISED → TRIAGING.
+    # 2. RAISED → TRIAGING. :triaging issues picked up from the second
+    #    pool are already in the working state, so no transition fires.
     issue_labels = [lb["name"] for lb in issue.get("labels", [])]
-    apply_transition(
-        issue_number, "raise_to_triaging",
-        current_labels=issue_labels,
-        log_prefix="cai triage",
-    )
+    if LABEL_RAISED in issue_labels:
+        apply_transition(
+            issue_number, "raise_to_triaging",
+            current_labels=issue_labels,
+            log_prefix="cai triage",
+        )
 
     # 3. Gather context: other open auto-improve* issues + recent PRs.
     try:
