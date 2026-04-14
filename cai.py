@@ -61,8 +61,9 @@ Subcommands:
                             then escalated to `:needs-human-review`.
 
     python cai.py review-pr Walk open PRs against main, run a
-                            consistency review for ripple effects, and
-                            post findings as PR comments. Skips PRs
+                            consistency review for ripple effects. Post
+                            findings as PR comments; out-of-scope findings
+                            become separate GitHub issues. Skips PRs
                             already reviewed at their current HEAD SHA.
 
     python cai.py merge     Confidence-gated auto-merge for bot PRs.
@@ -6246,7 +6247,7 @@ _REVIEW_COMMENT_HEADING_CLEAN = "## cai pre-merge review (clean)"
 
 
 def cmd_review_pr(args) -> int:
-    """Review open PRs for ripple effects and post findings as PR comments."""
+    """Review open PRs for ripple effects. Post findings as PR comments; create issues for out-of-scope findings."""
     print("[cai review-pr] checking open PRs against main", flush=True)
     t0 = time.monotonic()
 
