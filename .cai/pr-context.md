@@ -44,3 +44,17 @@ Refs: robotsix/robotsix-cai#567
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-14)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:6928-6932` — added `or last_author_login == "github-actions"` to `is_bot_commit` guard to align with existing bot-detection pattern at line 265
+
+### Decisions this revision
+- Added the bare `"github-actions"` check to match the existing `author == "github-actions"` guard used elsewhere; keeps both detection sites consistent
+
+### New gaps / deferred
+- None

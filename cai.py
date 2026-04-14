@@ -6928,6 +6928,7 @@ def _pr_label_sweep() -> tuple[int, int]:
                 is_bot_commit = (
                     not last_author_login                   # unknown → treat as bot
                     or last_author_login == BOT_USERNAME    # github-actions[bot]
+                    or last_author_login == "github-actions"  # bare name variant
                     or last_author_login.endswith("[bot]")  # any other bot account
                 )
                 if not is_bot_commit and commit_ts > latest_bot_comment_ts:
