@@ -6791,7 +6791,7 @@ def _pr_set_pipeline_state(pr_number: int, label: str) -> None:
 
 
 def _pr_label_sweep() -> tuple[int, int]:
-    """Sync `needs-human-review` across every open bot PR.
+    """Sync `needs-human-review` across every open bot PR and reset stale pipeline labels.
 
     Run after the merge loop so that PRs the merge step did NOT
     process this tick (e.g., idempotency-skipped because no human
@@ -6801,6 +6801,13 @@ def _pr_label_sweep() -> tuple[int, int]:
     `rebase resolution failed` once would never be labelled, since
     that failure path doesn't go through the merge agent. Refs #223.
 
+    Also detects when a non-bot commit was pushed after a stale
+    pipeline label (pr:reviewed-accept or pr:documented) and resets
+    the label to pr:edited to re-enter the review pipeline. This
+    ensures that human or external bot commits on auto-improve
+    branches trigger a re-review, even if no review comments are
+    posted. Refs #567.
+
     Signals (each scoped to comments AFTER the latest commit so a
     fresh push naturally clears them):
 
@@ -6809,8 +6816,12 @@ def _pr_label_sweep() -> tuple[int, int]:
     - any `## Revise subagent: rebase resolution failed` comment
     - any `## Revise subagent: no additional changes` comment
     - mergeStateStatus is DIRTY (unresolved conflict against main)
+    - a non-bot commit pushed after the most recent bot pipeline
+      comment while PR carries pr:reviewed-accept or pr:documented
 
-    Returns (added, removed) for the run summary.
+    Returns (added, removed) for the run summary (counts of
+    `needs-human-review` labels added/removed; pipeline-state resets
+    are side-effects not included in the count).
     """
     try:
         prs = _gh_json([
