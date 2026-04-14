@@ -168,6 +168,14 @@ Run the project test suite via `unittest discover`.
 
 No arguments.
 
+## unblock
+
+Scan open issues labelled `auto-improve:human-needed` and attempt to resume the FSM via admin comments. For each issue with a pending-transition marker in its body and at least one comment from an admin login (`CAI_ADMIN_LOGINS`), invokes the `cai-unblock` Haiku agent to classify the comment into a `ResumeTo:` target, then fires the matching `human_to_<state>` transition and strips the marker. Confidence below `HIGH` leaves the issue parked.
+
+PR-side (`auto-improve:pr-human-needed`) is not yet wired — follow-up.
+
+No arguments.
+
 ## update-check
 
 Clone the repo and run `cai-update-check` to compare the current pinned Claude Code version against latest releases and emit findings for new versions or deprecations.

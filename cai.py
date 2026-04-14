@@ -201,6 +201,7 @@ from cai_lib.cmd_lifecycle import (  # noqa: E402
     _rollback_stale_in_progress, _reconcile_interrupted,
     _migrate_legacy_human_submitted,
 )
+from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.fsm import (  # noqa: E402
     apply_transition,
     append_refine_decided_marker,
@@ -9564,6 +9565,10 @@ def main() -> int:
         "--issue", type=int, default=None,
         help="Target a specific issue number instead of using queue-based selection",
     )
+    sub.add_parser(
+        "unblock",
+        help="Resume :human-needed issues when an admin has commented",
+    )
     sub.add_parser("cost-optimize", help="Weekly cost-reduction proposal or evaluation")
     sub.add_parser("check-workflows", help="Check GitHub Actions for recent workflow failures and raise findings")
     fix_ci_parser = sub.add_parser(
@@ -9635,6 +9640,7 @@ def main() -> int:
         "plan-all": cmd_plan_all,
         "spike": cmd_spike,
         "explore": cmd_explore,
+        "unblock": cmd_unblock,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
         "health-report": cmd_health_report,
