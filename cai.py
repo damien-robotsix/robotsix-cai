@@ -1416,8 +1416,12 @@ def _create_sub_issues(
 ) -> list[int]:
     """Create GitHub sub-issues for a multi-step decomposition.
 
-    Each sub-issue gets HTML-comment markers for parent and step number,
-    enabling the ordering gate in ``_select_fix_target``.
+    Each sub-issue gets:
+    - A title formatted as `[#{parent_number} Step {step}/{total}] {title}`
+      (e.g. `[#123 Step 1/3] Add schema migration`)
+    - HTML-comment markers for parent and step number,
+      enabling the ordering gate in ``_select_fix_target``
+    - A body with a back-reference to the parent issue
 
     Returns list of created issue numbers (may be shorter than *steps*
     if some creations fail).
@@ -1447,7 +1451,7 @@ def _create_sub_issues(
             f"_Sub-issue of #{parent_number} ({parent_title}). "
             f"Step {s['step']} of {total}._\n"
         )
-        title = f"[Step {s['step']}/{total}] {s['title']}"
+        title = f"[#{parent_number} Step {s['step']}/{total}] {s['title']}"
         labels = ",".join(["auto-improve", LABEL_RAISED])
         result = _run(
             [

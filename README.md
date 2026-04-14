@@ -189,7 +189,7 @@ approach and this guidance does not apply.
 
 If the refine subagent detects that work requires multiple independent steps, it produces a `## Multi-Step Decomposition` output. The wrapper then:
 1. Labels the parent issue `auto-improve:parent`
-2. Creates one sub-issue per step (each sub-issue body includes a back-reference to the parent)
+2. Creates one sub-issue per step, with titles formatted as `[#{parent} Step X/Y] <title>` (e.g. `[#123 Step 1/3] Add schema migration`) so you can identify the parent from a list view. Each sub-issue body includes a back-reference to the parent.
 3. Adds a checklist to the parent issue to track sub-issue completion
 
 You can watch the parent issue's checklist to monitor progress. Note: if an issue already has a structured `### Plan` section when filed, the refine subagent will skip refinement, and no sub-issues will be created — the implement subagent will execute the steps directly from the issue body.
