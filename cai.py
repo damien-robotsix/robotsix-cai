@@ -6895,7 +6895,7 @@ def _pr_label_sweep() -> tuple[int, int]:
         if not needs and merge_state == "DIRTY":
             needs = True
 
-        # Step 3/3 (#557): If the PR carries a stale pipeline label
+        # Step 3/3 (#567): If the PR carries a stale pipeline label
         # (pr:reviewed-accept or pr:documented) and a non-bot commit was
         # pushed AFTER the most recent bot pipeline comment, reset the
         # label to pr:edited so the pipeline re-enters review.

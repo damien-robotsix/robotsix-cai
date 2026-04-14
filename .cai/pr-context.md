@@ -58,3 +58,17 @@ Refs: robotsix/robotsix-cai#567
 
 ### New gaps / deferred
 - None
+
+## Revision 3 (2026-04-14)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:6898` — corrected typo `#557` → `#567` in inline comment
+
+### Decisions this revision
+- Typo fix: the inline comment referenced the wrong issue number (#557 instead of #567)
+
+### New gaps / deferred
+- None
