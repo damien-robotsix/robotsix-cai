@@ -9010,6 +9010,61 @@ def _has_actionable_pending_prs() -> bool:
     return False
 
 
+def _has_in_flight_issues() -> bool:
+    """True iff any open issue is mid-FSM and not blocked on a human.
+
+    Unlike :func:`_has_actionable_pending_prs`, this does NOT require CI
+    to be green — a PR with CI still running is in-flight and will
+    advance autonomously on a future cycle tick. Used to gate
+    ``plan-all``: the pipeline should finish the current issue before
+    starting new ones, unless the current issue is parked on a human.
+    """
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_PR_OPEN,
+            "--state", "open",
+            "--json", "number,labels",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError:
+        return False
+
+    for issue in issues:
+        issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
+        if LABEL_MERGE_BLOCKED in issue_labels:
+            continue  # human must clear merge-blocked
+        if LABEL_HUMAN_NEEDED in issue_labels:
+            continue  # parked on admin
+
+        pr = _find_linked_pr(issue["number"])
+        if pr is None:
+            continue  # audit will recover; not an in-flight PR
+
+        pr_number = pr.get("number")
+        if pr_number is None:
+            continue
+
+        try:
+            pr_detail = _gh_json([
+                "pr", "view", str(pr_number),
+                "--repo", REPO,
+                "--json", "labels",
+            ])
+        except (subprocess.CalledProcessError, json.JSONDecodeError):
+            # Can't read PR state — assume in-flight (conservative).
+            return True
+
+        pr_labels = {lbl["name"] for lbl in pr_detail.get("labels", [])}
+        if LABEL_PR_NEEDS_HUMAN in pr_labels:
+            continue  # human decision requested on PR
+
+        return True
+
+    return False
+
+
 _CYCLE_LOCK_PATH = "/tmp/cai-cycle.lock"
 
 
@@ -9253,6 +9308,17 @@ def _cmd_cycle_inner(args) -> int:
         # step. plan-all loops triage → refine → plan until the queue is exhausted or
         # a new :plan-approved issue appears (so we can re-enter the
         # implement loop without waiting for the next cycle tick).
+        #
+        # Linearity gate: if an issue is already in-flight (has an open
+        # PR not blocked on a human), skip plan-all this cycle so the
+        # current issue finishes its FSM path before we start new work.
+        if _has_in_flight_issues():
+            print(
+                "[cai cycle] in-flight PR issue(s) detected; skipping plan-all "
+                "to keep the pipeline linear",
+                flush=True,
+            )
+            break
         rc = _run_step("plan-all", cmd_plan_all, args)
         all_results[f"plan-all.{outer_pass}"] = rc
         if rc != 0:
