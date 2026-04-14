@@ -108,6 +108,23 @@ def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (
     return True
 
 
+def _set_pr_labels(pr_number: int, *, add: list[str] = (), remove: list[str] = (), log_prefix: str = "cai") -> bool:
+    """Add and/or remove labels on a PR. Returns True on success."""
+    args = ["pr", "edit", str(pr_number), "--repo", REPO]
+    for label in add:
+        args.extend(["--add-label", label])
+    for label in remove:
+        args.extend(["--remove-label", label])
+    result = _run(["gh"] + args, capture_output=True)
+    if result.returncode != 0:
+        print(
+            f"[{log_prefix}] failed to update labels on PR #{pr_number}:\n{result.stderr}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def _issue_has_label(issue_number: int, label: str) -> bool:
     """Re-fetch an issue's labels and check for *label*. Avoids stale-snapshot races."""
     try:

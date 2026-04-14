@@ -19,10 +19,13 @@ from cai_lib.config import (
     LABEL_RAISED,
     LABEL_AUDIT_RAISED,
     LABEL_NEEDS_SPIKE,
+    LABEL_PR_REVIEWING_CODE,
+    LABEL_PR_REVISION_PENDING,
+    LABEL_PR_REVIEWING_DOCS,
     _STALE_IN_PROGRESS_HOURS,
     _STALE_REVISING_HOURS,
 )
-from cai_lib.github import _gh_json, _set_labels, _issue_has_label
+from cai_lib.github import _gh_json, _set_labels, _set_pr_labels, _issue_has_label
 from cai_lib.logging_utils import log_run
 
 
@@ -70,6 +73,65 @@ def _migrate_legacy_human_submitted() -> int:
                 f"[cai refine] migrated #{num}: human:submitted -> :raised",
                 flush=True,
             )
+    return migrated
+
+
+# Legacy PR pipeline labels retired when PRState absorbed CI health
+# and docs-review as first-class states. Mapping reflects the FSM
+# meaning of each old label:
+#   - pr:edited           → REVIEWING_CODE  (new SHA pending review)
+#   - pr:reviewed-reject  → REVISION_PENDING (review found issues)
+#   - pr:reviewed-accept  → REVIEWING_DOCS  (code clean, docs next)
+#   - pr:documented       → REVIEWING_DOCS  (docs reviewed; the HEAD-
+#                           scoped docs-clean comment is what actually
+#                           gates merge now)
+_LEGACY_PR_LABEL_MAP = {
+    "pr:edited":          LABEL_PR_REVIEWING_CODE,
+    "pr:reviewed-reject": LABEL_PR_REVISION_PENDING,
+    "pr:reviewed-accept": LABEL_PR_REVIEWING_DOCS,
+    "pr:documented":      LABEL_PR_REVIEWING_DOCS,
+}
+
+
+def _migrate_legacy_pr_pipeline_labels() -> int:
+    """Relabel open PRs carrying retired ``pr:*`` labels to new PRState labels.
+
+    Idempotent — safe to call at the top of every ``cmd_cycle`` tick.
+    Returns the number of PRs relabelled this invocation.
+    """
+    migrated = 0
+    for legacy, replacement in _LEGACY_PR_LABEL_MAP.items():
+        try:
+            prs = _gh_json([
+                "pr", "list",
+                "--repo", REPO,
+                "--state", "open",
+                "--label", legacy,
+                "--json", "number,labels",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(
+                f"[cai cycle] legacy-PR migration gh pr list failed for "
+                f"{legacy!r}:\n{e.stderr}",
+                file=sys.stderr,
+            )
+            continue
+        for pr in prs:
+            num = pr["number"]
+            labels = {lbl["name"] for lbl in pr.get("labels", [])}
+            add = [] if replacement in labels else [replacement]
+            if _set_pr_labels(
+                num,
+                add=add,
+                remove=[legacy],
+                log_prefix="cai cycle",
+            ):
+                migrated += 1
+                print(
+                    f"[cai cycle] migrated PR #{num}: {legacy} -> {replacement}",
+                    flush=True,
+                )
     return migrated
 
 

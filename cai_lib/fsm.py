@@ -19,6 +19,8 @@ from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
     LABEL_TRIAGING,
+    LABEL_PR_REVIEWING_CODE, LABEL_PR_REVISION_PENDING,
+    LABEL_PR_REVIEWING_DOCS, LABEL_PR_CI_FAILING,
 )
 
 
@@ -114,12 +116,20 @@ class IssueState(str, Enum):
 
 
 class PRState(str, Enum):
-    OPEN              = "pr:open"
-    REVIEWING         = "pr:reviewing"
-    REVISION_PENDING  = "pr:revision_pending"
-    APPROVED          = "pr:approved"
-    MERGED            = "pr:merged"
-    PR_HUMAN_NEEDED   = "pr:human_needed"
+    """Persistent PR pipeline state, tracked via GitHub labels.
+
+    Unlike the prior model (which derived state from GitHub's native
+    ``reviewDecision`` and ran CI / docs review as out-of-band loops),
+    every state here is first-class: one label per state, one action
+    per state. See ``PR_TRANSITIONS`` for allowed moves.
+    """
+    OPEN              = "pr:open"                     # no label yet
+    REVIEWING_CODE    = LABEL_PR_REVIEWING_CODE       # cai-review-pr runs
+    REVISION_PENDING  = LABEL_PR_REVISION_PENDING     # findings; awaiting revise push
+    REVIEWING_DOCS    = LABEL_PR_REVIEWING_DOCS       # cai-review-docs runs / merge gate
+    CI_FAILING        = LABEL_PR_CI_FAILING           # cai-fix-ci runs
+    MERGED            = "pr:merged"                   # derived from gh merged flag
+    PR_HUMAN_NEEDED   = LABEL_PR_HUMAN_NEEDED         # parked for admin comment
 
 
 @dataclass
@@ -231,28 +241,92 @@ ISSUE_TRANSITIONS: list[Transition] = [
 
 
 PR_TRANSITIONS: list[Transition] = [
-    Transition("pr_open_to_reviewing",          PRState.OPEN,             PRState.REVIEWING,
+    # Entry: brand-new PR → code review.
+    Transition("open_to_reviewing_code",
+               PRState.OPEN, PRState.REVIEWING_CODE,
+               labels_add=[LABEL_PR_REVIEWING_CODE],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    Transition("reviewing_to_revision_pending", PRState.REVIEWING,        PRState.REVISION_PENDING,
+
+    # Code-review outcomes.
+    Transition("reviewing_code_to_revision_pending",
+               PRState.REVIEWING_CODE, PRState.REVISION_PENDING,
+               labels_remove=[LABEL_PR_REVIEWING_CODE],
+               labels_add=[LABEL_PR_REVISION_PENDING],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    Transition("revision_pending_to_reviewing", PRState.REVISION_PENDING, PRState.REVIEWING,
+    # Gated: advance to docs review only at HIGH confidence.
+    Transition("reviewing_code_to_reviewing_docs",
+               PRState.REVIEWING_CODE, PRState.REVIEWING_DOCS,
+               labels_remove=[LABEL_PR_REVIEWING_CODE],
+               labels_add=[LABEL_PR_REVIEWING_DOCS],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    Transition("reviewing_to_approved",         PRState.REVIEWING,        PRState.APPROVED,
+
+    # After a revise push, the new SHA needs code review again.
+    Transition("revision_pending_to_reviewing_code",
+               PRState.REVISION_PENDING, PRState.REVIEWING_CODE,
+               labels_remove=[LABEL_PR_REVISION_PENDING],
+               labels_add=[LABEL_PR_REVIEWING_CODE],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    Transition("approved_to_merged",            PRState.APPROVED,         PRState.MERGED,
+
+    # Docs review may self-heal by pushing; a new SHA → back to code review.
+    Transition("reviewing_docs_to_reviewing_code",
+               PRState.REVIEWING_DOCS, PRState.REVIEWING_CODE,
+               labels_remove=[LABEL_PR_REVIEWING_DOCS],
+               labels_add=[LABEL_PR_REVIEWING_CODE],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    Transition("pr_to_human",                   PRState.REVIEWING,        PRState.PR_HUMAN_NEEDED,
+    # Terminal gate: docs clean → merge (CI-green check is at merge time).
+    Transition("reviewing_docs_to_merged",
+               PRState.REVIEWING_DOCS, PRState.MERGED,
+               labels_remove=[LABEL_PR_REVIEWING_DOCS],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    Transition("pr_human_to_reviewing",         PRState.PR_HUMAN_NEEDED,  PRState.REVIEWING,
+
+    # CI orthogonal gate: any pre-merge state can dive into CI_FAILING
+    # on red checks; once green, return to code review since the branch
+    # has new commits that need re-review.
+    Transition("reviewing_code_to_ci_failing",
+               PRState.REVIEWING_CODE, PRState.CI_FAILING,
+               labels_remove=[LABEL_PR_REVIEWING_CODE],
+               labels_add=[LABEL_PR_CI_FAILING],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    # Admin-comment-driven re-entries out of PR_HUMAN_NEEDED.
-    Transition("pr_human_to_revision_pending",  PRState.PR_HUMAN_NEEDED,  PRState.REVISION_PENDING,
+    Transition("revision_pending_to_ci_failing",
+               PRState.REVISION_PENDING, PRState.CI_FAILING,
+               labels_remove=[LABEL_PR_REVISION_PENDING],
+               labels_add=[LABEL_PR_CI_FAILING],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    Transition("pr_human_to_approved",          PRState.PR_HUMAN_NEEDED,  PRState.APPROVED,
+    Transition("reviewing_docs_to_ci_failing",
+               PRState.REVIEWING_DOCS, PRState.CI_FAILING,
+               labels_remove=[LABEL_PR_REVIEWING_DOCS],
+               labels_add=[LABEL_PR_CI_FAILING],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("ci_failing_to_reviewing_code",
+               PRState.CI_FAILING, PRState.REVIEWING_CODE,
+               labels_remove=[LABEL_PR_CI_FAILING],
+               labels_add=[LABEL_PR_REVIEWING_CODE],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+
+    # Human-needed divert + resume paths.
+    Transition("reviewing_code_to_human",
+               PRState.REVIEWING_CODE, PRState.PR_HUMAN_NEEDED,
+               labels_remove=[LABEL_PR_REVIEWING_CODE],
+               labels_add=[LABEL_PR_HUMAN_NEEDED],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("pr_human_to_reviewing_code",
+               PRState.PR_HUMAN_NEEDED, PRState.REVIEWING_CODE,
+               labels_remove=[LABEL_PR_HUMAN_NEEDED],
+               labels_add=[LABEL_PR_REVIEWING_CODE],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("pr_human_to_revision_pending",
+               PRState.PR_HUMAN_NEEDED, PRState.REVISION_PENDING,
+               labels_remove=[LABEL_PR_HUMAN_NEEDED],
+               labels_add=[LABEL_PR_REVISION_PENDING],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("pr_human_to_reviewing_docs",
+               PRState.PR_HUMAN_NEEDED, PRState.REVIEWING_DOCS,
+               labels_remove=[LABEL_PR_HUMAN_NEEDED],
+               labels_add=[LABEL_PR_REVIEWING_DOCS],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     # NOTE: no pr_human_to_merged — PR_HUMAN_NEEDED must funnel back
-    # through REVISION_PENDING / APPROVED so a PR never bypasses the
-    # review → approve flow on its way to MERGED.
+    # through the review states so a PR never bypasses review on its
+    # way to MERGED.
 ]
 
 
@@ -265,23 +339,40 @@ def get_issue_state(labels: list[str]) -> Optional[IssueState]:
     return None
 
 
+_PR_LABEL_STATES = [
+    (LABEL_PR_HUMAN_NEEDED,     PRState.PR_HUMAN_NEEDED),
+    (LABEL_PR_CI_FAILING,       PRState.CI_FAILING),
+    (LABEL_PR_REVISION_PENDING, PRState.REVISION_PENDING),
+    (LABEL_PR_REVIEWING_DOCS,   PRState.REVIEWING_DOCS),
+    (LABEL_PR_REVIEWING_CODE,   PRState.REVIEWING_CODE),
+]
+
+
 def get_pr_state(pr: dict) -> PRState:
-    """Derive the current PRState from a GitHub PR JSON dict."""
+    """Derive the current PRState from a GitHub PR JSON dict.
+
+    Precedence:
+    1. Merged flag → ``MERGED`` (terminal).
+    2. Pipeline labels (checked in ``_PR_LABEL_STATES`` order so
+       human-needed and CI-failing outrank any stuck review label).
+    3. No pipeline label → ``OPEN`` (brand-new PR; dispatcher applies
+       ``open_to_reviewing_code``).
+
+    CI-red-overrides-label is NOT baked in here — the dispatcher
+    compares check status against the current state and explicitly
+    applies a ``*_to_ci_failing`` transition. Keeping derivation pure
+    lets tests stub PR dicts without checkrollup data.
+    """
     if pr.get("merged") or pr.get("mergedAt") or pr.get("state") == "MERGED":
         return PRState.MERGED
-    review_decision = pr.get("reviewDecision") or ""
-    if review_decision == "APPROVED":
-        return PRState.APPROVED
-    if review_decision == "CHANGES_REQUESTED":
-        return PRState.REVISION_PENDING
-    reviews = pr.get("reviews", {})
-    total_count = 0
-    if isinstance(reviews, dict):
-        total_count = reviews.get("totalCount", 0)
-    elif isinstance(reviews, list):
-        total_count = len(reviews)
-    if total_count > 0:
-        return PRState.REVIEWING
+    labels_raw = pr.get("labels", [])
+    label_set = {
+        (lbl.get("name") if isinstance(lbl, dict) else lbl)
+        for lbl in labels_raw
+    }
+    for label_value, state in _PR_LABEL_STATES:
+        if label_value in label_set:
+            return state
     return PRState.OPEN
 
 
@@ -492,6 +583,98 @@ def resume_transition_for(target_state_name: str) -> Optional[Transition]:
         if t.from_state == IssueState.HUMAN_NEEDED and t.to_state == target:
             return t
     return None
+
+
+def apply_pr_transition(
+    pr_number: int,
+    transition_name: str,
+    *,
+    current_pr: Optional[dict] = None,
+    log_prefix: str = "cai",
+    set_pr_labels=None,
+) -> bool:
+    """Apply a named PR FSM transition via ``_set_pr_labels``.
+
+    When *current_pr* is provided, the current PRState is derived and
+    compared to ``transition.from_state``. A mismatch is refused (logs
+    and returns False) so drift cannot silently compound.
+
+    *set_pr_labels* is injectable for tests; defaults to
+    ``cai_lib.github._set_pr_labels``.
+    """
+    transition = find_transition(transition_name, PR_TRANSITIONS)
+
+    if current_pr is not None:
+        current = get_pr_state(current_pr)
+        if current != transition.from_state:
+            print(
+                f"[{log_prefix}] refusing PR transition {transition_name!r} on "
+                f"#{pr_number}: current state {current} does not match "
+                f"expected {transition.from_state}",
+                file=sys.stderr,
+            )
+            return False
+
+    if set_pr_labels is None:
+        from cai_lib.github import _set_pr_labels as set_pr_labels  # local import — avoids cycle at module load
+
+    return set_pr_labels(
+        pr_number,
+        add=list(transition.labels_add),
+        remove=list(transition.labels_remove),
+        log_prefix=log_prefix,
+    )
+
+
+def apply_pr_transition_with_confidence(
+    pr_number: int,
+    transition_name: str,
+    confidence: Optional[Confidence],
+    *,
+    current_pr: Optional[dict] = None,
+    log_prefix: str = "cai",
+    set_pr_labels=None,
+) -> tuple[bool, bool]:
+    """Confidence-gated PR transition. Mirrors ``apply_transition_with_confidence``."""
+    transition = find_transition(transition_name, PR_TRANSITIONS)
+
+    if transition.accepts(confidence):
+        ok = apply_pr_transition(
+            pr_number, transition_name,
+            current_pr=current_pr,
+            log_prefix=log_prefix,
+            set_pr_labels=set_pr_labels,
+        )
+        return ok, False
+
+    if current_pr is not None:
+        current = get_pr_state(current_pr)
+        if current != transition.from_state:
+            print(
+                f"[{log_prefix}] refusing PR divert for {transition_name!r} on "
+                f"#{pr_number}: current state {current} does not match "
+                f"expected {transition.from_state}",
+                file=sys.stderr,
+            )
+            return False, False
+
+    if set_pr_labels is None:
+        from cai_lib.github import _set_pr_labels as set_pr_labels  # local import — avoids cycle at module load
+
+    conf_name = confidence.name if confidence is not None else "MISSING"
+    print(
+        f"[{log_prefix}] diverting PR {transition_name!r} on #{pr_number} to "
+        f"{transition.human_label_if_below} (confidence={conf_name}, "
+        f"required={transition.min_confidence.name})",
+        flush=True,
+    )
+    ok = set_pr_labels(
+        pr_number,
+        add=[transition.human_label_if_below],
+        remove=list(transition.labels_remove),
+        log_prefix=log_prefix,
+    )
+    return ok, True
 
 
 def resume_pr_transition_for(target_state_name: str) -> Optional[Transition]:
