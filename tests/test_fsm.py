@@ -14,11 +14,10 @@ from cai_lib.fsm import (
     parse_confidence, parse_resume_target,
     resume_transition_for, resume_pr_transition_for,
     render_pending_marker, parse_pending_marker, strip_pending_marker,
-    REFINE_DECIDED_MARKER, has_refine_decided_marker,
-    strip_refine_decided_marker, append_refine_decided_marker,
 )
 from cai_lib.config import (
-    LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED,
+    LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED, LABEL_REFINING,
+    LABEL_PLANNING, LABEL_PLANNED,
     LABEL_HUMAN_NEEDED, LABEL_PARENT,
 )
 
@@ -101,7 +100,7 @@ class TestConfidenceEnum(unittest.TestCase):
         self.assertIsNone(parse_confidence("Confidence: BOGUS"))
 
     def test_transition_accepts(self):
-        t = find_transition("raise_to_refine")
+        t = find_transition("refining_to_refined")
         # default threshold is HIGH
         self.assertTrue(t.accepts(Confidence.HIGH))
         self.assertFalse(t.accepts(Confidence.MEDIUM))
@@ -125,20 +124,20 @@ class TestApplyTransition(unittest.TestCase):
     def test_happy_path_applies_labels(self):
         calls, fake = self._recording_set_labels()
         ok = apply_transition(
-            42, "raise_to_refine",
+            42, "raise_to_refining",
             current_labels=[LABEL_RAISED],
             set_labels=fake,
         )
         self.assertTrue(ok)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["issue_number"], 42)
-        self.assertIn(LABEL_REFINED, calls[0]["add"])
+        self.assertIn(LABEL_REFINING, calls[0]["add"])
         self.assertIn(LABEL_RAISED, calls[0]["remove"])
 
     def test_extra_remove_is_forwarded(self):
         calls, fake = self._recording_set_labels()
         apply_transition(
-            7, "raise_to_refine",
+            7, "raise_to_refining",
             current_labels=[LABEL_RAISED],
             extra_remove=[LABEL_PARENT],
             set_labels=fake,
@@ -149,7 +148,7 @@ class TestApplyTransition(unittest.TestCase):
     def test_state_mismatch_refuses(self):
         calls, fake = self._recording_set_labels()
         ok = apply_transition(
-            9, "raise_to_refine",
+            9, "raise_to_refining",
             current_labels=[LABEL_REFINED],
             set_labels=fake,
         )
@@ -162,14 +161,14 @@ class TestApplyTransition(unittest.TestCase):
 
     def test_skip_validation_when_no_current_labels(self):
         calls, fake = self._recording_set_labels()
-        ok = apply_transition(1, "raise_to_refine", set_labels=fake)
+        ok = apply_transition(1, "raise_to_refining", set_labels=fake)
         self.assertTrue(ok)
         self.assertEqual(len(calls), 1)
 
     def test_find_transition_roundtrip(self):
-        t = find_transition("raise_to_refine")
+        t = find_transition("raise_to_refining")
         self.assertEqual(t.from_state, IssueState.RAISED)
-        self.assertEqual(t.to_state, IssueState.REFINED)
+        self.assertEqual(t.to_state, IssueState.REFINING)
 
 
 class TestApplyTransitionWithConfidence(unittest.TestCase):
@@ -189,8 +188,8 @@ class TestApplyTransitionWithConfidence(unittest.TestCase):
     def test_high_confidence_applies_nominal_transition(self):
         calls, fake = self._recording_set_labels()
         ok, diverted = apply_transition_with_confidence(
-            11, "raise_to_refine", Confidence.HIGH,
-            current_labels=[LABEL_RAISED],
+            11, "refining_to_refined", Confidence.HIGH,
+            current_labels=[LABEL_REFINING],
             set_labels=fake,
         )
         self.assertTrue(ok)
@@ -200,21 +199,21 @@ class TestApplyTransitionWithConfidence(unittest.TestCase):
     def test_medium_confidence_diverts_to_human(self):
         calls, fake = self._recording_set_labels()
         ok, diverted = apply_transition_with_confidence(
-            12, "raise_to_refine", Confidence.MEDIUM,
-            current_labels=[LABEL_RAISED],
+            12, "refining_to_refined", Confidence.MEDIUM,
+            current_labels=[LABEL_REFINING],
             set_labels=fake,
         )
         self.assertTrue(ok)
         self.assertTrue(diverted)
         self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
-        self.assertIn(LABEL_RAISED, calls[0]["remove"])
+        self.assertIn(LABEL_REFINING, calls[0]["remove"])
         self.assertNotIn(LABEL_REFINED, calls[0]["add"])
 
     def test_missing_confidence_diverts_to_human(self):
         calls, fake = self._recording_set_labels()
         ok, diverted = apply_transition_with_confidence(
-            13, "raise_to_refine", None,
-            current_labels=[LABEL_RAISED],
+            13, "refining_to_refined", None,
+            current_labels=[LABEL_REFINING],
             set_labels=fake,
         )
         self.assertTrue(ok)
@@ -224,7 +223,7 @@ class TestApplyTransitionWithConfidence(unittest.TestCase):
     def test_divert_respects_from_state_mismatch(self):
         calls, fake = self._recording_set_labels()
         ok, diverted = apply_transition_with_confidence(
-            14, "raise_to_refine", None,
+            14, "refining_to_refined", None,
             current_labels=[LABEL_REFINED],  # wrong state
             set_labels=fake,
         )
@@ -237,20 +236,20 @@ class TestPendingMarker(unittest.TestCase):
 
     def test_roundtrip_with_confidence(self):
         marker = render_pending_marker(
-            transition_name="raise_to_refine",
+            transition_name="raise_to_refining",
             from_state=IssueState.RAISED,
             intended_state=IssueState.REFINED,
             confidence=Confidence.MEDIUM,
         )
         parsed = parse_pending_marker(f"body text\n{marker}\nmore text")
-        self.assertEqual(parsed["transition"], "raise_to_refine")
+        self.assertEqual(parsed["transition"], "raise_to_refining")
         self.assertEqual(parsed["from"], "RAISED")
         self.assertEqual(parsed["intended"], "REFINED")
         self.assertEqual(parsed["conf"], "MEDIUM")
 
     def test_roundtrip_with_missing_confidence(self):
         marker = render_pending_marker(
-            transition_name="raise_to_refine",
+            transition_name="raise_to_refining",
             from_state=IssueState.RAISED,
             intended_state=IssueState.REFINED,
             confidence=None,
@@ -264,7 +263,7 @@ class TestPendingMarker(unittest.TestCase):
 
     def test_strip_removes_marker(self):
         marker = render_pending_marker(
-            transition_name="raise_to_refine",
+            transition_name="raise_to_refining",
             from_state=IssueState.RAISED,
             intended_state=IssueState.REFINED,
             confidence=Confidence.LOW,
@@ -288,7 +287,7 @@ class TestResumeFromHuman(unittest.TestCase):
         self.assertIsNone(parse_resume_target("no resume line here"))
 
     def test_resume_transition_for_known_targets(self):
-        for name in ("RAISED", "REFINED", "PLAN_APPROVED",
+        for name in ("RAISED", "REFINING", "PLAN_APPROVED",
                      "NEEDS_EXPLORATION", "SOLVED"):
             t = resume_transition_for(name)
             self.assertIsNotNone(t, f"no resume transition for {name}")
@@ -301,9 +300,12 @@ class TestResumeFromHuman(unittest.TestCase):
         # States that exist but have no human_to_* path must return None.
         self.assertIsNone(resume_transition_for("IN_PROGRESS"))
         self.assertIsNone(resume_transition_for("MERGED"))
-        # PLANNED is deliberately excluded: admins cannot jump straight
-        # to PLANNED because the plan block only exists post-plan-agent.
+        # REFINED and PLANNED are auto-advance waypoints — admins resume
+        # into the transient work states (REFINING / PLANNING) or into
+        # PLAN_APPROVED, never into the stable waypoints themselves.
+        self.assertIsNone(resume_transition_for("REFINED"))
         self.assertIsNone(resume_transition_for("PLANNED"))
+        self.assertIsNone(resume_transition_for("PLANNING"))
 
     def test_every_widened_transition_is_reachable(self):
         """Every human_to_<state> transition must be discoverable via resume_transition_for."""
@@ -321,7 +323,7 @@ class TestResumeFromHuman(unittest.TestCase):
 class TestResumePRTransition(unittest.TestCase):
 
     def test_known_pr_targets(self):
-        for name in ("REVIEWING", "REVISION_PENDING", "APPROVED", "MERGED"):
+        for name in ("REVIEWING", "REVISION_PENDING", "APPROVED"):
             t = resume_pr_transition_for(name)
             self.assertIsNotNone(t, f"no PR resume transition for {name}")
             self.assertEqual(t.from_state, PRState.PR_HUMAN_NEEDED)
@@ -332,55 +334,16 @@ class TestResumePRTransition(unittest.TestCase):
         self.assertIsNone(resume_pr_transition_for(""))
         # PRState has no OPEN→from-PR_HUMAN_NEEDED path.
         self.assertIsNone(resume_pr_transition_for("OPEN"))
+        # MERGED is deliberately excluded — PRs must funnel through
+        # REVIEWING / REVISION_PENDING / APPROVED; admins never merge
+        # a PR from PR_HUMAN_NEEDED directly.
+        self.assertIsNone(resume_pr_transition_for("MERGED"))
 
-    def test_issue_and_pr_resolvers_disambiguate_merged(self):
-        """MERGED exists in both enums — the two resolvers keep them separate."""
-        issue_t = resume_transition_for("SOLVED")  # Issue path uses SOLVED, not MERGED
-        pr_t = resume_pr_transition_for("MERGED")
-        self.assertIsNotNone(issue_t)
-        self.assertIsNotNone(pr_t)
-        self.assertEqual(issue_t.to_state, IssueState.SOLVED)
-        self.assertEqual(pr_t.to_state, PRState.MERGED)
-
+    def test_issue_and_pr_resolvers_are_disjoint(self):
         # Passing a PRState name to the issue resolver must return None.
         self.assertIsNone(resume_transition_for("REVIEWING"))
         # Passing an IssueState-only name to the PR resolver must return None.
-        self.assertIsNone(resume_pr_transition_for("REFINED"))
-
-
-class TestRefineDecidedMarker(unittest.TestCase):
-
-    def test_has_marker_detects(self):
-        self.assertFalse(has_refine_decided_marker(""))
-        self.assertFalse(has_refine_decided_marker("plain body"))
-        self.assertTrue(has_refine_decided_marker(f"body\n{REFINE_DECIDED_MARKER}\n"))
-        # Whitespace tolerant
-        self.assertTrue(has_refine_decided_marker("<!--   cai-refine-decided   -->"))
-
-    def test_append_is_idempotent(self):
-        body = "existing body"
-        once = append_refine_decided_marker(body)
-        twice = append_refine_decided_marker(once)
-        self.assertEqual(once, twice)
-        self.assertTrue(has_refine_decided_marker(once))
-
-    def test_append_preserves_trailing_newline(self):
-        with_nl = append_refine_decided_marker("body\n")
-        self.assertTrue(with_nl.endswith("\n"))
-        without_nl = append_refine_decided_marker("body")
-        self.assertFalse(without_nl.endswith("\n"))
-
-    def test_strip_roundtrip(self):
-        body = "Refined content\nmore text"
-        marked = append_refine_decided_marker(body)
-        self.assertTrue(has_refine_decided_marker(marked))
-        stripped = strip_refine_decided_marker(marked)
-        self.assertFalse(has_refine_decided_marker(stripped))
-        self.assertIn("Refined content", stripped)
-
-    def test_strip_noop_when_absent(self):
-        self.assertEqual(strip_refine_decided_marker("plain"), "plain")
-        self.assertEqual(strip_refine_decided_marker(""), "")
+        self.assertIsNone(resume_pr_transition_for("REFINING"))
 
 
 class TestRefineNextStepParser(unittest.TestCase):
@@ -405,45 +368,91 @@ class TestRefineNextStepParser(unittest.TestCase):
         self.assertIsNone(self._parse("NextStep: BOGUS"))
 
 
-class TestRefineAsRouter(unittest.TestCase):
-    """Phase shape: refine is the routing node; no direct RAISED→EXPLORATION."""
+class TestTransientStatesShape(unittest.TestCase):
+    """Pin the REFINING / PLANNING transient-state FSM shape."""
 
     def test_no_direct_raise_to_exploration(self):
         names = {t.name for t in ISSUE_TRANSITIONS}
         self.assertNotIn("raise_to_exploration", names,
             "RAISED must no longer go directly to NEEDS_EXPLORATION")
 
-    def test_refine_to_exploration_exists(self):
-        t = find_transition("refine_to_exploration")
-        self.assertEqual(t.from_state, IssueState.REFINED)
+    def test_refining_to_exploration_exists(self):
+        t = find_transition("refining_to_exploration")
+        self.assertEqual(t.from_state, IssueState.REFINING)
         self.assertEqual(t.to_state, IssueState.NEEDS_EXPLORATION)
 
-    def test_exploration_still_loops_back_to_refine(self):
-        t = find_transition("exploration_to_refine")
+    def test_exploration_loops_back_to_refining(self):
+        t = find_transition("exploration_to_refining")
         self.assertEqual(t.from_state, IssueState.NEEDS_EXPLORATION)
-        self.assertEqual(t.to_state, IssueState.REFINED)
+        self.assertEqual(t.to_state, IssueState.REFINING)
 
-    def test_raised_only_reaches_refined_or_human(self):
-        """From RAISED the only non-human destination must be REFINED."""
+    def test_raised_only_reaches_refining_or_human(self):
         dests = {
             t.to_state
             for t in ISSUE_TRANSITIONS
             if t.from_state == IssueState.RAISED
         }
-        self.assertEqual(dests, {IssueState.REFINED, IssueState.HUMAN_NEEDED})
+        self.assertEqual(dests, {IssueState.REFINING, IssueState.HUMAN_NEEDED})
+
+    def test_refining_can_fall_back_to_human(self):
+        """Every transient working state must have a path to HUMAN_NEEDED."""
+        dests = {
+            t.to_state
+            for t in ISSUE_TRANSITIONS
+            if t.from_state == IssueState.REFINING
+        }
+        self.assertIn(IssueState.HUMAN_NEEDED, dests)
+
+    def test_planning_can_fall_back_to_human(self):
+        dests = {
+            t.to_state
+            for t in ISSUE_TRANSITIONS
+            if t.from_state == IssueState.PLANNING
+        }
+        self.assertIn(IssueState.HUMAN_NEEDED, dests)
+
+    def test_planned_can_fall_back_to_human(self):
+        """PLANNED → PLAN_APPROVED is confidence-gated; explicit human path too."""
+        dests = {
+            t.to_state
+            for t in ISSUE_TRANSITIONS
+            if t.from_state == IssueState.PLANNED
+        }
+        self.assertEqual(dests, {IssueState.PLAN_APPROVED, IssueState.HUMAN_NEEDED})
+
+    def test_refined_only_auto_advances(self):
+        """REFINED is a waypoint — the only next stop is PLANNING."""
+        dests = {
+            t.to_state
+            for t in ISSUE_TRANSITIONS
+            if t.from_state == IssueState.REFINED
+        }
+        self.assertEqual(dests, {IssueState.PLANNING})
 
     def test_no_refine_to_in_progress_shortcut(self):
-        """REFINED must not bypass the plan step by jumping to IN_PROGRESS."""
-        names = {t.name for t in ISSUE_TRANSITIONS}
-        self.assertNotIn("refine_to_in_progress", names,
-            "REFINED → IN_PROGRESS must not exist — every issue must pass "
-            "through PLANNED → PLAN_APPROVED before implement can run")
-        # Defensive: assert nothing else sneaks REFINED → IN_PROGRESS back in.
-        self.assertFalse(
-            any(t.from_state == IssueState.REFINED and t.to_state == IssueState.IN_PROGRESS
-                for t in ISSUE_TRANSITIONS),
-            "No transition may go REFINED → IN_PROGRESS under any name",
-        )
+        """No transition may bypass PLANNED → PLAN_APPROVED en route to IN_PROGRESS."""
+        forbidden_pairs = [
+            (IssueState.REFINED,  IssueState.IN_PROGRESS),
+            (IssueState.REFINING, IssueState.IN_PROGRESS),
+            (IssueState.PLANNING, IssueState.IN_PROGRESS),
+            (IssueState.PLANNED,  IssueState.IN_PROGRESS),
+        ]
+        for f, to in forbidden_pairs:
+            self.assertFalse(
+                any(t.from_state == f and t.to_state == to for t in ISSUE_TRANSITIONS),
+                f"No transition may go {f.name} → {to.name}",
+            )
+
+    def test_pr_human_cannot_skip_to_merged(self):
+        """PR_HUMAN_NEEDED must not bypass the review pipeline to MERGED."""
+        forbidden = [
+            t for t in PR_TRANSITIONS
+            if t.from_state == PRState.PR_HUMAN_NEEDED
+            and t.to_state == PRState.MERGED
+        ]
+        self.assertEqual(forbidden, [],
+            "PR_HUMAN_NEEDED → MERGED must not exist; admins funnel back "
+            "through REVISION_PENDING / APPROVED")
 
 
 if __name__ == "__main__":

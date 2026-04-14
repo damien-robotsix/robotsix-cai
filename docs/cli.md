@@ -114,7 +114,7 @@ No arguments.
 
 ## refine
 
-Invoke `cai-refine` on the oldest `auto-improve:raised` issue to produce a structured implementation plan (transitions to `:refined`). The agent emits `NextStep: PLAN | EXPLORE`; on `EXPLORE` the wrapper additionally fires the `refine_to_exploration` transition so the issue moves to `auto-improve:needs-exploration`.
+Invoke `cai-refine` on the oldest `auto-improve:raised` or `auto-improve:refining` issue. The driver fires `raise_to_refining` on fresh intake (so observers see the transient working state), runs the agent, then transitions based on its `NextStep: PLAN | EXPLORE` line: on `PLAN` the issue advances to `:refined` for `cmd_plan` to pick up; on `EXPLORE` it moves to `:needs-exploration` for `cmd_explore`, and `cmd_explore` loops it back to `:refining` on completion.
 
 | Argument | Type | Description |
 |---|---|---|

@@ -58,9 +58,9 @@ class TestBuildUnblockMessage(unittest.TestCase):
             "comments": [],
         }
         marker = {
-            "transition": "raise_to_refine",
+            "transition": "raise_to_refining",
             "from": "RAISED",
-            "intended": "REFINED",
+            "intended": "REFINING",
             "conf": "MEDIUM",
         }
         admin_comments = [
@@ -77,9 +77,9 @@ class TestBuildUnblockMessage(unittest.TestCase):
         )
         self.assertIn("Kind: issue", msg)
         self.assertIn("Pending transition marker", msg)
-        self.assertIn("transition=raise_to_refine", msg)
+        self.assertIn("transition=raise_to_refining", msg)
         self.assertIn("from=RAISED", msg)
-        self.assertIn("intended=REFINED", msg)
+        self.assertIn("intended=REFINING", msg)
         self.assertIn("conf=MEDIUM", msg)
         self.assertIn("widget broke", msg)
         self.assertIn("original body text", msg)
@@ -110,8 +110,8 @@ class TestTryUnblockIssueSkips(unittest.TestCase):
     def test_no_admin_comment(self):
         body = (
             "issue text\n\n"
-            "<!-- cai-fsm-pending transition=raise_to_refine "
-            "from=RAISED intended=REFINED conf=MEDIUM -->\n"
+            "<!-- cai-fsm-pending transition=raise_to_refining "
+            "from=RAISED intended=REFINING conf=MEDIUM -->\n"
         )
         issue = {"number": 2, "title": "t", "body": body, "labels": [],
                  "comments": [

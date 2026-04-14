@@ -14,7 +14,8 @@ from enum import Enum
 from typing import Optional, Sequence
 
 from cai_lib.config import (
-    LABEL_RAISED, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED,
+    LABEL_RAISED, LABEL_REFINING, LABEL_REFINED, LABEL_PLANNING,
+    LABEL_PLANNED, LABEL_PLAN_APPROVED,
     LABEL_IN_PROGRESS, LABEL_IN_PR, LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
 )
@@ -97,8 +98,10 @@ def parse_resume_target(text: str) -> Optional[str]:
 
 class IssueState(str, Enum):
     RAISED            = LABEL_RAISED
-    REFINED           = LABEL_REFINED
-    PLANNED           = LABEL_PLANNED
+    REFINING          = LABEL_REFINING     # cai-refine is actively running
+    REFINED           = LABEL_REFINED      # refine done, awaiting plan pickup
+    PLANNING          = LABEL_PLANNING     # cai-plan is actively running
+    PLANNED           = LABEL_PLANNED      # plan stored, awaiting approval
     PLAN_APPROVED     = LABEL_PLAN_APPROVED
     IN_PROGRESS       = LABEL_IN_PROGRESS
     PR                = LABEL_IN_PR        # currently in the PR submachine
@@ -141,46 +144,76 @@ class Transition:
 
 
 ISSUE_TRANSITIONS: list[Transition] = [
-    Transition("raise_to_refine",         IssueState.RAISED,            IssueState.REFINED,
-               labels_remove=[LABEL_RAISED],            labels_add=[LABEL_REFINED]),
-    Transition("raise_to_human",          IssueState.RAISED,            IssueState.HUMAN_NEEDED,
+    # RAISED: either pick up for refinement, or punt to human.
+    Transition("raise_to_refining",          IssueState.RAISED,            IssueState.REFINING,
+               labels_remove=[LABEL_RAISED],            labels_add=[LABEL_REFINING]),
+    Transition("raise_to_human",             IssueState.RAISED,            IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_RAISED],            labels_add=[LABEL_HUMAN_NEEDED]),
-    # Refine is the routing node: it either produces a plan directly or
-    # sends the issue to exploration first. NEEDS_EXPLORATION always
-    # loops back to REFINED (via exploration_to_refine below) so refine
-    # alone decides when the gate to PLANNED opens.
-    Transition("refine_to_exploration",   IssueState.REFINED,           IssueState.NEEDS_EXPLORATION,
-               labels_remove=[LABEL_REFINED],           labels_add=[LABEL_NEEDS_EXPLORATION]),
-    Transition("refine_to_plan",          IssueState.REFINED,           IssueState.PLANNED,
-               labels_remove=[LABEL_REFINED],           labels_add=[LABEL_PLANNED]),
-    Transition("plan_to_approved",        IssueState.PLANNED,           IssueState.PLAN_APPROVED,
+
+    # REFINING is transient — cai-refine is running. The confidence gate
+    # on refining_to_refined diverts to HUMAN_NEEDED when refinement
+    # isn't high-confidence. refining_to_exploration is the agent's
+    # explicit "need more info" branch; refining_to_human is the
+    # explicit "I can't do this" branch.
+    Transition("refining_to_refined",        IssueState.REFINING,          IssueState.REFINED,
+               labels_remove=[LABEL_REFINING],          labels_add=[LABEL_REFINED]),
+    Transition("refining_to_exploration",    IssueState.REFINING,          IssueState.NEEDS_EXPLORATION,
+               labels_remove=[LABEL_REFINING],          labels_add=[LABEL_NEEDS_EXPLORATION]),
+    Transition("refining_to_human",          IssueState.REFINING,          IssueState.HUMAN_NEEDED,
+               labels_remove=[LABEL_REFINING],          labels_add=[LABEL_HUMAN_NEEDED]),
+
+    # Exploration loops back to refining (not refined) so the refine
+    # agent re-evaluates with the new findings before deciding plan.
+    Transition("exploration_to_refining",    IssueState.NEEDS_EXPLORATION, IssueState.REFINING,
+               labels_remove=[LABEL_NEEDS_EXPLORATION], labels_add=[LABEL_REFINING]),
+
+    # REFINED → PLANNING is the auto-advance: whoever drives the
+    # pipeline (cmd_plan / unified driver) picks up a :refined issue
+    # and immediately moves it to :planning when it starts the plan
+    # agent. There is no human gate here.
+    Transition("refined_to_planning",        IssueState.REFINED,           IssueState.PLANNING,
+               labels_remove=[LABEL_REFINED],           labels_add=[LABEL_PLANNING]),
+
+    # PLANNING is transient — cai-plan is running. Same confidence gate
+    # pattern as refining.
+    Transition("planning_to_planned",        IssueState.PLANNING,          IssueState.PLANNED,
+               labels_remove=[LABEL_PLANNING],          labels_add=[LABEL_PLANNED]),
+    Transition("planning_to_human",          IssueState.PLANNING,          IssueState.HUMAN_NEEDED,
+               labels_remove=[LABEL_PLANNING],          labels_add=[LABEL_HUMAN_NEEDED]),
+
+    # PLANNED → PLAN_APPROVED auto-advances on high confidence; below
+    # that, divert to human for explicit admin approval. A dedicated
+    # planned_to_human transition covers the explicit "needs human" case.
+    Transition("planned_to_plan_approved",   IssueState.PLANNED,           IssueState.PLAN_APPROVED,
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_PLAN_APPROVED]),
-    Transition("approved_to_in_progress", IssueState.PLAN_APPROVED,     IssueState.IN_PROGRESS,
+    Transition("planned_to_human",           IssueState.PLANNED,           IssueState.HUMAN_NEEDED,
+               labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_HUMAN_NEEDED]),
+
+    Transition("approved_to_in_progress",    IssueState.PLAN_APPROVED,     IssueState.IN_PROGRESS,
                labels_remove=[LABEL_PLAN_APPROVED],     labels_add=[LABEL_IN_PROGRESS]),
-    Transition("in_progress_to_pr",       IssueState.IN_PROGRESS,       IssueState.PR,
+    Transition("in_progress_to_pr",          IssueState.IN_PROGRESS,       IssueState.PR,
                labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_IN_PR]),
-    Transition("pr_to_merged",            IssueState.PR,                IssueState.MERGED,
+    Transition("pr_to_merged",               IssueState.PR,                IssueState.MERGED,
                labels_remove=[LABEL_IN_PR],             labels_add=[LABEL_MERGED]),
-    Transition("merged_to_solved",        IssueState.MERGED,            IssueState.SOLVED,
+    Transition("merged_to_solved",           IssueState.MERGED,            IssueState.SOLVED,
                labels_remove=[LABEL_MERGED],            labels_add=[LABEL_SOLVED]),
-    Transition("exploration_to_refine",   IssueState.NEEDS_EXPLORATION, IssueState.REFINED,
-               labels_remove=[LABEL_NEEDS_EXPLORATION], labels_add=[LABEL_REFINED]),
-    Transition("human_to_raised",         IssueState.HUMAN_NEEDED,      IssueState.RAISED,
+
+    Transition("human_to_raised",            IssueState.HUMAN_NEEDED,      IssueState.RAISED,
                labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_RAISED]),
     # Admin-comment-driven re-entries out of HUMAN_NEEDED. Fired by
     # cmd_unblock after a Haiku agent classifies the admin's reply.
-    Transition("human_to_refined",        IssueState.HUMAN_NEEDED,      IssueState.REFINED,
-               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_REFINED]),
-    # NOTE: no human_to_planned — PLANNED means the plan block already
-    # exists in the issue body, which only happens after the plan agent
-    # runs. An admin who wants to plan should resume to REFINED; an
-    # admin who wants to approve an existing plan should resume to
-    # PLAN_APPROVED.
-    Transition("human_to_plan_approved",  IssueState.HUMAN_NEEDED,      IssueState.PLAN_APPROVED,
+    # Resume into REFINING (not REFINED) so the refine agent re-runs
+    # with the admin's input in context — REFINED is an auto-advance
+    # waypoint, not a sensible re-entry point.
+    Transition("human_to_refining",          IssueState.HUMAN_NEEDED,      IssueState.REFINING,
+               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_REFINING]),
+    # Admin greenlights the already-stored plan — jump past the
+    # planned→approved gate.
+    Transition("human_to_plan_approved",     IssueState.HUMAN_NEEDED,      IssueState.PLAN_APPROVED,
                labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_PLAN_APPROVED]),
-    Transition("human_to_exploration",    IssueState.HUMAN_NEEDED,      IssueState.NEEDS_EXPLORATION,
+    Transition("human_to_exploration",       IssueState.HUMAN_NEEDED,      IssueState.NEEDS_EXPLORATION,
                labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_NEEDS_EXPLORATION]),
-    Transition("human_to_solved",         IssueState.HUMAN_NEEDED,      IssueState.SOLVED,
+    Transition("human_to_solved",            IssueState.HUMAN_NEEDED,      IssueState.SOLVED,
                labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_SOLVED]),
 ]
 
@@ -205,8 +238,9 @@ PR_TRANSITIONS: list[Transition] = [
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     Transition("pr_human_to_approved",          PRState.PR_HUMAN_NEEDED,  PRState.APPROVED,
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    Transition("pr_human_to_merged",            PRState.PR_HUMAN_NEEDED,  PRState.MERGED,
-               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    # NOTE: no pr_human_to_merged — PR_HUMAN_NEEDED must funnel back
+    # through REVISION_PENDING / APPROVED so a PR never bypasses the
+    # review → approve flow on its way to MERGED.
 ]
 
 
@@ -315,48 +349,6 @@ def strip_pending_marker(body: str) -> str:
     new = _PENDING_MARKER_RE.sub("", body)
     # Collapse the blank lines the marker may have left behind.
     return re.sub(r"\n{3,}", "\n\n", new).rstrip() + ("\n" if body.endswith("\n") else "")
-
-
-# ---------------------------------------------------------------------------
-# Refine-decided marker
-#
-# cmd_refine writes this marker on the issue body once it has routed the
-# issue with NextStep: PLAN. Its only job is to tell cmd_refine's own
-# candidate selector "you've already decided on this :refined issue, skip
-# it". :refined issues that come back from :needs-exploration arrive
-# WITHOUT the marker, so refine re-picks them up and re-decides — that's
-# the exploration → refine loop. cmd_plan ignores the marker entirely.
-# ---------------------------------------------------------------------------
-
-REFINE_DECIDED_MARKER = "<!-- cai-refine-decided -->"
-_REFINE_DECIDED_RE = re.compile(r"<!--\s*cai-refine-decided\s*-->")
-
-
-def has_refine_decided_marker(body: str) -> bool:
-    """True if *body* contains the refine-decided marker."""
-    if not body:
-        return False
-    return bool(_REFINE_DECIDED_RE.search(body))
-
-
-def strip_refine_decided_marker(body: str) -> str:
-    """Remove the refine-decided marker (and any collapsed blank lines) from *body*."""
-    if not body:
-        return body
-    new = _REFINE_DECIDED_RE.sub("", body)
-    return re.sub(r"\n{3,}", "\n\n", new).rstrip() + ("\n" if body.endswith("\n") else "")
-
-
-def append_refine_decided_marker(body: str) -> str:
-    """Return *body* with the refine-decided marker ensured at the end.
-
-    Idempotent — if a marker is already present, returns *body* unchanged.
-    """
-    if has_refine_decided_marker(body):
-        return body
-    trailing_newline = "\n" if body.endswith("\n") else ""
-    base = body.rstrip()
-    return f"{base}\n\n{REFINE_DECIDED_MARKER}{trailing_newline}"
 
 
 def apply_transition(

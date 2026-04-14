@@ -28,8 +28,8 @@ world you are in:
 After the header, three sections follow:
 
 1. **Pending transition marker** — what the automation was trying
-   to do when it paused (e.g. `transition=raise_to_refine
-   from=RAISED intended=REFINED conf=MEDIUM`).
+   to do when it paused (e.g. `transition=refining_to_refined
+   from=REFINING intended=REFINED conf=MEDIUM`).
 2. **Body** — the issue or PR text the admin is commenting on.
 3. **Admin comments** — only comments from admin logins are shown,
    newest last.
@@ -43,16 +43,14 @@ maps to a `human_to_<state>` transition defined in
 | State               | Admin intent (examples)                                     |
 |---------------------|-------------------------------------------------------------|
 | `RAISED`            | "start over" / "re-triage this" / comment is ambiguous      |
-| `REFINED`           | "skip refinement, it's clear enough, go to plan"            |
-| `PLAN_APPROVED`     | "approve the existing plan — let the implement agent run"   |
+| `REFINING`          | "re-run the refine agent with this new context"             |
 | `NEEDS_EXPLORATION` | "investigate further before doing anything"                 |
+| `PLAN_APPROVED`     | "approve the existing plan — let the implement agent run"   |
 | `SOLVED`            | "close this — not worth doing" / "already fixed elsewhere"  |
 
-(`PLANNED` is not a valid resume target — the plan block only exists
-after the plan agent has run, so there is no admin pathway that
-justifies jumping directly there. Resume to `REFINED` to have the
-plan agent produce a plan, or to `PLAN_APPROVED` to accept one that
-already exists.)
+(`REFINED` and `PLANNED` are auto-advance waypoints, not valid resume
+targets. If an admin wants refinement re-run, pick `REFINING`. If an
+admin wants to accept an existing plan, pick `PLAN_APPROVED`.)
 
 ## PR resume targets (Kind: pr)
 
@@ -65,7 +63,11 @@ maps to a `pr_human_to_<state>` transition defined in
 | `REVIEWING`        | "re-run the automated review" / ambiguous comment         |
 | `REVISION_PENDING` | "revise this PR per my comments"                          |
 | `APPROVED`         | "looks good — queue for merge"                            |
-| `MERGED`           | "merge this now" (the driver will perform the actual merge) |
+
+(`MERGED` is not a valid resume target — PRs must funnel back
+through `REVIEWING` / `REVISION_PENDING` / `APPROVED` before the
+merge pipeline takes over. Pick `APPROVED` if the admin greenlights
+the merge.)
 
 ## Fallback
 
