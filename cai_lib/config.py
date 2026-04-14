@@ -76,6 +76,15 @@ LABEL_TRIAGING         = "auto-improve:triaging"
 LABEL_KIND_CODE        = "kind:code"
 LABEL_KIND_MAINTENANCE = "kind:maintenance"
 
+# PR pipeline-state labels — one per PRState. Set by FSM transitions
+# (apply_pr_transition) and read by dispatch. Replaces the legacy
+# pr:edited / pr:reviewed-accept / pr:reviewed-reject / pr:documented
+# two-layer scheme (see _migrate_legacy_pr_pipeline_labels).
+LABEL_PR_REVIEWING_CODE   = "pr:reviewing-code"    # PRState.REVIEWING_CODE
+LABEL_PR_REVISION_PENDING = "pr:revision-pending"  # PRState.REVISION_PENDING
+LABEL_PR_REVIEWING_DOCS   = "pr:reviewing-docs"    # PRState.REVIEWING_DOCS
+LABEL_PR_CI_FAILING       = "pr:ci-failing"        # PRState.CI_FAILING
+
 # PR-level label applied by `cai merge` when the verdict is below the
 # auto-merge threshold. Lets a human filter open PRs that are waiting
 # on their decision (`label:needs-human-review`). Issue #216.

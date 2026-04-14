@@ -105,10 +105,10 @@ LABELS = [
     ("auto-improve:pr-human-needed", "e11d48", "PR parked awaiting admin comment (cai-unblock resume)"),
     ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
     ("needs-human-review", "e11d48", "PR needs a human decision before merge"),
-    ("pr:edited",          "e4e669", "Branch was pushed; needs review-pr"),
-    ("pr:reviewed-reject", "d93f0b", "review-pr posted findings; revise needed"),
-    ("pr:reviewed-accept", "0075ca", "review-pr clean; ready for review-docs"),
-    ("pr:documented",      "0e8a16", "review-docs clean; ready for merge"),
+    ("pr:reviewing-code",   "e4e669", "PR is in code review (cai-review-pr)"),
+    ("pr:revision-pending", "d93f0b", "Code review posted findings; revise needed"),
+    ("pr:reviewing-docs",   "0075ca", "Code clean; in docs review (cai-review-docs)"),
+    ("pr:ci-failing",       "e11d48", "CI is red; cai-fix-ci will attempt a repair"),
     ("category:reliability", "d73a4a", "Errors, failures, flaky behavior"),
     ("category:cost_reduction", "fbca04", "Token waste, unnecessary tool calls"),
     ("category:prompt_quality", "0075ca", "Unclear or missing prompt guidance"),
@@ -124,6 +124,13 @@ LABELS_TO_DELETE = [
     "auto-improve:merge-blocked",     # stale — superseded by merge-blocked
     "auto-improve:needs-refinement",  # stale — superseded by the refine agent deciding on exploration
     "auto-improve:in-pr",             # dead — FSM drift with auto-improve:pr-open; aligned on :pr-open
+    # Legacy PR pipeline labels — replaced by first-class PRState labels
+    # (pr:reviewing-code / pr:revision-pending / pr:reviewing-docs /
+    # pr:ci-failing). Migration runs on cmd_cycle entry.
+    "pr:edited",
+    "pr:reviewed-reject",
+    "pr:reviewed-accept",
+    "pr:documented",
 ]
 
 AUDIT_LABELS = [

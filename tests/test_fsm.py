@@ -323,7 +323,7 @@ class TestResumeFromHuman(unittest.TestCase):
 class TestResumePRTransition(unittest.TestCase):
 
     def test_known_pr_targets(self):
-        for name in ("REVIEWING", "REVISION_PENDING", "APPROVED"):
+        for name in ("REVIEWING_CODE", "REVISION_PENDING", "REVIEWING_DOCS"):
             t = resume_pr_transition_for(name)
             self.assertIsNotNone(t, f"no PR resume transition for {name}")
             self.assertEqual(t.from_state, PRState.PR_HUMAN_NEEDED)
@@ -335,13 +335,13 @@ class TestResumePRTransition(unittest.TestCase):
         # PRState has no OPEN→from-PR_HUMAN_NEEDED path.
         self.assertIsNone(resume_pr_transition_for("OPEN"))
         # MERGED is deliberately excluded — PRs must funnel through
-        # REVIEWING / REVISION_PENDING / APPROVED; admins never merge
-        # a PR from PR_HUMAN_NEEDED directly.
+        # the review states; admins never merge from PR_HUMAN_NEEDED
+        # directly.
         self.assertIsNone(resume_pr_transition_for("MERGED"))
 
     def test_issue_and_pr_resolvers_are_disjoint(self):
         # Passing a PRState name to the issue resolver must return None.
-        self.assertIsNone(resume_transition_for("REVIEWING"))
+        self.assertIsNone(resume_transition_for("REVIEWING_CODE"))
         # Passing an IssueState-only name to the PR resolver must return None.
         self.assertIsNone(resume_pr_transition_for("REFINING"))
 
@@ -457,7 +457,73 @@ class TestTransientStatesShape(unittest.TestCase):
         ]
         self.assertEqual(forbidden, [],
             "PR_HUMAN_NEEDED → MERGED must not exist; admins funnel back "
-            "through REVISION_PENDING / APPROVED")
+            "through REVIEWING_CODE / REVISION_PENDING / REVIEWING_DOCS")
+
+
+class TestPRStateShape(unittest.TestCase):
+    """Pin the redesigned PRState shape (CI_FAILING + REVIEWING_DOCS first-class)."""
+
+    def test_expected_pr_states(self):
+        expected = {
+            "OPEN", "REVIEWING_CODE", "REVISION_PENDING",
+            "REVIEWING_DOCS", "CI_FAILING", "MERGED", "PR_HUMAN_NEEDED",
+        }
+        self.assertEqual({s.name for s in PRState}, expected)
+
+    def test_ci_failing_reachable_from_all_pre_merge(self):
+        """Every pre-merge non-CI_FAILING state must have a path into CI_FAILING."""
+        pre_merge = {
+            PRState.REVIEWING_CODE, PRState.REVISION_PENDING, PRState.REVIEWING_DOCS,
+        }
+        have_path = {
+            t.from_state for t in PR_TRANSITIONS
+            if t.to_state == PRState.CI_FAILING
+        }
+        self.assertFalse(pre_merge - have_path,
+                         f"no *_to_ci_failing from: {pre_merge - have_path}")
+
+    def test_ci_failing_returns_to_reviewing_code(self):
+        t = find_transition("ci_failing_to_reviewing_code")
+        self.assertEqual(t.from_state, PRState.CI_FAILING)
+        self.assertEqual(t.to_state, PRState.REVIEWING_CODE)
+
+    def test_reviewing_docs_terminal_gate(self):
+        """REVIEWING_DOCS outgoing: back to code, MERGED, or CI_FAILING."""
+        dests = {
+            t.to_state
+            for t in PR_TRANSITIONS
+            if t.from_state == PRState.REVIEWING_DOCS
+        }
+        self.assertEqual(
+            dests, {PRState.REVIEWING_CODE, PRState.MERGED, PRState.CI_FAILING},
+        )
+
+    def test_get_pr_state_from_labels(self):
+        """get_pr_state derives from pipeline labels (post-redesign)."""
+        from cai_lib.fsm import get_pr_state
+        from cai_lib.config import (
+            LABEL_PR_REVIEWING_CODE, LABEL_PR_REVIEWING_DOCS,
+            LABEL_PR_CI_FAILING, LABEL_PR_REVISION_PENDING,
+            LABEL_PR_HUMAN_NEEDED,
+        )
+        cases = [
+            ([LABEL_PR_REVIEWING_CODE],    PRState.REVIEWING_CODE),
+            ([LABEL_PR_REVISION_PENDING],  PRState.REVISION_PENDING),
+            ([LABEL_PR_REVIEWING_DOCS],    PRState.REVIEWING_DOCS),
+            ([LABEL_PR_CI_FAILING],        PRState.CI_FAILING),
+            ([LABEL_PR_HUMAN_NEEDED],      PRState.PR_HUMAN_NEEDED),
+            ([],                           PRState.OPEN),
+        ]
+        for labels, expected in cases:
+            pr = {"labels": [{"name": l} for l in labels]}
+            self.assertEqual(get_pr_state(pr), expected, f"labels={labels}")
+
+        self.assertEqual(
+            get_pr_state({"merged": True, "labels": [{"name": LABEL_PR_REVIEWING_CODE}]}),
+            PRState.MERGED,
+        )
+        both = [{"name": LABEL_PR_REVIEWING_CODE}, {"name": LABEL_PR_CI_FAILING}]
+        self.assertEqual(get_pr_state({"labels": both}), PRState.CI_FAILING)
 
 
 class TestTriagingState(unittest.TestCase):
