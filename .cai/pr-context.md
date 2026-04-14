@@ -44,6 +44,20 @@ Refs: robotsix/robotsix-cai#623
 - No resume transitions for APPLYING or APPLIED from HUMAN_NEEDED — deferred to Step 3
 - _parse_triage_plan and _parse_triage_ops use a greedy regex that may mis-match if Plan/Ops body contains lines of the form "Word: value"; acceptable for now as Step 3 can refine
 
+## Revision 1 (2026-04-14)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:4174` — added LABEL_APPLYING and LABEL_APPLIED to cmd_verify recovery label-removal tuple
+
+### Decisions this revision
+- Follow existing ordering convention (after LABEL_PLAN_APPROVED, before LABEL_RAISED) for new labels in the tuple
+
+### New gaps / deferred
+- none
+
 ## Invariants this change relies on
 - Step 1 artifacts (IssueState.TRIAGING, LABEL_TRIAGING, cmd_triage, raise_to_triaging transition) must exist — verified before implementation
 - APPLYING and APPLIED are reachable from RAISED via RAISED→TRIAGING→APPLYING→APPLIED, satisfying the BFS reachability test
