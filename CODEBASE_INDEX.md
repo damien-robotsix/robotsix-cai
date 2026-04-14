@@ -44,7 +44,6 @@
 | `README.md` | Project documentation and usage guide |
 | `cai.py` | Main CLI dispatcher — 16+ subcommands for the self-improvement loop |
 | `cai_lib/__init__.py` | Package init for cai_lib library modules |
-| `cai_lib/cmd_fix.py` | Deprecated shim redirecting to cai_lib.cmd_implement |
 | `cai_lib/cmd_implement.py` | Helpers for the implement-subagent pipeline |
 | `cai_lib/cmd_lifecycle.py` | Pipeline state-transition helpers |
 | `cai_lib/cmd_unblock.py` | Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock) |
