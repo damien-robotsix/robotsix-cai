@@ -30,3 +30,17 @@ Refs: robotsix/robotsix-cai#567
 - `gh pr list --json commits` returns `authors` list with `login` field per commit
 - Bot pipeline comments use `createdAt` ISO 8601 UTC; commit `committedDate` is same format
 - `_is_bot_comment` matches bot comments by body prefix (not author), so it correctly identifies pipeline summary comments
+
+## Revision 1 (2026-04-14)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py:6895-6908` — replaced `_is_bot_comment(c)` with specific pipeline-state heading check using `_REVIEW_COMMENT_HEADING_CLEAN`, `_DOCS_REVIEW_COMMENT_HEADING_CLEAN`, `_DOCS_REVIEW_COMMENT_HEADING_APPLIED`
+
+### Decisions this revision
+- Used a local `_pipeline_comment_markers` tuple rather than a new module-level constant — keeps the change minimal and co-located with the comment that describes the intent
+
+### New gaps / deferred
+- None

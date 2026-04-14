@@ -6893,8 +6893,14 @@ def _pr_label_sweep() -> tuple[int, int]:
             # Proxy for "when was the pipeline label last applied":
             # find the most recent bot pipeline comment timestamp.
             latest_bot_comment_ts = None
+            _pipeline_comment_markers = (
+                _REVIEW_COMMENT_HEADING_CLEAN,
+                _DOCS_REVIEW_COMMENT_HEADING_CLEAN,
+                _DOCS_REVIEW_COMMENT_HEADING_APPLIED,
+            )
             for c in comments:
-                if not _is_bot_comment(c):
+                body = (c.get("body") or "").lstrip()
+                if not any(body.startswith(h) for h in _pipeline_comment_markers):
                     continue
                 ts = _parse_iso_ts(c.get("createdAt"))
                 if ts is not None and (latest_bot_comment_ts is None
