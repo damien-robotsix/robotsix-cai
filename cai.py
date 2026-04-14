@@ -2484,6 +2484,10 @@ def cmd_implement(args) -> int:
 # so the bot's "identity" is the same as the user's. Content-based
 # marker matching is the robust alternative.
 #
+# Login used by the GitHub Actions bot when it pushes commits.  Used in
+# _pr_label_sweep to distinguish bot pushes from human pushes.
+BOT_USERNAME = "github-actions[bot]"
+
 # IMPORTANT: only "no-action" / "summary" bot comments belong here.
 # Comments that contain ACTIONABLE content for the revise subagent
 # (most notably review-pr findings) must NOT be in this list — they
@@ -6879,6 +6883,38 @@ def _pr_label_sweep() -> tuple[int, int]:
         # Signal: PR has unresolved merge conflict against main.
         if not needs and merge_state == "DIRTY":
             needs = True
+
+        # Step 3/3 (#557): If the PR carries a stale pipeline label
+        # (pr:reviewed-accept or pr:documented) and a non-bot commit was
+        # pushed AFTER the most recent bot pipeline comment, reset the
+        # label to pr:edited so the pipeline re-enters review.
+        stale_pipeline_labels = {LABEL_PR_REVIEWED_ACCEPT, LABEL_PR_DOCUMENTED}
+        if labels & stale_pipeline_labels and commits:
+            # Proxy for "when was the pipeline label last applied":
+            # find the most recent bot pipeline comment timestamp.
+            latest_bot_comment_ts = None
+            for c in comments:
+                if not _is_bot_comment(c):
+                    continue
+                ts = _parse_iso_ts(c.get("createdAt"))
+                if ts is not None and (latest_bot_comment_ts is None
+                                       or ts > latest_bot_comment_ts):
+                    latest_bot_comment_ts = ts
+            # Only reset when we can establish a reliable ordering.
+            # Prefer false-negative (no reset) over false-positive (spurious
+            # reset) when information is missing.
+            if latest_bot_comment_ts is not None and commit_ts is not None:
+                last_authors = commits[-1].get("authors", [])
+                last_author_login = (
+                    last_authors[0].get("login", "") if last_authors else ""
+                )
+                is_bot_commit = (
+                    not last_author_login                   # unknown → treat as bot
+                    or last_author_login == BOT_USERNAME    # github-actions[bot]
+                    or last_author_login.endswith("[bot]")  # any other bot account
+                )
+                if not is_bot_commit and commit_ts > latest_bot_comment_ts:
+                    _pr_set_pipeline_state(pr_number, LABEL_PR_EDITED)
 
         if needs and not currently_labeled:
             _pr_set_needs_human(pr_number, True)
