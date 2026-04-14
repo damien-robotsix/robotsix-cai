@@ -37,7 +37,7 @@
 | `human:submitted` | Human-submitted issue awaiting refinement |
 | `merge-blocked` | PR has a blocking review finding; will not auto-merge |
 | `needs-human-review` | Issue or PR requires human attention |
-| `pr:edited` | PR branch has been updated by `cai revise` or `cai review-docs` |
+| `pr:edited` | PR branch has been updated by `cai revise`, `cai review-docs`, or polling sweep (when non-bot commits are detected after a stale pipeline label) |
 | `pr:reviewed-accept` | `cai review-pr` completed and posted a clean verdict (no findings) |
 | `pr:reviewed-reject` | `cai review-pr` completed and posted findings (changes needed) |
 | `pr:documented` | `cai review-docs` completed (documentation is current) |

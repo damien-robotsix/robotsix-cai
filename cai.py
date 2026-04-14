@@ -2484,6 +2484,10 @@ def cmd_implement(args) -> int:
 # so the bot's "identity" is the same as the user's. Content-based
 # marker matching is the robust alternative.
 #
+# Login used by the GitHub Actions bot when it pushes commits.  Used in
+# _pr_label_sweep to distinguish bot pushes from human pushes.
+BOT_USERNAME = "github-actions[bot]"
+
 # IMPORTANT: only "no-action" / "summary" bot comments belong here.
 # Comments that contain ACTIONABLE content for the revise subagent
 # (most notably review-pr findings) must NOT be in this list — they
@@ -6787,7 +6791,7 @@ def _pr_set_pipeline_state(pr_number: int, label: str) -> None:
 
 
 def _pr_label_sweep() -> tuple[int, int]:
-    """Sync `needs-human-review` across every open bot PR.
+    """Sync `needs-human-review` across every open bot PR and reset stale pipeline labels.
 
     Run after the merge loop so that PRs the merge step did NOT
     process this tick (e.g., idempotency-skipped because no human
@@ -6797,6 +6801,13 @@ def _pr_label_sweep() -> tuple[int, int]:
     `rebase resolution failed` once would never be labelled, since
     that failure path doesn't go through the merge agent. Refs #223.
 
+    Also detects when a non-bot commit was pushed after a stale
+    pipeline label (pr:reviewed-accept or pr:documented) and resets
+    the label to pr:edited to re-enter the review pipeline. This
+    ensures that human or external bot commits on auto-improve
+    branches trigger a re-review, even if no review comments are
+    posted. Refs #567.
+
     Signals (each scoped to comments AFTER the latest commit so a
     fresh push naturally clears them):
 
@@ -6805,8 +6816,12 @@ def _pr_label_sweep() -> tuple[int, int]:
     - any `## Revise subagent: rebase resolution failed` comment
     - any `## Revise subagent: no additional changes` comment
     - mergeStateStatus is DIRTY (unresolved conflict against main)
+    - a non-bot commit pushed after the most recent bot pipeline
+      comment while PR carries pr:reviewed-accept or pr:documented
 
-    Returns (added, removed) for the run summary.
+    Returns (added, removed) for the run summary (counts of
+    `needs-human-review` labels added/removed; pipeline-state resets
+    are side-effects not included in the count).
     """
     try:
         prs = _gh_json([
@@ -6879,6 +6894,45 @@ def _pr_label_sweep() -> tuple[int, int]:
         # Signal: PR has unresolved merge conflict against main.
         if not needs and merge_state == "DIRTY":
             needs = True
+
+        # Step 3/3 (#567): If the PR carries a stale pipeline label
+        # (pr:reviewed-accept or pr:documented) and a non-bot commit was
+        # pushed AFTER the most recent bot pipeline comment, reset the
+        # label to pr:edited so the pipeline re-enters review.
+        stale_pipeline_labels = {LABEL_PR_REVIEWED_ACCEPT, LABEL_PR_DOCUMENTED}
+        if labels & stale_pipeline_labels and commits:
+            # Proxy for "when was the pipeline label last applied":
+            # find the most recent bot pipeline comment timestamp.
+            latest_bot_comment_ts = None
+            _pipeline_comment_markers = (
+                _REVIEW_COMMENT_HEADING_CLEAN,
+                _DOCS_REVIEW_COMMENT_HEADING_CLEAN,
+                _DOCS_REVIEW_COMMENT_HEADING_APPLIED,
+            )
+            for c in comments:
+                body = (c.get("body") or "").lstrip()
+                if not any(body.startswith(h) for h in _pipeline_comment_markers):
+                    continue
+                ts = _parse_iso_ts(c.get("createdAt"))
+                if ts is not None and (latest_bot_comment_ts is None
+                                       or ts > latest_bot_comment_ts):
+                    latest_bot_comment_ts = ts
+            # Only reset when we can establish a reliable ordering.
+            # Prefer false-negative (no reset) over false-positive (spurious
+            # reset) when information is missing.
+            if latest_bot_comment_ts is not None and commit_ts is not None:
+                last_authors = commits[-1].get("authors", [])
+                last_author_login = (
+                    last_authors[0].get("login", "") if last_authors else ""
+                )
+                is_bot_commit = (
+                    not last_author_login                   # unknown → treat as bot
+                    or last_author_login == BOT_USERNAME    # github-actions[bot]
+                    or last_author_login == "github-actions"  # bare name variant
+                    or last_author_login.endswith("[bot]")  # any other bot account
+                )
+                if not is_bot_commit and commit_ts > latest_bot_comment_ts:
+                    _pr_set_pipeline_state(pr_number, LABEL_PR_EDITED)
 
         if needs and not currently_labeled:
             _pr_set_needs_human(pr_number, True)
