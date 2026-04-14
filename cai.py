@@ -7451,7 +7451,7 @@ def cmd_refine(args) -> int:
     refined_body = stdout[marker_pos:].strip()
 
     # 6. Build the new issue body: refined content + original text quoted.
-    original_body = issue.get("body") or "(no body)"
+    original_body = _strip_stored_plan_block(issue.get("body") or "(no body)")
     quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
     new_body = (
         f"{refined_body}\n\n"
@@ -7659,7 +7659,7 @@ def cmd_spike(args) -> int:
 
             elif recommendation == "refine_and_retry":
                 # Update body with findings + original, relabel to :raised
-                original_body = issue.get("body") or "(no body)"
+                original_body = _strip_stored_plan_block(issue.get("body") or "(no body)")
                 quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
                 new_body = (
                     f"{findings_block}\n\n"
@@ -7690,7 +7690,7 @@ def cmd_spike(args) -> int:
         refined_pos = stdout.find("## Refined Issue")
         if refined_pos != -1:
             refined_body = stdout[refined_pos:].strip()
-            original_body = issue.get("body") or "(no body)"
+            original_body = _strip_stored_plan_block(issue.get("body") or "(no body)")
             quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
             new_body = (
                 f"{refined_body}\n\n"
@@ -7919,7 +7919,7 @@ def cmd_explore(args) -> int:
                 return 0
 
             elif recommendation == "refine_and_retry":
-                original_body = issue.get("body") or "(no body)"
+                original_body = _strip_stored_plan_block(issue.get("body") or "(no body)")
                 quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
                 new_body = (
                     f"{findings_block}\n\n"
@@ -7950,7 +7950,7 @@ def cmd_explore(args) -> int:
         refined_pos = stdout.find("## Refined Issue")
         if refined_pos != -1:
             refined_body = stdout[refined_pos:].strip()
-            original_body = issue.get("body") or "(no body)"
+            original_body = _strip_stored_plan_block(issue.get("body") or "(no body)")
             quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
             new_body = (
                 f"{refined_body}\n\n"
