@@ -13,7 +13,7 @@
 #    cmd_cycle guarantees at most one cycle runs at a time, so issues
 #    are processed serially (one full cycle per issue from fix through
 #    merge). This replaces the older per-stage cron lines (fix, refine,
-#    plan, spike, revise, review-pr, merge, verify, confirm) which
+#    plan, revise, review-pr, merge, verify, confirm) which
 #    could interleave stages across different issues.
 #
 #    Orthogonal (independent) tasks — not part of the fix pipeline,

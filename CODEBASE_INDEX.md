@@ -26,7 +26,6 @@
 | `.claude/agents/cai-review-pr.md` | Agent: pre-merge ripple-effect review |
 | `.claude/agents/cai-revise.md` | Agent: handle review comments on auto-improve PRs |
 | `.claude/agents/cai-select.md` | Agent: evaluate and select best fix plan |
-| `.claude/agents/cai-spike.md` | Agent: research spike for needs-spike issues |
 | `.claude/agents/cai-triage.md` | TODO: add description |
 | `.claude/agents/cai-unblock.md` | Agent: classify admin comments on :human-needed issues into FSM resume targets |
 | `.claude/agents/cai-update-check.md` | Agent: check for new Claude Code releases |
@@ -44,9 +43,25 @@
 | `README.md` | Project documentation and usage guide |
 | `cai.py` | Main CLI dispatcher — 16+ subcommands for the self-improvement loop |
 | `cai_lib/__init__.py` | Package init for cai_lib library modules |
+| `cai_lib/actions/__init__.py` | Per-state action handlers for the FSM dispatcher |
+| `cai_lib/actions/confirm.py` | Handler for IssueState.MERGED — verifies remediation and transitions to :solved |
+| `cai_lib/actions/explore.py` | Handler for IssueState.NEEDS_EXPLORATION — runs cai-explore |
+| `cai_lib/actions/fix_ci.py` | Handler for PRState.CI_FAILING — runs cai-fix-ci |
+| `cai_lib/actions/implement.py` | Handler for IssueState.PLAN_APPROVED / IN_PROGRESS — runs cai-implement |
+| `cai_lib/actions/merge.py` | Handler for PRState.APPROVED — final merge step |
+| `cai_lib/actions/open_pr.py` | Handler for PRState.OPEN — tags a fresh PR into :reviewing-code |
+| `cai_lib/actions/plan.py` | Handler for IssueState.REFINED / PLANNING / PLANNED — runs cai-plan + confidence gate |
+| `cai_lib/actions/pr_bounce.py` | Handler for IssueState.PR — dispatches the linked PR |
+| `cai_lib/actions/refine.py` | Handler for IssueState.REFINING — runs cai-refine |
+| `cai_lib/actions/review_docs.py` | Handler for PRState.REVIEWING_DOCS — runs cai-review-docs |
+| `cai_lib/actions/review_pr.py` | Handler for PRState.REVIEWING_CODE — runs cai-review-pr |
+| `cai_lib/actions/revise.py` | Handler for PRState.REVISION_PENDING — runs cai-revise |
+| `cai_lib/actions/triage.py` | Handler for IssueState.RAISED / TRIAGING — runs cai-triage |
+| `cai_lib/cmd_helpers.py` | Cross-command helpers shared between cai.py and cai_lib/actions/* |
 | `cai_lib/cmd_implement.py` | Helpers for the implement-subagent pipeline |
 | `cai_lib/cmd_unblock.py` | Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock) |
 | `cai_lib/config.py` | Shared constants and path definitions |
+| `cai_lib/dispatcher.py` | FSM dispatcher — routes issues/PRs to the handler registered for their state |
 | `cai_lib/fsm.py` | FSM data structures + transition application helpers (Confidence enum, apply_transition, divert-to-human, pending markers) |
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
@@ -68,6 +83,7 @@
 | `scripts/generate-fsm-docs.py` | Generator script for docs/fsm.md (renders cai_lib.fsm transitions as Mermaid) |
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
 | `tests/__init__.py` | Test package init |
+| `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
 | `tests/test_multistep.py` | Tests for multi-step plan support |

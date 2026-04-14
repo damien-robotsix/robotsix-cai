@@ -55,7 +55,6 @@ LABEL_PR_OPEN = "auto-improve:pr-open"
 LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
 LABEL_NO_ACTION = "auto-improve:no-action"
-LABEL_NEEDS_SPIKE = "auto-improve:needs-spike"
 LABEL_NEEDS_EXPLORATION = "auto-improve:needs-exploration"
 LABEL_REFINED = "auto-improve:refined"
 LABEL_REVISING = "auto-improve:revising"
@@ -83,6 +82,7 @@ LABEL_KIND_MAINTENANCE = "kind:maintenance"
 LABEL_PR_REVIEWING_CODE   = "pr:reviewing-code"    # PRState.REVIEWING_CODE
 LABEL_PR_REVISION_PENDING = "pr:revision-pending"  # PRState.REVISION_PENDING
 LABEL_PR_REVIEWING_DOCS   = "pr:reviewing-docs"    # PRState.REVIEWING_DOCS
+LABEL_PR_APPROVED         = "pr:approved"          # PRState.APPROVED
 LABEL_PR_CI_FAILING       = "pr:ci-failing"        # PRState.CI_FAILING
 
 # PR-level label applied by `cai merge` when the verdict is below the

@@ -30,14 +30,6 @@ Clone the repo and run `cai-code-audit` to find concrete inconsistencies, dead c
 
 No arguments.
 
-## confirm
-
-Re-analyze recent transcript signals to verify that `auto-improve:merged` issues are actually resolved. Re-queues unsolved issues (up to 3 attempts) or escalates to `:needs-human-review`.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--issue INT` | optional | Target a specific issue number instead of queue-based selection |
-
 ## cost-optimize
 
 Run the weekly `cai-cost-optimize` agent to analyze spending trends and propose one cost-reduction optimization.
@@ -56,33 +48,23 @@ Print a human-readable cost report from `/var/log/cai/cai-cost.jsonl`.
 
 ## cycle
 
-Continuously run the full pipeline until nothing is left to do: verify + confirm → recover stale locks → drain pending PRs (revise → fix-ci → review-pr → review-docs → merge) → refine one `:raised` issue → fix/spike/explore loop → final confirm.
+One cycle tick: restart-recover stale locks → verify label state against PR/issue reality → run the periodic audit → dispatch a single actionable issue or PR via the FSM dispatcher. A flock serializes overlapping runs. No explicit per-phase ordering — the FSM label is the source of truth and the dispatcher picks the handler for whichever state the oldest actionable item is in.
 
 No arguments.
 
-## explore
+## dispatch
 
-Run `cai-explore` on the oldest `auto-improve:needs-exploration` issue. Outcomes: close with findings, re-queue to `:raised`, hand off directly to `:refined`, or escalate to `:needs-human-review`.
+Single entry point into the FSM dispatcher. Fetches an issue or PR, reads its lifecycle state from labels, and invokes the handler registered for that state in `cai_lib/actions/`. If the handler crashes, the next tick picks the same state and runs the same handler — resume is free because every handler is written to be safely re-enterable.
 
-| Argument | Type | Description |
-|---|---|---|
-| `--issue INT` | optional | Target a specific issue number |
+Three modes:
 
-## fix-ci
+| Invocation | Behavior |
+|---|---|
+| `cai dispatch` | Dispatch the oldest actionable open issue or PR (used by `cai cycle`). |
+| `cai dispatch --issue N` | Dispatch a specific issue by number. |
+| `cai dispatch --pr N` | Dispatch a specific PR by number. |
 
-Diagnose and fix failing GitHub Actions checks on open auto-improve PRs. Invokes `cai-fix-ci` to read the failure log, identify the root cause (test, lint, build, or type error), and make a minimal targeted fix. Skips PRs with unaddressed review comments (left for `cai revise`), PRs marked `:needs-human-review`, or `:merge-blocked`. Posts a per-SHA marker comment after each run to prevent retry loops on the same commit.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--pr INT` | optional | Target a specific PR number instead of using queue-based selection |
-
-## implement
-
-Run the `cai-implement` agent against one eligible `auto-improve:plan-approved` issue in a fresh git worktree. The wrapper handles commit, push, and PR creation. The issue must have a plan pre-computed by `cai plan`; approval is either the automatic HIGH-confidence auto-promotion or an admin resume via `cai unblock`.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--issue INT` | optional | Target a specific issue number instead of scoring-based selection |
+Terminal or parked states (SOLVED, HUMAN_NEEDED, PR_HUMAN_NEEDED, PR MERGED) have no handler — the dispatcher returns without doing anything.
 
 ## health-report
 
@@ -98,77 +80,11 @@ Seed the loop with a smoke test, but only if no prior transcripts exist. If tran
 
 No arguments.
 
-## merge
-
-Confidence-gated auto-merge for bot PRs. Uses `cai-merge` to assess each open PR and merges those meeting the configured confidence threshold.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--pr INT` | optional | Target a specific PR number |
-
 ## propose
 
 Clone the repo and run `cai-propose` (creative improvements) followed by `cai-propose-review` to evaluate feasibility before filing issues.
 
 No arguments.
-
-## triage
-
-Invoke `cai-triage` on the oldest `auto-improve:raised` issue. The driver fires `raise_to_triaging`, runs the agent to classify the issue as REFINE, DISMISS_DUPLICATE, DISMISS_RESOLVED, PLAN_APPROVE, APPLY, or HUMAN. On DISMISS verdicts at HIGH confidence the issue is closed; PLAN_APPROVE and APPLY with HIGH skip-confidence skip ahead to `:plan-approved` (code) or `:applying` (maintenance) respectively; otherwise the issue transitions to `:refining` (with a `kind:{code,maintenance}` label) or `:human-needed`.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--issue INT` | optional | Target a specific issue number |
-
-## refine
-
-Invoke `cai-refine` on the oldest `auto-improve:refining` issue (or `auto-improve:raised` if invoked manually). The driver fires `raise_to_refining` on fresh intake (so observers see the transient working state), runs the agent, then transitions based on its `NextStep: PLAN | EXPLORE` line: on `PLAN` the issue advances to `:refined` for `cmd_plan` to pick up; on `EXPLORE` it moves to `:needs-exploration` for `cmd_explore`, and `cmd_explore` loops it back to `:refining` on completion.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--issue INT` | optional | Target a specific issue number |
-
-## plan
-
-Run the plan-select pipeline on the oldest `auto-improve:refined` issue. Clones the repo, runs 2 serial plan agents followed by a select agent, stores the chosen plan in the issue body inside `<!-- cai-plan-start/end -->` markers, and transitions the label to `auto-improve:planned`. Runnable manually on-demand; no longer invoked automatically by `cai.py cycle`.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--issue INT` | optional | Target a specific issue number instead of queue-based selection |
-
-## review-docs
-
-Review open PRs for stale documentation using `cai-review-docs`. Directly fixes stale documentation it finds and pushes commits to the PR branch. Posts `### Fixed: stale_docs` blocks for successfully fixed docs, and `### Finding: stale_docs` blocks for issues that cannot be fixed automatically.
-
-**Note:** `review-docs` only runs on PRs in the `pr:reviewing-docs` state (set by `cai review-pr` after a clean code review). This enforces the `review-pr` → `review-docs` → `merge` ordering.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--pr INT` | optional | Target a specific PR number |
-
-## review-pr
-
-Review open PRs for ripple-effect inconsistencies using `cai-review-pr`. Posts `### Finding:` blocks as PR comments.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--pr INT` | optional | Target a specific PR number |
-
-## revise
-
-Iterate on open PRs that have unaddressed review comments. Runs `cai-revise` (or `cai-rebase` for conflict-only cases) to address comments and push updates.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--pr INT` | optional | Target a specific PR number |
-
-## spike
-
-Run `cai-spike` on the oldest `auto-improve:needs-spike` issue to investigate unanswered questions. Outcomes mirror `explore`: close, re-queue, refine, or escalate.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--issue INT` | optional | Target a specific issue number |
 
 ## test
 

@@ -354,9 +354,9 @@ class TestResumePRTransition(unittest.TestCase):
 class TestRefineNextStepParser(unittest.TestCase):
 
     def setUp(self):
-        # Lazy import: cai.py is the dispatcher, but the parser lives there.
-        import cai  # noqa: F401
-        self._parse = cai._parse_refine_next_step
+        # Parser now lives in cai_lib.actions.refine.
+        from cai_lib.actions.refine import _parse_refine_next_step
+        self._parse = _parse_refine_next_step
 
     def test_plan(self):
         self.assertEqual(self._parse("body\nNextStep: PLAN\n"), "PLAN")
@@ -471,7 +471,8 @@ class TestPRStateShape(unittest.TestCase):
     def test_expected_pr_states(self):
         expected = {
             "OPEN", "REVIEWING_CODE", "REVISION_PENDING",
-            "REVIEWING_DOCS", "CI_FAILING", "MERGED", "PR_HUMAN_NEEDED",
+            "REVIEWING_DOCS", "APPROVED", "CI_FAILING", "MERGED",
+            "PR_HUMAN_NEEDED",
         }
         self.assertEqual({s.name for s in PRState}, expected)
 
@@ -492,16 +493,25 @@ class TestPRStateShape(unittest.TestCase):
         self.assertEqual(t.from_state, PRState.CI_FAILING)
         self.assertEqual(t.to_state, PRState.REVIEWING_CODE)
 
-    def test_reviewing_docs_terminal_gate(self):
-        """REVIEWING_DOCS outgoing: back to code, MERGED, or CI_FAILING."""
-        dests = {
+    def test_reviewing_docs_to_approved(self):
+        """New flow: REVIEWING_DOCS → APPROVED → MERGED (two-step)."""
+        # REVIEWING_DOCS outgoing: back to code, APPROVED, or CI_FAILING.
+        docs_dests = {
             t.to_state
             for t in PR_TRANSITIONS
             if t.from_state == PRState.REVIEWING_DOCS
         }
         self.assertEqual(
-            dests, {PRState.REVIEWING_CODE, PRState.MERGED, PRState.CI_FAILING},
+            docs_dests,
+            {PRState.REVIEWING_CODE, PRState.APPROVED, PRState.CI_FAILING},
         )
+        # APPROVED must be able to reach MERGED (the terminal step).
+        approved_dests = {
+            t.to_state
+            for t in PR_TRANSITIONS
+            if t.from_state == PRState.APPROVED
+        }
+        self.assertIn(PRState.MERGED, approved_dests)
 
     def test_get_pr_state_from_labels(self):
         """get_pr_state derives from pipeline labels (post-redesign)."""
