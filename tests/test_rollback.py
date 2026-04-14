@@ -34,10 +34,10 @@ class TestRollbackStaleInProgress(unittest.TestCase):
             label = args[args.index("--label") + 1]
             return issues_by_label.get(label, [])
 
-        with patch("cai_lib.cmd_lifecycle._gh_json", side_effect=fake_gh_json), \
-             patch("cai_lib.cmd_lifecycle._set_labels", return_value=True), \
-             patch("cai_lib.cmd_lifecycle.log_run"), \
-             patch("cai_lib.cmd_lifecycle.LOG_PATH", MagicMock(exists=lambda: False)):
+        with patch("cai_lib.watchdog._gh_json", side_effect=fake_gh_json), \
+             patch("cai_lib.watchdog._set_labels", return_value=True), \
+             patch("cai_lib.watchdog.log_run"), \
+             patch("cai_lib.watchdog.LOG_PATH", MagicMock(exists=lambda: False)):
             return cai._rollback_stale_in_progress(immediate=immediate)
 
     def test_immediate_true_rolls_back_all(self):

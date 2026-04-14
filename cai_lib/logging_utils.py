@@ -1,33 +1,9 @@
 """Logging utilities extracted from cai.py."""
 
 import json
-import os
 from datetime import datetime, timezone
 
-from cai_lib.config import ACTIVE_JOB_PATH, LOG_PATH, COST_LOG_PATH, OUTCOME_LOG_PATH
-
-
-def _write_active_job(cmd: str, target_type: str, target_id: int | None) -> None:
-    """Write active-job state for observability. Never raises."""
-    try:
-        ACTIVE_JOB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        ACTIVE_JOB_PATH.write_text(json.dumps({
-            "pid": os.getpid(),
-            "cmd": cmd,
-            "target_type": target_type,
-            "target_id": target_id,
-            "start_ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        }))
-    except OSError:
-        pass
-
-
-def _clear_active_job() -> None:
-    """Clear active-job state file. Never raises."""
-    try:
-        ACTIVE_JOB_PATH.write_text("{}")
-    except OSError:
-        pass
+from cai_lib.config import LOG_PATH, COST_LOG_PATH, OUTCOME_LOG_PATH
 
 
 def log_run(category: str, **fields) -> None:

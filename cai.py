@@ -183,7 +183,7 @@ from cai_lib.config import (  # noqa: E402
 
 
 from cai_lib.logging_utils import (  # noqa: E402
-    _write_active_job, _clear_active_job, log_run, log_cost,  # noqa: F401
+    log_run, log_cost,  # noqa: F401
     _get_issue_category, _log_outcome, _load_outcome_counts,
     _load_outcome_stats, _load_cost_log, _row_ts, _build_cost_summary,
 )
@@ -201,10 +201,7 @@ from cai_lib.github import (  # noqa: E402
     _set_labels, _set_pr_labels, _issue_has_label, _build_issue_block,
     _build_implement_user_message, _fetch_linked_issue_block,
 )
-from cai_lib.cmd_lifecycle import (  # noqa: E402
-    _rollback_stale_in_progress, _reconcile_interrupted,
-    _migrate_legacy_pr_pipeline_labels,
-)
+from cai_lib.watchdog import _rollback_stale_in_progress  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.fsm import (  # noqa: E402
     apply_transition,
@@ -489,39 +486,35 @@ def cmd_analyze(args) -> int:
         f"{review_pr_block}"
     )
 
-    _write_active_job("analyze", "none", None)
-    try:
-        analyzer = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-analyze"],
-            category="analyze",
-            agent="cai-analyze",
-            input=user_message,
-        )
-        print(analyzer.stdout, flush=True)
-        if analyzer.returncode != 0:
-            print(
-                f"[cai analyze] claude -p failed (exit {analyzer.returncode}):\n"
-                f"{analyzer.stderr}",
-                flush=True,
-            )
-            dur = f"{int(time.monotonic() - t0)}s"
-            log_run("analyze", repo=REPO, sessions=session_count,
-                    tool_calls=tool_calls, in_tokens=in_tokens,
-                    out_tokens=out_tokens, duration=dur, exit=analyzer.returncode)
-            return analyzer.returncode
-
-        print("[cai analyze] publishing findings", flush=True)
-        published = _run(
-            ["python", str(PUBLISH_SCRIPT)],
-            input=analyzer.stdout,
+    analyzer = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-analyze"],
+        category="analyze",
+        agent="cai-analyze",
+        input=user_message,
+    )
+    print(analyzer.stdout, flush=True)
+    if analyzer.returncode != 0:
+        print(
+            f"[cai analyze] claude -p failed (exit {analyzer.returncode}):\n"
+            f"{analyzer.stderr}",
+            flush=True,
         )
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("analyze", repo=REPO, sessions=session_count,
                 tool_calls=tool_calls, in_tokens=in_tokens,
-                out_tokens=out_tokens, duration=dur, exit=published.returncode)
-        return published.returncode
-    finally:
-        _clear_active_job()
+                out_tokens=out_tokens, duration=dur, exit=analyzer.returncode)
+        return analyzer.returncode
+
+    print("[cai analyze] publishing findings", flush=True)
+    published = _run(
+        ["python", str(PUBLISH_SCRIPT)],
+        input=analyzer.stdout,
+    )
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("analyze", repo=REPO, sessions=session_count,
+            tool_calls=tool_calls, in_tokens=in_tokens,
+            out_tokens=out_tokens, duration=dur, exit=published.returncode)
+    return published.returncode
 
 
 # ---------------------------------------------------------------------------
@@ -2179,7 +2172,6 @@ def cmd_implement(args) -> int:
         log_run("implement", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
         return 1
     print(f"[cai implement] locked #{issue_number} (label {LABEL_IN_PROGRESS})", flush=True)
-    _write_active_job("implement", "issue", issue_number)
 
     # Make sure git can authenticate over HTTPS via the gh token. This
     # is also done in entrypoint.sh, but redoing it here is cheap and
@@ -2208,7 +2200,6 @@ def cmd_implement(args) -> int:
             capture_output=True,
         )
         log_run("implement", repo=REPO, issue=issue_number, result="pre_screen_spike", exit=0)
-        _clear_active_job()
         return 0
 
     if ps_verdict == "ambiguous":
@@ -2232,7 +2223,6 @@ def cmd_implement(args) -> int:
             capture_output=True,
         )
         log_run("implement", repo=REPO, issue=issue_number, result="pre_screen_ambiguous", exit=0)
-        _clear_active_job()
         return 0
 
     _uid = uuid.uuid4().hex[:8]
@@ -2631,7 +2621,6 @@ def cmd_implement(args) -> int:
                 result="unexpected_error", exit=1)
         return 1
     finally:
-        _clear_active_job()
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -3542,7 +3531,6 @@ def cmd_revise(args) -> int:
             continue
 
         _run(["gh", "auth", "setup-git"], capture_output=True)
-        _write_active_job("revise", "issue", issue_number)
 
         _uid = uuid.uuid4().hex[:8]
         work_dir = Path(f"/tmp/cai-revise-{issue_number}-{_uid}")
@@ -4057,7 +4045,6 @@ def cmd_revise(args) -> int:
                     result="unexpected_error", exit=1)
             had_failure = True
         finally:
-            _clear_active_job()
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -4595,46 +4582,42 @@ def cmd_audit(args) -> int:
     )
 
     # Step 3: Invoke the declared cai-audit subagent.
-    _write_active_job("audit", "none", None)
-    try:
-        audit = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-audit"],
-            category="audit",
-            agent="cai-audit",
-            input=user_message,
-        )
-        print(audit.stdout, flush=True)
-        if audit.returncode != 0:
-            print(
-                f"[cai audit] claude -p failed (exit {audit.returncode}):\n"
-                f"{audit.stderr}",
-                flush=True,
-            )
-            dur = f"{int(time.monotonic() - t0)}s"
-            log_run("audit", repo=REPO, duration=dur,
-                    pr_open_recovered=len(recovered_pr_open),
-                    branches_cleaned=len(deleted_orphaned),
-                    no_action_unstuck=len(unstuck_no_action),
-                    merged_flagged=len(flagged_merged),
-                    exit=audit.returncode)
-            return audit.returncode
-
-        # Step 4: Publish findings via publish.py with audit namespace.
-        print("[cai audit] publishing audit findings", flush=True)
-        published = _run(
-            ["python", str(PUBLISH_SCRIPT), "--namespace", "audit"],
-            input=audit.stdout,
+    audit = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-audit"],
+        category="audit",
+        agent="cai-audit",
+        input=user_message,
+    )
+    print(audit.stdout, flush=True)
+    if audit.returncode != 0:
+        print(
+            f"[cai audit] claude -p failed (exit {audit.returncode}):\n"
+            f"{audit.stderr}",
+            flush=True,
         )
         dur = f"{int(time.monotonic() - t0)}s"
-        log_run("audit", repo=REPO, rollbacks=len(rolled_back),
+        log_run("audit", repo=REPO, duration=dur,
                 pr_open_recovered=len(recovered_pr_open),
                 branches_cleaned=len(deleted_orphaned),
                 no_action_unstuck=len(unstuck_no_action),
                 merged_flagged=len(flagged_merged),
-                duration=dur, exit=published.returncode)
-        return published.returncode
-    finally:
-        _clear_active_job()
+                exit=audit.returncode)
+        return audit.returncode
+
+    # Step 4: Publish findings via publish.py with audit namespace.
+    print("[cai audit] publishing audit findings", flush=True)
+    published = _run(
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "audit"],
+        input=audit.stdout,
+    )
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("audit", repo=REPO, rollbacks=len(rolled_back),
+            pr_open_recovered=len(recovered_pr_open),
+            branches_cleaned=len(deleted_orphaned),
+            no_action_unstuck=len(unstuck_no_action),
+            merged_flagged=len(flagged_merged),
+            duration=dur, exit=published.returncode)
+    return published.returncode
 
 
 # ---------------------------------------------------------------------------
@@ -4859,16 +4842,12 @@ def cmd_audit_triage(args) -> int:
     )
 
     # 4. Invoke the declared cai-audit-triage subagent.
-    _write_active_job("audit-triage", "none", None)
-    try:
-        triage = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-audit-triage"],
-            category="audit-triage",
-            agent="cai-audit-triage",
-            input=user_message,
-        )
-    finally:
-        _clear_active_job()
+    triage = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-audit-triage"],
+        category="audit-triage",
+        agent="cai-audit-triage",
+        input=user_message,
+    )
     print(triage.stdout, flush=True)
     if triage.returncode != 0:
         print(
@@ -5409,18 +5388,14 @@ def cmd_cost_optimize(args) -> int:
 
     # 3. Run the cost-optimize agent.
     print("[cai cost-optimize] running agent", flush=True)
-    _write_active_job("cost-optimize", "none", None)
-    try:
-        result = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-cost-optimize",
-             "--permission-mode", "acceptEdits"],
-            category="cost-optimize",
-            agent="cai-cost-optimize",
-            input=user_message,
-            cwd="/app",
-        )
-    finally:
-        _clear_active_job()
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-cost-optimize",
+         "--permission-mode", "acceptEdits"],
+        category="cost-optimize",
+        agent="cai-cost-optimize",
+        input=user_message,
+        cwd="/app",
+    )
     if result.stdout:
         print(result.stdout, flush=True)
     if result.returncode != 0:
@@ -5602,19 +5577,15 @@ def cmd_propose(args) -> int:
 
     # 3. Run the creative proposal agent.
     print(f"[cai propose] running creative agent for {work_dir}", flush=True)
-    _write_active_job("propose", "none", None)
-    try:
-        creative = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-propose",
-             "--permission-mode", "acceptEdits",
-             "--add-dir", str(work_dir)],
-            category="propose",
-            agent="cai-propose",
-            input=user_message,
-            cwd="/app",
-        )
-    finally:
-        _clear_active_job()
+    creative = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-propose",
+         "--permission-mode", "acceptEdits",
+         "--add-dir", str(work_dir)],
+        category="propose",
+        agent="cai-propose",
+        input=user_message,
+        cwd="/app",
+    )
     if creative.stdout:
         print(creative.stdout, flush=True)
     if creative.returncode != 0:
@@ -5667,19 +5638,15 @@ def cmd_propose(args) -> int:
     )
 
     print("[cai propose] running review agent", flush=True)
-    _write_active_job("propose-review", "none", None)
-    try:
-        review = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-propose-review",
-             "--permission-mode", "acceptEdits",
-             "--add-dir", str(work_dir)],
-            category="propose",
-            agent="cai-propose-review",
-            input=review_message,
-            cwd="/app",
-        )
-    finally:
-        _clear_active_job()
+    review = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-propose-review",
+         "--permission-mode", "acceptEdits",
+         "--add-dir", str(work_dir)],
+        category="propose",
+        agent="cai-propose-review",
+        input=review_message,
+        cwd="/app",
+    )
     if review.stdout:
         print(review.stdout, flush=True)
     if review.returncode != 0:
@@ -5855,19 +5822,15 @@ def cmd_code_audit(args) -> int:
     #    the agent reads its definition + memory from the canonical
     #    /app paths while auditing the clone via absolute paths.
     print(f"[cai code-audit] running agent for {work_dir}", flush=True)
-    _write_active_job("code-audit", "none", None)
-    try:
-        agent = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-code-audit",
-             "--permission-mode", "acceptEdits",
-             "--add-dir", str(work_dir)],
-            category="code-audit",
-            agent="cai-code-audit",
-            input=user_message,
-            cwd="/app",
-        )
-    finally:
-        _clear_active_job()
+    agent = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-code-audit",
+         "--permission-mode", "acceptEdits",
+         "--add-dir", str(work_dir)],
+        category="code-audit",
+        agent="cai-code-audit",
+        input=user_message,
+        cwd="/app",
+    )
     if agent.stdout:
         print(agent.stdout, flush=True)
     if agent.returncode != 0:
@@ -5992,19 +5955,15 @@ def cmd_update_check(args) -> int:
     #    reads its definition + memory from the canonical /app paths
     #    while examining the clone via absolute paths.
     print(f"[cai update-check] running agent for {work_dir}", flush=True)
-    _write_active_job("update-check", "none", None)
-    try:
-        agent = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-update-check",
-             "--permission-mode", "acceptEdits",
-             "--add-dir", str(work_dir)],
-            category="update-check",
-            agent="cai-update-check",
-            input=user_message,
-            cwd="/app",
-        )
-    finally:
-        _clear_active_job()
+    agent = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-update-check",
+         "--permission-mode", "acceptEdits",
+         "--add-dir", str(work_dir)],
+        category="update-check",
+        agent="cai-update-check",
+        input=user_message,
+        cwd="/app",
+    )
     if agent.stdout:
         print(agent.stdout, flush=True)
     if agent.returncode != 0:
@@ -6203,16 +6162,12 @@ def cmd_confirm(args) -> int:
     )
 
     # 4. Invoke the declared cai-confirm subagent.
-    _write_active_job("confirm", "none", None)
-    try:
-        confirm = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-confirm"],
-            category="confirm",
-            agent="cai-confirm",
-            input=user_message,
-        )
-    finally:
-        _clear_active_job()
+    confirm = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-confirm"],
+        category="confirm",
+        agent="cai-confirm",
+        input=user_message,
+    )
     if confirm.returncode != 0:
         print(
             f"[cai confirm] claude -p failed (exit {confirm.returncode}):\n"
@@ -6545,7 +6500,6 @@ def cmd_review_pr(args) -> int:
             # so it reads its definition + memory from the canonical
             # /app paths while reviewing the cloned PR via absolute
             # paths.
-            _write_active_job("review-pr", "pr", pr_number)
             agent = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-review-pr",
                  "--permission-mode", "acceptEdits",
@@ -6670,7 +6624,6 @@ def cmd_review_pr(args) -> int:
                 file=sys.stderr,
             )
         finally:
-            _clear_active_job()
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -6848,7 +6801,6 @@ def cmd_review_docs(args) -> int:
             )
 
             # Invoke the declared cai-review-docs subagent.
-            _write_active_job("review-docs", "pr", pr_number)
             agent = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-review-docs",
                  "--permission-mode", "acceptEdits",
@@ -6939,7 +6891,6 @@ def cmd_review_docs(args) -> int:
                 file=sys.stderr,
             )
         finally:
-            _clear_active_job()
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -7463,14 +7414,12 @@ def cmd_merge(args) -> int:
         )
 
         # Invoke the declared cai-merge subagent.
-        _write_active_job("merge", "pr", pr_number)
         agent = _run_claude_p(
             ["claude", "-p", "--agent", "cai-merge"],
             category="merge",
             agent="cai-merge",
             input=user_message,
         )
-        _clear_active_job()
         if agent.returncode != 0:
             print(
                 f"[cai merge] model failed for PR #{pr_number} "
@@ -7728,17 +7677,13 @@ def cmd_triage(args) -> int:
     )
 
     # 5. Run cai-triage agent.
-    _write_active_job("triage", "issue", issue_number)
-    try:
-        result = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-triage",
-             "--dangerously-skip-permissions"],
-            category="triage",
-            agent="cai-triage",
-            input=user_message,
-        )
-    finally:
-        _clear_active_job()
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-triage",
+         "--dangerously-skip-permissions"],
+        category="triage",
+        agent="cai-triage",
+        input=user_message,
+    )
     print(result.stdout, flush=True)
 
     if result.returncode != 0:
@@ -7972,17 +7917,13 @@ def cmd_refine(args) -> int:
     #    the agent may rewrite the body to incorporate exploration findings
     #    and re-decide NextStep.
     user_message = _build_issue_block(issue)
-    _write_active_job("refine", "issue", issue_number)
-    try:
-        result = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-refine",
-             "--dangerously-skip-permissions"],
-            category="refine",
-            agent="cai-refine",
-            input=user_message,
-        )
-    finally:
-        _clear_active_job()
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-refine",
+         "--dangerously-skip-permissions"],
+        category="refine",
+        agent="cai-refine",
+        input=user_message,
+    )
     print(result.stdout, flush=True)
 
     if result.returncode != 0:
@@ -8257,7 +8198,6 @@ def cmd_spike(args) -> int:
         log_run("spike", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
         return 1
 
-    _write_active_job("spike", "issue", issue_number)
     _uid = uuid.uuid4().hex[:8]
     work_dir = Path(f"/tmp/cai-spike-{issue_number}-{_uid}")
 
@@ -8447,7 +8387,6 @@ def cmd_spike(args) -> int:
         log_run("spike", repo=REPO, issue=issue_number, result="error", exit=1)
         return 1
     finally:
-        _clear_active_job()
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -8524,7 +8463,6 @@ def cmd_explore(args) -> int:
         log_run("explore", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
         return 1
 
-    _write_active_job("explore", "issue", issue_number)
     _uid = uuid.uuid4().hex[:8]
     work_dir = Path(f"/tmp/cai-explore-{issue_number}-{_uid}")
 
@@ -8707,7 +8645,6 @@ def cmd_explore(args) -> int:
         log_run("explore", repo=REPO, issue=issue_number, result="error", exit=1)
         return 1
     finally:
-        _clear_active_job()
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -8817,7 +8754,6 @@ def cmd_fix_ci(args) -> int:
         # OPEN / CI_FAILING / PR_HUMAN_NEEDED: no transition needed.
 
         _run(["gh", "auth", "setup-git"], capture_output=True)
-        _write_active_job("fix-ci", "issue", issue_number)
 
         _uid = uuid.uuid4().hex[:8]
         work_dir = Path(f"/tmp/cai-fix-ci-{issue_number}-{_uid}")
@@ -9016,7 +8952,6 @@ def cmd_fix_ci(args) -> int:
             log_run("fix-ci", repo=REPO, pr=pr_number, result="unexpected_error", exit=1)
             had_failure = True
         finally:
-            _clear_active_job()
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -9246,13 +9181,6 @@ def _cmd_cycle_inner(args) -> int:
     had_failure = False
 
     # --- Phase 0: legacy PR-label migration (idempotent) ------------------
-    # Relabel any in-flight PRs still carrying retired
-    # pr:edited / pr:reviewed-* / pr:documented labels to the new
-    # PRState labels. Once the queue is empty this becomes a no-op.
-    migrated_prs = _migrate_legacy_pr_pipeline_labels()
-    if migrated_prs:
-        print(f"[cai cycle] migrated {migrated_prs} legacy PR label(s)", flush=True)
-
     # --- Phase 1: verify + confirm (initial state sync) -----------------
     for step_name, handler in [("verify", cmd_verify), ("confirm", cmd_confirm)]:
         rc = _run_step(step_name, handler, args)
@@ -9942,19 +9870,15 @@ def cmd_check_workflows(args) -> int:
         f"[cai check-workflows] running agent on {len(recent_runs)} failure(s)",
         flush=True,
     )
-    _write_active_job("check-workflows", "none", None)
-    try:
-        agent = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-check-workflows",
-             "--max-turns", "3",
-             "--permission-mode", "acceptEdits"],
-            category="check-workflows",
-            agent="cai-check-workflows",
-            input=user_message,
-            cwd="/app",
-        )
-    finally:
-        _clear_active_job()
+    agent = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-check-workflows",
+         "--max-turns", "3",
+         "--permission-mode", "acceptEdits"],
+        category="check-workflows",
+        agent="cai-check-workflows",
+        input=user_message,
+        cwd="/app",
+    )
     if agent.stdout:
         print(agent.stdout, flush=True)
     if agent.returncode != 0:
