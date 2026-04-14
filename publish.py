@@ -84,7 +84,6 @@ CHECK_WORKFLOWS_CATEGORIES = {
 LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
-    ("human:requested", "1d76db", "Human-requested fix (admin-only label)"),
     ("auto-improve:in-progress", "fbca04", "implement subagent is actively working on this issue"),
     ("auto-improve:pr-open", "5319e7", "implement subagent opened a PR"),
     ("auto-improve:merged", "0e8a16", "PR was merged; awaiting verify"),
@@ -108,6 +107,15 @@ LABELS = [
     ("category:cost_reduction", "fbca04", "Token waste, unnecessary tool calls"),
     ("category:prompt_quality", "0075ca", "Unclear or missing prompt guidance"),
     ("category:workflow_efficiency", "5319e7", "Unnecessary workflow steps or config"),
+]
+
+# Labels that existed in an earlier design but are no longer active.
+# Deleted idempotently on each publish run (gh label delete exits non-zero
+# when the label is absent, so check=False is required).
+LABELS_TO_DELETE = [
+    "human:requested",                # removed — human:submitted is now the only human entry point
+    "auto-improve:merge-blocked",     # stale — superseded by merge-blocked
+    "auto-improve:needs-refinement",  # stale — superseded by human:submitted
 ]
 
 AUDIT_LABELS = [
@@ -325,6 +333,16 @@ def ensure_all_labels() -> None:
                 check=False,
                 capture_output=True,
             )
+    for name in LABELS_TO_DELETE:
+        subprocess.run(
+            [
+                "gh", "label", "delete", name,
+                "--yes",
+                "--repo", REPO,
+            ],
+            check=False,
+            capture_output=True,
+        )
 
 
 def issue_exists(key: str) -> bool:

@@ -344,14 +344,11 @@ The threshold defaults to `high` — only the most clear-cut PRs merge
 or close automatically. Relax to `medium` by editing the env var once
 trust builds.
 
-There are two human entry points into the pipeline. `human:requested`
-is the admin entry point: a human applies it to an arbitrary issue to opt it
-into the fix queue directly (bypassing refinement). The label is restricted to
-repo admins by `.github/workflows/admin-only-label.yml` — a non-admin who
-applies it gets the label removed and a comment explaining why. `human:submitted`
-is the non-admin entry point: a human labels their own issue to opt it into the
-pipeline through the normal refinement step. Both ultimately transition through
-`refine` → `implement`.
+`human:submitted` is the sole human entry point into the pipeline.
+It is restricted to repo admins by `.github/workflows/admin-only-label.yml` — a non-admin who
+applies it gets the label removed and a comment explaining why. Issues labelled `human:submitted`
+transition through the full planning pipeline: `refine` → `plan` → `human:plan-approved`
+(admin grants approval) → `implement`.
 
 ### Triggering tasks ad-hoc
 
