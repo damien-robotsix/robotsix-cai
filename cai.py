@@ -6448,6 +6448,19 @@ def cmd_review_docs(args) -> int:
                 already_reviewed = True
                 break
         if already_reviewed:
+            # Recovery: if we already posted a docs-review comment at this
+            # HEAD, docs are current — but an older `_pr_set_pipeline_state`
+            # call (before code and docs gates were decoupled) may have
+            # cleared `pr:documented`. Re-apply it so the merge gate
+            # doesn't wait forever. Safe to call when already present.
+            pr_labels = {l["name"] for l in pr.get("labels", [])}
+            if LABEL_PR_DOCUMENTED not in pr_labels:
+                print(
+                    f"[cai review-docs] PR #{pr_number}: re-applying "
+                    f"`pr:documented` for prior review at {head_sha[:8]}",
+                    flush=True,
+                )
+                _pr_set_pipeline_state(pr_number, LABEL_PR_DOCUMENTED)
             print(
                 f"[cai review-docs] PR #{pr_number}: already reviewed at {head_sha[:8]}; skipping",
                 flush=True,
@@ -6677,22 +6690,48 @@ LABEL_PR_EDITED          = "pr:edited"
 LABEL_PR_REVIEWED_REJECT = "pr:reviewed-reject"
 LABEL_PR_REVIEWED_ACCEPT = "pr:reviewed-accept"
 LABEL_PR_DOCUMENTED      = "pr:documented"
-PR_PIPELINE_LABELS = (
+
+# Code-review gate: exactly one of these labels at a time. `pr:edited`
+# means the branch changed and needs re-review; accept/reject are
+# terminal outcomes for a given HEAD.
+CODE_REVIEW_PIPELINE_LABELS = (
     LABEL_PR_EDITED,
     LABEL_PR_REVIEWED_REJECT,
     LABEL_PR_REVIEWED_ACCEPT,
+)
+# Docs-review gate: independent from the code-review gate — a PR needs
+# both to merge, so setting a code-review label must not clear this one.
+DOCS_REVIEW_PIPELINE_LABELS = (
     LABEL_PR_DOCUMENTED,
 )
+PR_PIPELINE_LABELS = CODE_REVIEW_PIPELINE_LABELS + DOCS_REVIEW_PIPELINE_LABELS
 
 
 def _pr_set_pipeline_state(pr_number: int, label: str) -> None:
-    """Set exactly one PR pipeline-state label, removing the others.
+    """Set a PR pipeline-state label, clearing only labels in the same gate.
 
-    Removes every label in PR_PIPELINE_LABELS then adds ``label``.
+    Code-review labels ({edited, reviewed-reject, reviewed-accept}) and
+    docs-review labels ({documented}) are independent gates — both must
+    be satisfied to merge. Setting one must not clear the other.
+
+    `pr:edited` is the one cross-gate case: it signals the branch just
+    changed, so any prior docs review is stale — we clear `pr:documented`
+    alongside the other code-review labels in that case.
+
     Idempotent: gh silently no-ops if the label is already/not present.
     Logged but not fatal on failure — labelling is a UX nicety.
     """
-    for lbl in PR_PIPELINE_LABELS:
+    if label in CODE_REVIEW_PIPELINE_LABELS:
+        to_remove = [lbl for lbl in CODE_REVIEW_PIPELINE_LABELS if lbl != label]
+        if label == LABEL_PR_EDITED:
+            # Branch changed: prior docs review is for a stale SHA.
+            to_remove.append(LABEL_PR_DOCUMENTED)
+    elif label in DOCS_REVIEW_PIPELINE_LABELS:
+        to_remove = [lbl for lbl in DOCS_REVIEW_PIPELINE_LABELS if lbl != label]
+    else:
+        to_remove = []
+
+    for lbl in to_remove:
         # Swallow non-zero returns — the label simply wasn't on the PR.
         _run(
             ["gh", "pr", "edit", str(pr_number),
