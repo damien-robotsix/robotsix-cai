@@ -65,6 +65,9 @@ LABEL_AUDIT_NEEDS_HUMAN = "audit:needs-human"
 LABEL_HUMAN_SUBMITTED = "human:submitted"
 LABEL_PLANNED = "auto-improve:planned"
 LABEL_PLAN_APPROVED = "human:plan-approved"
+LABEL_IN_PR           = "auto-improve:in-pr"           # IssueState.PR — issue has an active PR
+LABEL_HUMAN_NEEDED    = "auto-improve:human-needed"    # IssueState.HUMAN_NEEDED
+LABEL_PR_HUMAN_NEEDED = "auto-improve:pr-human-needed" # PRState.PR_HUMAN_NEEDED
 
 # PR-level label applied by `cai merge` when the verdict is below the
 # auto-merge threshold. Lets a human filter open PRs that are waiting

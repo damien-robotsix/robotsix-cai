@@ -45,6 +45,9 @@ from cai_lib.config import (
     LABEL_HUMAN_SUBMITTED,
     LABEL_PLANNED,
     LABEL_PLAN_APPROVED,
+    LABEL_IN_PR,
+    LABEL_HUMAN_NEEDED,
+    LABEL_PR_HUMAN_NEEDED,
     _STALE_IN_PROGRESS_HOURS,
     _STALE_REVISING_HOURS,
     _STALE_NO_ACTION_DAYS,
@@ -82,6 +85,12 @@ from cai_lib.cmd_lifecycle import _rollback_stale_in_progress, _reconcile_interr
 
 from cai_lib.cmd_implement import _parse_decomposition
 
+from cai_lib.fsm import (
+    IssueState, PRState, Transition,
+    ISSUE_TRANSITIONS, PR_TRANSITIONS,
+    get_issue_state, get_pr_state, render_fsm_mermaid,
+)
+
 __all__ = [
     # config
     "REPO", "SMOKE_PROMPT", "TRANSCRIPT_DIR", "PARSE_SCRIPT", "PUBLISH_SCRIPT",
@@ -94,6 +103,7 @@ __all__ = [
     "LABEL_NEEDS_EXPLORATION", "LABEL_REFINED", "LABEL_REVISING", "LABEL_PARENT",
     "LABEL_MERGE_BLOCKED", "LABEL_AUDIT_RAISED", "LABEL_AUDIT_NEEDS_HUMAN",
     "LABEL_PR_NEEDS_HUMAN", "LABEL_HUMAN_SUBMITTED", "LABEL_PLANNED", "LABEL_PLAN_APPROVED",
+    "LABEL_IN_PR", "LABEL_HUMAN_NEEDED", "LABEL_PR_HUMAN_NEEDED",
     "_STALE_IN_PROGRESS_HOURS", "_STALE_REVISING_HOURS",
     "_STALE_NO_ACTION_DAYS", "_STALE_MERGED_DAYS",
     # logging
@@ -110,4 +120,8 @@ __all__ = [
     "_reconcile_interrupted",
     # cmd_implement
     "_parse_decomposition",
+    # fsm
+    "IssueState", "PRState", "Transition",
+    "ISSUE_TRANSITIONS", "PR_TRANSITIONS",
+    "get_issue_state", "get_pr_state", "render_fsm_mermaid",
 ]
