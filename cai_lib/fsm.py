@@ -143,10 +143,14 @@ class Transition:
 ISSUE_TRANSITIONS: list[Transition] = [
     Transition("raise_to_refine",         IssueState.RAISED,            IssueState.REFINED,
                labels_remove=[LABEL_RAISED],            labels_add=[LABEL_REFINED]),
-    Transition("raise_to_exploration",    IssueState.RAISED,            IssueState.NEEDS_EXPLORATION,
-               labels_remove=[LABEL_RAISED],            labels_add=[LABEL_NEEDS_EXPLORATION]),
     Transition("raise_to_human",          IssueState.RAISED,            IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_RAISED],            labels_add=[LABEL_HUMAN_NEEDED]),
+    # Refine is the routing node: it either produces a plan directly or
+    # sends the issue to exploration first. NEEDS_EXPLORATION always
+    # loops back to REFINED (via exploration_to_refine below) so refine
+    # alone decides when the gate to PLANNED opens.
+    Transition("refine_to_exploration",   IssueState.REFINED,           IssueState.NEEDS_EXPLORATION,
+               labels_remove=[LABEL_REFINED],           labels_add=[LABEL_NEEDS_EXPLORATION]),
     Transition("refine_to_plan",          IssueState.REFINED,           IssueState.PLANNED,
                labels_remove=[LABEL_REFINED],           labels_add=[LABEL_PLANNED]),
     Transition("plan_to_approved",        IssueState.PLANNED,           IssueState.PLAN_APPROVED,
@@ -331,8 +335,8 @@ def apply_transition(
     returns False) so drift cannot silently compound.
 
     *extra_remove* is appended to the transition's own ``labels_remove`` —
-    used for auxiliary labels (e.g. ``human:submitted``) that aren't part
-    of the canonical FSM but must be cleared alongside the state change.
+    used for auxiliary labels that aren't part of the canonical FSM but
+    must be cleared alongside the state change.
 
     *set_labels* is injectable for tests; defaults to
     ``cai_lib.github._set_labels``.

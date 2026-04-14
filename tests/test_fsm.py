@@ -16,8 +16,8 @@ from cai_lib.fsm import (
     render_pending_marker, parse_pending_marker, strip_pending_marker,
 )
 from cai_lib.config import (
-    LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED, LABEL_HUMAN_SUBMITTED,
-    LABEL_HUMAN_NEEDED,
+    LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED,
+    LABEL_HUMAN_NEEDED, LABEL_PARENT,
 )
 
 
@@ -138,10 +138,10 @@ class TestApplyTransition(unittest.TestCase):
         apply_transition(
             7, "raise_to_refine",
             current_labels=[LABEL_RAISED],
-            extra_remove=[LABEL_HUMAN_SUBMITTED],
+            extra_remove=[LABEL_PARENT],
             set_labels=fake,
         )
-        self.assertIn(LABEL_HUMAN_SUBMITTED, calls[0]["remove"])
+        self.assertIn(LABEL_PARENT, calls[0]["remove"])
         self.assertIn(LABEL_RAISED, calls[0]["remove"])
 
     def test_state_mismatch_refuses(self):
@@ -344,6 +344,56 @@ class TestResumePRTransition(unittest.TestCase):
         self.assertIsNone(resume_transition_for("REVIEWING"))
         # Passing an IssueState-only name to the PR resolver must return None.
         self.assertIsNone(resume_pr_transition_for("REFINED"))
+
+
+class TestRefineNextStepParser(unittest.TestCase):
+
+    def setUp(self):
+        # Lazy import: cai.py is the dispatcher, but the parser lives there.
+        import cai  # noqa: F401
+        self._parse = cai._parse_refine_next_step
+
+    def test_plan(self):
+        self.assertEqual(self._parse("body\nNextStep: PLAN\n"), "PLAN")
+
+    def test_explore(self):
+        self.assertEqual(self._parse("NextStep: EXPLORE"), "EXPLORE")
+
+    def test_case_insensitive(self):
+        self.assertEqual(self._parse("nextstep: explore"), "EXPLORE")
+
+    def test_missing(self):
+        self.assertIsNone(self._parse(""))
+        self.assertIsNone(self._parse("nothing here"))
+        self.assertIsNone(self._parse("NextStep: BOGUS"))
+
+
+class TestRefineAsRouter(unittest.TestCase):
+    """Phase shape: refine is the routing node; no direct RAISED→EXPLORATION."""
+
+    def test_no_direct_raise_to_exploration(self):
+        names = {t.name for t in ISSUE_TRANSITIONS}
+        self.assertNotIn("raise_to_exploration", names,
+            "RAISED must no longer go directly to NEEDS_EXPLORATION")
+
+    def test_refine_to_exploration_exists(self):
+        t = find_transition("refine_to_exploration")
+        self.assertEqual(t.from_state, IssueState.REFINED)
+        self.assertEqual(t.to_state, IssueState.NEEDS_EXPLORATION)
+
+    def test_exploration_still_loops_back_to_refine(self):
+        t = find_transition("exploration_to_refine")
+        self.assertEqual(t.from_state, IssueState.NEEDS_EXPLORATION)
+        self.assertEqual(t.to_state, IssueState.REFINED)
+
+    def test_raised_only_reaches_refined_or_human(self):
+        """From RAISED the only non-human destination must be REFINED."""
+        dests = {
+            t.to_state
+            for t in ISSUE_TRANSITIONS
+            if t.from_state == IssueState.RAISED
+        }
+        self.assertEqual(dests, {IssueState.REFINED, IssueState.HUMAN_NEEDED})
 
 
 if __name__ == "__main__":

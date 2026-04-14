@@ -197,7 +197,10 @@ from cai_lib.github import (  # noqa: E402
     _set_labels, _issue_has_label, _build_issue_block, _build_implement_user_message,
     _fetch_linked_issue_block,
 )
-from cai_lib.cmd_lifecycle import _rollback_stale_in_progress, _reconcile_interrupted  # noqa: E402
+from cai_lib.cmd_lifecycle import (  # noqa: E402
+    _rollback_stale_in_progress, _reconcile_interrupted,
+    _migrate_legacy_human_submitted,
+)
 from cai_lib.fsm import apply_transition  # noqa: E402
 from cai_lib.cmd_implement import _parse_decomposition  # noqa: E402
 
@@ -415,7 +418,6 @@ def cmd_analyze(args) -> int:
         LABEL_REFINED: 3,
         LABEL_PLANNED: 3,
         LABEL_RAISED: 4,
-        LABEL_HUMAN_SUBMITTED: 4,
         LABEL_MERGED: 5,
     }
 
@@ -543,7 +545,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
             continue
         pr = _find_linked_pr(issue["number"])
         issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-        raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else (LABEL_HUMAN_SUBMITTED if LABEL_HUMAN_SUBMITTED in issue_labels else LABEL_RAISED)
+        raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
         remove_labels = [LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING]
         if pr is None:
             if _set_labels(issue["number"], add=[raised_label], remove=remove_labels, log_prefix=log_prefix):
@@ -1196,13 +1198,13 @@ def _count_open_by_label(label: str) -> int:
 
 
 def cmd_plan_all(args) -> int:
-    """Drive every :raised / :human:submitted / :refined issue to :planned.
+    """Drive every :raised / :refined issue to :planned.
 
-    Each iteration runs one `refine` (if any :raised or
-    :human:submitted remain) or one `plan` (otherwise, if any
-    :refined remain). The loop exits when both queues are empty, an
-    iteration cap is reached, or two consecutive iterations make no
-    progress (to avoid spinning on a perpetually-failing issue).
+    Each iteration runs one `refine` (if any :raised remain) or one
+    `plan` (otherwise, if any :refined remain). The loop exits when
+    both queues are empty, an iteration cap is reached, or two
+    consecutive iterations make no progress (to avoid spinning on a
+    perpetually-failing issue).
 
     This step produces the :planned backlog that humans review and
     promote to :plan-approved. The implement loop in `cycle` only consumes
@@ -1223,10 +1225,7 @@ def cmd_plan_all(args) -> int:
     stuck_strikes = 0
 
     for iteration in range(1, MAX_ITER + 1):
-        raised = (
-            _count_open_by_label(LABEL_RAISED)
-            + _count_open_by_label(LABEL_HUMAN_SUBMITTED)
-        )
+        raised = _count_open_by_label(LABEL_RAISED)
         refined = _count_open_by_label(LABEL_REFINED)
 
         if raised == 0 and refined == 0:
@@ -4047,7 +4046,7 @@ def cmd_verify(args) -> int:
         if LABEL_PR_OPEN in iss_labels:
             continue
         # Issue is open, has an open PR, but missing :pr-open — recover.
-        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED, LABEL_RAISED, LABEL_HUMAN_SUBMITTED, LABEL_AUDIT_RAISED) if l in iss_labels]  # noqa: E741
+        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]  # noqa: E741
         if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove, log_prefix="cai verify"):
             print(
                 f"[cai verify] recovered #{issue_num}: added :pr-open "
@@ -7507,9 +7506,13 @@ def cmd_merge(args) -> int:
 
 
 def cmd_refine(args) -> int:
-    """Invoke the cai-refine agent on the oldest :raised or human:submitted issue."""
+    """Invoke the cai-refine agent on the oldest :raised issue."""
     print("[cai refine] looking for issues to refine", flush=True)
     t0 = time.monotonic()
+
+    # Drain any open issues still carrying the retired human:submitted
+    # label — idempotent and free once the queue is empty.
+    _migrate_legacy_human_submitted()
 
     # 1. Find candidates.
     if getattr(args, "issue", None) is not None:
@@ -7528,36 +7531,25 @@ def cmd_refine(args) -> int:
         title = issue["title"]
         print(f"[cai refine] targeting #{issue_number}: {title}", flush=True)
     else:
-        all_candidates = []
-        for label in (LABEL_RAISED, LABEL_HUMAN_SUBMITTED):
-            try:
-                batch = _gh_json([
-                    "issue", "list",
-                    "--repo", REPO,
-                    "--label", label,
-                    "--state", "open",
-                    "--json", "number,title,body,labels,createdAt,comments",
-                    "--limit", "100",
-                ]) or []
-            except subprocess.CalledProcessError as e:
-                print(
-                    f"[cai refine] gh issue list failed:\n{e.stderr}",
-                    file=sys.stderr,
-                )
-                log_run("refine", repo=REPO, result="list_failed", exit=1)
-                return 1
-            all_candidates.extend(batch)
-
-        # Deduplicate by issue number (in case an issue has both labels).
-        seen = set()
-        issues = []
-        for i in all_candidates:
-            if i["number"] not in seen:
-                seen.add(i["number"])
-                issues.append(i)
+        try:
+            issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", LABEL_RAISED,
+                "--state", "open",
+                "--json", "number,title,body,labels,createdAt,comments",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(
+                f"[cai refine] gh issue list failed:\n{e.stderr}",
+                file=sys.stderr,
+            )
+            log_run("refine", repo=REPO, result="list_failed", exit=1)
+            return 1
 
         if not issues:
-            print("[cai refine] no :raised or human:submitted issues; nothing to do", flush=True)
+            print("[cai refine] no :raised issues; nothing to do", flush=True)
             log_run("refine", repo=REPO, result="no_eligible_issues", exit=0)
             return 0
 
@@ -7606,7 +7598,6 @@ def cmd_refine(args) -> int:
         apply_transition(
             issue_number, "raise_to_refine",
             current_labels=issue_label_names,
-            extra_remove=[LABEL_HUMAN_SUBMITTED],
             log_prefix="cai refine",
         )
         dur = f"{int(time.monotonic() - t0)}s"
@@ -7629,7 +7620,7 @@ def cmd_refine(args) -> int:
             _set_labels(
                 issue_number,
                 add=[LABEL_PARENT],
-                remove=[LABEL_RAISED, LABEL_HUMAN_SUBMITTED],
+                remove=[LABEL_RAISED],
                 log_prefix="cai refine",
             )
             dur = f"{int(time.monotonic() - t0)}s"
@@ -7689,15 +7680,35 @@ def cmd_refine(args) -> int:
                 duration=dur, result="edit_failed", exit=1)
         return 1
 
-    # 8. Transition labels: :raised / human:submitted → :refined.
+    # 8. Transition labels: :raised → :refined.
     apply_transition(
         issue_number, "raise_to_refine",
         current_labels=issue_label_names,
-        extra_remove=[LABEL_HUMAN_SUBMITTED],
         log_prefix="cai refine",
     )
 
+    # 9. Routing decision: if the refine agent requested exploration,
+    #    fire the second transition so the issue moves off :refined and
+    #    onto :needs-exploration for cmd_explore to pick up. Otherwise
+    #    the issue stays at :refined and cmd_plan drains it as usual.
+    next_step = _parse_refine_next_step(stdout)
     dur = f"{int(time.monotonic() - t0)}s"
+    if next_step == "EXPLORE":
+        # Re-fetch labels — the previous apply_transition moved us to :refined.
+        apply_transition(
+            issue_number, "refine_to_exploration",
+            current_labels=[LABEL_REFINED],
+            log_prefix="cai refine",
+        )
+        print(
+            f"[cai refine] #{issue_number} refined and routed to "
+            f":needs-exploration in {dur}",
+            flush=True,
+        )
+        log_run("refine", repo=REPO, issue=issue_number,
+                duration=dur, result="refined_explore", exit=0)
+        return 0
+
     print(
         f"[cai refine] #{issue_number} refined and transitioned to :refined "
         f"in {dur}",
@@ -7706,6 +7717,27 @@ def cmd_refine(args) -> int:
     log_run("refine", repo=REPO, issue=issue_number,
             duration=dur, result="refined", exit=0)
     return 0
+
+
+_REFINE_NEXT_STEP_RE = re.compile(
+    r"^\s*NextStep\s*[:=]\s*(PLAN|EXPLORE)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _parse_refine_next_step(text: str) -> "str | None":
+    """Extract ``NextStep: PLAN | EXPLORE`` from cai-refine output.
+
+    Returns ``"PLAN"``, ``"EXPLORE"``, or ``None`` when missing. A missing
+    decision is treated as PLAN by the caller — staying on :refined is
+    the safe default that preserves today's behaviour.
+    """
+    if not text:
+        return None
+    m = _REFINE_NEXT_STEP_RE.search(text)
+    if not m:
+        return None
+    return m.group(1).upper()
 
 
 # ---------------------------------------------------------------------------

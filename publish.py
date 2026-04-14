@@ -95,7 +95,6 @@ LABELS = [
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
     ("auto-improve:planned", "e4e669", "Plan generated and stored in issue body; awaiting human approval"),
     ("human:plan-approved", "0e8a16", "Plan approved by human; ready for implement subagent"),
-    ("human:submitted", "bfd4f2", "Human-submitted issue awaiting refinement"),
     ("auto-improve:parent", "c5def5", "Parent issue with sub-issues"),
     ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
     ("needs-human-review", "e11d48", "PR needs a human decision before merge"),
@@ -113,9 +112,10 @@ LABELS = [
 # Deleted idempotently on each publish run (gh label delete exits non-zero
 # when the label is absent, so check=False is required).
 LABELS_TO_DELETE = [
-    "human:requested",                # removed — human:submitted is now the only human entry point
+    "human:requested",                # removed — auto-improve:raised is the sole human entry point
+    "human:submitted",                # removed — folded back into auto-improve:raised
     "auto-improve:merge-blocked",     # stale — superseded by merge-blocked
-    "auto-improve:needs-refinement",  # stale — superseded by human:submitted
+    "auto-improve:needs-refinement",  # stale — superseded by the refine agent deciding on exploration
 ]
 
 AUDIT_LABELS = [
