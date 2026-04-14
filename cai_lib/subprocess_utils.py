@@ -158,9 +158,34 @@ def _run_claude_p(
         log_cost(row)
 
         # Rewrite stdout to the result text so existing callers stay
-        # backwards compatible. If `result` is missing, fall back to
-        # the raw envelope so callers still see *something*.
+        # backwards compatible. If `result` is missing (e.g. the run
+        # ended with subtype=error_max_budget_usd, which omits the
+        # result field), fall back to the text of the last assistant
+        # stream event so callers still see the agent's final output
+        # instead of the raw JSON envelope.
         if "result" in envelope and isinstance(envelope["result"], str):
             proc.stdout = envelope["result"]
+        elif isinstance(parsed, list):
+            salvaged = _last_assistant_text(parsed)
+            if salvaged:
+                proc.stdout = salvaged
 
     return proc
+
+
+def _last_assistant_text(events: list) -> str:
+    """Return the concatenated text of the final assistant event, or ''."""
+    for event in reversed(events):
+        if not isinstance(event, dict) or event.get("type") != "assistant":
+            continue
+        message = event.get("message") or {}
+        content = message.get("content") or []
+        parts = [
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+        text = "".join(parts).strip()
+        if text:
+            return text
+    return ""
