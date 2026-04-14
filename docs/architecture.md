@@ -4,8 +4,8 @@
 
 `robotsix-cai` is a self-improving agent system. The continuous loop runs inside a long-lived Docker container and drives GitHub issues through a well-defined lifecycle:
 
-1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised` (the sole entry point).
-2. **Triage** — `cai triage` calls `cai-triage` to classify the issue as REFINE, DISMISS_DUPLICATE, DISMISS_RESOLVED, or HUMAN. DISMISS verdicts at HIGH confidence close the issue; others route to REFINE, setting a `kind:{code,maintenance}` label. Label transitions to `auto-improve:triaging` → `auto-improve:refining` (or `auto-improve:human-needed`).
+1. **Raise** — `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised` (the sole entry point — the former `human:submitted` label has been folded into `:raised`).
+2. **Triage** — `cai triage` calls `cai-triage` to classify the issue as REFINE, DISMISS_DUPLICATE, DISMISS_RESOLVED, PLAN_APPROVE, APPLY, or HUMAN. DISMISS verdicts at HIGH confidence close the issue; PLAN_APPROVE and APPLY may skip ahead with HIGH skip-confidence (code issues → `:plan-approved`, maintenance issues → `:applying`); REFINE and HUMAN route accordingly, setting a `kind:{code,maintenance}` label. Label transitions to `auto-improve:triaging` → `auto-improve:refining` / `auto-improve:plan-approved` / `auto-improve:applying` / `auto-improve:human-needed`.
 3. **Refine** — `cai refine` calls `cai-refine` to rewrite the issue into a structured plan with steps, verification, and scope guardrails. Label transitions to `auto-improve:refined`.
 5. **Plan** — `cai plan` runs plan-select agents to generate and select an implementation plan. The plan is stored in the issue body. The select agent emits a trailing `Confidence:` line: at `HIGH` the label auto-transitions to `auto-improve:plan-approved`; at `MEDIUM` / `LOW` / missing it diverts to `auto-improve:human-needed` with a pending marker so an admin can review the plan.
 6. **Admin Resume (low-confidence only)** — `cai unblock` classifies an admin's comment on a `:human-needed` issue; a HIGH-confidence `PLAN_APPROVED` verdict fires `human_to_plan_approved` and the issue continues. Ambiguous or dissenting admin comments send the issue back through the planner.
@@ -34,6 +34,8 @@
 | `auto-improve:needs-exploration` | Needs autonomous exploration (`cai explore`) |
 | `auto-improve:planned` | Plan generated and stored in issue body; confidence gate pending |
 | `auto-improve:plan-approved` | Plan approved (HIGH confidence auto-approval or admin resume); ready for implement subagent |
+| `auto-improve:applying` | Maintenance ops are being applied (transient; Step 3 agent drains this state) |
+| `auto-improve:applied` | Maintenance ops applied; awaiting verification |
 | `auto-improve:parent` | Parent issue; child sub-issues carry the work |
 | `audit:raised` | Audit finding awaiting triage by `cai audit-triage` |
 | `audit:needs-human` | Audit finding escalated to human |
@@ -53,7 +55,7 @@
 3. **Ingest unlabeled** — attach `auto-improve` to any unlabeled issues that belong to the pipeline.
 4. **Drain PRs** — for each open auto-improve PR: revise → fix-ci → review-pr → review-docs → merge.
 5. **Implement loop** — repeatedly call `implement`, `spike`, or `explore` on `auto-improve:plan-approved` issues until no eligible work remains, draining PRs after each implementation. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the auto-improve:plan-approved gate.
-6. **Plan-all** — run `plan-all` to drain every open `:raised` / `:refined` issue through triage → refine → plan. HIGH-confidence plans auto-promote to `:plan-approved` and feed the implement loop; lower-confidence plans land in `:human-needed` for admin review.
+6. **Plan-all** — run `plan-all` to drain every open `:raised` / `:refined` issue through triage (which may skip ahead to `:plan-approved` or `:applying` for high-confidence decisions) → refine → plan. HIGH-confidence plans auto-promote to `:plan-approved` and feed the implement loop; lower-confidence plans land in `:human-needed` for admin review.
 7. **Final confirm** — one last confirm pass.
 
 `plan-all` also runs on its own cron line (default `30 * * * *`) so the `:planned` queue stays current between cycles.

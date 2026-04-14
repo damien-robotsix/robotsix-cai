@@ -53,12 +53,14 @@ The issue-solving pipeline is split across two cron lines:
   issues only. `:raised`, `:refined`, and `:planned` issues are
   invisible to the implement loop.
 - `cai.py plan-all` drives every `:raised` / `:refined` issue
-  through triage → refine → plan. HIGH-confidence plans auto-promote to
-  `:plan-approved` and feed the implement loop on the next tick;
-  lower-confidence plans divert to `:human-needed` for admin review,
-  where an admin comment resumes them via `cai unblock`. `plan-all`
-  also runs at the end of each `cycle` so the next approval pass has
-  a fresh queue.
+  through triage. For high-confidence triage decisions, issues may
+  skip directly to `:plan-approved` (code issues) or `:applying`
+  (maintenance issues); otherwise they proceed through refine → plan.
+  HIGH-confidence plans auto-promote to `:plan-approved` and feed
+  the implement loop on the next tick; lower-confidence plans divert
+  to `:human-needed` for admin review, where an admin comment resumes
+  them via `cai unblock`. `plan-all` also runs at the end of each
+  `cycle` so the next approval pass has a fresh queue.
 
 A flock in `cmd_cycle` serializes overlapping runs, so issues are
 processed one at a time: each cycle fixes, drains pending PRs, and
@@ -71,12 +73,12 @@ The individual pipeline subcommands (`implement`, `refine`, `plan`,
 | Subcommand | Default schedule | What it does |
 |---|---|---|
 | `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Implement pipeline on `auto-improve:plan-approved` issues: verify → confirm → drain pending PRs (revise → fix-ci → review-pr → review-docs → merge) → loop(implement/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
-| `cai.py plan-all` | `30 * * * *` (hourly, offset 30) | Drains every open `:raised` / `:refined` issue through triage → refine → plan → `:planned` so humans have a queue to review. Also runs at the end of each `cycle`; the cron line provides a mid-cycle catch-up pass |
+| `cai.py plan-all` | `30 * * * *` (hourly, offset 30) | Drains every open `:raised` / `:refined` issue through triage (which may skip to `:plan-approved` or `:applying` for high-confidence decisions) → refine → plan → `:planned` so humans have a queue to review. Also runs at the end of each `cycle`; the cron line provides a mid-cycle catch-up pass |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL) and `:revising` (1-hour TTL) locks and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
 | `cai.py audit-triage` | `10 */6 * * *` (every 6 hours) | Triages `audit:raised` findings and emits close/passthrough/escalate verdicts |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
-| `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the triage → refine → plan → implement pipeline |
+| `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the triage → (optionally skip to `:plan-approved` / `:applying`) → refine → plan → implement pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
 | `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
 | `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
@@ -109,58 +111,38 @@ action so two concurrent `implement` runs can't pick the same issue.
                                 │ triage
                                 ▼
                             triaging
-                                │
-                                │ refine
-                                ▼
-                             refined
-                                │
-                                │ plan
-                                ▼
-                             planned  ◄──┐
-                                │       │
-                     (confidence gate)   │ (PR closed unmerged,
-                     HIGH /    \ low     │  or pre-screen
-                          ▼     ▼        │  ambiguous → rolled
-                 plan-approved  │        │  back to origin label)
-                     ▲          ▼        │
-                     │    human-needed   │
-                     │       │ unblock   │
-                     └───────┘           │
-                                │        │
-                                │ fix    │
-                                ▼        │
-                          in-progress    │
-                                │       │
-                          pre-screen    │
-                            (Haiku)     │
-                  ┌─────────────┼───────┐│
-                  │             │       ││
-               (spike)   (actionable)   ││
-                  │             │       ││
-           needs-spike    empty diff  PR opened
-                  │             │       ▼│
-                  │             ▼  pr-open ─┘
-                  │        no-action    │
-                  │                     │ verify (PR merged)
-                  │                     ▼
-                  │                  merged
-                  │                     │
-                  │         ┌───────────┴───────────┐
-                  │         │                       │
-                  │   confirm (pattern       confirm (inconclusive
-                  │    absent)                / unsolved)
-                  │         ▼                       ▼
-                  │   solved (closed)    re-queued :refined
-                  │                      (up to 3 attempts,
-                  │                       then :needs-human-review)
-                  │
-                  │ spike
-                  ▼
-           ┌──────┴────────────────┐
-           │                       │
-     findings/refined         blocked
-           │                       │
-    (close or :refined)   needs-human-review
+                          ╱       │       ╲
+                  (skip: HIGH  │      (skip: HIGH
+                   confidence  │   confidence
+                  + code kind) │  + maintenance)
+                       ▼       │         ▼
+                  plan-approved │      applying
+                       │        │         │
+                       │    (refine path) ▼
+                       │        │      applied
+                       │        ▼         │
+                       │     refined      │ (HIGH confidence)
+                       │        │         ▼
+                       │        ▼       solved
+                       │     planned
+                       │        │
+                       │   (gate: HIGH/
+                       │   low confidence)
+                       │        ▼
+                       └─→ human-needed
+                            │ unblock
+                            └─────┐
+                                  │
+                       (code path only)
+                                  │
+                                  ▼
+                             in-progress
+                                  │ (pre-screen
+                                  │  → PR opened
+                                  │  → etc)
+                                  ▼
+                               PR → merged → verify → confirm → solved
+                                                       (or re-queue)
 ```
 
 `:no-action` means the implement subagent reviewed the issue and decided no
@@ -168,7 +150,8 @@ code change was needed. The agent's reasoning is posted as a comment
 on the issue. A human can either close the issue (agreeing with the
 bot), re-label to `:refined` to re-run through refine → plan → `:plan-approved` 
 before the implement subagent retries, or re-label to `:raised` to re-run through 
-the triage → refine pipeline first.
+the triage pipeline first (which may skip ahead if the triage agent has high
+confidence in the decision).
 
 ### Filing issues with multi-step plans
 

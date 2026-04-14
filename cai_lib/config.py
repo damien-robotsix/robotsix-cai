@@ -70,6 +70,8 @@ LABEL_PLAN_APPROVED = "auto-improve:plan-approved"
 # divert to :human-needed instead of the nominal target.
 LABEL_REFINING = "auto-improve:refining"
 LABEL_PLANNING = "auto-improve:planning"
+LABEL_APPLYING = "auto-improve:applying"
+LABEL_APPLIED  = "auto-improve:applied"
 LABEL_HUMAN_NEEDED    = "auto-improve:human-needed"    # IssueState.HUMAN_NEEDED
 LABEL_PR_HUMAN_NEEDED = "auto-improve:pr-human-needed" # PRState.PR_HUMAN_NEEDED
 LABEL_TRIAGING         = "auto-improve:triaging"

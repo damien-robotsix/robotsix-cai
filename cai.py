@@ -210,6 +210,7 @@ from cai_lib.fsm import (  # noqa: E402
     apply_transition,
     apply_transition_with_confidence,
     apply_pr_transition,
+    Confidence,
     IssueState,
     PRState,
     get_pr_state,
@@ -4169,7 +4170,7 @@ def cmd_verify(args) -> int:
         if LABEL_PR_OPEN in iss_labels:
             continue
         # Issue is open, has an open PR, but missing :pr-open — recover.
-        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]  # noqa: E741
+        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED, LABEL_APPLYING, LABEL_APPLIED, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]  # noqa: E741
         if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove, log_prefix="cai verify"):
             print(
                 f"[cai verify] recovered #{issue_num}: added :pr-open "
@@ -7637,12 +7638,14 @@ def cmd_merge(args) -> int:
 
 
 def cmd_triage(args) -> int:
-    """Classify the oldest :raised issue as REFINE, DISMISS_*, or HUMAN.
+    """Classify the oldest :raised issue and route it through the FSM.
 
     Moves RAISED → TRIAGING, runs the cai-triage agent inline, then
     executes the verdict:
     - DISMISS_DUPLICATE / DISMISS_RESOLVED at HIGH confidence → close issue.
-    - REFINE (or DISMISS at non-HIGH confidence) → TRIAGING → REFINING + kind label.
+    - PLAN_APPROVE with HIGH skip-confidence + code kind → TRIAGING → PLAN_APPROVED (embedded plan in issue body).
+    - APPLY with HIGH skip-confidence + maintenance kind → TRIAGING → APPLYING.
+    - REFINE (or DISMISS/PLAN_APPROVE/APPLY at non-HIGH confidence) → TRIAGING → REFINING + kind label.
     - HUMAN → TRIAGING → HUMAN_NEEDED.
     """
     print("[cai triage] looking for :raised issues to triage", flush=True)
@@ -7794,6 +7797,76 @@ def cmd_triage(args) -> int:
             log_prefix="cai triage",
         )
         action_taken = "human"
+    elif decision in ("PLAN_APPROVE", "APPLY"):
+        # Dual-gate skip-ahead logic: both RoutingDecision and SkipConfidence
+        # must be HIGH for the fast path to fire; otherwise fall through to REFINE.
+        skip_conf = _parse_triage_skip_confidence(result.stdout)
+        kind_label = LABEL_KIND_MAINTENANCE if kind == "maintenance" else LABEL_KIND_CODE
+        if skip_conf is None or skip_conf < Confidence.HIGH:
+            print(
+                f"[cai triage] #{issue_number}: {decision} but "
+                f"SkipConfidence={skip_conf} < HIGH — falling through to REFINE",
+                flush=True,
+            )
+            apply_transition(
+                issue_number, "triaging_to_refining",
+                current_labels=[LABEL_TRIAGING],
+                log_prefix="cai triage",
+            )
+            _set_labels(issue_number, add=[kind_label], log_prefix="cai triage")
+            action_taken = "refine"
+        elif decision == "PLAN_APPROVE":
+            plan_body = _parse_triage_plan(result.stdout)
+            if plan_body:
+                existing_body = issue.get("body") or ""
+                stripped_body = _strip_stored_plan_block(existing_body)
+                plan_section = (
+                    f"<!-- cai-plan-start -->\n{plan_body}\n<!-- cai-plan-end -->"
+                )
+                new_body = f"{stripped_body}\n\n{plan_section}"
+                _run(
+                    ["gh", "issue", "edit", str(issue_number),
+                     "--repo", REPO, "--body", new_body],
+                    capture_output=True, check=True,
+                )
+            apply_transition(
+                issue_number, "triaging_to_plan_approved",
+                current_labels=[LABEL_TRIAGING],
+                log_prefix="cai triage",
+            )
+            _set_labels(issue_number, add=[kind_label], log_prefix="cai triage")
+            print(
+                f"[cai triage] #{issue_number}: PLAN_APPROVE with HIGH SkipConfidence "
+                f"— advancing to plan-approved",
+                flush=True,
+            )
+            action_taken = "plan_approve"
+        else:  # decision == "APPLY"
+            ops_body = _parse_triage_ops(result.stdout)
+            if ops_body:
+                existing_body = issue.get("body") or ""
+                stripped_body = _strip_stored_plan_block(existing_body)
+                ops_section = (
+                    f"<!-- cai-plan-start -->\n{ops_body}\n<!-- cai-plan-end -->"
+                )
+                new_body = f"{stripped_body}\n\n{ops_section}"
+                _run(
+                    ["gh", "issue", "edit", str(issue_number),
+                     "--repo", REPO, "--body", new_body],
+                    capture_output=True, check=True,
+                )
+            apply_transition(
+                issue_number, "triaging_to_applying",
+                current_labels=[LABEL_TRIAGING],
+                log_prefix="cai triage",
+            )
+            _set_labels(issue_number, add=[kind_label], log_prefix="cai triage")
+            print(
+                f"[cai triage] #{issue_number}: APPLY with HIGH SkipConfidence "
+                f"— advancing to applying",
+                flush=True,
+            )
+            action_taken = "applying"
     else:
         # REFINE, or DISMISS at sub-HIGH confidence → fall through to REFINE.
         if decision in ("DISMISS_DUPLICATE", "DISMISS_RESOLVED"):
@@ -8074,6 +8147,48 @@ def _parse_refine_next_step(text: str) -> "str | None":
     if not m:
         return None
     return m.group(1).upper()
+
+
+_TRIAGE_SKIP_CONFIDENCE_RE = re.compile(
+    r"^\s*SkipConfidence\s*[:=]\s*(LOW|MEDIUM|HIGH)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+_TRIAGE_PLAN_BLOCK_RE = re.compile(
+    r"^\s*Plan\s*[:=]\s*(.+?)(?=^\s*\w+\s*[:=]|\Z)",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+
+_TRIAGE_OPS_BLOCK_RE = re.compile(
+    r"^\s*Ops\s*[:=]\s*(.+?)(?=^\s*\w+\s*[:=]|\Z)",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+
+
+def _parse_triage_skip_confidence(text: str) -> "Confidence | None":
+    """Extract ``SkipConfidence: LOW|MEDIUM|HIGH`` from cai-triage output."""
+    if not text:
+        return None
+    m = _TRIAGE_SKIP_CONFIDENCE_RE.search(text)
+    if not m:
+        return None
+    return Confidence[m.group(1).upper()]
+
+
+def _parse_triage_plan(text: str) -> "str | None":
+    """Extract ``Plan: <body>`` block from cai-triage output."""
+    if not text:
+        return None
+    m = _TRIAGE_PLAN_BLOCK_RE.search(text)
+    return m.group(1).strip() if m else None
+
+
+def _parse_triage_ops(text: str) -> "str | None":
+    """Extract ``Ops: <list>`` block from cai-triage output."""
+    if not text:
+        return None
+    m = _TRIAGE_OPS_BLOCK_RE.search(text)
+    return m.group(1).strip() if m else None
 
 
 # ---------------------------------------------------------------------------

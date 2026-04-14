@@ -19,6 +19,7 @@ from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED, LABEL_REFINING,
     LABEL_PLANNING, LABEL_PLANNED,
     LABEL_HUMAN_NEEDED, LABEL_PARENT, LABEL_TRIAGING,
+    LABEL_APPLYING, LABEL_APPLIED,
 )
 
 
@@ -68,8 +69,12 @@ class TestFsm(unittest.TestCase):
         for t in ISSUE_TRANSITIONS:
             self.assertIn(t.name, result,
                 f"Transition {t.name!r} missing from mermaid output")
-            self.assertIn(f"[≥{t.min_confidence.name}]", result,
-                f"Confidence annotation missing for {t.name!r}")
+            if t.min_confidence is not None:
+                self.assertIn(f"[≥{t.min_confidence.name}]", result,
+                    f"Confidence annotation missing for {t.name!r}")
+            else:
+                self.assertIn("[caller-gated]", result,
+                    f"caller-gated annotation missing for {t.name!r}")
 
     def test_pr_transitions_are_transition_objects(self):
         self.assertTrue(len(PR_TRANSITIONS) > 0)
@@ -558,6 +563,66 @@ class TestTriagingState(unittest.TestCase):
         t = find_transition("raise_to_refining")
         self.assertEqual(t.from_state, IssueState.RAISED)
         self.assertEqual(t.to_state, IssueState.REFINING)
+
+
+class TestTriagingSkipAheadPaths(unittest.TestCase):
+    """Step 2 skip-ahead paths: TRIAGING → PLAN_APPROVED / APPLYING."""
+
+    def test_applying_in_issue_state(self):
+        self.assertIn("APPLYING", [s.name for s in IssueState])
+
+    def test_applied_in_issue_state(self):
+        self.assertIn("APPLIED", [s.name for s in IssueState])
+
+    def test_triaging_to_plan_approved_exists(self):
+        t = find_transition("triaging_to_plan_approved")
+        self.assertEqual(t.from_state, IssueState.TRIAGING)
+        self.assertEqual(t.to_state, IssueState.PLAN_APPROVED)
+
+    def test_triaging_to_applying_exists(self):
+        t = find_transition("triaging_to_applying")
+        self.assertEqual(t.from_state, IssueState.TRIAGING)
+        self.assertEqual(t.to_state, IssueState.APPLYING)
+
+    def test_applying_to_applied_requires_high_confidence(self):
+        t = find_transition("applying_to_applied")
+        self.assertTrue(t.accepts(Confidence.HIGH))
+        self.assertFalse(t.accepts(Confidence.MEDIUM))
+        self.assertFalse(t.accepts(Confidence.LOW))
+
+    def test_applying_to_human_exists(self):
+        t = find_transition("applying_to_human")
+        self.assertEqual(t.from_state, IssueState.APPLYING)
+        self.assertEqual(t.to_state, IssueState.HUMAN_NEEDED)
+
+    def test_applied_to_solved_exists(self):
+        t = find_transition("applied_to_solved")
+        self.assertEqual(t.from_state, IssueState.APPLIED)
+        self.assertEqual(t.to_state, IssueState.SOLVED)
+
+    def test_applying_has_human_fallback(self):
+        dests = {
+            t.to_state
+            for t in ISSUE_TRANSITIONS
+            if t.from_state == IssueState.APPLYING
+        }
+        self.assertIn(IssueState.HUMAN_NEEDED, dests)
+
+    def test_gate_override_low_skip_confidence(self):
+        """triaging_to_plan_approved has no FSM-level confidence gate.
+
+        Gating is done at the application level in cmd_triage. Confirm
+        the transition itself carries no min_confidence requirement.
+        """
+        t = find_transition("triaging_to_plan_approved")
+        # The transition itself has no min_confidence; gating is done in cmd_triage
+        # at the application level.
+        self.assertIsNone(t.min_confidence)
+
+    def test_triaging_to_applying_has_no_fsm_gate(self):
+        """triaging_to_applying also carries no FSM-level confidence gate."""
+        t = find_transition("triaging_to_applying")
+        self.assertIsNone(t.min_confidence)
 
 
 if __name__ == "__main__":
