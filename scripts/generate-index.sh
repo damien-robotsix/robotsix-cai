@@ -58,7 +58,7 @@ declare -A DESCRIPTIONS=(
   [".github/workflows/regenerate-docs.yml"]="CI: regenerate CODEBASE_INDEX.md and docs/fsm.md, auto-commit drift"
   ["cai_lib/__init__.py"]="Package init for cai_lib library modules"
   ["cai_lib/cmd_implement.py"]="Helpers for the implement-subagent pipeline"
-  ["cai_lib/cmd_lifecycle.py"]="Pipeline state-transition helpers"
+  ["cai_lib/watchdog.py"]="Stale-lock watchdog that rolls back orphaned :in-progress / :revising labels"
   ["cai_lib/cmd_unblock.py"]="Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock)"
   ["cai_lib/config.py"]="Shared constants and path definitions"
   ["cai_lib/fsm.py"]="FSM data structures + transition application helpers (Confidence enum, apply_transition, divert-to-human, pending markers)"
@@ -81,7 +81,6 @@ declare -A DESCRIPTIONS=(
   ["tests/test_multistep.py"]="Tests for multi-step plan support"
   ["tests/test_parse.py"]="Tests for parse.py signal extraction"
   ["tests/test_publish.py"]="Tests for publish.py issue publishing"
-  ["tests/test_reconcile.py"]="Tests for _reconcile_interrupted classification logic"
   ["tests/test_rollback.py"]="Tests for rollback functionality"
 )
 

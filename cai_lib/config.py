@@ -79,9 +79,7 @@ LABEL_KIND_CODE        = "kind:code"
 LABEL_KIND_MAINTENANCE = "kind:maintenance"
 
 # PR pipeline-state labels — one per PRState. Set by FSM transitions
-# (apply_pr_transition) and read by dispatch. Replaces the legacy
-# pr:edited / pr:reviewed-accept / pr:reviewed-reject / pr:documented
-# two-layer scheme (see _migrate_legacy_pr_pipeline_labels).
+# (apply_pr_transition) and read by dispatch.
 LABEL_PR_REVIEWING_CODE   = "pr:reviewing-code"    # PRState.REVIEWING_CODE
 LABEL_PR_REVISION_PENDING = "pr:revision-pending"  # PRState.REVISION_PENDING
 LABEL_PR_REVIEWING_DOCS   = "pr:reviewing-docs"    # PRState.REVIEWING_DOCS
@@ -101,7 +99,6 @@ LOG_PATH = Path("/var/log/cai/cai.log")
 COST_LOG_PATH = Path("/var/log/cai/cai-cost.jsonl")
 REVIEW_PR_PATTERN_LOG = Path("/var/log/cai/review-pr-patterns.jsonl")
 OUTCOME_LOG_PATH = Path("/var/log/cai/cai-outcomes.jsonl")
-ACTIVE_JOB_PATH = Path("/var/log/cai/cai-active.json")
 
 
 # ---------------------------------------------------------------------------
