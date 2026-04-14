@@ -203,7 +203,6 @@ from cai_lib.github import (  # noqa: E402
 )
 from cai_lib.cmd_lifecycle import (  # noqa: E402
     _rollback_stale_in_progress, _reconcile_interrupted,
-    _migrate_legacy_human_submitted,
     _migrate_legacy_pr_pipeline_labels,
 )
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
@@ -7826,10 +7825,6 @@ def cmd_refine(args) -> int:
     """Invoke the cai-refine agent on the oldest :raised issue."""
     print("[cai refine] looking for issues to refine", flush=True)
     t0 = time.monotonic()
-
-    # Drain any open issues still carrying the retired human:submitted
-    # label — idempotent and free once the queue is empty.
-    _migrate_legacy_human_submitted()
 
     # 1. Find candidates.
     if getattr(args, "issue", None) is not None:

@@ -120,7 +120,6 @@ LABELS = [
 # when the label is absent, so check=False is required).
 LABELS_TO_DELETE = [
     "human:requested",                # removed — auto-improve:raised is the sole human entry point
-    "human:submitted",                # removed — folded back into auto-improve:raised
     "auto-improve:merge-blocked",     # stale — superseded by merge-blocked
     "auto-improve:needs-refinement",  # stale — superseded by the refine agent deciding on exploration
     "auto-improve:in-pr",             # dead — FSM drift with auto-improve:pr-open; aligned on :pr-open
