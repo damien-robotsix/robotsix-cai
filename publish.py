@@ -100,6 +100,8 @@ LABELS = [
     ("auto-improve:solved", "0e8a16", "Pattern verified absent from recent transcripts"),
     ("auto-improve:planned", "e4e669", "Plan generated and stored in issue body; awaiting human approval"),
     ("auto-improve:plan-approved", "0e8a16", "Plan approved (auto via high confidence, or human resume); ready for implement subagent"),
+    ("auto-improve:applying", "fbca04", "Maintenance ops actively being applied (transient)"),
+    ("auto-improve:applied",  "0e8a16", "Maintenance ops applied; awaiting verification"),
     ("auto-improve:parent", "c5def5", "Parent issue with sub-issues"),
     ("auto-improve:human-needed", "e11d48", "Issue parked awaiting admin comment (cai-unblock resume)"),
     ("auto-improve:pr-human-needed", "e11d48", "PR parked awaiting admin comment (cai-unblock resume)"),

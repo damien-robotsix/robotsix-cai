@@ -18,7 +18,7 @@ from cai_lib.config import (
     LABEL_PLANNED, LABEL_PLAN_APPROVED,
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
-    LABEL_TRIAGING,
+    LABEL_TRIAGING, LABEL_APPLYING, LABEL_APPLIED,
     LABEL_PR_REVIEWING_CODE, LABEL_PR_REVISION_PENDING,
     LABEL_PR_REVIEWING_DOCS, LABEL_PR_CI_FAILING,
 )
@@ -102,6 +102,8 @@ def parse_resume_target(text: str) -> Optional[str]:
 class IssueState(str, Enum):
     RAISED            = LABEL_RAISED
     TRIAGING          = LABEL_TRIAGING     # cai-triage is actively running
+    APPLYING          = LABEL_APPLYING     # cai-maintain is actively applying ops
+    APPLIED           = LABEL_APPLIED      # ops applied; awaiting verification
     REFINING          = LABEL_REFINING     # cai-refine is actively running
     REFINED           = LABEL_REFINED      # refine done, awaiting plan pickup
     PLANNING          = LABEL_PLANNING     # cai-plan is actively running
@@ -142,14 +144,22 @@ class Transition:
     # Minimum confidence the emitting agent must report for the
     # transition to fire. Default HIGH means only fully-confident moves
     # auto-advance; anything lower diverts to ``human_label_if_below``.
-    min_confidence: Confidence = Confidence.HIGH
+    # Set to None to indicate that gating is handled at the application
+    # level (e.g. in cmd_triage) rather than by the FSM infrastructure.
+    min_confidence: Optional[Confidence] = Confidence.HIGH
     human_label_if_below: str = LABEL_HUMAN_NEEDED
 
     def accepts(self, confidence: Optional[Confidence]) -> bool:
         """True if *confidence* meets or exceeds this transition's threshold.
 
-        ``None`` always fails — missing confidence must route to human review.
+        If ``min_confidence`` is ``None`` the transition has no FSM-level
+        gate — the caller is responsible for confidence checks. Returns
+        ``True`` unconditionally in that case.
+
+        ``None`` *confidence* always fails when ``min_confidence`` is set.
         """
+        if self.min_confidence is None:
+            return True  # no FSM-level gate; caller handles confidence
         if confidence is None:
             return False
         return confidence >= self.min_confidence
@@ -171,6 +181,26 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_TRIAGING], labels_add=[LABEL_REFINING]),
     Transition("triaging_to_human",        IssueState.TRIAGING,  IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_TRIAGING], labels_add=[LABEL_HUMAN_NEEDED]),
+
+    # TRIAGING skip-ahead paths — gating is at the application level in
+    # cmd_triage; these transitions carry no FSM-level confidence gate.
+    Transition("triaging_to_plan_approved", IssueState.TRIAGING,      IssueState.PLAN_APPROVED,
+               labels_remove=[LABEL_TRIAGING],   labels_add=[LABEL_PLAN_APPROVED],
+               min_confidence=None),
+    Transition("triaging_to_applying",      IssueState.TRIAGING,      IssueState.APPLYING,
+               labels_remove=[LABEL_TRIAGING],   labels_add=[LABEL_APPLYING],
+               min_confidence=None),
+
+    # APPLYING is transient — cmd_maintain (Step 3) drains it.
+    Transition("applying_to_applied",       IssueState.APPLYING,      IssueState.APPLIED,
+               labels_remove=[LABEL_APPLYING],   labels_add=[LABEL_APPLIED],
+               min_confidence=Confidence.HIGH),
+    Transition("applying_to_human",         IssueState.APPLYING,      IssueState.HUMAN_NEEDED,
+               labels_remove=[LABEL_APPLYING],   labels_add=[LABEL_HUMAN_NEEDED]),
+
+    # APPLIED → SOLVED is the final maintenance completion step.
+    Transition("applied_to_solved",         IssueState.APPLIED,       IssueState.SOLVED,
+               labels_remove=[LABEL_APPLIED],    labels_add=[LABEL_SOLVED]),
 
     # REFINING is transient — cai-refine is running. The confidence gate
     # on refining_to_refined diverts to HUMAN_NEEDED when refinement
@@ -709,6 +739,7 @@ def render_fsm_mermaid(transitions: list[Transition], title: str = "FSM") -> str
     for t in transitions:
         from_name = t.from_state.name if hasattr(t.from_state, "name") else str(t.from_state)
         to_name   = t.to_state.name   if hasattr(t.to_state,   "name") else str(t.to_state)
-        label = f"{t.name} [≥{t.min_confidence.name}]"
+        gate = f"≥{t.min_confidence.name}" if t.min_confidence is not None else "caller-gated"
+        label = f"{t.name} [{gate}]"
         lines.append(f"    {from_name} --> {to_name} : {label}")
     return "\n".join(lines)
