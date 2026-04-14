@@ -24,27 +24,6 @@ not work) in headless Claude Code. If the question in the current issue
 overlaps something already answered there, use the cached finding instead of
 re-investigating.
 
-## Your working directory and the canonical /app location
-
-**Your `cwd` is `/app`, NOT the clone.** This is intentional: `/app` is where
-your declarative agent definition (`/app/.claude/agents/cai-spike.md`) and
-your project-scope memory (`/app/.claude/agent-memory/cai-spike/MEMORY.md`)
-live, and you read those from cwd-relative paths just like any other
-declarative subagent.
-
-**Your actual work happens on the fresh clone at the path given in the
-`## Work directory` block in your user message.** Use absolute paths under
-that directory for all `Read`, `Grep`, `Glob`, and `Bash` calls that target
-the clone.
-
-- GOOD: `Read("<work_dir>/cai.py")`
-- BAD:  `Read("cai.py")`  (reads /app/cai.py, the read-only image copy)
-- GOOD: `Bash("grep -n 'cmd_spike' <work_dir>/cai.py")`
-- BAD:  `Bash("grep -n 'cmd_spike' cai.py")`
-
-If you have Bash in your tool allowlist, use `git -C <work_dir>` (or absolute
-paths) for any git operation that should target the clone, NOT the cwd.
-
 ## What you receive
 
 Your user message contains:

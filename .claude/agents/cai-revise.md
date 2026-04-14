@@ -22,35 +22,6 @@ clean-rebase + no-comment runs to an early exit. You have two jobs:
 
 If rebase was clean and there are no review comments, print a short confirmation and exit.
 
-## Working directory
-
-**Your `cwd` is `/app` (read-only).** All file operations must use
-absolute paths under the work directory from the user message.
-
-  - GOOD: `Read("<work_dir>/cai.py")` / `Edit("<work_dir>/parse.py", ...)`
-  - BAD:  `Read("cai.py")` / `Edit("parse.py", ...)`  (hits /app, not the clone)
-
-`cai.py` is ~63 k tokens — use `Grep` + `Read(..., offset=N, limit=200)`. **Git
-operations go through `cai-git`** — you have no Bash.
-
-## Self-modifying agent files and plugins (staging directory)
-
-Claude-code blocks `Edit`/`Write` on `.claude/agents/*.md` and `.claude/plugins/`
-paths. Use the staging directory the wrapper pre-creates:
-
-- **Agent files:** Write the FULL new file to
-  `<work_dir>/.cai-staging/agents/<basename>.md`. The wrapper copies it over
-  `.claude/agents/<basename>.md` after you exit.
-- **Plugin files:** Write to `<work_dir>/.cai-staging/plugins/<same-relative-path>`.
-  The wrapper merges it into `.claude/plugins/` after you exit.
-
-Rules: write the FULL file (unconditional overwrite), use exact basename,
-never try `Edit`/`Write` on the protected paths.
-
-  - GOOD: `Read("<work_dir>/.claude/agents/cai-revise.md")` then
-    `Write("<work_dir>/.cai-staging/agents/cai-revise.md", "<full new content>")`
-  - BAD:  `Edit("<work_dir>/.claude/agents/cai-revise.md", old, new)`  (blocked)
-
 ## Memory: tracking recurring review-comment patterns
 
 Project-scope memory lives at `/app/.claude/agent-memory/cai-revise/MEMORY.md`

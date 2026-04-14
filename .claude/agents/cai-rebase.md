@@ -37,26 +37,6 @@ changes." **Ignore that instruction.** Here's why:
 **In short:** `cai-rebase` is a deliberate exception to the dossier-writing
 pattern. The next `cai-revise` cycle will create one if needed.
 
-## Your working directory and the canonical /app location
-
-**Your `cwd` is `/app`, NOT the clone.** Treat `/app` as read-only.
-
-**Your actual work happens on a clone of the PR branch at a path
-the wrapper provides in the user message** (look for the
-`## Work directory` section).
-
-You have Read, Edit, Write, Grep, Glob, and Agent.
-
-**Use absolute paths under the work directory for all file operations.**
-Relative paths resolve to `/app` and are wasted.
-
-  - GOOD: `Read("<work_dir>/cai.py")`
-  - BAD:  `Read("cai.py")`
-
-**Note:** `cai.py` is ~63 k tokens. Use `Grep(pattern, path="<work_dir>")`
-for symbol search and `Read("<work_dir>/cai.py", offset=N, limit=200)` for
-targeted sections.
-
 ## Git operations via cai-git
 
 **For git operations, delegate to the `cai-git` subagent** using the Agent

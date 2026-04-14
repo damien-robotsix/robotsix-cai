@@ -1822,6 +1822,7 @@ def _update_parent_checklist_item(
 # to the clone root.
 AGENT_EDIT_STAGING_REL = Path(".cai-staging") / "agents"
 PLUGIN_STAGING_REL = Path(".cai-staging") / "plugins"
+CLAUDE_MD_STAGING_REL = Path(".cai-staging") / "CLAUDE.md"
 
 
 def _setup_agent_edit_staging(work_dir: Path) -> Path:
@@ -1919,6 +1920,25 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
             # silently lost when the copy fails — caller can inspect
             # or retry. Do not fall through to shutil.rmtree below.
             return applied
+
+    # Apply any CLAUDE.md staging: .cai-staging/CLAUDE.md → .claude/CLAUDE.md
+    claude_md_staging = work_dir / CLAUDE_MD_STAGING_REL
+    if claude_md_staging.exists() and claude_md_staging.is_file():
+        claude_md_target = work_dir / ".claude" / "CLAUDE.md"
+        try:
+            content = claude_md_staging.read_text()
+            claude_md_target.write_text(content)
+            print(
+                f"[cai] applied staged CLAUDE.md: "
+                f".claude/CLAUDE.md ({len(content)} bytes)",
+                flush=True,
+            )
+            applied += 1
+        except OSError as exc:
+            print(
+                f"[cai] agent edit staging: failed to apply CLAUDE.md: {exc}",
+                file=sys.stderr,
+            )
 
     # Clean up the entire .cai-staging tree (one level above the
     # agents/ subdir) so nothing leaks into the PR.

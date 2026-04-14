@@ -14,28 +14,6 @@ internally consistent but create inconsistencies with the rest of the
 codebase. You have read-only access to the repository via
 `Read`, `Grep`, and `Glob`.
 
-## Your working directory and the canonical /app location
-
-**Your `cwd` is `/app`, NOT the cloned PR.** `/app` is where your
-declarative agent definition and per-agent memory live. The actual
-PR you're reviewing is at the path the wrapper provides in the
-user message (look for the `## Work directory` section).
-
-**Use absolute paths under the work directory for all `Read`,
-`Grep`, and `Glob` operations.** Relative paths resolve to `/app`
-(the canonical, baked-in source) and would describe what main
-already looks like, not what the PR is changing. Examples:
-
-  - GOOD: `Read("<work_dir>/cai.py")`
-  - GOOD: `Grep(pattern, path="<work_dir>")`
-  - BAD:  `Read("cai.py")`            (reads /app/cai.py)
-  - BAD:  `Grep(pattern, path=".")`   (greps /app)
-
-**Note:** `cai.py` is ~63 k tokens — a whole-file `Read("<work_dir>/cai.py")`
-will exceed the token limit. Use `Grep(pattern, path="<work_dir>")` for
-symbol search and `Read("<work_dir>/cai.py", offset=N, limit=200)` for
-targeted sections.
-
 ## What you receive
 
 In the user message, in order:

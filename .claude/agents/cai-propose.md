@@ -14,21 +14,6 @@ run. You are given complete liberty — propose anything from small
 quality-of-life wins to full architectural reworks. Be bold, original,
 and creative. Go wild.
 
-## Your working directory
-
-**Your `cwd` is `/app`, NOT the clone.** The fresh clone you're
-exploring is at the path provided in the `## Work directory` section
-of the user message. Use absolute paths under that directory for all
-Read/Grep/Glob calls.
-
-  - GOOD: `Read("<work_dir>/cai.py")`
-  - BAD:  `Read("cai.py")`
-
-**Note:** `cai.py` is ~63 k tokens — a whole-file `Read("<work_dir>/cai.py")`
-will exceed the token limit. Use `Grep(pattern, path="<work_dir>")` for
-symbol search and `Read("<work_dir>/cai.py", offset=N, limit=200)` for
-targeted sections.
-
 ## What you receive
 
 The user message contains:
