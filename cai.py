@@ -415,7 +415,6 @@ def cmd_analyze(args) -> int:
         LABEL_RAISED: 4,
         LABEL_HUMAN_SUBMITTED: 4,
         LABEL_MERGED: 5,
-        LABEL_REQUESTED: 6,
     }
 
     def _issue_state_label(issue):
@@ -644,17 +643,15 @@ def _select_fix_target(exclude: set[int] | None = None):
     Categories with fewer than 3 observations get a neutral prior of 0.60.
     This replaces the previous FIFO (oldest-first) selection.
 
-    Eligible = labelled `human:plan-approved` or `human:requested`, NOT labelled
-    `:in-progress` or `:pr-open`, AND carrying a stored plan block in the
-    issue body (written by `cai plan`).  `human:plan-approved` is the
-    primary gate: the `plan-all` step drives every :raised / :refined
-    issue to :planned, and a human then promotes :planned →
-    human:plan-approved when the plan looks good.  `human:requested` is
-    an explicit human shortcut — it still requires the plan to have been
-    generated, but lets a human skip the approval handshake.  Issues with
-    either label but no stored plan are demoted back to `:refined` so
-    `plan-all` re-plans them.  `:refined` and `:planned` issues sit
-    outside the fix pipeline until a human approves.
+    Eligible = labelled `human:plan-approved`, NOT labelled `:in-progress`
+    or `:pr-open`, AND carrying a stored plan block in the issue body
+    (written by `cai plan`).  `human:plan-approved` is the gate: the
+    `plan-all` step drives every :raised / :refined issue to :planned,
+    and a human then promotes :planned → human:plan-approved when the
+    plan looks good.  Issues with that label but no stored plan are
+    demoted back to `:refined` so `plan-all` re-plans them.  `:refined`
+    and `:planned` issues sit outside the fix pipeline until a human
+    approves.
 
     `audit:raised` issues are handled exclusively by the audit-triage
     agent — only issues that triage re-labels to `auto-improve:raised`
@@ -665,7 +662,7 @@ def _select_fix_target(exclude: set[int] | None = None):
     issues whose linked PR was closed unmerged or that have no linked PR.
     """
     candidates: dict[int, dict] = {}
-    for label in (LABEL_PLAN_APPROVED, LABEL_REQUESTED):
+    for label in (LABEL_PLAN_APPROVED,):
         try:
             issues = _gh_json([
                 "issue", "list",
@@ -701,10 +698,10 @@ def _select_fix_target(exclude: set[int] | None = None):
             if exclude and issue["number"] in exclude:
                 continue
             # Hard plan gate: never let the fix subagent run on an
-            # issue that hasn't been through the plan step. Both
-            # `human:plan-approved` and `human:requested` require a
-            # stored plan block in the issue body (written by
-            # `cai plan`). Issues missing a plan are skipped here and
+            # issue that hasn't been through the plan step.
+            # `human:plan-approved` requires a stored plan block in the
+            # issue body (written by `cai plan`). Issues missing a plan
+            # are skipped here and
             # re-routed to `:refined` so `plan-all` picks them up.
             if _extract_stored_plan(issue.get("body", "")) is None:
                 print(
@@ -715,7 +712,7 @@ def _select_fix_target(exclude: set[int] | None = None):
                 _set_labels(
                     issue["number"],
                     add=[LABEL_REFINED],
-                    remove=[LABEL_PLAN_APPROVED, LABEL_REQUESTED],
+                    remove=[LABEL_PLAN_APPROVED],
                     log_prefix="cai implement",
                 )
                 continue
@@ -1050,7 +1047,7 @@ def _extract_stored_plan(issue_body: str) -> str | None:
     return content if content else None
 
 
-def _get_plan_for_fix(issue: dict, origin_label: str) -> str | None:
+def _get_plan_for_fix(issue: dict) -> str | None:
     """Retrieve the implementation plan for a fix run.
 
     A stored plan is now required for every fix run (see the plan gate
@@ -1269,10 +1266,7 @@ def cmd_plan_all(args) -> int:
                 # a human approved a :planned issue while plan-all was
                 # running. Otherwise newly-approved work would wait an
                 # entire cycle for the fix loop to re-enter.
-                if (
-                    _count_open_by_label(LABEL_PLAN_APPROVED)
-                    + _count_open_by_label(LABEL_REQUESTED)
-                ) > 0:
+                if _count_open_by_label(LABEL_PLAN_APPROVED) > 0:
                     print(
                         "[cai plan-all] fix target available; yielding to fix loop",
                         flush=True,
@@ -1989,7 +1983,6 @@ def cmd_implement(args) -> int:
     issue_number = issue["number"]
     title = issue["title"]
     label_names = {lbl["name"] for lbl in issue.get("labels", [])}
-    origin_raised_label = LABEL_REQUESTED if LABEL_REQUESTED in label_names else LABEL_PLAN_APPROVED
     print(f"[cai implement] picked #{issue_number}: {title}", flush=True)
 
     # Hard plan gate (also applied in `_select_fix_target`, duplicated
@@ -2004,17 +1997,17 @@ def cmd_implement(args) -> int:
         _set_labels(
             issue_number,
             add=[LABEL_REFINED],
-            remove=[LABEL_PLAN_APPROVED, LABEL_REQUESTED],
+            remove=[LABEL_PLAN_APPROVED],
             log_prefix="cai implement",
         )
         log_run("implement", repo=REPO, issue=issue_number, result="no_stored_plan", exit=0)
         return 0
 
-    # 1. Lock — set :in-progress, drop :plan-approved and :requested.
+    # 1. Lock — set :in-progress, drop :plan-approved.
     if not _set_labels(
         issue_number,
         add=[LABEL_IN_PROGRESS],
-        remove=[LABEL_PLAN_APPROVED, LABEL_REQUESTED],
+        remove=[LABEL_PLAN_APPROVED],
     ):
         print(f"[cai implement] could not lock #{issue_number}", file=sys.stderr)
         log_run("implement", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
@@ -2045,7 +2038,7 @@ def cmd_implement(args) -> int:
              f"## Pre-screen: needs a spike\n\n"
              f"{ps_reason}\n\n---\n"
              f"_Flagged by `cai implement` pre-screen (Haiku). Re-label to "
-             f"`{origin_raised_label}` to retry._"],
+             f"`{LABEL_PLAN_APPROVED}` to retry._"],
             capture_output=True,
         )
         log_run("implement", repo=REPO, issue=issue_number, result="pre_screen_spike", exit=0)
@@ -2086,7 +2079,7 @@ def cmd_implement(args) -> int:
             return
         _set_labels(
             issue_number,
-            add=[origin_raised_label],
+            add=[LABEL_PLAN_APPROVED],
             remove=[LABEL_IN_PROGRESS],
         )
         locked = False
@@ -2128,10 +2121,9 @@ def cmd_implement(args) -> int:
             )
 
         # 4c. Retrieve the pre-computed plan from the issue body.
-        #     For :plan-approved issues, `cai plan` stored the plan
-        #     and a human approved it.  For :requested bypass issues,
-        #     no plan is expected.
-        selected_plan = _get_plan_for_fix(issue, origin_raised_label)
+        #     `cai plan` stored the plan; a human approved it via
+        #     `human:plan-approved`.
+        selected_plan = _get_plan_for_fix(issue)
 
         # 4d. Pre-create the `.cai-staging/agents/` directory so the
         #     agent has somewhere to write proposed updates to its
@@ -2257,7 +2249,7 @@ def cmd_implement(args) -> int:
                     "this issue as spike-shaped (research / verification "
                     "/ evaluation). The cai-spike subagent (#314) will "
                     "pick this up once it ships. Re-label to "
-                    f"`{origin_raised_label}` to retry as a routine "
+                    f"`{LABEL_PLAN_APPROVED}` to retry as a routine "
                     "fix instead._"
                 )
                 log_result = "needs_spike"
@@ -2268,7 +2260,7 @@ def cmd_implement(args) -> int:
                 comment_footer = (
                     "_Set by `cai implement` after the subagent reviewed and "
                     "decided no code change was needed. Re-label to "
-                    f"`{origin_raised_label}` to retry, or close if "
+                    f"`{LABEL_PLAN_APPROVED}` to retry, or close if "
                     "you agree._"
                 )
                 log_result = "no_action_needed"
@@ -2293,14 +2285,12 @@ def cmd_implement(args) -> int:
                 capture_output=True,
             )
             # Transition: in-progress -> target_label (NOT back to :raised).
-            # Strip the human approval labels as well — if we leave
-            # `human:plan-approved` / `human:requested` in place, the fix
-            # selector will keep re-picking this issue forever because it
-            # only gates on those two labels.
+            # Strip the human approval label as well — if we leave
+            # `human:plan-approved` in place, the fix selector will keep
+            # re-picking this issue forever because it gates on that label.
             terminal_remove = [
                 LABEL_IN_PROGRESS,
                 LABEL_PLAN_APPROVED,
-                LABEL_REQUESTED,
             ]
             if not _set_labels(
                 issue_number,
@@ -7264,13 +7254,13 @@ def cmd_merge(args) -> int:
             )
             if close_result.returncode == 0:
                 print(f"[cai merge] PR #{pr_number}: closed successfully", flush=True)
-                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING, LABEL_PLAN_APPROVED, LABEL_REQUESTED], log_prefix="cai merge"):
+                if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING, LABEL_PLAN_APPROVED], log_prefix="cai merge"):
                     print(
                         f"[cai merge] WARNING: label transition to :no-action failed for "
                         f"#{issue_number} after closing PR #{pr_number}; retrying",
                         flush=True,
                     )
-                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING, LABEL_PLAN_APPROVED, LABEL_REQUESTED], log_prefix="cai merge"):
+                    if not _set_labels(issue_number, add=[LABEL_NO_ACTION], remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING, LABEL_PLAN_APPROVED], log_prefix="cai merge"):
                         print(
                             f"[cai merge] WARNING: label transition to :no-action failed twice for "
                             f"#{issue_number} — issue may be stuck without a lifecycle label",
@@ -8501,7 +8491,7 @@ def cmd_cycle(args) -> int:
       1.5. recover stale locks (:in-progress / :revising)
       2. drain pending PRs (revise → fix-ci → review-pr → review-docs → merge)
       3. loop: verify → fix/spike/explore → drain → repeat
-         (fix picks only human:plan-approved / human:requested — nothing raised
+         (fix picks only human:plan-approved — nothing raised
          or refined is auto-consumed here; an issue whose fix fails
          is skipped for the rest of the cycle so the remaining fix
          targets still get a chance before plan-all runs)
@@ -8725,7 +8715,7 @@ def _cmd_cycle_inner(args) -> int:
                     had_failure = True
 
         # --- Phase 3.5: plan-all — drive :raised/:refined to :planned ---
-        # The implement loop only acts on human:plan-approved (or human:requested)
+        # The implement loop only acts on human:plan-approved
         # issues, so any :raised or :refined work would sit idle without this
         # step. plan-all loops refine → plan until the queue is exhausted or
         # a new human:plan-approved issue appears (so we can re-enter the

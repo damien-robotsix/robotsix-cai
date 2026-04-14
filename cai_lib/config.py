@@ -49,7 +49,6 @@ AGENT_MEMORY_DIR = Path("/app/.claude/agent-memory")
 
 # Issue lifecycle labels.
 LABEL_RAISED = "auto-improve:raised"
-LABEL_REQUESTED = "human:requested"
 LABEL_IN_PROGRESS = "auto-improve:in-progress"
 LABEL_PR_OPEN = "auto-improve:pr-open"
 LABEL_MERGED = "auto-improve:merged"

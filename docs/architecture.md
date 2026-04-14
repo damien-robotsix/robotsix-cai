@@ -29,7 +29,6 @@
 | `auto-improve:no-action` | No fix needed (7 d stale timeout → re-queued to `:raised`) |
 | `auto-improve:needs-spike` | Needs research investigation (`cai spike`) |
 | `auto-improve:needs-exploration` | Needs autonomous exploration (`cai explore`) |
-| `human:requested` | Explicitly requested by a human |
 | `auto-improve:planned` | Plan generated and stored in issue body; awaiting human approval |
 | `human:plan-approved` | Plan approved by human; ready for implement subagent |
 | `auto-improve:parent` | Parent issue; child sub-issues carry the work |
@@ -51,7 +50,7 @@
 2. **Recover stale locks** — roll back `:in-progress` and `:revising` issues past their timeout.
 3. **Ingest unlabeled** — attach `auto-improve` to any unlabeled issues that belong to the pipeline.
 4. **Drain PRs** — for each open auto-improve PR: revise → fix-ci → review-pr → review-docs → merge.
-5. **Implement loop** — repeatedly call `implement`, `spike`, or `explore` on `human:plan-approved` / `human:requested` issues until no eligible work remains, draining PRs after each implementation. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the human:plan-approved gate.
+5. **Implement loop** — repeatedly call `implement`, `spike`, or `explore` on `human:plan-approved` issues until no eligible work remains, draining PRs after each implementation. `:raised`, `:refined`, and `:planned` issues are not consumed here — they wait on the human:plan-approved gate.
 6. **Plan-all** — run `plan-all` to drain every open `:raised` / `:refined` issue through refine → plan → `:planned` so humans have a backlog to review before the next cycle.
 7. **Final confirm** — one last confirm pass.
 
