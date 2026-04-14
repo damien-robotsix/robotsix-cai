@@ -121,24 +121,28 @@ action so two concurrent `implement` runs can't pick the same issue.
                        │    (refine path) ▼
                        │        │      applied
                        │        ▼         │
-                       │     refined      │ fix
+                       │     refined      │ (HIGH confidence)
                        │        │         ▼
-                       │        ▼      in-progress
-                       │     planned      │
-                       │        │         │ (pre-screen
-                       │   (gate: HIGH/   │  → PR opened
-                       │   low confidence) → etc)
-                       │        ▼         │
-                       └─→ human-needed   │
-                            │ unblock     │
-                            └─────┐       │
-                                  │       ▼
-                                  │      PR → merged → verify → confirm → solved
-                                  │                                (or re-queue)
+                       │        ▼       solved
+                       │     planned
+                       │        │
+                       │   (gate: HIGH/
+                       │   low confidence)
+                       │        ▼
+                       └─→ human-needed
+                            │ unblock
+                            └─────┐
                                   │
-                            (also flow from
-                             :refined if
-                             relabeled)
+                       (code path only)
+                                  │
+                                  ▼
+                             in-progress
+                                  │ (pre-screen
+                                  │  → PR opened
+                                  │  → etc)
+                                  ▼
+                               PR → merged → verify → confirm → solved
+                                                       (or re-queue)
 ```
 
 `:no-action` means the implement subagent reviewed the issue and decided no
