@@ -32,9 +32,9 @@
 | `.claude/settings.json` | Claude Code harness configuration |
 | `.env.example` | Template for required environment variables |
 | `.github/workflows/admin-only-label.yml` | CI: restrict auto-improve:requested label to admins |
-| `.github/workflows/check-index.yml` | CI: verify CODEBASE_INDEX.md is up to date |
 | `.github/workflows/cleanup-pr-context.yml` | CI: clean up PR context on close |
 | `.github/workflows/docker-publish.yml` | CI: build and publish Docker image to Docker Hub |
+| `.github/workflows/regenerate-docs.yml` | CI: regenerate CODEBASE_INDEX.md and docs/fsm.md, auto-commit drift |
 | `.gitignore` | Git ignore rules |
 | `CLAUDE.md` | Shared efficiency guidance loaded by all subagents |
 | `CODEBASE_INDEX.md` | This file — static file-level index for fast agent orientation |
@@ -57,12 +57,14 @@
 | `docs/architecture.md` | Documentation: pipeline overview and system architecture |
 | `docs/cli.md` | Documentation: CLI reference for all cai.py subcommands |
 | `docs/configuration.md` | Documentation: environment variables and configuration |
+| `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
 | `docs/index.md` | Documentation site landing page |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
 | `install.sh` | Interactive installer for end-users |
 | `parse.py` | Deterministic signal extractor from Claude Code JSONL transcripts |
 | `publish.py` | GitHub issue publisher with fingerprint dedup |
 | `pyproject.toml` | Python project configuration (ruff lint settings) |
+| `scripts/generate-fsm-docs.py` | Generator script for docs/fsm.md (renders cai_lib.fsm transitions as Mermaid) |
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
 | `tests/__init__.py` | Test package init |
 | `tests/test_fsm.py` | TODO: add description |
