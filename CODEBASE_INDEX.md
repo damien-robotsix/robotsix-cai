@@ -16,7 +16,7 @@
 | `.claude/agents/cai-explore.md` | Agent: autonomous exploration and benchmarking |
 | `.claude/agents/cai-fix-ci.md` | Agent: diagnose and fix failing CI checks on auto-improve PRs |
 | `.claude/agents/cai-git.md` | Agent: lightweight git operations subagent |
-| `.claude/agents/cai-implement.md` | Agent: autonomous code-editing subagent — canonical successor to cai-fix |
+| `.claude/agents/cai-implement.md` | Agent: autonomous code-editing subagent for code-editing tasks |
 | `.claude/agents/cai-merge.md` | Agent: assess PR correctness and emit merge verdict |
 | `.claude/agents/cai-plan.md` | Agent: generate detailed fix plan for an issue |
 | `.claude/agents/cai-propose-review.md` | Agent: review creative proposals for feasibility |
