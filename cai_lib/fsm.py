@@ -6,9 +6,10 @@ in cai.py is changed by importing it.
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Optional, Sequence
 
 from cai_lib.config import (
     LABEL_RAISED, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED,
@@ -123,6 +124,63 @@ def get_pr_state(pr: dict) -> PRState:
     if total_count > 0:
         return PRState.REVIEWING
     return PRState.OPEN
+
+
+_ALL_TRANSITIONS: list[Transition] = ISSUE_TRANSITIONS + PR_TRANSITIONS
+
+
+def find_transition(name: str, transitions: Sequence[Transition] = _ALL_TRANSITIONS) -> Transition:
+    """Return the Transition with the given *name*. Raises KeyError if unknown."""
+    for t in transitions:
+        if t.name == name:
+            return t
+    raise KeyError(f"unknown transition: {name!r}")
+
+
+def apply_transition(
+    issue_number: int,
+    transition_name: str,
+    *,
+    current_labels: Optional[list[str]] = None,
+    extra_remove: Sequence[str] = (),
+    log_prefix: str = "cai",
+    set_labels=None,
+) -> bool:
+    """Apply a named issue FSM transition via ``_set_labels``.
+
+    When *current_labels* is provided, the current IssueState is derived and
+    compared to ``transition.from_state``. A mismatch is refused (logs and
+    returns False) so drift cannot silently compound.
+
+    *extra_remove* is appended to the transition's own ``labels_remove`` —
+    used for auxiliary labels (e.g. ``human:submitted``) that aren't part
+    of the canonical FSM but must be cleared alongside the state change.
+
+    *set_labels* is injectable for tests; defaults to
+    ``cai_lib.github._set_labels``.
+    """
+    transition = find_transition(transition_name, ISSUE_TRANSITIONS)
+
+    if current_labels is not None:
+        current = get_issue_state(current_labels)
+        if current != transition.from_state:
+            print(
+                f"[{log_prefix}] refusing transition {transition_name!r} on "
+                f"#{issue_number}: current state {current} does not match "
+                f"expected {transition.from_state}",
+                file=sys.stderr,
+            )
+            return False
+
+    if set_labels is None:
+        from cai_lib.github import _set_labels as set_labels  # local import — avoids cycle at module load
+
+    return set_labels(
+        issue_number,
+        add=list(transition.labels_add),
+        remove=list(transition.labels_remove) + list(extra_remove),
+        log_prefix=log_prefix,
+    )
 
 
 def render_fsm_mermaid(transitions: list[Transition], title: str = "FSM") -> str:
