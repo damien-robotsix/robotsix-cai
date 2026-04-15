@@ -95,6 +95,7 @@
 | `tests/test_maintain.py` | TODO: add description |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
 | `tests/test_parse.py` | Tests for parse.py signal extraction |
+| `tests/test_plan.py` | TODO: add description |
 | `tests/test_pr_bounce.py` | TODO: add description |
 | `tests/test_publish.py` | Tests for publish.py issue publishing |
 | `tests/test_rollback.py` | Tests for rollback functionality |
