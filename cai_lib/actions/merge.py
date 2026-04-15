@@ -5,8 +5,10 @@ verified its state is ``PRState.APPROVED``. Runs the ``cai-merge``
 agent to obtain a confidence-gated verdict and, on a high-enough
 merge verdict, squash-merges via ``gh pr merge``. On new commits
 arriving since the APPROVED label was set, diverts back to code
-review. On low-confidence / refusal / merge failure, tags the PR
-with ``needs-human-review``.
+review. On low-confidence / refusal / merge failure on a still-open
+PR, transitions the PR out of APPROVED into ``PR_HUMAN_NEEDED``
+(``approved_to_human``) so the dispatcher parks it instead of
+re-routing back to ``handle_merge`` every drain tick.
 """
 from __future__ import annotations
 
@@ -76,11 +78,41 @@ def handle_merge(pr: dict) -> int:
     * merges the PR (``approved_to_merged``), or
     * diverts back to code review when new commits have arrived
       (``approved_to_reviewing_code``), or
-    * tags the PR ``needs-human-review`` when the merge agent
-      refuses / yields low confidence / merge itself fails.
+    * applies ``approved_to_human`` (clears ``pr:approved``, sets
+      ``pr:human-needed``) when the merge agent refuses / yields low
+      confidence / merge itself fails on a still-open PR. Parking is
+      done via FSM transition so the PR has exactly one state — the
+      old behavior of layering a ``needs-human-review`` flag on top of
+      ``pr:approved`` made the dispatcher loop on the same PR every
+      drain tick.
     """
     print("[cai merge] evaluating APPROVED PR", flush=True)
     t0 = time.monotonic()
+
+    # Legacy self-heal: an older code path tagged held / failed PRs with
+    # the orthogonal ``needs-human-review`` label while leaving them at
+    # ``pr:approved``. The dispatcher would re-route to handle_merge
+    # every drain tick only to short-circuit on "already evaluated at
+    # this SHA". Transition such PRs into the proper PR_HUMAN_NEEDED
+    # state so they park cleanly.
+    pr_label_names = [
+        (lb.get("name") if isinstance(lb, dict) else lb)
+        for lb in pr.get("labels", [])
+    ]
+    if LABEL_PR_NEEDS_HUMAN in pr_label_names:
+        print(
+            f"[cai merge] PR #{pr['number']}: legacy "
+            f"`{LABEL_PR_NEEDS_HUMAN}` flag while at :pr-approved — "
+            f"migrating to PR_HUMAN_NEEDED",
+            flush=True,
+        )
+        apply_pr_transition(
+            pr["number"], "approved_to_human",
+            log_prefix="cai merge",
+        )
+        log_run("merge", repo=REPO, pr=pr["number"],
+                result="legacy_park_migration", exit=0)
+        return 0
 
     if _MERGE_THRESHOLD == "disabled":
         print(
@@ -445,7 +477,10 @@ def handle_merge(pr: dict) -> int:
                         f"— issue may be stuck without a lifecycle label",
                         file=sys.stderr, flush=True,
                     )
-                    _pr_set_needs_human(pr_number, True)
+                    apply_pr_transition(
+                        pr_number, "approved_to_human",
+                        log_prefix="cai merge",
+                    )
                     log_run("merge", repo=REPO, pr=pr_number,
                             duration=dur(), result="close_label_failed",
                             exit=0)
@@ -471,7 +506,10 @@ def handle_merge(pr: dict) -> int:
                         f"after close failure on PR #{pr_number}",
                         file=sys.stderr, flush=True,
                     )
-            _pr_set_needs_human(pr_number, True)
+            apply_pr_transition(
+                pr_number, "approved_to_human",
+                log_prefix="cai merge",
+            )
             log_run("merge", repo=REPO, pr=pr_number,
                     duration=dur(), result="close_failed", exit=0)
             return 0
@@ -516,6 +554,10 @@ def handle_merge(pr: dict) -> int:
                         f"issue may be stuck without a lifecycle label",
                         file=sys.stderr, flush=True,
                     )
+                    # PR is already merged on GitHub side (gh merge
+                    # returned 0). State has moved to MERGED — no loop
+                    # risk, but flag for human attention so the
+                    # orphaned issue label is fixed up.
                     _pr_set_needs_human(pr_number, True)
                     log_run("merge", repo=REPO, pr=pr_number,
                             duration=dur(),
@@ -535,7 +577,10 @@ def handle_merge(pr: dict) -> int:
                 f"{merge_result.stderr}",
                 file=sys.stderr,
             )
-            _pr_set_needs_human(pr_number, True)
+            apply_pr_transition(
+                pr_number, "approved_to_human",
+                log_prefix="cai merge",
+            )
             log_run("merge", repo=REPO, pr=pr_number,
                     duration=dur(), result="merge_failed", exit=0)
             return 0
@@ -556,7 +601,10 @@ def handle_merge(pr: dict) -> int:
                     f"label to #{issue_number} for held PR #{pr_number}",
                     file=sys.stderr, flush=True,
                 )
-        _pr_set_needs_human(pr_number, True)
+        apply_pr_transition(
+            pr_number, "approved_to_human",
+            log_prefix="cai merge",
+        )
         log_run("merge", repo=REPO, pr=pr_number,
                 duration=dur(), result="held", exit=0)
         return 0
