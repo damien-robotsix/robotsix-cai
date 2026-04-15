@@ -24,6 +24,20 @@ Refs: robotsix/robotsix-cai#647
 - `deterministic_section` entry added after `:pr-open` recovery block, consistent with existing pattern
 - Rejected: applying labels only to a hardcoded exempt list — the structural fix (auto-apply on every audit run) is more robust
 
+## Revision 1 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-audit.md:83` — added `auto-improve:solved` to the terminal states list in the "What to check" table row for `workflow_anomaly`
+
+### Decisions this revision
+- Minimal single-word addition to bring the table description in sync with the three-element `terminal_labels` set in `cai.py:945` and the notes at lines 144-146
+
+### New gaps / deferred
+- None
+
 ## Out of scope / known gaps
 - Does not backfill issues closed before this PR ships — only processes the last 30 on each audit run
 - Does not check whether the closed issue was actually resolved; `:no-action` is used as "human manually closed, pipeline acknowledges"

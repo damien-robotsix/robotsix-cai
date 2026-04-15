@@ -80,7 +80,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Multiple rules in `.claude/agents/cai-implement.md` that contradict each other | `prompt_contradiction` |
 | Tracking-only issue (no state label) older than 30 days with no human activity | `forgotten_backlog` |
 | A single `claude -p` invocation in the cost summary whose `cost` is >3× the mean cost of its category, OR a category whose `total cost (share)` exceeds 50% of the window total | `cost_outlier` |
-| Closed issue whose labels don't include a terminal state (`auto-improve:merged` or `auto-improve:no-action`) — may indicate manual close without proper resolution | `workflow_anomaly` |
+| Closed issue whose labels don't include a terminal state (`auto-improve:merged`, `auto-improve:no-action`, or `auto-improve:solved`) — may indicate manual close without proper resolution | `workflow_anomaly` |
 | Merged PR whose linked `auto-improve` issue is still open (check recent PRs for matching branch/title against open issues) | `workflow_anomaly` |
 | Closed-unmerged PR whose linked issue is not rolled back to `:refined` | `workflow_anomaly` |
 | A category in the outcome statistics table flagged ⚠ (success rate <40% with ≥3 outcomes in 90 days) | `fix_loop_efficiency` |
