@@ -10,8 +10,16 @@ from cai_lib.logging_utils import log_cost
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """Thin wrapper around subprocess.run with text mode and check=False."""
-    return subprocess.run(cmd, text=True, check=False, **kwargs)
+    """Thin wrapper around subprocess.run with text mode; defaults check=False.
+
+    ``check`` is overridable — callers that want the stdlib raise-on-nonzero
+    semantics can pass ``check=True``. Previously we hard-coded ``check=False``
+    and then also forwarded ``**kwargs`` into ``subprocess.run``, which raised
+    ``TypeError: got multiple values for keyword argument 'check'`` whenever
+    a caller tried to opt in (e.g. `actions/triage.py` on the body-edit path).
+    """
+    kwargs.setdefault("check", False)
+    return subprocess.run(cmd, text=True, **kwargs)
 
 
 def _run_claude_p(
