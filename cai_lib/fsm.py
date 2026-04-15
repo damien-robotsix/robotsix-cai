@@ -62,6 +62,11 @@ _CONFIDENCE_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+_CONFIDENCE_REASON_RE = re.compile(
+    r"^Confidence reason:\s*(.+)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 
 def parse_confidence(text: str) -> Optional[Confidence]:
     """Extract ``Confidence: LOW|MEDIUM|HIGH`` from agent structured output.
@@ -76,6 +81,21 @@ def parse_confidence(text: str) -> Optional[Confidence]:
     if not m:
         return None
     return Confidence[m.group(1).upper()]
+
+
+def parse_confidence_reason(text: str) -> Optional[str]:
+    """Extract ``Confidence reason: <text>`` from a plan block body.
+
+    Returns the reason string, or ``None`` when the line is absent.
+    Backward-compatible: existing plan blocks without this line return
+    ``None`` and callers must treat that as "no reason available".
+    """
+    if not text:
+        return None
+    m = _CONFIDENCE_REASON_RE.search(text)
+    if not m:
+        return None
+    return m.group(1).strip()
 
 
 _RESUME_RE = re.compile(
