@@ -279,8 +279,15 @@ def handle_plan(issue: dict) -> int:
             f"[cai plan] resuming #{issue_number} already at :planning",
             flush=True,
         )
-    # Any other state is the dispatcher's bug, not ours — proceed as if
-    # we are at :planning so the pipeline still runs.
+    else:
+        print(
+            f"[cai plan] #{issue_number} unexpected state {state!r} "
+            f"— aborting to prevent label corruption",
+            file=sys.stderr, flush=True,
+        )
+        log_run("plan", repo=REPO, issue=issue_number,
+                result="unexpected_state", exit=1)
+        return 1
 
     # 2. Clone repo (plan agents need to read the codebase).
     _uid = uuid.uuid4().hex[:8]
@@ -373,11 +380,16 @@ def handle_plan(issue: dict) -> int:
         issue["_cai_plan_confidence"] = plan_confidence
 
         # 6. Transition labels: :planning → :planned (waypoint).
-        apply_transition(
+        ok = apply_transition(
             issue_number, "planning_to_planned",
             current_labels=[LABEL_PLANNING],
             log_prefix="cai plan",
         )
+        if not ok:
+            dur = f"{int(time.monotonic() - t0)}s"
+            log_run("plan", repo=REPO, issue=issue_number,
+                    duration=dur, result="label_update_failed", exit=1)
+            return 1
 
         dur = f"{int(time.monotonic() - t0)}s"
         conf_name = plan_confidence.name if plan_confidence else "MISSING"
