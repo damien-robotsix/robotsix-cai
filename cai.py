@@ -1170,6 +1170,7 @@ def cmd_audit(args) -> int:
                 branches_cleaned=len(deleted_orphaned),
                 no_action_unstuck=len(unstuck_no_action),
                 merged_flagged=len(flagged_merged),
+                no_action_applied=len(no_action_applied),
                 exit=audit.returncode)
         return audit.returncode
 
@@ -1185,6 +1186,7 @@ def cmd_audit(args) -> int:
             branches_cleaned=len(deleted_orphaned),
             no_action_unstuck=len(unstuck_no_action),
             merged_flagged=len(flagged_merged),
+            no_action_applied=len(no_action_applied),
             duration=dur, exit=published.returncode)
     return published.returncode
 
