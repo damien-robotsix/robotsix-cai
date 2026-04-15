@@ -183,7 +183,7 @@ def dispatch_pr(pr_number: int) -> int:
             "--repo", REPO,
             "--json",
             "number,title,headRefName,headRefOid,labels,state,mergeable,"
-            "merged,mergedAt,comments,reviews",
+            "mergedAt,comments,reviews",
         ])
     except subprocess.CalledProcessError as e:
         print(
@@ -233,7 +233,7 @@ def dispatch_oldest_actionable() -> int:
             "--repo", REPO,
             "--state", "open",
             "--base", "main",
-            "--json", "number,createdAt,labels,merged,mergedAt",
+            "--json", "number,createdAt,labels,mergedAt",
             "--limit", "100",
         ]) or []
     except subprocess.CalledProcessError as e:

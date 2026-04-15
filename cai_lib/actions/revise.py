@@ -941,7 +941,7 @@ def handle_revise(pr: dict) -> int:
             try:
                 pr_now = _gh_json([
                     "pr", "view", str(pr_number),
-                    "--repo", REPO, "--json", "labels,merged,mergedAt,state",
+                    "--repo", REPO, "--json", "labels,mergedAt,state",
                 ])
             except subprocess.CalledProcessError:
                 pr_now = {}

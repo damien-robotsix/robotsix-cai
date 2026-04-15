@@ -534,7 +534,11 @@ class TestPRStateShape(unittest.TestCase):
             self.assertEqual(get_pr_state(pr), expected, f"labels={labels}")
 
         self.assertEqual(
-            get_pr_state({"merged": True, "labels": [{"name": LABEL_PR_REVIEWING_CODE}]}),
+            get_pr_state({"state": "MERGED", "labels": [{"name": LABEL_PR_REVIEWING_CODE}]}),
+            PRState.MERGED,
+        )
+        self.assertEqual(
+            get_pr_state({"mergedAt": "2026-04-01T00:00:00Z", "labels": []}),
             PRState.MERGED,
         )
         both = [{"name": LABEL_PR_REVIEWING_CODE}, {"name": LABEL_PR_CI_FAILING}]
