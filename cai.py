@@ -52,9 +52,10 @@ Subcommands:
                             `:no-action` to closed issues lacking terminal
                             labels; then runs a Sonnet-driven semantic
                             check for duplicates, stuck loops, label
-                            corruption, etc. Findings are published as
-                            `auto-improve:raised` + `audit` issues in the
-                            unified label scheme.
+                            corruption, etc. Findings are pre-screened for
+                            duplicates/resolved via cai-dup-check; survivors
+                            are published as `auto-improve:raised` + `audit`
+                            issues in the unified label scheme.
 
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
@@ -180,7 +181,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from publish import ensure_all_labels
+from publish import (  # noqa: E402
+    ensure_all_labels, AUDIT_CATEGORIES, parse_findings,
+    create_issue, issue_exists, ensure_labels,
+)
+from cai_lib.dup_check import check_duplicate_or_resolved  # noqa: E402
 
 
 from cai_lib.config import *  # noqa: E402,F403
@@ -1257,12 +1262,48 @@ def cmd_audit(args) -> int:
                 exit=audit.returncode)
         return audit.returncode
 
-    # Step 4: Publish findings via publish.py with audit namespace.
+    # Step 4: Parse findings, pre-screen for duplicates/resolved, then create issues.
     print("[cai audit] publishing audit findings", flush=True)
-    published = _run(
-        ["python", str(PUBLISH_SCRIPT), "--namespace", "audit"],
-        input=audit.stdout,
-    )
+    findings = parse_findings(audit.stdout, valid_categories=AUDIT_CATEGORIES)
+    ensure_labels("audit")
+    created = 0
+    skipped_exists = 0
+    dropped_dup = 0
+    failed = 0
+    for f in findings:
+        if issue_exists(f.key):
+            print(f"[cai audit] skip (already exists): {f.key}", flush=True)
+            skipped_exists += 1
+            continue
+        body = (
+            f"**Category:** {f.category}\n"
+            f"**Confidence:** {f.confidence}\n"
+            f"**Evidence:**\n{f.evidence}\n"
+            f"**Remediation:**\n{f.remediation}"
+        )
+        pseudo_issue = {"number": 0, "title": f.title, "body": body, "labels": []}
+        verdict = check_duplicate_or_resolved(pseudo_issue)
+        if verdict and verdict.should_close:
+            log_run(
+                "audit-dup-drop",
+                repo=REPO,
+                key=f.key,
+                verdict=verdict.verdict,
+                target=verdict.target or verdict.commit_sha,
+                reasoning=verdict.reasoning[:120],
+            )
+            print(
+                f"[cai audit] drop (dup/resolved): {f.key} "
+                f"-> {verdict.verdict} target={verdict.target or verdict.commit_sha}",
+                flush=True,
+            )
+            dropped_dup += 1
+            continue
+        rc = create_issue(f, namespace="audit")
+        if rc == 0:
+            created += 1
+        else:
+            failed += 1
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("audit", repo=REPO, rollbacks=len(rolled_back),
             pr_open_recovered=len(recovered_pr_open),
@@ -1270,8 +1311,10 @@ def cmd_audit(args) -> int:
             no_action_unstuck=len(unstuck_no_action),
             merged_flagged=len(flagged_merged),
             no_action_applied=len(no_action_applied),
-            duration=dur, exit=published.returncode)
-    return published.returncode
+            findings=len(findings), created=created,
+            skipped_exists=skipped_exists, dropped_dup=dropped_dup,
+            failed=failed, duration=dur, exit=0)
+    return 0
 
 
 # ---------------------------------------------------------------------------
