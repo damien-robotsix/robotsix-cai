@@ -179,7 +179,7 @@ def _extract_frontmatter_field(text: str, field: str) -> "str | None":
 
 def _run_select_agent(
     issue: dict, plans: list[str], work_dir: Path,
-) -> "tuple[str, object] | None":
+) -> "tuple[str, Confidence] | None":
     """Run the cai-select agent via direct Anthropic API with forced tool-use.
 
     Reads ``.claude/agents/cai-select.md``, strips the YAML frontmatter to
