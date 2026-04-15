@@ -414,12 +414,17 @@ class TestDispatchDrain(unittest.TestCase):
         self.assertEqual(di_calls, [10, 20])
         self.assertEqual(dp_calls, [99])
 
-    def test_idempotent_repeat_picks_capped_by_max_iter(self):
-        """A non-advancing handler that keeps re-picking the same target is
-        bounded by ``max_iter`` (the only loop backstop now that the
-        same-target guard has been removed — it produced false positives
-        on routing handlers like ``pr_bounce`` that advance state on a
-        delegated target rather than the picked one)."""
+    def test_target_dispatched_at_most_once_per_drain(self):
+        """Each ``(kind, number)`` runs at most once per drain, even when
+        the handler returns 0 and the pool never shrinks.
+
+        Regression for the loop class where a routing handler
+        (``pr_bounce``) or an idempotent no-op handler
+        (``handle_merge`` short-circuiting on "already evaluated")
+        returns 0 on a target whose underlying state never changes.
+        Before per-drain dedup, this ran the full ``max_iter`` cap
+        every tick; now the drain empties cleanly after one pass.
+        """
         issues = [
             {"number": 10, "createdAt": "2024-01-01T00:00:00Z",
              "labels": [{"name": "auto-improve:refining"}]},
@@ -432,11 +437,14 @@ class TestDispatchDrain(unittest.TestCase):
 
         with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
              patch.object(dispatcher, "dispatch_issue", return_value=0) as di:
-            rc = dispatcher.dispatch_drain(max_iter=4)
+            rc = dispatcher.dispatch_drain(max_iter=10)
 
         self.assertEqual(rc, 0)
-        # Pool never shrinks, handler always returns 0 → runs the full cap.
-        self.assertEqual(di.call_count, 4)
+        # Exactly one call even though pool never shrinks and we gave
+        # max_iter=10 headroom — per-drain dedup adds the target to the
+        # skip set after the first dispatch so the picker returns None
+        # on the next iteration.
+        di.assert_called_once_with(10)
 
     def test_max_iter_cap(self):
         """A pool that keeps providing distinct targets stops at max_iter."""
