@@ -317,73 +317,277 @@ def _pick_oldest_actionable_target(
     return (kind, number)
 
 
-# Default cap on how many handlers a single drain pass will run. With
-# per-target dedup (each ``(kind, number)`` dispatches at most once per
-# drain) this cap bounds the work pass to ``max_iter`` distinct targets;
-# the cron tick interval (CAI_CYCLE_SCHEDULE) is the wall-clock rate
-# limit; ``dispatched_targets`` skipping is the per-drain loop backstop.
+# Default cap on how many **distinct targets** a single drain pass will
+# drive. Each target is driven end-to-end (through as many state
+# transitions as its handlers will advance it, plus issue↔PR hops)
+# before the outer loop picks the next target, so the cap is an upper
+# bound on unique issues/PRs touched per tick, not on handler invocations.
 _DEFAULT_DRAIN_MAX_ITER = 50
+
+# Safety guard against a driver that would never reach a terminal/blocked
+# state. The longest legitimate chain is roughly:
+# RAISED → TRIAGING → REFINING → REFINED → PLANNING → PLANNED →
+# PLAN_APPROVED → IN_PROGRESS → PR → (PR states: OPEN → REVIEWING_CODE →
+# REVIEWING_DOCS → APPROVED → MERGED) → issue MERGED → SOLVED (~16 steps).
+_INNER_LOOP_CAP = 24
+
+# CI-pending poll: the user chose "poll briefly" rather than giving up
+# the tick immediately when a PR's state hasn't changed because CI is
+# still running.
+_CI_POLL_MAX_SECONDS = 60
+_CI_POLL_INTERVAL_SECONDS = 10
+
+
+def _fetch_issue_state(number: int) -> Optional[IssueState]:
+    """Return the current IssueState for ``number``, or None when the issue
+    is closed / missing its FSM label. Lightweight (labels + state only)."""
+    try:
+        issue = _gh_json([
+            "issue", "view", str(number),
+            "--repo", REPO,
+            "--json", "labels,state",
+        ])
+    except subprocess.CalledProcessError as e:
+        print(f"[cai dispatch] gh issue view #{number} failed:\n{e.stderr}",
+              file=sys.stderr)
+        return None
+    if issue.get("state") == "CLOSED":
+        return None
+    labels = [lb["name"] for lb in issue.get("labels", [])]
+    return get_issue_state(labels)
+
+
+def _fetch_pr_state_info(number: int) -> Optional[tuple[PRState, dict]]:
+    """Return ``(state, pr_dict)`` for ``number``, or None on fetch error.
+
+    The returned dict carries enough for post-dispatch decisions:
+    ``mergedAt``, ``headRefName``, and ``statusCheckRollup`` for
+    CI-pending detection.
+    """
+    try:
+        pr = _gh_json([
+            "pr", "view", str(number),
+            "--repo", REPO,
+            "--json",
+            "number,labels,state,mergedAt,headRefName,statusCheckRollup",
+        ])
+    except subprocess.CalledProcessError as e:
+        print(f"[cai dispatch] gh pr view #{number} failed:\n{e.stderr}",
+              file=sys.stderr)
+        return None
+    return get_pr_state(pr), pr
+
+
+def _pr_ci_pending(pr: dict) -> bool:
+    """True when at least one check in ``statusCheckRollup`` is still running
+    (queued / in-progress / pending). CheckRun uses status/conclusion;
+    StatusContext uses state — we cover both."""
+    rollup = pr.get("statusCheckRollup") or []
+    for check in rollup:
+        status = (check.get("status") or "").upper()
+        state = (check.get("state") or "").upper()
+        if status in ("QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED"):
+            return True
+        if state in ("PENDING", "EXPECTED"):
+            return True
+    return False
+
+
+def _linked_open_pr_number(issue_number: int) -> Optional[int]:
+    """Return the open ``auto-improve/<N>-...`` PR number for this issue, or None."""
+    # Local import — pr_bounce imports from dispatcher for dispatch_pr.
+    from cai_lib.actions.pr_bounce import _find_open_linked_pr
+    pr = _find_open_linked_pr(issue_number)
+    return pr["number"] if pr else None
+
+
+def _issue_number_from_pr_branch(pr: dict) -> Optional[int]:
+    """Parse the issue number from an ``auto-improve/<N>-...`` branch."""
+    import re
+    head = pr.get("headRefName", "") or ""
+    m = re.match(r"auto-improve/(\d+)-", head)
+    return int(m.group(1)) if m else None
+
+
+def _drive_target_to_completion(
+    kind: str, number: int,
+    touched: set[tuple[str, int]],
+) -> int:
+    """Drive a single target through state transitions until terminal or blocked.
+
+    The inner loop:
+      1. Fetches the entity's current state.
+      2. Returns when the state has no registered handler (terminal like
+         SOLVED / HUMAN_NEEDED / PR_HUMAN_NEEDED / MERGED).
+      3. Otherwise calls the registered handler (via :func:`dispatch_issue`
+         or :func:`dispatch_pr`).
+      4. Re-fetches state to detect progress.
+      5. Hops across the issue↔PR boundary when an issue advances to the
+         ``PR`` state (follow the linked PR) or when a PR merges (follow
+         back to the issue so ``confirm`` runs in the same tick).
+      6. Treats "state unchanged after a handler call" as blocked — the
+         handler saw no work to advance. One exception: PRs whose CI is
+         still running get polled for up to ``_CI_POLL_MAX_SECONDS`` (the
+         user chose brief poll over giving up the tick).
+
+    Every ``(kind, number)`` visited is added to ``touched`` so the outer
+    drain won't re-pick the same target later in the same tick.
+    """
+    import time
+    import traceback
+
+    worst_rc = 0
+    ci_polled = False
+
+    for _ in range(_INNER_LOOP_CAP):
+        touched.add((kind, number))
+
+        # --- Pre-dispatch state ---
+        if kind == "issue":
+            pre_state = _fetch_issue_state(number)
+            if pre_state is None:
+                return worst_rc
+            if pre_state not in actionable_issue_states():
+                print(f"[cai dispatch] issue #{number} at "
+                      f"{pre_state.name} — terminal/parked, drive done",
+                      flush=True)
+                return worst_rc
+        else:
+            info = _fetch_pr_state_info(number)
+            if info is None:
+                return worst_rc
+            pre_state, _pre_pr = info
+            if pre_state not in actionable_pr_states():
+                print(f"[cai dispatch] PR #{number} at "
+                      f"{pre_state.name} — terminal/parked, drive done",
+                      flush=True)
+                return worst_rc
+
+        # --- Dispatch one handler step ---
+        try:
+            rc = dispatch_issue(number) if kind == "issue" else dispatch_pr(number)
+        except Exception:
+            traceback.print_exc()
+            print(f"[cai dispatch] handler for {kind} #{number} raised; "
+                  "stopping drive", flush=True)
+            return max(worst_rc, 1)
+        worst_rc = max(worst_rc, rc)
+
+        # --- Post-dispatch state ---
+        if kind == "issue":
+            post_state = _fetch_issue_state(number)
+            if post_state is None:
+                return worst_rc
+            # Issue→PR hop: issue advanced to PR state — drive the linked PR.
+            if post_state == IssueState.PR:
+                linked = _linked_open_pr_number(number)
+                if linked is not None and ("pr", linked) not in touched:
+                    print(f"[cai dispatch] issue #{number} advanced to PR — "
+                          f"following PR #{linked}", flush=True)
+                    kind, number = "pr", linked
+                    ci_polled = False
+                    continue
+                # No linked open PR found (orphan) or already driven.
+                return worst_rc
+            if post_state == pre_state:
+                # Handler ran but did not advance state → blocked.
+                print(f"[cai dispatch] issue #{number} at "
+                      f"{post_state.name}: no state change — blocked, "
+                      f"moving on", flush=True)
+                return worst_rc
+            # State advanced on the same issue — keep driving.
+            continue
+
+        # kind == "pr"
+        post_info = _fetch_pr_state_info(number)
+        if post_info is None:
+            return worst_rc
+        post_state, post_pr = post_info
+
+        # PR merged → hop back to the linked issue (now at MERGED) so
+        # confirm runs in the same drive.
+        if post_pr.get("mergedAt") or post_state == PRState.MERGED:
+            issue_num = _issue_number_from_pr_branch(post_pr)
+            if issue_num is not None and ("issue", issue_num) not in touched:
+                print(f"[cai dispatch] PR #{number} merged — following "
+                      f"back to issue #{issue_num}", flush=True)
+                kind, number = "issue", issue_num
+                ci_polled = False
+                continue
+            return worst_rc
+
+        if post_state != pre_state:
+            ci_polled = False
+            continue
+
+        # No state change on a PR. Brief CI poll before giving up.
+        if not ci_polled and _pr_ci_pending(post_pr):
+            print(f"[cai dispatch] PR #{number} at {post_state.name}: CI "
+                  f"pending — polling up to {_CI_POLL_MAX_SECONDS}s",
+                  flush=True)
+            waited = 0
+            while waited < _CI_POLL_MAX_SECONDS:
+                time.sleep(_CI_POLL_INTERVAL_SECONDS)
+                waited += _CI_POLL_INTERVAL_SECONDS
+                info = _fetch_pr_state_info(number)
+                if info is None:
+                    return worst_rc
+                _, polled_pr = info
+                if not _pr_ci_pending(polled_pr):
+                    print(f"[cai dispatch] PR #{number}: CI settled after "
+                          f"{waited}s — retrying dispatch", flush=True)
+                    break
+            ci_polled = True
+            continue
+
+        print(f"[cai dispatch] PR #{number} at {post_state.name}: no state "
+              f"change and no CI to wait on — blocked, moving on",
+              flush=True)
+        return worst_rc
+
+    print(f"[cai dispatch] inner driver hit cap "
+          f"({_INNER_LOOP_CAP}) on {kind} #{number}", flush=True)
+    return max(worst_rc, 1)
 
 
 def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
-    """Drain the actionable queue: pick oldest, dispatch, repeat.
+    """Drain the actionable queue, driving each target end-to-end.
 
-    Each ``(kind, number)`` is dispatched **at most once per drain pass**.
-    After a dispatch (success, nonzero, or crash), the target is added
-    to a per-drain skip set so the picker moves on to the next oldest.
-    This kills the class of loop where a routing handler (``pr_bounce``)
-    or an idempotent no-op handler keeps returning 0 on a target whose
-    underlying state never changes (e.g. PR parked at ``PR_HUMAN_NEEDED``,
-    merge handler short-circuiting on "already evaluated at this SHA").
+    Each tick picks the oldest actionable target, then drives it through
+    its state transitions (following issue↔PR hops) until it reaches a
+    terminal state (SOLVED), a parked state (HUMAN_NEEDED /
+    PR_HUMAN_NEEDED), or is genuinely blocked (handler ran without
+    advancing state, and for PRs, CI isn't pending). Then moves to the
+    next actionable target.
 
-    Stops when one of:
-      - the queue is empty (no actionable issues or PRs left),
-      - ``max_iter`` iterations have run (hard upper bound; the cycle's
-        flock prevents overlap).
+    This replaces the earlier "one handler step per target per drain"
+    behavior, which could take many cron ticks to walk a single issue
+    from RAISED to SOLVED. The new behavior is: one issue drives to
+    completion in one tick, monopolizing the tick if needed. The cron
+    cadence (CAI_CYCLE_SCHEDULE) still bounds how often a drain starts.
 
-    A side effect of per-drain dedup: when a handler legitimately advances
-    state and the same item is now actionable in a *new* state (e.g.
-    implement advancing PLAN_APPROVED → PR), the follow-up handler fires
-    on the next cron tick rather than in the same drain pass. The cron
-    interval is the wall-clock rate limit anyway, so this is just a
-    one-tick deferral — cheap insurance against the no-op-loop class of
-    bugs.
+    Stops when:
+      - the queue is empty,
+      - ``max_iter`` distinct targets have been driven (safety cap),
+      - every remaining actionable item has already been touched this tick.
 
-    Returns the worst exit code seen across handlers (0 if every dispatch
-    succeeded or the queue was empty from the start).
+    Returns the worst exit code seen across driver runs (0 if all succeeded
+    or the queue was empty from the start).
     """
-    import traceback
-
-    dispatched_targets: set[tuple[str, int]] = set()
+    touched: set[tuple[str, int]] = set()
     worst_rc = 0
 
     for i in range(max_iter):
-        target = _pick_oldest_actionable_target(skip=dispatched_targets)
+        target = _pick_oldest_actionable_target(skip=touched)
         if target is None:
-            print(f"[cai dispatch] drain complete after {i} dispatch(es): "
-                  "queue empty", flush=True)
+            print(f"[cai dispatch] drain complete after {i} target(s) "
+                  "driven: queue empty", flush=True)
             return worst_rc
 
         kind, number = target
-        try:
-            if kind == "issue":
-                rc = dispatch_issue(number)
-            else:
-                rc = dispatch_pr(number)
-        except Exception:  # noqa: BLE001 — keep draining the queue
-            # Handler crashed. Record dispatch, skip this target for the
-            # rest of this drain pass (#657 — one crashing item must not
-            # stall the cycle), and continue with the next actionable target.
-            traceback.print_exc()
-            print(f"[cai dispatch] handler for {kind} #{number} raised; "
-                  "skipping this target for the remainder of the drain",
-                  flush=True)
-            dispatched_targets.add(target)
-            worst_rc = max(worst_rc, 1)
-            continue
-        # Every dispatch — success or failure — counts. No target runs
-        # twice in the same drain.
-        dispatched_targets.add(target)
+        print(f"[cai dispatch] driving {kind} #{number} end-to-end",
+              flush=True)
+        rc = _drive_target_to_completion(kind, number, touched)
         if rc > worst_rc:
             worst_rc = rc
 

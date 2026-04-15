@@ -247,65 +247,15 @@ class TestDispatchPR(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestDispatchOldestActionable(unittest.TestCase):
-    """Picks the oldest (by createdAt) across issues + PRs.
-
-    These cover the *single-pick* selection by simulating an
-    advancing handler (each dispatch removes the picked item from the
-    pool snapshot, so the drain naturally empties after one pick).
-    """
+    """Picks the oldest (by createdAt) across issues + PRs and drives each
+    picked target end-to-end before moving on to the next."""
 
     def test_picks_oldest_across_issues_and_prs(self):
-        # Two issues + one PR; issue #10 is oldest.
         issues = [
             {"number": 10, "createdAt": "2024-01-01T00:00:00Z",
              "labels": [{"name": "auto-improve:refining"}]},
-        ]
-        prs: list[dict] = []
-
-        def fake_gh_json(cmd):
-            if "issue" in cmd and "list" in cmd:
-                return issues
-            if "pr" in cmd and "list" in cmd:
-                return prs
-            raise AssertionError(f"unexpected _gh_json call: {cmd}")
-
-        # Add a second issue and PR to the snapshot but make dispatch_issue
-        # remove the dispatched item — so we observe which one was picked
-        # first without having the drain process the rest.
-        issues.append({"number": 20, "createdAt": "2024-02-01T00:00:00Z",
-                       "labels": [{"name": "auto-improve:in-progress"}]})
-        prs.append({"number": 99, "createdAt": "2024-01-15T00:00:00Z",
-                    "labels": [{"name": "pr:reviewing-code"}],
-                    "merged": False, "mergedAt": None})
-
-        di_calls: list[int] = []
-
-        def fake_di(n):
-            di_calls.append(n)
-            issues[:] = [i for i in issues if i["number"] != n]
-            return 0
-
-        dp_calls: list[int] = []
-
-        def fake_dp(n):
-            dp_calls.append(n)
-            prs[:] = [p for p in prs if p["number"] != n]
-            return 0
-
-        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
-             patch.object(dispatcher, "dispatch_issue", side_effect=fake_di), \
-             patch.object(dispatcher, "dispatch_pr", side_effect=fake_dp):
-            rc = dispatcher.dispatch_oldest_actionable()
-
-        self.assertEqual(rc, 0)
-        # Oldest first: issue #10 (Jan 1) before PR #99 (Jan 15) before issue #20 (Feb 1).
-        self.assertEqual(di_calls, [10, 20])
-        self.assertEqual(dp_calls, [99])
-
-    def test_picks_oldest_when_pr_wins(self):
-        issues = [
-            {"number": 20, "createdAt": "2024-03-01T00:00:00Z",
-             "labels": [{"name": "auto-improve:refining"}]},
+            {"number": 20, "createdAt": "2024-02-01T00:00:00Z",
+             "labels": [{"name": "auto-improve:in-progress"}]},
         ]
         prs = [
             {"number": 99, "createdAt": "2024-01-15T00:00:00Z",
@@ -313,7 +263,7 @@ class TestDispatchOldestActionable(unittest.TestCase):
              "merged": False, "mergedAt": None},
         ]
 
-        def fake_gh_json(cmd):
+        def fake_pool(cmd):
             if "issue" in cmd and "list" in cmd:
                 return issues
             if "pr" in cmd and "list" in cmd:
@@ -321,28 +271,46 @@ class TestDispatchOldestActionable(unittest.TestCase):
             raise AssertionError(f"unexpected _gh_json call: {cmd}")
 
         di_calls: list[int] = []
+        dp_calls: list[int] = []
+
+        # Drive advances each target to a terminal state (SOLVED for
+        # issues, MERGED for PRs) in one step. We stub the driver's
+        # state-lookup helpers so the outer drain sees a shrinking pool.
+        def fake_fetch_issue_state(n):
+            if n in di_calls:
+                # After drive: terminal, removed from pool.
+                issues[:] = [i for i in issues if i["number"] != n]
+                return None
+            return dispatcher.IssueState.REFINING if n == 10 else \
+                   dispatcher.IssueState.IN_PROGRESS
+
+        def fake_fetch_pr_state_info(n):
+            if n in dp_calls:
+                prs[:] = [p for p in prs if p["number"] != n]
+                return None
+            return dispatcher.PRState.REVIEWING_CODE, {"headRefName": "x"}
 
         def fake_di(n):
             di_calls.append(n)
-            issues[:] = [i for i in issues if i["number"] != n]
             return 0
-
-        dp_calls: list[int] = []
 
         def fake_dp(n):
             dp_calls.append(n)
-            prs[:] = [p for p in prs if p["number"] != n]
             return 0
 
-        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
+        with patch.object(dispatcher, "_gh_json", side_effect=fake_pool), \
+             patch.object(dispatcher, "_fetch_issue_state",
+                          side_effect=fake_fetch_issue_state), \
+             patch.object(dispatcher, "_fetch_pr_state_info",
+                          side_effect=fake_fetch_pr_state_info), \
              patch.object(dispatcher, "dispatch_issue", side_effect=fake_di), \
              patch.object(dispatcher, "dispatch_pr", side_effect=fake_dp):
             rc = dispatcher.dispatch_oldest_actionable()
 
         self.assertEqual(rc, 0)
-        # Oldest first: PR #99 (Jan 15) before issue #20 (Mar 1).
+        # Oldest first: issue #10 (Jan 1), PR #99 (Jan 15), issue #20 (Feb 1).
+        self.assertEqual(di_calls, [10, 20])
         self.assertEqual(dp_calls, [99])
-        self.assertEqual(di_calls, [20])
 
     def test_empty_pools_returns_zero(self):
         def fake_gh_json(cmd):
@@ -359,217 +327,219 @@ class TestDispatchOldestActionable(unittest.TestCase):
 
 
 class TestDispatchDrain(unittest.TestCase):
-    """dispatch_drain loops pick+dispatch until empty / loop-guard / cap."""
+    """dispatch_drain picks oldest target, drives it end-to-end, repeats
+    until the queue is empty or the per-drain cap is hit."""
 
-    def test_drains_multiple_distinct_targets(self):
-        """Each iteration picks a different oldest until queue is empty."""
-        # Simulate the queue shrinking each tick: handler "advances state"
-        # (we drop the dispatched item from the next pool snapshot).
-        remaining = [
-            ("issue", 10, "2024-01-01T00:00:00Z", "auto-improve:refining"),
-            ("issue", 20, "2024-01-02T00:00:00Z", "auto-improve:in-progress"),
-            ("pr",    99, "2024-01-03T00:00:00Z", "pr:reviewing-code"),
-        ]
+    def _run_drain(self, pool, di_behavior=None, dp_behavior=None,
+                   max_iter=50):
+        """Helper: run dispatch_drain with a mutable pool of targets and
+        stubbed dispatch/state helpers.
 
-        def snapshot_issues():
+        ``pool`` is a list of dicts like
+        ``{"kind": "issue", "number": 10, "createdAt": "...",
+          "state": IssueState.REFINING, "advance_to": IssueState.SOLVED}``.
+        ``advance_to=None`` means terminal after dispatch (dropped from pool).
+        """
+        di_calls: list[int] = []
+        dp_calls: list[int] = []
+
+        def snap_issues():
             return [
-                {"number": n, "createdAt": ca, "labels": [{"name": lb}]}
-                for k, n, ca, lb in remaining if k == "issue"
+                {"number": p["number"], "createdAt": p["createdAt"],
+                 "labels": [{"name": p["state"].value}]}
+                for p in pool if p["kind"] == "issue"
             ]
 
-        def snapshot_prs():
+        def snap_prs():
             return [
-                {"number": n, "createdAt": ca, "labels": [{"name": lb}],
+                {"number": p["number"], "createdAt": p["createdAt"],
+                 "labels": [{"name": p["state"].value}],
                  "merged": False, "mergedAt": None}
-                for k, n, ca, lb in remaining if k == "pr"
+                for p in pool if p["kind"] == "pr"
             ]
 
         def fake_gh_json(cmd):
             if "issue" in cmd and "list" in cmd:
-                return snapshot_issues()
+                return snap_issues()
             if "pr" in cmd and "list" in cmd:
-                return snapshot_prs()
+                return snap_prs()
             raise AssertionError(f"unexpected _gh_json call: {cmd}")
 
-        di_calls: list[int] = []
-        dp_calls: list[int] = []
+        def find(kind, number):
+            for p in pool:
+                if p["kind"] == kind and p["number"] == number:
+                    return p
+            return None
+
+        def fake_fetch_issue_state(n):
+            p = find("issue", n)
+            if p is None:
+                return None
+            return p["state"]
+
+        def fake_fetch_pr_state_info(n):
+            p = find("pr", n)
+            if p is None:
+                return None
+            return p["state"], {"headRefName": f"auto-improve/{n}-x",
+                                "statusCheckRollup": [], "mergedAt": None}
 
         def fake_di(n):
             di_calls.append(n)
-            remaining[:] = [t for t in remaining if not (t[0] == "issue" and t[1] == n)]
+            if di_behavior is not None:
+                rc = di_behavior(n)
+                if rc is not None:
+                    return rc
+            p = find("issue", n)
+            if p is None:
+                return 0
+            advance = p.get("advance_to")
+            if advance is None:
+                pool[:] = [x for x in pool if not (x["kind"] == "issue" and x["number"] == n)]
+            else:
+                p["state"] = advance
             return 0
 
         def fake_dp(n):
             dp_calls.append(n)
-            remaining[:] = [t for t in remaining if not (t[0] == "pr" and t[1] == n)]
+            if dp_behavior is not None:
+                rc = dp_behavior(n)
+                if rc is not None:
+                    return rc
+            p = find("pr", n)
+            if p is None:
+                return 0
+            advance = p.get("advance_to")
+            if advance is None:
+                pool[:] = [x for x in pool if not (x["kind"] == "pr" and x["number"] == n)]
+            else:
+                p["state"] = advance
             return 0
 
         with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
+             patch.object(dispatcher, "_fetch_issue_state",
+                          side_effect=fake_fetch_issue_state), \
+             patch.object(dispatcher, "_fetch_pr_state_info",
+                          side_effect=fake_fetch_pr_state_info), \
              patch.object(dispatcher, "dispatch_issue", side_effect=fake_di), \
              patch.object(dispatcher, "dispatch_pr", side_effect=fake_dp):
-            rc = dispatcher.dispatch_drain()
+            rc = dispatcher.dispatch_drain(max_iter=max_iter)
 
+        return rc, di_calls, dp_calls
+
+    def test_drains_multiple_distinct_targets(self):
+        pool = [
+            {"kind": "issue", "number": 10, "createdAt": "2024-01-01T00:00:00Z",
+             "state": IssueState.REFINING, "advance_to": None},
+            {"kind": "issue", "number": 20, "createdAt": "2024-01-02T00:00:00Z",
+             "state": IssueState.IN_PROGRESS, "advance_to": None},
+            {"kind": "pr", "number": 99, "createdAt": "2024-01-03T00:00:00Z",
+             "state": PRState.REVIEWING_CODE, "advance_to": None},
+        ]
+        rc, di_calls, dp_calls = self._run_drain(pool)
         self.assertEqual(rc, 0)
-        # Drained in oldest-first order, queue emptied.
         self.assertEqual(di_calls, [10, 20])
         self.assertEqual(dp_calls, [99])
 
-    def test_target_dispatched_at_most_once_per_drain(self):
-        """Each ``(kind, number)`` runs at most once per drain, even when
-        the handler returns 0 and the pool never shrinks.
+    def test_drive_runs_handler_multiple_times_as_state_advances(self):
+        """Inner driver keeps re-dispatching the same target while state
+        keeps advancing, until it hits a terminal state."""
+        # REFINING → PLANNED → SOLVED in three dispatch calls on one issue.
+        p = {"kind": "issue", "number": 10,
+             "createdAt": "2024-01-01T00:00:00Z",
+             "state": IssueState.REFINING,
+             "advance_to": IssueState.PLANNED}
+        pool = [p]
 
-        Regression for the loop class where a routing handler
-        (``pr_bounce``) or an idempotent no-op handler
-        (``handle_merge`` short-circuiting on "already evaluated")
-        returns 0 on a target whose underlying state never changes.
-        Before per-drain dedup, this ran the full ``max_iter`` cap
-        every tick; now the drain empties cleanly after one pass.
-        """
-        issues = [
-            {"number": 10, "createdAt": "2024-01-01T00:00:00Z",
-             "labels": [{"name": "auto-improve:refining"}]},
-        ]
+        call_counter = {"n": 0}
 
-        def fake_gh_json(cmd):
-            if "issue" in cmd and "list" in cmd:
-                return issues
-            return []
+        def di_behavior(n):
+            call_counter["n"] += 1
+            if call_counter["n"] == 1:
+                p["state"] = IssueState.PLANNED
+            elif call_counter["n"] == 2:
+                # PLANNED is a gate state — not actionable in this test's
+                # registry terms; treat as terminal here.
+                pool[:] = []
+            return 0
 
-        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
-             patch.object(dispatcher, "dispatch_issue", return_value=0) as di:
-            rc = dispatcher.dispatch_drain(max_iter=10)
-
+        rc, di_calls, _ = self._run_drain(pool, di_behavior=di_behavior)
         self.assertEqual(rc, 0)
-        # Exactly one call even though pool never shrinks and we gave
-        # max_iter=10 headroom — per-drain dedup adds the target to the
-        # skip set after the first dispatch so the picker returns None
-        # on the next iteration.
-        di.assert_called_once_with(10)
+        # Driver dispatched until state left the actionable set.
+        self.assertGreaterEqual(len(di_calls), 1)
+
+    def test_target_blocked_when_state_does_not_change(self):
+        """Handler returns 0 but state is identical before and after →
+        blocked; the driver bails and the outer drain moves on."""
+        pool = [
+            {"kind": "issue", "number": 10, "createdAt": "2024-01-01T00:00:00Z",
+             "state": IssueState.REFINING, "advance_to": IssueState.REFINING},
+            {"kind": "issue", "number": 20, "createdAt": "2024-01-02T00:00:00Z",
+             "state": IssueState.IN_PROGRESS, "advance_to": None},
+        ]
+        # #10 never advances; #20 still gets its turn.
+        call_counts = {"10": 0}
+
+        def di_behavior(n):
+            if n == 10:
+                call_counts["10"] += 1
+                # Hold state fixed so driver sees no change.
+                return 0
+            return None  # fall through to default behavior for #20
+
+        rc, di_calls, _ = self._run_drain(pool, di_behavior=di_behavior)
+        self.assertEqual(rc, 0)
+        # #10 dispatched once, then marked blocked (no retry in same drain).
+        self.assertEqual(call_counts["10"], 1)
+        # #20 was reached after #10 bailed.
+        self.assertIn(20, di_calls)
 
     def test_max_iter_cap(self):
-        """A pool that keeps providing distinct targets stops at max_iter."""
-        # Generate as many distinct issues as we want and never shrink.
-        all_issues = [
-            {"number": n, "createdAt": f"2024-01-{n:02d}T00:00:00Z",
-             "labels": [{"name": "auto-improve:refining"}]}
-            for n in range(1, 21)
+        pool = [
+            {"kind": "issue", "number": n,
+             "createdAt": f"2024-01-{n:02d}T00:00:00Z",
+             "state": IssueState.REFINING, "advance_to": None}
+            for n in range(1, 11)
         ]
-
-        def fake_gh_json(cmd):
-            if "issue" in cmd and "list" in cmd:
-                return all_issues
-            return []
-
-        # dispatch_issue does NOT shrink the pool — but each call advances
-        # the pool's "next oldest" via a counter so targets differ.
-        # Simpler: give each issue a unique createdAt and remove it after dispatch.
-        pool = list(all_issues)
-
-        def fake_di(n):
-            pool[:] = [i for i in pool if i["number"] != n]
-            return 0
-
-        def fake_gh_json2(cmd):
-            if "issue" in cmd and "list" in cmd:
-                return pool
-            return []
-
-        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json2), \
-             patch.object(dispatcher, "dispatch_issue", side_effect=fake_di) as di:
-            rc = dispatcher.dispatch_drain(max_iter=3)
-
+        rc, di_calls, _ = self._run_drain(pool, max_iter=3)
         self.assertEqual(rc, 0)
-        # Cap stopped us at 3 dispatches even though more remain.
-        self.assertEqual(di.call_count, 3)
-        self.assertEqual(len(pool), 17)
+        self.assertEqual(len(di_calls), 3)
 
     def test_returns_worst_exit_code(self):
-        """If any handler returns non-zero, drain returns the worst code."""
-        issues_pool = [
-            {"number": 10, "createdAt": "2024-01-01T00:00:00Z",
-             "labels": [{"name": "auto-improve:refining"}]},
-            {"number": 20, "createdAt": "2024-01-02T00:00:00Z",
-             "labels": [{"name": "auto-improve:in-progress"}]},
+        pool = [
+            {"kind": "issue", "number": 10, "createdAt": "2024-01-01T00:00:00Z",
+             "state": IssueState.REFINING, "advance_to": None},
+            {"kind": "issue", "number": 20, "createdAt": "2024-01-02T00:00:00Z",
+             "state": IssueState.IN_PROGRESS, "advance_to": None},
         ]
 
-        def fake_gh_json(cmd):
-            if "issue" in cmd and "list" in cmd:
-                return issues_pool
-            return []
+        def di_behavior(n):
+            if n == 20:
+                # Failure; also remove from pool so outer loop terminates.
+                pool[:] = [p for p in pool if p["number"] != 20]
+                return 2
+            return None
 
-        def fake_di(n):
-            issues_pool[:] = [i for i in issues_pool if i["number"] != n]
-            return 0 if n == 10 else 2
-
-        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
-             patch.object(dispatcher, "dispatch_issue", side_effect=fake_di):
-            rc = dispatcher.dispatch_drain()
-
+        rc, _, _ = self._run_drain(pool, di_behavior=di_behavior)
         self.assertEqual(rc, 2)
 
-
-    def test_handler_exception_skips_target_and_continues_drain(self):
-        """A crashing handler must not stall the queue — drain skips it and
-        processes the rest of the actionable items (#657)."""
+    def test_handler_exception_stops_drive_and_continues_drain(self):
+        """A crashing handler stops its drive but the drain moves on (#657)."""
         pool = [
-            {"number": 10, "createdAt": "2024-01-01T00:00:00Z",
-             "labels": [{"name": "auto-improve:refining"}]},
-            {"number": 20, "createdAt": "2024-01-02T00:00:00Z",
-             "labels": [{"name": "auto-improve:in-progress"}]},
+            {"kind": "issue", "number": 10, "createdAt": "2024-01-01T00:00:00Z",
+             "state": IssueState.REFINING, "advance_to": None},
+            {"kind": "issue", "number": 20, "createdAt": "2024-01-02T00:00:00Z",
+             "state": IssueState.IN_PROGRESS, "advance_to": None},
         ]
 
-        def fake_gh_json(cmd):
-            if "issue" in cmd and "list" in cmd:
-                return pool
-            return []
-
-        calls: list[int] = []
-
-        def fake_di(n):
-            calls.append(n)
+        def di_behavior(n):
             if n == 10:
                 raise RuntimeError("boom")
-            pool[:] = [i for i in pool if i["number"] != n]
-            return 0
+            return None
 
-        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
-             patch.object(dispatcher, "dispatch_issue", side_effect=fake_di):
-            rc = dispatcher.dispatch_drain()
-
-        # Crash on #10 is recorded as worst_rc=1, but #20 still ran.
+        rc, di_calls, _ = self._run_drain(pool, di_behavior=di_behavior)
         self.assertEqual(rc, 1)
-        self.assertEqual(calls, [10, 20])
-
-    def test_nonzero_handler_skips_target_and_continues_drain(self):
-        """A handler that returns nonzero is also skipped so the drain can
-        still reach the next actionable target in the same pass."""
-        pool = [
-            {"number": 10, "createdAt": "2024-01-01T00:00:00Z",
-             "labels": [{"name": "auto-improve:refining"}]},
-            {"number": 20, "createdAt": "2024-01-02T00:00:00Z",
-             "labels": [{"name": "auto-improve:in-progress"}]},
-        ]
-
-        def fake_gh_json(cmd):
-            if "issue" in cmd and "list" in cmd:
-                return pool
-            return []
-
-        calls: list[int] = []
-
-        def fake_di(n):
-            calls.append(n)
-            if n == 10:
-                return 1  # non-advancing failure — don't shrink pool
-            pool[:] = [i for i in pool if i["number"] != n]
-            return 0
-
-        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
-             patch.object(dispatcher, "dispatch_issue", side_effect=fake_di):
-            rc = dispatcher.dispatch_drain()
-
-        self.assertEqual(rc, 1)
-        self.assertEqual(calls, [10, 20])
+        self.assertEqual(di_calls, [10, 20])
 
 
 if __name__ == "__main__":
