@@ -406,6 +406,19 @@ PR_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_PR_REVIEWING_CODE],
                labels_add=[LABEL_PR_HUMAN_NEEDED],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    # Merge handler park: when the merge agent's verdict is below the
+    # configured confidence threshold, or when a recovery action (close /
+    # merge) failed, the PR must leave APPROVED so the dispatcher stops
+    # re-routing it to handle_merge. Without this transition the PR
+    # carried a parallel ``needs-human-review`` flag while still labelled
+    # ``pr:approved`` — two states disagreeing — and the merge handler
+    # was re-invoked every drain tick only to short-circuit on its
+    # "already evaluated at this SHA" guard.
+    Transition("approved_to_human",
+               PRState.APPROVED, PRState.PR_HUMAN_NEEDED,
+               labels_remove=[LABEL_PR_APPROVED],
+               labels_add=[LABEL_PR_HUMAN_NEEDED],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     Transition("pr_human_to_reviewing_code",
                PRState.PR_HUMAN_NEEDED, PRState.REVIEWING_CODE,
                labels_remove=[LABEL_PR_HUMAN_NEEDED],

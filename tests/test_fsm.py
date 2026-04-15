@@ -545,6 +545,19 @@ class TestPRStateShape(unittest.TestCase):
             if t.from_state == PRState.APPROVED
         }
         self.assertIn(PRState.MERGED, approved_dests)
+        # APPROVED must also be able to reach PR_HUMAN_NEEDED so the
+        # merge handler's "hold" / recovery paths can park the PR
+        # cleanly instead of layering an orthogonal needs-human-review
+        # flag on top of pr:approved (which made the dispatcher loop).
+        self.assertIn(PRState.PR_HUMAN_NEEDED, approved_dests)
+        approved_to_human = next(
+            (t for t in PR_TRANSITIONS if t.name == "approved_to_human"),
+            None,
+        )
+        self.assertIsNotNone(approved_to_human)
+        from cai_lib.config import LABEL_PR_APPROVED, LABEL_PR_HUMAN_NEEDED
+        self.assertIn(LABEL_PR_APPROVED, approved_to_human.labels_remove)
+        self.assertIn(LABEL_PR_HUMAN_NEEDED, approved_to_human.labels_add)
 
     def test_get_pr_state_from_labels(self):
         """get_pr_state derives from pipeline labels (post-redesign)."""
