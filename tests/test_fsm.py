@@ -11,7 +11,7 @@ from cai_lib.fsm import (
     ISSUE_TRANSITIONS, PR_TRANSITIONS,
     get_issue_state, render_fsm_mermaid,
     apply_transition, apply_transition_with_confidence, find_transition,
-    parse_confidence, parse_resume_target,
+    parse_confidence, parse_confidence_reason, parse_resume_target,
     resume_transition_for, resume_pr_transition_for,
     render_pending_marker, parse_pending_marker, strip_pending_marker,
 )
@@ -118,6 +118,37 @@ class TestConfidenceEnum(unittest.TestCase):
         # regex happens to land on and bypass the human gate.
         self.assertIsNone(
             parse_confidence("Confidence: HIGH | MEDIUM | LOW")
+        )
+
+    def test_parse_reason_valid(self):
+        body = "Confidence: MEDIUM\nConfidence reason: The plan has unverified assumptions."
+        self.assertEqual(
+            parse_confidence_reason(body),
+            "The plan has unverified assumptions.",
+        )
+
+    def test_parse_reason_multiword(self):
+        body = (
+            "Confidence: LOW\n"
+            "Confidence reason: Plan 1 and Plan 2 contradict each other on "
+            "which file to edit, leaving ambiguous scope for the fix agent.\n"
+        )
+        self.assertEqual(
+            parse_confidence_reason(body),
+            "Plan 1 and Plan 2 contradict each other on which file to edit, "
+            "leaving ambiguous scope for the fix agent.",
+        )
+
+    def test_parse_reason_missing_returns_none(self):
+        self.assertIsNone(parse_confidence_reason(""))
+        self.assertIsNone(parse_confidence_reason("Confidence: HIGH"))
+        self.assertIsNone(parse_confidence_reason("no reason line here"))
+
+    def test_parse_reason_case_insensitive(self):
+        body = "CONFIDENCE REASON: Missing edge cases for empty input."
+        self.assertEqual(
+            parse_confidence_reason(body),
+            "Missing edge cases for empty input.",
         )
 
     def test_transition_accepts(self):

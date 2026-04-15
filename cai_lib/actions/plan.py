@@ -165,29 +165,39 @@ _SELECT_JSON_SCHEMA = {
             "enum": ["HIGH", "MEDIUM", "LOW"],
             "description": "Confidence level for the selected plan.",
         },
+        "confidence_reason": {
+            "type": "string",
+            "description": (
+                "1-3 sentences explaining what makes the plan less than HIGH confidence: "
+                "unverified assumptions, ambiguous scope, missing edge cases, etc. "
+                "Required when confidence is MEDIUM or LOW; for HIGH confidence, "
+                "provide a brief statement confirming why the plan is solid."
+            ),
+        },
         "note": {
             "type": "string",
             "description": "Optional note flagging critical weaknesses for the fix agent.",
         },
     },
-    "required": ["plan", "confidence"],
+    "required": ["plan", "confidence", "confidence_reason"],
 }
 
 
 def _run_select_agent(
     issue: dict, plans: list[str], work_dir: Path,
-) -> "tuple[str, Confidence] | None":
-    """Run the cai-select agent and return ``(plan_text, confidence)``.
+) -> "tuple[str, Confidence, str] | None":
+    """Run the cai-select agent and return ``(plan_text, confidence, reason)``.
 
     Invokes the Claude Code subagent with ``--json-schema`` so the final
-    output is a structured JSON object ({plan, confidence, note?}) rather
-    than free-form text. Removes the regex-based confidence extraction that
-    previously diverted sound plans to ``:human-needed`` when the model
-    drifted from the ``Confidence: …`` trailer format.
+    output is a structured JSON object ({plan, confidence, confidence_reason,
+    note?}) rather than free-form text. Removes the regex-based confidence
+    extraction that previously diverted sound plans to ``:human-needed`` when
+    the model drifted from the ``Confidence: …`` trailer format.
 
     Returns ``None`` on subprocess or parse failure; otherwise returns
     the cleaned plan text (with optional ``> **Note:** …`` blockquote
-    prepended) and the :class:`~cai_lib.fsm.Confidence` enum member.
+    prepended), the :class:`~cai_lib.fsm.Confidence` enum member, and the
+    confidence reason string.
     """
     import json
 
@@ -225,6 +235,7 @@ def _run_select_agent(
 
     plan_text = payload.get("plan", "") or ""
     confidence_str = (payload.get("confidence") or "").upper()
+    confidence_reason = (payload.get("confidence_reason") or "").strip()
     note = payload.get("note", "") or ""
 
     if note:
@@ -239,12 +250,12 @@ def _run_select_agent(
         )
         return None
 
-    return plan_text.rstrip() + "\n", confidence
+    return plan_text.rstrip() + "\n", confidence, confidence_reason
 
 
 def _run_plan_select_pipeline(
     issue: dict, work_dir: Path, attempt_history_block: str = "",
-) -> "tuple[str, Confidence | None] | None":
+) -> "tuple[str, Confidence | None, str] | None":
     """Run the serial 2-plan → select pipeline.
 
     Plan 1 runs first; Plan 2 receives Plan 1's output and is asked
@@ -252,11 +263,11 @@ def _run_plan_select_pipeline(
     best and emits a trailing ``Confidence: HIGH|MEDIUM|LOW`` line
     indicating how sure it is that the chosen plan will succeed.
 
-    Returns ``(plan_text, confidence)`` — plan text and confidence arrive
-    as separate structured fields from the select agent's forced tool-use
-    call. ``confidence`` is a :class:`~cai_lib.fsm.Confidence` enum member,
-    or ``None`` when the select agent fails (treated as below-threshold by
-    the caller).
+    Returns ``(plan_text, confidence, confidence_reason)`` — plan text,
+    confidence, and reason arrive as separate structured fields from the
+    select agent's forced tool-use call. ``confidence`` is a
+    :class:`~cai_lib.fsm.Confidence` enum member, or ``None`` when the
+    select agent fails (treated as below-threshold by the caller).
     Returns ``None`` if the pipeline fails to produce any output.
     """
     issue_number = issue["number"]
@@ -280,14 +291,14 @@ def _run_plan_select_pipeline(
         print("[cai plan] select agent produced no output; skipping pipeline", flush=True)
         return None
 
-    plan_text, confidence = select_result
+    plan_text, confidence, confidence_reason = select_result
     conf_name = confidence.name if confidence else "MISSING"
     print(
         f"[cai plan] select agent produced {len(plan_text)} chars "
         f"(confidence={conf_name})",
         flush=True,
     )
-    return plan_text, confidence
+    return plan_text, confidence, confidence_reason
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +399,7 @@ def handle_plan(issue: dict) -> int:
             log_run("plan", repo=REPO, issue=issue_number,
                     duration=dur, result="pipeline_failed", exit=1)
             return 1
-        selected_plan, plan_confidence = pipeline_result
+        selected_plan, plan_confidence, plan_confidence_reason = pipeline_result
 
         # 5. Store plan in issue body (strip any old plan block first).
         current_body = _strip_stored_plan_block(issue.get("body", "") or "")
@@ -402,8 +413,10 @@ def handle_plan(issue: dict) -> int:
             "## Selected Implementation Plan\n\n"
             f"{selected_plan}\n"
             f"Confidence: {conf_name}\n"
-            "<!-- cai-plan-end -->"
         )
+        if plan_confidence_reason:
+            plan_block += f"Confidence reason: {plan_confidence_reason}\n"
+        plan_block += "<!-- cai-plan-end -->"
         new_body = f"{plan_block}\n\n{current_body}"
         update = _run(
             ["gh", "issue", "edit", str(issue_number),
@@ -423,11 +436,12 @@ def handle_plan(issue: dict) -> int:
                     duration=dur, result="edit_failed", exit=1)
             return 1
 
-        # Stash the confidence on the issue dict so the gate handler
-        # (run as a separate dispatcher step) can read it. This is
-        # belt-and-braces — the gate also reparses from the body if we
+        # Stash the confidence and reason on the issue dict so the gate
+        # handler (run as a separate dispatcher step) can read them. This
+        # is belt-and-braces — the gate also reparses from the body if we
         # ever split the two calls across processes.
         issue["_cai_plan_confidence"] = plan_confidence
+        issue["_cai_plan_confidence_reason"] = plan_confidence_reason
 
         # 6. Transition labels: :planning → :planned (waypoint).
         ok = apply_transition(
@@ -469,19 +483,23 @@ def handle_plan_gate(issue: dict) -> int:
     diverts to :human-needed (`planned_to_human`) with a pending marker
     so an admin can review.
     """
-    from cai_lib.fsm import parse_confidence
+    from cai_lib.fsm import parse_confidence, parse_confidence_reason
 
     t0 = time.monotonic()
     issue_number = issue["number"]
 
-    # Recover the confidence marker. Prefer the in-process stash from
-    # handle_plan; otherwise parse from the stored plan block in the
+    # Recover the confidence marker and reason. Prefer the in-process stash
+    # from handle_plan; otherwise parse from the stored plan block in the
     # issue body (for dispatchers that run the two handlers across
     # separate invocations).
     plan_confidence = issue.get("_cai_plan_confidence")
+    plan_confidence_reason = issue.get("_cai_plan_confidence_reason")
     if plan_confidence is None:
         body = issue.get("body", "") or ""
         plan_confidence = parse_confidence(body)
+    if plan_confidence_reason is None:
+        body = issue.get("body", "") or ""
+        plan_confidence_reason = parse_confidence_reason(body)
 
     # Apply the gate. HIGH → :plan-approved; below HIGH (or MISSING) →
     # :human-needed via the configured divert target.
@@ -489,6 +507,7 @@ def handle_plan_gate(issue: dict) -> int:
         issue_number, "planned_to_plan_approved", plan_confidence,
         current_labels=[LABEL_PLANNED],
         log_prefix="cai plan",
+        reason_extra=plan_confidence_reason or "",
     )
     if not ok:
         # Transition or divert refused (e.g. state drift, label-edit failure).

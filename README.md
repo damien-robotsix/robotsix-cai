@@ -56,8 +56,9 @@ is the program counter — the label on an issue/PR determines which
 handler fires; handlers are safely re-enterable so a crashed run
 resumes on the next tick. HIGH-confidence plans auto-promote to
 `:plan-approved`; lower-confidence plans divert to `:human-needed`
-for admin review, where an admin comment resumes them via
-`cai unblock`.
+for admin review with a comment explaining why the plan didn't reach
+HIGH confidence (e.g., unverified assumptions, ambiguous scope, missing
+edge cases). An admin comment resumes them via `cai unblock`.
 
 A flock in `cmd_cycle` serializes overlapping runs. For manual or
 targeted invocation, `cai.py dispatch --issue N` and

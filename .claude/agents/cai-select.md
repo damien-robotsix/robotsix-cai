@@ -43,9 +43,10 @@ object — no prose, no code fences, no preamble. The schema is:
 
 ```json
 {
-  "plan":       "string  — full text of the chosen plan, pasted exactly as provided",
-  "confidence": "string  — one of HIGH, MEDIUM, LOW",
-  "note":       "string  — OPTIONAL; one-sentence flag for the fix agent"
+  "plan":               "string  — full text of the chosen plan, pasted exactly as provided",
+  "confidence":         "string  — one of HIGH, MEDIUM, LOW",
+  "confidence_reason":  "string  — 1-3 sentences explaining the confidence level (required)",
+  "note":               "string  — OPTIONAL; one-sentence flag for the fix agent"
 }
 ```
 
@@ -59,6 +60,13 @@ At **MEDIUM** or **LOW**, the wrapper parks the issue in
 before it is implemented — use these levels whenever either
 plan has ambiguity, unclear scope, non-trivial risk of
 regressions, or you are choosing a least-bad option.
+
+**`confidence_reason` is required for all confidence levels.** For
+MEDIUM or LOW, explain specifically what makes the plan fall short:
+unverified assumptions, ambiguous scope, missing edge cases,
+contradictions between plans, etc. For HIGH, briefly confirm why
+the plan is solid (e.g. "Both plans converge on the same minimal
+change with no ambiguity").
 
 If all plans are equally bad or none correctly addresses the issue,
 pick the least-bad option and emit `"confidence": "LOW"`. Use the
