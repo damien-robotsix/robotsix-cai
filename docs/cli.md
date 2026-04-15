@@ -120,6 +120,6 @@ No arguments.
 
 ## verify
 
-Walk `auto-improve:pr-open` issues and transition labels based on actual PR state (merged → `:merged`, closed → `:raised`, etc.).
+Remove deprecated cai-managed labels from open issues, then walk `auto-improve:pr-open` issues and transition labels based on actual PR state (merged → `:merged`, closed → `:raised`, etc.).
 
 No arguments.

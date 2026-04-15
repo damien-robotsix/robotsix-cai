@@ -188,6 +188,36 @@ from cai_lib.config import (  # noqa: E402
     _STALE_NO_ACTION_DAYS, _STALE_MERGED_DAYS,
 )
 
+# ---------------------------------------------------------------------------
+# Canonical set of valid cai-managed labels on issues.  Any cai-owned label
+# found on an open issue that is NOT in this set is considered stale and will
+# be removed by _issue_label_sweep().
+# ---------------------------------------------------------------------------
+_ALL_MANAGED_ISSUE_LABELS: frozenset[str] = frozenset({
+    LABEL_RAISED, LABEL_IN_PROGRESS, LABEL_PR_OPEN,
+    LABEL_MERGED, LABEL_SOLVED, LABEL_NO_ACTION,
+    LABEL_NEEDS_EXPLORATION, LABEL_REFINED, LABEL_REVISING,
+    LABEL_PARENT, LABEL_PLANNED, LABEL_PLAN_APPROVED,
+    LABEL_REFINING, LABEL_PLANNING, LABEL_APPLYING, LABEL_APPLIED,
+    LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
+    LABEL_TRIAGING, LABEL_MERGE_BLOCKED,
+    LABEL_HUMAN_SOLVED, LABEL_KIND_CODE, LABEL_KIND_MAINTENANCE,
+    "auto-improve", "audit", "check-workflows", "check-workflows:raised",
+})
+
+# Prefixes that identify a label as cai-owned on an issue.
+# NO trailing colons — matching uses `lbl == p or lbl.startswith(p + ":")`.
+_MANAGED_ISSUE_PREFIXES: tuple[str, ...] = (
+    "auto-improve",
+    "audit",
+    "check-workflows",
+    "merge-blocked",
+    "human",          # matches human:solved (and any future human:* labels)
+    "kind",           # matches kind:code, kind:maintenance
+    "pr",             # pr:* labels are PR-only; stale if found on an issue
+    "needs-human-review",
+)
+
 
 from cai_lib.logging_utils import (  # noqa: E402
     log_run, log_cost,  # noqa: F401
@@ -620,9 +650,57 @@ def _find_linked_pr(issue_number: int):
     return prs[0]
 
 
+def _issue_label_sweep() -> tuple[int, int]:
+    """Remove stale/deprecated cai-managed labels from open issues.
+
+    Fetches open issues bearing 'auto-improve', 'audit', or 'check-workflows'
+    labels, identifies any cai-owned label not in _ALL_MANAGED_ISSUE_LABELS,
+    and removes those stale labels via _set_labels().
+
+    Returns (issues_scanned, labels_removed).
+    """
+    seen: dict[int, list[str]] = {}
+    for base_label in ("auto-improve", "audit", "check-workflows"):
+        try:
+            batch = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", base_label,
+                "--state", "open",
+                "--json", "number,labels",
+                "--limit", "200",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(f"[cai sweep] gh issue list failed for {base_label!r}:\n{e.stderr}",
+                  file=sys.stderr)
+            continue
+        for issue in batch:
+            num = issue["number"]
+            if num not in seen:
+                seen[num] = [lbl["name"] for lbl in issue.get("labels", [])]
+
+    issues_scanned = len(seen)
+    labels_removed = 0
+    for num, label_names in seen.items():
+        stale = [
+            lbl for lbl in label_names
+            if any(lbl == p or lbl.startswith(p + ":") for p in _MANAGED_ISSUE_PREFIXES)
+            and lbl not in _ALL_MANAGED_ISSUE_LABELS
+        ]
+        if stale:
+            _set_labels(num, remove=stale, log_prefix="cai sweep")
+            labels_removed += len(stale)
+            print(f"[cai sweep] #{num}: removed stale label(s) {stale}", flush=True)
+
+    print(f"[cai sweep] scanned {issues_scanned} issue(s), removed {labels_removed} stale label(s)",
+          flush=True)
+    return issues_scanned, labels_removed
+
+
 def cmd_verify(args) -> int:
     """Walk :pr-open issues and transition labels based on PR state."""
     print("[cai verify] checking pr-open issues", flush=True)
+    _issue_label_sweep()
     try:
         issues = _gh_json([
             "issue", "list",
@@ -2740,6 +2818,12 @@ def _cmd_cycle_inner(args) -> int:
         nums = ", ".join(f"#{n}" for n in migrated)
         print(f"[cai cycle] migrated {len(migrated)} audit:raised issue(s) to auto-improve:raised: {nums}",
               flush=True)
+
+    # Phase 0.5: stale label sweep — remove any deprecated/renamed cai-managed
+    # labels from open issues so orphaned labels don't accumulate over time.
+    _sweep_scanned, _sweep_removed = _issue_label_sweep()
+    print(f"[cai cycle] label sweep: scanned {_sweep_scanned} issue(s), removed {_sweep_removed} stale label(s)",
+          flush=True)
 
     # Phase 1: restart recovery — force-rollback any stuck locks left
     # behind by a previous run that crashed mid-handler.
