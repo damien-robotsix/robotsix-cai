@@ -57,6 +57,12 @@ Subcommands:
                             are published as `auto-improve:raised` + `audit`
                             issues in the unified label scheme.
 
+    python cai.py audit-triage  Autonomously resolve `auto-improve:raised`
+                            + `audit` findings without opening a PR. Calls
+                            `cai-audit-triage` which classifies each finding
+                            as `close_duplicate`, `close_resolved`,
+                            `passthrough`, or `escalate`.
+
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
                             branch. Force-pushes revisions with
@@ -149,6 +155,18 @@ Subcommands:
                             bulk-close, workflow YAML edits), and transitions
                             the issue based on Confidence: HIGH → `:applied`,
                             anything else → `:human-needed`.
+
+    python cai.py unblock   Scan open issues/PRs parked at
+                            `auto-improve:human-needed` (or
+                            `auto-improve:pr-human-needed`) that an admin
+                            has marked ready for resume by applying the
+                            `human:solved` label. For each such item, invokes
+                            the `cai-unblock` Haiku agent to classify the
+                            admin's comment, fires the matching state
+                            transition, strips the label, and returns the
+                            issue/PR to the FSM. Requires CAI_ADMIN_LOGINS
+                            to be set; without it, `human:solved` is silently
+                            ignored.
 
 The container runs `entrypoint.sh`, which executes `cai.py cycle` once
 synchronously at startup (driving the full issue-solving pipeline:
