@@ -141,6 +141,17 @@ appears in the log as the `pr_open_recovered` field on the `[audit]`
 log line. You will NOT see these issues as `:pr-open`; they have
 already been rolled back before your context is assembled.
 
+**Note:** recently closed `auto-improve` issues that lack a terminal
+label (`auto-improve:merged`, `auto-improve:no-action`,
+`auto-improve:solved`) are automatically tagged with `:no-action`
+deterministically before you run. This covers issues closed manually by
+a human without going through the normal pipeline (e.g., superseded work,
+direct implementation). These appear in the log as
+`[audit] action=no_action_applied_retroactively`. Do NOT raise
+`workflow_anomaly` findings for issues that appear in the
+"Closed issues with :no-action applied retroactively this run" section
+of your input — they have already been handled.
+
 ## Categories
 
 | Category | Description |
