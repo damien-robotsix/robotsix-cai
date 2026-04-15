@@ -39,7 +39,6 @@ from cai_lib.cmd_helpers import (
     _apply_agent_edit_staging,
     _is_bot_comment,
     _setup_agent_edit_staging,
-    _select_revise_targets,
     _work_directory_block,
 )
 
