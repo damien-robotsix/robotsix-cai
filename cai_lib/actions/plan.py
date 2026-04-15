@@ -339,10 +339,12 @@ def handle_plan(issue: dict) -> int:
         # upcoming confidence gate (handle_plan_gate) will re-add one if
         # it diverts.
         current_body = strip_pending_marker(current_body)
+        conf_name = plan_confidence.name if plan_confidence else "MISSING"
         plan_block = (
             "<!-- cai-plan-start -->\n"
             "## Selected Implementation Plan\n\n"
             f"{selected_plan}\n"
+            f"Confidence: {conf_name}\n"
             "<!-- cai-plan-end -->"
         )
         new_body = f"{plan_block}\n\n{current_body}"
