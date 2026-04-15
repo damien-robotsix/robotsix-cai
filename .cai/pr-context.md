@@ -23,6 +23,26 @@ Refs: robotsix-cai/robotsix-cai#648
 - `Agent` removed from `cai-review-docs` frontmatter tools and "Use Agent for broad exploration" guidance removed to stay consistent with the process-level restriction
 - Rejected: keeping Agent for review-docs — commenter asked whether it was needed; since it's an optimization (not essential) and tightens the cost/security boundary, it was dropped
 
+## Revision 1 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py`:1932 — added `"--allowedTools", "Read,Grep,Glob"` to cai-cost-optimize invocation
+- `cai.py`:2121 — added `"--allowedTools", "Read,Grep,Glob"` to cai-propose invocation
+- `cai.py`:2182 — added `"--allowedTools", "Read,Grep,Glob"` to cai-propose-review invocation
+- `cai.py`:2366 — added `"--allowedTools", "Read,Grep,Glob"` to cai-code-audit invocation
+- `cai.py`:2499 — added `"--allowedTools", "Read,Grep,Glob"` to cai-update-check invocation
+- `cai.py`:3283 — added `"--allowedTools", "Read,Grep,Glob"` to cai-check-workflows invocation
+
+### Decisions this revision
+- All six agents declare `tools: Read, Grep, Glob` in frontmatter — `--allowedTools "Read,Grep,Glob"` is the correct restriction for all of them
+- Pattern matches exactly what was done for cai-review-pr in the original PR
+
+### New gaps / deferred
+- None
+
 ## Out of scope / known gaps
 - Prior fix #382 that was "already merged but didn't work" — the root cause was `--permission-mode acceptEdits` not enforcing frontmatter tool restrictions; this PR fixes it at the CLI level
 

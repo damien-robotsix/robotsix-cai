@@ -1930,7 +1930,8 @@ def cmd_cost_optimize(args) -> int:
     print("[cai cost-optimize] running agent", flush=True)
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-cost-optimize",
-         "--permission-mode", "acceptEdits"],
+         "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob"],
         category="cost-optimize",
         agent="cai-cost-optimize",
         input=user_message,
@@ -2120,6 +2121,7 @@ def cmd_propose(args) -> int:
     creative = _run_claude_p(
         ["claude", "-p", "--agent", "cai-propose",
          "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob",
          "--add-dir", str(work_dir)],
         category="propose",
         agent="cai-propose",
@@ -2181,6 +2183,7 @@ def cmd_propose(args) -> int:
     review = _run_claude_p(
         ["claude", "-p", "--agent", "cai-propose-review",
          "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob",
          "--add-dir", str(work_dir)],
         category="propose",
         agent="cai-propose-review",
@@ -2365,6 +2368,7 @@ def cmd_code_audit(args) -> int:
     agent = _run_claude_p(
         ["claude", "-p", "--agent", "cai-code-audit",
          "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob",
          "--add-dir", str(work_dir)],
         category="code-audit",
         agent="cai-code-audit",
@@ -2498,6 +2502,7 @@ def cmd_update_check(args) -> int:
     agent = _run_claude_p(
         ["claude", "-p", "--agent", "cai-update-check",
          "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob",
          "--add-dir", str(work_dir)],
         category="update-check",
         agent="cai-update-check",
@@ -3282,7 +3287,8 @@ def cmd_check_workflows(args) -> int:
     agent = _run_claude_p(
         ["claude", "-p", "--agent", "cai-check-workflows",
          "--max-turns", "3",
-         "--permission-mode", "acceptEdits"],
+         "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob"],
         category="check-workflows",
         agent="cai-check-workflows",
         input=user_message,
