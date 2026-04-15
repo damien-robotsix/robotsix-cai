@@ -24,6 +24,20 @@ Refs: damien-robotsix/robotsix-cai#692
 - Note prepended as blockquote — if `note` field is set, prepended as `> **Note:** …` before plan text to match the old cai-select output format hint
 - Agent md path hardcoded to `/app/.claude/agents/cai-select.md` — container always runs with `/app` as workdir and the canonical agents live there
 
+## Revision 1 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `scripts/generate-index.sh:84` — added DESCRIPTIONS entry for `cai_lib/structured_client.py`
+
+### Decisions this revision
+- Description text matches reviewer suggestion verbatim — accurate and consistent with other entries
+
+### New gaps / deferred
+- none
+
 ## Out of scope / known gaps
 - `parse_confidence` in `fsm.py` left intact — still used by `handle_plan_gate` (reads from stored plan block) and `cmd_unblock.py`
 - `_run_plan_agent` (for cai-plan) still uses `_run_claude_p` subprocess path — only cai-select migrated in this step
