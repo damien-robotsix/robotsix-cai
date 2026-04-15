@@ -104,6 +104,22 @@ class TestConfidenceEnum(unittest.TestCase):
         self.assertIsNone(parse_confidence("no confidence line here"))
         self.assertIsNone(parse_confidence("Confidence: BOGUS"))
 
+    def test_parse_tolerates_markdown_and_punctuation(self):
+        # Bolded label, bolded level, trailing period — all common
+        # markdown variants the select agent may emit. See issue #685.
+        self.assertEqual(parse_confidence("**Confidence:** HIGH"), Confidence.HIGH)
+        self.assertEqual(parse_confidence("Confidence: **HIGH**"), Confidence.HIGH)
+        self.assertEqual(parse_confidence("**Confidence:** **MEDIUM**"), Confidence.MEDIUM)
+        self.assertEqual(parse_confidence("Confidence: HIGH."), Confidence.HIGH)
+
+    def test_parse_rejects_pipe_menu_echo(self):
+        # The agent echoing the template verbatim must NOT count as a
+        # valid confidence line — that would pick whichever level the
+        # regex happens to land on and bypass the human gate.
+        self.assertIsNone(
+            parse_confidence("Confidence: HIGH | MEDIUM | LOW")
+        )
+
     def test_transition_accepts(self):
         t = find_transition("refining_to_refined")
         # default threshold is HIGH

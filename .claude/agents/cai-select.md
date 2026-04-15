@@ -40,11 +40,13 @@ Assess each plan on these criteria, in order of importance:
 Output **only** the chosen plan — paste it exactly as provided with
 no modifications. Do not emit any selection metadata, plan numbers,
 reasoning, or wrapper headings. The plan text must be followed by
-exactly one trailing line:
+exactly one trailing line that names a single level. For example:
 
-```
-Confidence: HIGH | MEDIUM | LOW
-```
+    Confidence: HIGH
+
+Pick exactly one of `HIGH`, `MEDIUM`, or `LOW`. Do not bold the
+label, do not bold the level, do not add trailing punctuation, and
+do not list multiple levels or alternatives on that line.
 
 That confidence line drives the FSM. At **HIGH**, the wrapper
 auto-approves the plan and sends the issue straight into the
