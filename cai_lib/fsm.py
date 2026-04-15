@@ -419,7 +419,7 @@ def get_pr_state(pr: dict) -> PRState:
     applies a ``*_to_ci_failing`` transition. Keeping derivation pure
     lets tests stub PR dicts without checkrollup data.
     """
-    if pr.get("merged") or pr.get("mergedAt") or pr.get("state") == "MERGED":
+    if pr.get("mergedAt") or pr.get("state") == "MERGED":
         return PRState.MERGED
     labels_raw = pr.get("labels", [])
     label_set = {
