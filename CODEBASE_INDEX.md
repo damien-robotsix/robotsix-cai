@@ -68,7 +68,7 @@
 | `cai_lib/fsm.py` | FSM data structures + transition application helpers (Confidence enum, apply_transition, divert-to-human, pending markers) |
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
-| `cai_lib/structured_client.py` | Anthropic API client with forced tool-use for extracting structured outputs from gate-critical agents |
+| `cai_lib/structured_client.py` | TODO: add description |
 | `cai_lib/subprocess_utils.py` | Subprocess helpers extracted from cai.py |
 | `cai_lib/watchdog.py` | Stale-lock watchdog that rolls back orphaned :in-progress / :revising labels |
 | `docker-compose.yml` | Multi-service orchestration with named volumes |
