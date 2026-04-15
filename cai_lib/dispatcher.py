@@ -57,7 +57,7 @@ from cai_lib.github import _gh_json
 # entry (apply the raise_to_triaging transition first) or a resume
 # (skip the entry transition).
 #
-# States with no handler (SOLVED, PR_HUMAN_NEEDED, MERGED on the PR
+# States with no handler (SOLVED, MERGED on the PR
 # side) are terminal or parked and the dispatcher returns without doing
 # anything. HUMAN_NEEDED has a handler that auto-resumes the FSM when
 # the admin has applied ``human:solved`` and no-ops otherwise.
@@ -105,6 +105,7 @@ def _build_pr_registry() -> dict[PRState, PRHandler]:
     from cai_lib.actions.fix_ci      import handle_fix_ci
     from cai_lib.actions.merge       import handle_merge
     from cai_lib.actions.rebase      import handle_rebase
+    from cai_lib.cmd_unblock          import handle_pr_human_needed
 
     return {
         PRState.OPEN:             handle_open_to_review,
@@ -114,14 +115,18 @@ def _build_pr_registry() -> dict[PRState, PRHandler]:
         PRState.APPROVED:         handle_merge,
         PRState.REBASING:         handle_rebase,
         PRState.CI_FAILING:       handle_fix_ci,
-        # MERGED, PR_HUMAN_NEEDED → no handler
+        # PR_HUMAN_NEEDED is actionable via handle_pr_human_needed —
+        # the picker filters to only those PRs carrying ``human:solved``
+        # so parked-waiting PRs stay out of the queue.
+        PRState.PR_HUMAN_NEEDED:  handle_pr_human_needed,
+        # MERGED → no handler (terminal)
     }
 
 
 # Pre-merge PR states from which the dispatcher can divert into REBASING
 # when it sees ``mergeable == "CONFLICTING"`` / ``mergeStateStatus == "DIRTY"``.
 # Maps each from-state to the canonical ``*_to_rebasing`` transition name.
-# REBASING itself, MERGED, PR_HUMAN_NEEDED, and OPEN are intentionally
+# REBASING itself, MERGED, and OPEN are intentionally
 # excluded — REBASING is already running it; OPEN doesn't have a label
 # so apply_pr_transition wouldn't have one to remove.
 _REBASE_ENTRY_TRANSITIONS: dict[PRState, str] = {
@@ -355,6 +360,16 @@ def _pick_oldest_actionable_target(
         if state in pr_states:
             if ("pr", pr["number"]) in skip:
                 continue
+            # PR_HUMAN_NEEDED is actionable only when the admin has
+            # signalled ready-to-resume via ``human:solved``. Mirrors
+            # the issue-side gate above.
+            if state == PRState.PR_HUMAN_NEEDED:
+                pr_label_names = [
+                    (lb.get("name") if isinstance(lb, dict) else lb)
+                    for lb in pr.get("labels", [])
+                ]
+                if LABEL_HUMAN_SOLVED not in pr_label_names:
+                    continue
             candidates.append((pr.get("createdAt", ""), "pr", pr["number"]))
 
     if not candidates:
@@ -466,7 +481,8 @@ def _drive_target_to_completion(
     The inner loop:
       1. Fetches the entity's current state.
       2. Returns when the state has no registered handler (terminal like
-         SOLVED / HUMAN_NEEDED / PR_HUMAN_NEEDED / MERGED).
+         SOLVED / MERGED; or HUMAN_NEEDED / PR_HUMAN_NEEDED without
+         ``human:solved``, which the picker filters out).
       3. Otherwise calls the registered handler (via :func:`dispatch_issue`
          or :func:`dispatch_pr`).
       4. Re-fetches state to detect progress.
@@ -603,8 +619,8 @@ def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
 
     Each tick picks the oldest actionable target, then drives it through
     its state transitions (following issue↔PR hops) until it reaches a
-    terminal state (SOLVED), a parked state (HUMAN_NEEDED /
-    PR_HUMAN_NEEDED), or is genuinely blocked (handler ran without
+    terminal state (SOLVED), a parked state without ``human:solved``
+    (HUMAN_NEEDED / PR_HUMAN_NEEDED), or is genuinely blocked (handler ran without
     advancing state, and for PRs, CI isn't pending). Then moves to the
     next actionable target.
 
