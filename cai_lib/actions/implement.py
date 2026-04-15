@@ -32,13 +32,13 @@ from cai_lib.config import (
     LABEL_PR_OPEN,
     LABEL_REFINED,
     LABEL_HUMAN_NEEDED,
-    LABEL_NO_ACTION,
     LABEL_RAISED,
 )
 from cai_lib.github import (
     _gh_json,
     _set_labels,
     _build_implement_user_message,
+    close_issue_not_planned,
 )
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
@@ -548,9 +548,10 @@ def handle_implement(issue: dict) -> int:
             ) is not None
 
             if is_spike:
-                target_label = LABEL_HUMAN_NEEDED
-                comment_heading = "## Implement subagent: needs human review"
-                comment_footer = (
+                comment_body = (
+                    "## Implement subagent: needs human review\n\n"
+                    f"{reasoning}\n\n"
+                    "---\n"
                     "_Set by `cai implement` after the subagent identified "
                     "this issue as needing research / verification / "
                     "evaluation rather than a code change. No spike agent "
@@ -558,70 +559,73 @@ def handle_implement(issue: dict) -> int:
                     f"to `{LABEL_PLAN_APPROVED}` to retry as a routine "
                     "fix instead._"
                 )
-                log_result = "human_needed"
-                log_label = "auto-improve:human-needed"
-            else:
-                target_label = LABEL_NO_ACTION
-                comment_heading = "## Implement subagent: no action needed"
-                comment_footer = (
-                    "_Set by `cai implement` after the subagent reviewed and "
-                    "decided no code change was needed. Re-label to "
-                    f"`{LABEL_PLAN_APPROVED}` to retry, or close if "
-                    "you agree._"
-                )
-                log_result = "no_action_needed"
-                log_label = "auto-improve:no-action"
-
-            print(
-                f"[cai implement] subagent produced no changes for #{issue_number}; "
-                f"marking {log_label}",
-                flush=True,
-            )
-            comment_body = (
-                f"{comment_heading}\n\n"
-                f"{reasoning}\n\n"
-                f"---\n"
-                f"{comment_footer}"
-            )
-            _run(
-                ["gh", "issue", "comment", str(issue_number),
-                 "--repo", REPO,
-                 "--body", comment_body],
-                capture_output=True,
-            )
-            terminal_remove = [
-                LABEL_IN_PROGRESS,
-                LABEL_PLAN_APPROVED,
-            ]
-            if not _set_labels(
-                issue_number,
-                add=[target_label],
-                remove=terminal_remove,
-            ):
                 print(
-                    f"[cai implement] WARNING: label transition to {log_label} "
-                    f"failed for #{issue_number}; retrying",
+                    f"[cai implement] subagent produced no changes for "
+                    f"#{issue_number}; marking auto-improve:human-needed",
                     flush=True,
                 )
+                _run(
+                    ["gh", "issue", "comment", str(issue_number),
+                     "--repo", REPO,
+                     "--body", comment_body],
+                    capture_output=True,
+                )
+                terminal_remove = [LABEL_IN_PROGRESS, LABEL_PLAN_APPROVED]
                 if not _set_labels(
                     issue_number,
-                    add=[target_label],
+                    add=[LABEL_HUMAN_NEEDED],
                     remove=terminal_remove,
                 ):
-                    print(
-                        f"[cai implement] WARNING: label transition to "
-                        f"{log_label} failed twice for #{issue_number} "
-                        "— issue may be stuck without a lifecycle label",
-                        file=sys.stderr, flush=True,
-                    )
+                    if not _set_labels(
+                        issue_number,
+                        add=[LABEL_HUMAN_NEEDED],
+                        remove=terminal_remove,
+                    ):
+                        print(
+                            f"[cai implement] WARNING: label transition to "
+                            f"auto-improve:human-needed failed twice for "
+                            f"#{issue_number} — issue may be stuck without "
+                            "a lifecycle label",
+                            file=sys.stderr, flush=True,
+                        )
+                        rollback()
+                        log_run("implement", repo=REPO, issue=issue_number,
+                                result="label_transition_failed", exit=1)
+                        return 1
+                locked = False
+                log_run("implement", repo=REPO, issue=issue_number,
+                        result="human_needed", exit=0)
+                return 0
+            else:
+                reasoning_msg = (
+                    "## Implement subagent: no action needed\n\n"
+                    f"{reasoning}\n\n"
+                    "---\n"
+                    "_Closed as **not planned** — the implement subagent reviewed "
+                    "and decided no code change was needed. Re-open and re-label "
+                    f"to `{LABEL_PLAN_APPROVED}` to retry._"
+                )
+                print(
+                    f"[cai implement] subagent produced no changes for "
+                    f"#{issue_number}; closing as not planned",
+                    flush=True,
+                )
+                if not close_issue_not_planned(
+                    issue_number, reasoning_msg, log_prefix="cai implement"
+                ):
                     rollback()
                     log_run("implement", repo=REPO, issue=issue_number,
-                            result="label_transition_failed", exit=1)
+                            result="close_failed", exit=1)
                     return 1
-            locked = False
-            log_run("implement", repo=REPO, issue=issue_number,
-                    result=log_result, exit=0)
-            return 0
+                # Strip in-progress labels even after close (allowed on closed issues).
+                _set_labels(
+                    issue_number,
+                    remove=[LABEL_IN_PROGRESS, LABEL_PLAN_APPROVED],
+                )
+                locked = False
+                log_run("implement", repo=REPO, issue=issue_number,
+                        result="dismissed_resolved", exit=0)
+                return 0
 
         # Count changed files for the log line.
         diff_files = len(status.stdout.strip().splitlines())

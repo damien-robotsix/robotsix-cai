@@ -232,3 +232,31 @@ def _build_implement_user_message(issue: dict, attempt_history_block: str = "") 
     prior closed PRs for this issue.
     """
     return _build_issue_block(issue) + attempt_history_block
+
+
+def close_issue_not_planned(
+    issue_number: int,
+    comment: str,
+    log_prefix: str = "cai",
+) -> bool:
+    """Close a GitHub issue as 'not planned' with a marker comment.
+
+    Returns True on success, False on failure (logs the error).
+    This replaces the retired auto-improve:no-action label.
+    """
+    result = subprocess.run(
+        ["gh", "issue", "close", str(issue_number),
+         "--repo", REPO,
+         "--reason", "not planned",
+         "--comment", comment],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"[{log_prefix}] WARNING: gh issue close failed for "
+            f"#{issue_number}: {result.stderr.strip()}",
+            file=sys.stderr, flush=True,
+        )
+        return False
+    return True
