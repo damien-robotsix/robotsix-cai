@@ -153,44 +153,45 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
     return result.stdout or ""
 
 
-def _strip_frontmatter(text: str) -> str:
-    """Strip YAML frontmatter (lines between first pair of --- delimiters)."""
-    lines = text.split("\n")
-    if not lines or lines[0].strip() != "---":
-        return text
-    for i, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            return "\n".join(lines[i + 1:]).lstrip("\n")
-    return text
-
-
-def _extract_frontmatter_field(text: str, field: str) -> "str | None":
-    """Return the value of a simple ``key: value`` frontmatter field, or None."""
-    lines = text.split("\n")
-    if not lines or lines[0].strip() != "---":
-        return None
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        if line.startswith(f"{field}:"):
-            return line[len(field) + 1:].strip()
-    return None
+_SELECT_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "plan": {
+            "type": "string",
+            "description": "Full text of the chosen plan.",
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["HIGH", "MEDIUM", "LOW"],
+            "description": "Confidence level for the selected plan.",
+        },
+        "note": {
+            "type": "string",
+            "description": "Optional note flagging critical weaknesses for the fix agent.",
+        },
+    },
+    "required": ["plan", "confidence"],
+}
 
 
 def _run_select_agent(
     issue: dict, plans: list[str], work_dir: Path,
 ) -> "tuple[str, Confidence] | None":
-    """Run the cai-select agent via direct Anthropic API with forced tool-use.
+    """Run the cai-select agent and return ``(plan_text, confidence)``.
 
-    Reads ``.claude/agents/cai-select.md``, strips the YAML frontmatter to
-    build the system prompt, then calls the Anthropic messages API with
-    ``tool_choice`` forced to ``submit_selection``.
+    Invokes the Claude Code subagent with ``--json-schema`` so the final
+    output is a structured JSON object ({plan, confidence, note?}) rather
+    than free-form text. Removes the regex-based confidence extraction that
+    previously diverted sound plans to ``:human-needed`` when the model
+    drifted from the ``Confidence: …`` trailer format.
 
-    Returns ``(plan_text, confidence)`` on success, or ``None`` on failure.
-    The ``confidence`` is a :class:`~cai_lib.fsm.Confidence` enum member.
+    Returns ``None`` on subprocess or parse failure; otherwise returns
+    the cleaned plan text (with optional ``> **Note:** …`` blockquote
+    prepended) and the :class:`~cai_lib.fsm.Confidence` enum member.
     """
+    import json
+
     from cai_lib.fsm import Confidence
-    from cai_lib import structured_client
 
     user_message = _work_directory_block(work_dir) + "\n"
     user_message += _build_issue_block(issue)
@@ -198,62 +199,39 @@ def _run_select_agent(
     for i, plan in enumerate(plans, 1):
         user_message += f"## Plan {i}\n\n{plan}\n\n---\n\n"
 
-    agent_md_path = Path("/app/.claude/agents/cai-select.md")
-    try:
-        raw = agent_md_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"[cai plan] could not read cai-select.md: {exc}", file=sys.stderr)
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-select",
+         "--dangerously-skip-permissions",
+         "--json-schema", json.dumps(_SELECT_JSON_SCHEMA),
+         "--add-dir", str(work_dir)],
+        category="plan.select",
+        agent="cai-select",
+        input=user_message,
+        cwd="/app",
+    )
+    if result.returncode != 0 or not (result.stdout or "").strip():
+        print("[cai plan] cai-select produced no output", file=sys.stderr)
         return None
 
-    system_prompt = _strip_frontmatter(raw)
-    model = _extract_frontmatter_field(raw, "model") or "claude-opus-4-6"
-
-    tool_def = {
-        "name": "submit_selection",
-        "description": "Submit the selected plan with a confidence level.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "plan": {
-                    "type": "string",
-                    "description": "The full text of the chosen plan.",
-                },
-                "confidence": {
-                    "type": "string",
-                    "enum": ["HIGH", "MEDIUM", "LOW"],
-                    "description": "Confidence level for the selected plan.",
-                },
-                "note": {
-                    "type": "string",
-                    "description": "Optional note flagging critical weaknesses for the fix agent.",
-                },
-            },
-            "required": ["plan", "confidence"],
-        },
-    }
-
     try:
-        result = structured_client.call_with_tool(
-            model=model,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            tool_def=tool_def,
-            category="plan.select",
-            agent="cai-select",
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(
+            f"[cai plan] cai-select output was not valid JSON: {exc}; "
+            f"stdout starts with: {(result.stdout or '')[:120]!r}",
+            file=sys.stderr,
         )
-    except Exception as exc:
-        print(f"[cai plan] cai-select API call failed: {exc}", file=sys.stderr)
         return None
 
-    plan_text = result.get("plan", "")
-    confidence_str = result.get("confidence", "")
-    note = result.get("note", "")
+    plan_text = payload.get("plan", "") or ""
+    confidence_str = (payload.get("confidence") or "").upper()
+    note = payload.get("note", "") or ""
 
     if note:
         plan_text = f"> **Note:** {note}\n\n{plan_text}"
 
     try:
-        confidence = Confidence[confidence_str.upper()]
+        confidence = Confidence[confidence_str]
     except KeyError:
         print(
             f"[cai plan] cai-select returned invalid confidence: {confidence_str!r}",
