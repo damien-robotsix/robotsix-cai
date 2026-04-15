@@ -5,6 +5,7 @@
 
 | File | Purpose |
 |------|---------|
+| `.cai/pr-context.md` | Per-PR dossier with touched files, key symbols, and design decisions for the CI-fix subagent |
 | `.claude/agents/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
 | `.claude/agents/cai-audit-triage.md` | Agent: triage `audit:raised` findings with structured verdicts |
 | `.claude/agents/cai-audit.md` | Agent: audit issue queue and lifecycle state machine |
@@ -17,6 +18,7 @@
 | `.claude/agents/cai-fix-ci.md` | Agent: diagnose and fix failing CI checks on auto-improve PRs |
 | `.claude/agents/cai-git.md` | Agent: lightweight git operations subagent |
 | `.claude/agents/cai-implement.md` | Agent: autonomous code-editing subagent for code-editing tasks |
+| `.claude/agents/cai-maintain.md` | TODO: add description |
 | `.claude/agents/cai-merge.md` | Agent: assess PR correctness and emit merge verdict |
 | `.claude/agents/cai-plan.md` | Agent: generate detailed fix plan for an issue |
 | `.claude/agents/cai-propose-review.md` | Agent: review creative proposals for feasibility |
@@ -90,6 +92,7 @@
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
+| `tests/test_maintain.py` | TODO: add description |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
 | `tests/test_parse.py` | Tests for parse.py signal extraction |
 | `tests/test_pr_bounce.py` | TODO: add description |
