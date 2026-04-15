@@ -2,7 +2,7 @@
 name: cai-triage
 description: Triage `auto-improve:raised` issues one at a time — classify as REFINE, DISMISS_DUPLICATE, DISMISS_RESOLVED, PLAN_APPROVE, APPLY, or HUMAN. Inline-only — full issue body plus context are provided in the user message. No tool use needed.
 tools: Read
-model: claude-sonnet-4-6
+model: claude-haiku-4-5-20251001
 memory: project
 ---
 
