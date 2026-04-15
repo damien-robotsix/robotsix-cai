@@ -87,7 +87,6 @@ LABELS = [
     ("auto-improve:in-progress", "fbca04", "implement subagent is actively working on this issue"),
     ("auto-improve:pr-open", "5319e7", "implement subagent opened a PR"),
     ("auto-improve:merged", "0e8a16", "PR was merged; awaiting verify"),
-    ("auto-improve:no-action", "c5def5", "Implement subagent reviewed and decided no code change is needed; awaiting human triage"),
     ("auto-improve:needs-exploration", "c2e0c6", "Issue needs autonomous exploration/benchmarking (handled by cai-explore)"),
     ("auto-improve:triaging",    "fbca04", "cai-triage is actively classifying this issue (transient)"),
     ("auto-improve:refining",    "fbca04", "cai-refine is actively running (transient)"),
@@ -140,6 +139,7 @@ LABELS_TO_DELETE = [
     # Retired check-workflows state label — unified into auto-improve:raised + check-workflows source tag.
     # Migration: _migrate_check_workflows_raised in cai_lib/watchdog.py relabels existing issues.
     "check-workflows:raised",
+    "auto-improve:no-action",     # retired — replaced by gh issue close --reason "not planned"
 ]
 
 AUDIT_LABELS = [

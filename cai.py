@@ -208,7 +208,7 @@ from cai_lib.dup_check import check_duplicate_or_resolved  # noqa: E402
 
 from cai_lib.config import *  # noqa: E402,F403
 from cai_lib.config import (  # noqa: E402
-    _STALE_NO_ACTION_DAYS, _STALE_MERGED_DAYS,
+    _STALE_MERGED_DAYS,
 )
 
 # ---------------------------------------------------------------------------
@@ -218,7 +218,7 @@ from cai_lib.config import (  # noqa: E402
 # ---------------------------------------------------------------------------
 _ALL_MANAGED_ISSUE_LABELS: frozenset[str] = frozenset({
     LABEL_RAISED, LABEL_IN_PROGRESS, LABEL_PR_OPEN,
-    LABEL_MERGED, LABEL_SOLVED, LABEL_NO_ACTION,
+    LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_REFINED, LABEL_REVISING,
     LABEL_PARENT, LABEL_PLANNED, LABEL_PLAN_APPROVED,
     LABEL_REFINING, LABEL_PLANNING, LABEL_APPLYING, LABEL_APPLIED,
@@ -260,6 +260,7 @@ from cai_lib.github import (  # noqa: E402
     _gh_json, check_gh_auth, check_claude_auth, _transcript_dir_is_empty,
     _set_labels, _set_pr_labels, _issue_has_label, _build_issue_block,
     _build_implement_user_message, _fetch_linked_issue_block,
+    close_issue_not_planned,
 )
 from cai_lib.watchdog import _rollback_stale_in_progress  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
@@ -930,62 +931,6 @@ def _cleanup_orphaned_branches() -> list[str]:
     return deleted
 
 
-def _unstuck_stale_no_action() -> list[dict]:
-    """Roll stale :no-action issues back to :raised so refine (and subsequently fix) can retry with new context."""
-    try:
-        issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_NO_ACTION,
-            "--state", "open",
-            "--json", "number,title,updatedAt",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(
-            f"[cai audit] gh issue list ({LABEL_NO_ACTION}) failed:\n{e.stderr}",
-            file=sys.stderr,
-        )
-        return []
-
-    now = datetime.now(timezone.utc).timestamp()
-    threshold = _STALE_NO_ACTION_DAYS * 86400
-    unstuck = []
-
-    for issue in issues:
-        try:
-            updated = datetime.strptime(
-                issue["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
-            ).replace(tzinfo=timezone.utc).timestamp()
-        except (ValueError, KeyError):
-            updated = 0
-        age = now - updated
-        if age <= threshold:
-            continue
-        issue_num = issue["number"]
-        ok = _set_labels(
-            issue_num,
-            add=[LABEL_RAISED],
-            remove=[LABEL_NO_ACTION],
-            log_prefix="cai audit",
-        )
-        if ok:
-            unstuck.append(issue)
-            log_run(
-                "audit",
-                action="stale_no_action_unstuck",
-                issue=issue_num,
-                stale_days=f"{age / 86400:.0f}",
-            )
-            print(
-                f"[cai audit] unstuck #{issue_num} "
-                f"(stale :no-action → :raised, {age / 86400:.0f} days)",
-                flush=True,
-            )
-
-    return unstuck
-
-
 def _flag_stale_merged() -> list[dict]:
     """Flag stale :merged issues for human intervention.
 
@@ -1045,29 +990,48 @@ def _flag_stale_merged() -> list[dict]:
     return flagged
 
 
-def _apply_no_action_to_unlabeled_closed() -> list[dict]:
-    """Apply :no-action to recently closed auto-improve issues that lack a terminal label."""
-    closed_issues = _fetch_closed_auto_improve_issues(limit=30)
-    terminal_labels = {LABEL_MERGED, LABEL_SOLVED, LABEL_NO_ACTION}
-    labeled = []
-    for issue in closed_issues:
-        issue_labels = set(issue["labels"])
-        if issue_labels & terminal_labels:
-            continue
-        issue_num = issue["number"]
-        ok = _set_labels(issue_num, add=[LABEL_NO_ACTION], log_prefix="cai audit")
+def _migrate_no_action_labels() -> list[int]:
+    """One-time migration: close any open :no-action issues as 'not planned'.
+
+    Idempotent — once the label is deleted from GitHub, gh issue list
+    returns nothing and subsequent calls are no-ops.  If the label is
+    completely unknown to GitHub, the CalledProcessError is caught and
+    an empty list is returned.
+    """
+    try:
+        issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", "auto-improve:no-action",
+            "--state", "open",
+            "--json", "number,title",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as exc:
+        print(
+            f"[cai audit] _migrate_no_action_labels: gh issue list failed "
+            f"(label likely already deleted): {exc.stderr}",
+            file=sys.stderr,
+        )
+        return []
+
+    closed = []
+    for issue in issues:
+        num = issue["number"]
+        ok = close_issue_not_planned(
+            num,
+            "Closing as **not planned** — `auto-improve:no-action` is retired; "
+            "the disposition is now recorded via GitHub's native close-with-reason.",
+            log_prefix="cai audit",
+        )
         if ok:
-            labeled.append(issue)
-            log_run(
-                "audit",
-                action="no_action_applied_retroactively",
-                issue=issue_num,
-            )
+            closed.append(num)
+            log_run("audit", action="no_action_migrated_closed", issue=num)
             print(
-                f"[cai audit] applied :no-action to #{issue_num} (closed without terminal label)",
+                f"[cai audit] migrated #{num}: closed as not planned",
                 flush=True,
             )
-    return labeled
+    return closed
 
 
 def cmd_audit(args) -> int:
@@ -1087,8 +1051,8 @@ def cmd_audit(args) -> int:
             flush=True,
         )
 
-    # Step 1c: Unstuck stale :no-action issues (roll back to :raised).
-    unstuck_no_action = _unstuck_stale_no_action()
+    # Step 1c: One-time migration — close any surviving open :no-action issues.
+    _migrate_no_action_labels()
 
     # Step 1d: Flag stale :merged issues for human review.
     flagged_merged = _flag_stale_merged()
@@ -1106,9 +1070,6 @@ def cmd_audit(args) -> int:
     except subprocess.CalledProcessError:
         pr_open_issues = []
     recovered_pr_open = _recover_stale_pr_open(pr_open_issues, log_prefix="cai audit")
-
-    # Step 1f: Apply :no-action to closed issues that lack a terminal label.
-    no_action_applied = _apply_no_action_to_unlabeled_closed()
 
     # Step 2: Gather GitHub state for the claude-driven semantic checks.
 
@@ -1203,11 +1164,6 @@ def cmd_audit(args) -> int:
         for rb in rolled_back:
             deterministic_section += f"- #{rb['number']}: {rb['title']}\n"
         deterministic_section += "\n"
-    if unstuck_no_action:
-        deterministic_section += "## Stale :no-action issues rolled back to :raised this run\n\n"
-        for ci in unstuck_no_action:
-            deterministic_section += f"- #{ci['number']}: {ci['title']}\n"
-        deterministic_section += "\n"
     if flagged_merged:
         deterministic_section += "## Stale :merged issues flagged for human review this run\n\n"
         for ci in flagged_merged:
@@ -1218,12 +1174,6 @@ def cmd_audit(args) -> int:
         for ri in recovered_pr_open:
             deterministic_section += f"- #{ri['number']}: {ri['title']}\n"
         deterministic_section += "\n"
-    if no_action_applied:
-        deterministic_section += "## Closed issues with :no-action applied retroactively this run\n\n"
-        for ci in no_action_applied:
-            deterministic_section += f"- #{ci['number']}: {ci['title']}\n"
-        deterministic_section += "\n"
-
     # Cost summary so the audit agent can flag cost outliers — same
     # window as the run-log tail (last 7 days, top 10 invocations).
     cost_section = _build_cost_summary(days=7, top_n=10)
@@ -1274,9 +1224,7 @@ def cmd_audit(args) -> int:
         log_run("audit", repo=REPO, duration=dur,
                 pr_open_recovered=len(recovered_pr_open),
                 branches_cleaned=len(deleted_orphaned),
-                no_action_unstuck=len(unstuck_no_action),
                 merged_flagged=len(flagged_merged),
-                no_action_applied=len(no_action_applied),
                 exit=audit.returncode)
         return audit.returncode
 
@@ -1326,9 +1274,7 @@ def cmd_audit(args) -> int:
     log_run("audit", repo=REPO, rollbacks=len(rolled_back),
             pr_open_recovered=len(recovered_pr_open),
             branches_cleaned=len(deleted_orphaned),
-            no_action_unstuck=len(unstuck_no_action),
             merged_flagged=len(flagged_merged),
-            no_action_applied=len(no_action_applied),
             findings=len(findings), created=created,
             skipped_exists=skipped_exists, dropped_dup=dropped_dup,
             failed=failed, duration=dur, exit=0)
@@ -2702,7 +2648,6 @@ def cmd_health_report(args) -> int:
         ("in-progress", LABEL_IN_PROGRESS),
         ("pr-open", LABEL_PR_OPEN),
         ("merged", LABEL_MERGED),
-        ("no-action", LABEL_NO_ACTION),
         ("revising", LABEL_REVISING),
     ]
     counts: dict[str, int] = {}

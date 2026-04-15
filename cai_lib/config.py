@@ -54,7 +54,7 @@ LABEL_IN_PROGRESS = "auto-improve:in-progress"
 LABEL_PR_OPEN = "auto-improve:pr-open"
 LABEL_MERGED = "auto-improve:merged"
 LABEL_SOLVED = "auto-improve:solved"
-LABEL_NO_ACTION = "auto-improve:no-action"
+# LABEL_NO_ACTION retired — replaced by gh issue close --reason "not planned"
 LABEL_NEEDS_EXPLORATION = "auto-improve:needs-exploration"
 LABEL_REFINED = "auto-improve:refined"
 LABEL_REVISING = "auto-improve:revising"
@@ -113,7 +113,7 @@ OUTCOME_LOG_PATH = Path("/var/log/cai/cai-outcomes.jsonl")
 _STALE_IN_PROGRESS_HOURS = 6
 _STALE_REVISING_HOURS = 1
 _STALE_APPLYING_HOURS = 2
-_STALE_NO_ACTION_DAYS = 7
+# _STALE_NO_ACTION_DAYS retired — no-action issues are now closed, not relabeled
 _STALE_MERGED_DAYS = 14
 
 

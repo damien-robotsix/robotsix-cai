@@ -23,14 +23,13 @@ from cai_lib.config import (
     REPO,
     LABEL_PR_OPEN,
     LABEL_MERGED,
-    LABEL_NO_ACTION,
     LABEL_MERGE_BLOCKED,
     LABEL_REVISING,
     LABEL_PLAN_APPROVED,
     LABEL_PR_NEEDS_HUMAN,
 )
 from cai_lib.fsm import apply_pr_transition, get_pr_state, PRState
-from cai_lib.github import _gh_json, _set_labels, _issue_has_label
+from cai_lib.github import _gh_json, _set_labels, _issue_has_label, close_issue_not_planned
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import (
     _parse_merge_verdict,
@@ -425,40 +424,21 @@ def handle_merge(pr: dict) -> int:
                 f"[cai merge] PR #{pr_number}: closed successfully",
                 flush=True,
             )
-            if not _set_labels(
+            closed_ok = close_issue_not_planned(
                 issue_number,
-                add=[LABEL_NO_ACTION],
-                remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED,
-                        LABEL_REVISING, LABEL_PLAN_APPROVED],
+                "Closing as **not planned** — the merge subagent reviewed the PR "
+                "and determined it should be rejected (high-confidence reject).",
                 log_prefix="cai merge",
-            ):
-                print(
-                    f"[cai merge] WARNING: label transition to "
-                    f":no-action failed for #{issue_number} after "
-                    f"closing PR #{pr_number}; retrying",
-                    flush=True,
-                )
-                if not _set_labels(
-                    issue_number,
-                    add=[LABEL_NO_ACTION],
-                    remove=[LABEL_PR_OPEN, LABEL_MERGE_BLOCKED,
-                            LABEL_REVISING, LABEL_PLAN_APPROVED],
+            )
+            if not closed_ok:
+                apply_pr_transition(
+                    pr_number, "approved_to_human",
                     log_prefix="cai merge",
-                ):
-                    print(
-                        f"[cai merge] WARNING: label transition to "
-                        f":no-action failed twice for #{issue_number} "
-                        f"— issue may be stuck without a lifecycle label",
-                        file=sys.stderr, flush=True,
-                    )
-                    apply_pr_transition(
-                        pr_number, "approved_to_human",
-                        log_prefix="cai merge",
-                    )
-                    log_run("merge", repo=REPO, pr=pr_number,
-                            duration=dur(), result="close_label_failed",
-                            exit=0)
-                    return 0
+                )
+                log_run("merge", repo=REPO, pr=pr_number,
+                        duration=dur(), result="close_label_failed",
+                        exit=0)
+                return 0
             log_run("merge", repo=REPO, pr=pr_number,
                     duration=dur(), result="closed", exit=0)
             return 0
