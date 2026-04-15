@@ -35,6 +35,20 @@ Refs: damien-robotsix/robotsix-cai#625
 - `check-workflows` pipeline untouched (Step 5 of #621)
 - `cai-audit.md` agent logic unchanged — only the triage/dispatch layer changed
 
+## Revision 1 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.github/workflows/admin-only-label.yml:22` — Removed `"audit:raised"` from restricted labels `contains()` guard; label is retired by this PR so the check was dead code
+
+### Decisions this revision
+- Removed `audit:raised` from workflow guard — label is added to `LABELS_TO_DELETE` in publish.py; once `ensure_all_labels()` runs it will no longer exist, making the condition permanently false
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `gh issue list --label A --label B` performs an AND filter (both labels must be present)
 - `_set_labels` accepts raw string labels, not just named constants
