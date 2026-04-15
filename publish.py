@@ -138,6 +138,9 @@ LABELS_TO_DELETE = [
     "audit:raised",
     "audit:needs-human",
     "audit:solved",
+    # Retired check-workflows state label — unified into auto-improve:raised + check-workflows source tag.
+    # Migration: _migrate_check_workflows_raised in cai_lib/watchdog.py relabels existing issues.
+    "check-workflows:raised",
 ]
 
 AUDIT_LABELS = [
@@ -176,8 +179,9 @@ UPDATE_CHECK_LABELS = [
 ]
 
 CHECK_WORKFLOWS_LABELS = [
-    ("check-workflows", "e11d48", "GitHub Actions workflow failure finding"),
-    ("check-workflows:raised", "d73a4a", "Workflow failure freshly raised"),
+    ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
+    ("check-workflows", "e11d48", "GitHub Actions workflow failure finding (source tag)"),
     ("category:workflow_failure", "b60205", "GitHub Actions run failed"),
     ("category:workflow_flake", "fbca04", "Flaky or intermittent workflow failure"),
     ("category:workflow_config_error", "0075ca", "Workflow YAML misconfiguration"),
@@ -337,7 +341,7 @@ def ensure_all_labels() -> None:
     and CODE_AUDIT_LABELS).
     """
     seen: set[str] = set()
-    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS):
+    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS):
         for name, color, description in label_set:
             if name in seen:
                 continue
@@ -434,8 +438,9 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
         ])
     elif namespace == "check-workflows":
         labels = ",".join([
+            "auto-improve",
+            "auto-improve:raised",
             "check-workflows",
-            "check-workflows:raised",
             f"category:{f.category}",
         ])
     else:
