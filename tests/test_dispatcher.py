@@ -542,5 +542,61 @@ class TestDispatchDrain(unittest.TestCase):
         self.assertEqual(di_calls, [10, 20])
 
 
+class TestSubIssueStepOrderingGate(unittest.TestCase):
+    """Sub-issues like ``[#P Step N/T]`` must wait until the step N-1
+    sub-issue has been closed (typically by its PR merging and confirm
+    closing it)."""
+
+    def _pick(self, issues):
+        def fake_gh_json(cmd):
+            if "issue" in cmd and "list" in cmd:
+                return issues
+            if "pr" in cmd and "list" in cmd:
+                return []
+            raise AssertionError(f"unexpected _gh_json call: {cmd}")
+
+        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json):
+            return dispatcher._pick_oldest_actionable_target()
+
+    def test_later_step_skipped_while_prior_step_open(self):
+        issues = [
+            {"number": 50, "createdAt": "2024-01-01T00:00:00Z",
+             "title": "[#621 Step 4/6] Previous step",
+             "labels": [{"name": "auto-improve:in-progress"}]},
+            {"number": 51, "createdAt": "2024-01-02T00:00:00Z",
+             "title": "[#621 Step 5/6] Migrate check-workflows",
+             "labels": [{"name": "auto-improve:refined"}]},
+        ]
+        target = self._pick(issues)
+        self.assertEqual(target, ("issue", 50))
+
+    def test_later_step_picked_when_prior_step_closed(self):
+        # Step 4 absent from the open list → it was closed → step 5 is allowed.
+        issues = [
+            {"number": 51, "createdAt": "2024-01-02T00:00:00Z",
+             "title": "[#621 Step 5/6] Migrate check-workflows",
+             "labels": [{"name": "auto-improve:refined"}]},
+        ]
+        target = self._pick(issues)
+        self.assertEqual(target, ("issue", 51))
+
+    def test_step_one_never_gated(self):
+        issues = [
+            {"number": 51, "createdAt": "2024-01-02T00:00:00Z",
+             "title": "[#621 Step 1/6] First step",
+             "labels": [{"name": "auto-improve:refined"}]},
+        ]
+        target = self._pick(issues)
+        self.assertEqual(target, ("issue", 51))
+
+    def test_parse_sub_issue_step(self):
+        self.assertEqual(
+            dispatcher._parse_sub_issue_step("[#123 Step 2/5] Do a thing"),
+            (123, 2),
+        )
+        self.assertIsNone(dispatcher._parse_sub_issue_step("Just a normal title"))
+        self.assertIsNone(dispatcher._parse_sub_issue_step(""))
+
+
 if __name__ == "__main__":
     unittest.main()

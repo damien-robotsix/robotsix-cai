@@ -21,9 +21,25 @@ without creating an import cycle.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from typing import Callable, Optional
+
+
+# Matches sub-issue titles produced by cai_lib.actions.refine:
+# ``[#123 Step 2/5] Do the thing``. Group 1 = parent number, group 2 = step.
+_SUB_ISSUE_TITLE_RE = re.compile(r"^\[#(\d+)\s+Step\s+(\d+)/\d+\]")
+
+
+def _parse_sub_issue_step(title: str) -> Optional[tuple[int, int]]:
+    """Return ``(parent_number, step)`` when *title* is a sub-issue title, else None."""
+    if not title:
+        return None
+    m = _SUB_ISSUE_TITLE_RE.match(title)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
 
 from cai_lib.config import REPO
 from cai_lib.fsm import (
@@ -272,12 +288,23 @@ def _pick_oldest_actionable_target(
             "--repo", REPO,
             "--label", "auto-improve",
             "--state", "open",
-            "--json", "number,createdAt,labels",
+            "--json", "number,createdAt,labels,title",
             "--limit", "200",
         ]) or []
     except subprocess.CalledProcessError as e:
         print(f"[cai dispatch] gh issue list failed:\n{e.stderr}", file=sys.stderr)
         issues = []
+
+    # Build the set of (parent, step) pairs whose sub-issue is still open.
+    # A sub-issue at step N > 1 is gated on (parent, N-1) being absent from
+    # this set — i.e. the prior step has already been closed (its PR merged
+    # and confirm ran, or a human closed it). See the "ordering gate"
+    # referenced in cai_lib/actions/refine.py::_create_sub_issues.
+    open_sub_steps: set[tuple[int, int]] = set()
+    for issue in issues:
+        parsed = _parse_sub_issue_step(issue.get("title", ""))
+        if parsed is not None:
+            open_sub_steps.add(parsed)
 
     try:
         prs = _gh_json([
@@ -300,6 +327,17 @@ def _pick_oldest_actionable_target(
         if state is not None and state in issue_states:
             if ("issue", issue["number"]) in skip:
                 continue
+            parsed = _parse_sub_issue_step(issue.get("title", ""))
+            if parsed is not None:
+                parent, step = parsed
+                if step > 1 and (parent, step - 1) in open_sub_steps:
+                    print(
+                        f"[cai dispatch] issue #{issue['number']} is "
+                        f"[#{parent} Step {step}/...]; prior step still open — "
+                        f"skipping until previous step is merged",
+                        flush=True,
+                    )
+                    continue
             candidates.append((issue.get("createdAt", ""), "issue", issue["number"]))
 
     for pr in prs:
