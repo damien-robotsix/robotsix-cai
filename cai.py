@@ -44,12 +44,17 @@ Subcommands:
 
     python cai.py audit     Periodic queue/PR consistency audit.
                             Deterministically rolls back stale
-                            `:in-progress` issues (>6h with no fix
-                            activity), then runs a Sonnet-driven
-                            semantic check for duplicates, stuck loops,
-                            label corruption, etc. Findings are
-                            published as `auto-improve:raised` + `audit`
-                            issues in the unified label scheme.
+                            `:in-progress` (>6h), `:revising` (>1h),
+                            and `:applying` (>2h) locks; unsticks stale
+                            `:no-action` issues; flags stale `:merged`
+                            issues; recovers `:pr-open` issues with closed
+                            PRs; cleans up orphaned branches; applies
+                            `:no-action` to closed issues lacking terminal
+                            labels; then runs a Sonnet-driven semantic
+                            check for duplicates, stuck loops, label
+                            corruption, etc. Findings are published as
+                            `auto-improve:raised` + `audit` issues in the
+                            unified label scheme.
 
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
@@ -939,6 +944,31 @@ def _flag_stale_merged() -> list[dict]:
     return flagged
 
 
+def _apply_no_action_to_unlabeled_closed() -> list[dict]:
+    """Apply :no-action to recently closed auto-improve issues that lack a terminal label."""
+    closed_issues = _fetch_closed_auto_improve_issues(limit=30)
+    terminal_labels = {LABEL_MERGED, LABEL_SOLVED, LABEL_NO_ACTION}
+    labeled = []
+    for issue in closed_issues:
+        issue_labels = set(issue["labels"])
+        if issue_labels & terminal_labels:
+            continue
+        issue_num = issue["number"]
+        ok = _set_labels(issue_num, add=[LABEL_NO_ACTION], log_prefix="cai audit")
+        if ok:
+            labeled.append(issue)
+            log_run(
+                "audit",
+                action="no_action_applied_retroactively",
+                issue=issue_num,
+            )
+            print(
+                f"[cai audit] applied :no-action to #{issue_num} (closed without terminal label)",
+                flush=True,
+            )
+    return labeled
+
+
 def cmd_audit(args) -> int:
     """Run the periodic queue/PR consistency audit."""
     print("[cai audit] running audit", flush=True)
@@ -975,6 +1005,9 @@ def cmd_audit(args) -> int:
     except subprocess.CalledProcessError:
         pr_open_issues = []
     recovered_pr_open = _recover_stale_pr_open(pr_open_issues, log_prefix="cai audit")
+
+    # Step 1f: Apply :no-action to closed issues that lack a terminal label.
+    no_action_applied = _apply_no_action_to_unlabeled_closed()
 
     # Step 2: Gather GitHub state for the claude-driven semantic checks.
 
@@ -1084,6 +1117,11 @@ def cmd_audit(args) -> int:
         for ri in recovered_pr_open:
             deterministic_section += f"- #{ri['number']}: {ri['title']}\n"
         deterministic_section += "\n"
+    if no_action_applied:
+        deterministic_section += "## Closed issues with :no-action applied retroactively this run\n\n"
+        for ci in no_action_applied:
+            deterministic_section += f"- #{ci['number']}: {ci['title']}\n"
+        deterministic_section += "\n"
 
     # Cost summary so the audit agent can flag cost outliers — same
     # window as the run-log tail (last 7 days, top 10 invocations).
@@ -1137,6 +1175,7 @@ def cmd_audit(args) -> int:
                 branches_cleaned=len(deleted_orphaned),
                 no_action_unstuck=len(unstuck_no_action),
                 merged_flagged=len(flagged_merged),
+                no_action_applied=len(no_action_applied),
                 exit=audit.returncode)
         return audit.returncode
 
@@ -1152,6 +1191,7 @@ def cmd_audit(args) -> int:
             branches_cleaned=len(deleted_orphaned),
             no_action_unstuck=len(unstuck_no_action),
             merged_flagged=len(flagged_merged),
+            no_action_applied=len(no_action_applied),
             duration=dur, exit=published.returncode)
     return published.returncode
 
