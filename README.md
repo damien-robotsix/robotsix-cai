@@ -66,7 +66,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | Subcommand | Default schedule | What it does |
 |---|---|---|
 | `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | One dispatcher tick: restart-recovery + `dispatch_oldest_actionable()` (runs the handler for whatever state the oldest actionable issue or PR is in). A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
-| `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
+| `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — removes deprecated cai-managed labels from open issues, then keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `auto-improve:raised` + `audit` findings (Sonnet) |

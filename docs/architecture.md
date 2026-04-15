@@ -75,7 +75,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 
 A flock serializes overlapping runs so two cron ticks cannot dispatch the same item concurrently.
 
-Verify (`cai verify`) and audit (`cai audit`) are **independent cron jobs** — they run on their own schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`) rather than inside the cycle. Verify syncs label state with actual PR/issue state (merged → `:merged`, closed → `:raised`, etc.); audit runs the queue/PR consistency audit. Maintain operations (Phase 3) are drained within the cycle rather than on a separate schedule because they are transient states that should unblock quickly.
+Verify (`cai verify`) and audit (`cai audit`) are **independent cron jobs** — they run on their own schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`) rather than inside the cycle. Verify removes deprecated cai-managed labels from open issues, then syncs label state with actual PR/issue state (merged → `:merged`, closed → `:raised`, etc.); audit runs the queue/PR consistency audit. Maintain operations (Phase 3) are drained within the cycle rather than on a separate schedule because they are transient states that should unblock quickly.
 
 ## Agent Execution Modes
 
