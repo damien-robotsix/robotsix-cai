@@ -80,18 +80,22 @@ Verify (`cai verify`) and audit (`cai audit`) are **independent cron jobs** — 
 
 ### Worktree agents
 
-`cai-code-audit`, `cai-implement`, `cai-git`, `cai-maintain`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-rebase`, `cai-review-docs`, `cai-review-pr`, `cai-revise`, `cai-select`, `cai-update-check` run in a **fresh git worktree clone**. The wrapper clones the repo and passes the clone path as the agent's work directory. The agent itself never runs `git push` or `gh` — the wrapper owns all remote state.
+`cai-code-audit`, `cai-implement`, `cai-git`, `cai-maintain`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-rebase`, `cai-review-docs`, `cai-review-pr`, `cai-revise`, `cai-update-check` run in a **fresh git worktree clone**. The wrapper clones the repo and passes the clone path as the agent's work directory. The agent itself never runs `git push` or `gh` — the wrapper owns all remote state.
 
 For code-editing agents (`cai-implement`, `cai-revise`, `cai-rebase`), the wrapper also:
 - Creates an isolated branch (`auto-improve/<issue>-<slug>`)
 - Commits all changes, pushes the branch, and opens (or updates) a PR
 - Deletes the worktree on completion
 
-For review and planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-pr`, `cai-select`, `cai-update-check`), the clone provides read access to the full repo tree; these agents emit structured output (findings, plans, verdicts) that the wrapper acts on deterministically — no commit or PR is created.
+For review and planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-pr`, `cai-update-check`), the clone provides read access to the full repo tree; these agents emit structured output (findings, plans, verdicts) that the wrapper acts on deterministically — no commit or PR is created.
 
 `cai-review-docs` is a special review agent that can edit documentation: it has `Edit` and `Write` tools to fix stale docs directly, and the wrapper automatically commits and pushes any changes to the same PR branch (not to a new isolated branch).
 
 `cai-maintain` is a maintenance agent that executes operations (label mutations, bulk-close, workflow YAML edits) declared in the `Ops:` block of a `kind:maintenance` issue. It runs `gh` CLI commands to perform administrative tasks and emits a Confidence level for transition gating.
+
+### API agents
+
+`cai-select` is called directly via the Anthropic SDK from the `plan.py` handler with forced tool-use (`submit_selection` tool) to return a structured selection. It receives the work directory path and full issue/plan context in its prompt but does not run in a Claude Code worktree — instead, the handler invokes it with `structured_client.call_with_tool()` and parses the tool input directly.
 
 ### Clone agents
 
