@@ -60,8 +60,59 @@ _CONFIDENCE_RANKS = {"high": 3, "medium": 2, "low": 1}
 _BOT_BRANCH_RE = re.compile(r"^auto-improve/(\d+)-")
 
 # Truncate very large diffs before feeding the merge agent to bound
-# token cost per PR.
-_MERGE_MAX_DIFF_LEN = 40_000
+# token cost per PR.  Configurable via env var so the ceiling can be
+# raised without a code change.
+_MERGE_MAX_DIFF_LEN = int(os.environ.get("CAI_MERGE_MAX_DIFF_LEN", "40000"))
+
+
+def _assemble_diff(raw_diff: str, max_len: int) -> str:
+    """Assemble a diff string within *max_len* characters, prioritising test files.
+
+    Splits *raw_diff* into per-file chunks (each starts with a
+    ``diff --git `` header line), sorts test-file chunks first, then
+    concatenates within the character budget.  Any omitted files are
+    listed in a trailing note so the agent knows the diff is incomplete.
+    """
+    if len(raw_diff) <= max_len:
+        return raw_diff
+
+    # Split into per-file chunks.  Each chunk starts with "diff --git ".
+    # We keep the delimiter as the first line of each chunk.
+    _DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
+    parts = _DIFF_HEADER.split(raw_diff)
+    # parts[0] is any preamble before the first "diff --git" line (often empty).
+    preamble = parts[0]
+    chunks: list[str] = []
+    for part in parts[1:]:
+        chunks.append("diff --git " + part)
+
+    def _is_test_chunk(chunk: str) -> bool:
+        # Inspect the first line (the diff --git header) for the file path.
+        first_line = chunk.split("\n", 1)[0]
+        return bool(
+            re.search(r"tests/", first_line)
+            or re.search(r"test_\w+\.py", first_line)
+        )
+
+    test_chunks = [c for c in chunks if _is_test_chunk(c)]
+    other_chunks = [c for c in chunks if not _is_test_chunk(c)]
+    sorted_chunks = test_chunks + other_chunks
+
+    assembled = preamble
+    omitted: list[str] = []
+    for chunk in sorted_chunks:
+        if len(assembled) + len(chunk) <= max_len:
+            assembled += chunk
+        else:
+            # Extract a short filename for the omission note.
+            first_line = chunk.split("\n", 1)[0]
+            m = re.search(r"b/(\S+)$", first_line)
+            omitted.append(m.group(1) if m else first_line[:60])
+
+    if omitted:
+        assembled += f"\n... ({len(omitted)} file(s) omitted: {', '.join(omitted)})"
+
+    return assembled
 
 
 def handle_merge(pr: dict) -> int:
@@ -329,12 +380,7 @@ def handle_merge(pr: dict) -> int:
         log_run("merge", repo=REPO, pr=pr_number,
                 result="diff_failed", exit=0)
         return 0
-    pr_diff = diff_result.stdout
-    if len(pr_diff) > _MERGE_MAX_DIFF_LEN:
-        pr_diff = (
-            pr_diff[:_MERGE_MAX_DIFF_LEN]
-            + "\n... (truncated — diff exceeds size limit)"
-        )
+    pr_diff = _assemble_diff(diff_result.stdout, _MERGE_MAX_DIFF_LEN)
 
     # Gather PR comments for context.
     comment_texts = []
