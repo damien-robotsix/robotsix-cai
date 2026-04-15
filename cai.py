@@ -2530,7 +2530,11 @@ def cmd_cycle(args) -> int:
 
 
 def _cmd_cycle_inner(args) -> int:
-    """One cycle tick: recover stale locks, housekeep, dispatch one action."""
+    """One cycle tick: restart-recovery + dispatch one actionable issue/PR.
+
+    Verify and audit run on their own cron cadences (CAI_VERIFY_SCHEDULE,
+    CAI_AUDIT_SCHEDULE) — the cycle is purely restart-recovery + dispatch.
+    """
     print("[cai cycle] starting cycle tick", flush=True)
     t0 = time.monotonic()
     all_results: dict[str, int] = {}
@@ -2544,14 +2548,7 @@ def _cmd_cycle_inner(args) -> int:
         print(f"[cai cycle] recovered {len(rolled_back)} stale lock(s): {nums}",
               flush=True)
 
-    # Phase 2: housekeeping that doesn't belong to any FSM state.
-    for step_name, handler in [("verify", cmd_verify), ("audit", cmd_audit)]:
-        rc = _run_step(step_name, handler, args)
-        all_results[step_name] = rc
-        if rc != 0:
-            had_failure = True
-
-    # Phase 3: dispatch a single actionable issue/PR via the FSM dispatcher.
+    # Phase 2: dispatch a single actionable issue/PR via the FSM dispatcher.
     rc = _run_step("dispatch", lambda _a: dispatch_oldest_actionable(), args)
     all_results["dispatch"] = rc
     if rc != 0:

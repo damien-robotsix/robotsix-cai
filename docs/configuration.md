@@ -16,11 +16,12 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-`CAI_CYCLE_SCHEDULE` drives the unified dispatcher: each tick runs restart-recover → verify → audit → `dispatch_oldest_actionable()`, which picks the oldest open issue or PR whose lifecycle state has a handler and runs the matching handler in `cai_lib/actions/`. A flock serializes overlapping runs. The planner confidence gate is unchanged — HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker, where an admin comment resumes it via `cai unblock`. `cai dispatch --issue N` / `cai dispatch --pr N` remains callable manually or from GitHub Actions for targeted retries.
+`CAI_CYCLE_SCHEDULE` drives the unified dispatcher: each tick runs restart-recover → `dispatch_oldest_actionable()`, which picks the oldest open issue or PR whose lifecycle state has a handler and runs the matching handler in `cai_lib/actions/`. A flock serializes overlapping runs. The planner confidence gate is unchanged — HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker, where an admin comment resumes it via `cai unblock`. `cai dispatch --issue N` / `cai dispatch --pr N` remains callable manually or from GitHub Actions for targeted retries. Verify and audit run on their own independent cron schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`).
 
 | Variable | Default | Description |
 |---|---|---|
-| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly FSM dispatcher tick (flock-serialized) |
+| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Restart-recovery + dispatch one actionable issue/PR |
+| `CAI_VERIFY_SCHEDULE` | `15 * * * *` | Label-state reconciliation (cmd_verify) — keeps :pr-open / :merged / etc. consistent with actual GitHub state. |
 | `CAI_ANALYZER_SCHEDULE` | `0 0 * * *` | Daily transcript analysis and issue raising |
 | `CAI_AUDIT_SCHEDULE` | `0 */6 * * *` | Every 6 hours — queue/PR lifecycle audit |
 | `CAI_AUDIT_TRIAGE_SCHEDULE` | `10 */6 * * *` | Every 6 hours — resolve `audit:raised` findings |

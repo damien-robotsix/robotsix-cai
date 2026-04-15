@@ -65,14 +65,14 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 
 ## The Cycle Command
 
-`cai cycle` is one tick of the dispatcher loop. The implementation is deliberately minimal — there is no per-phase ordering anymore:
+`cai cycle` is one tick of the dispatcher loop. The implementation is deliberately minimal:
 
 1. **Restart recovery** — roll back `:in-progress` and `:revising` locks past their stale-timeout.
-2. **Verify** — sync label state with actual PR/issue state (merged → `:merged`, closed → `:raised`, etc.).
-3. **Audit** — run the queue/PR consistency audit.
-4. **Dispatch** — call `dispatch_oldest_actionable()`, which lists every open issue and PR whose state has a registered handler, picks the oldest by `createdAt`, and runs that handler.
+2. **Dispatch** — call `dispatch_oldest_actionable()`, which lists every open issue and PR whose state has a registered handler, picks the oldest by `createdAt`, and runs that handler.
 
 A flock serializes overlapping runs so two cron ticks cannot dispatch the same item concurrently.
+
+Verify (`cai verify`) and audit (`cai audit`) are **independent cron jobs** — they run on their own schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`) rather than inside the cycle. Verify syncs label state with actual PR/issue state (merged → `:merged`, closed → `:raised`, etc.); audit runs the queue/PR consistency audit.
 
 ## Agent Execution Modes
 
