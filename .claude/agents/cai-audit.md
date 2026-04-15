@@ -1,6 +1,6 @@
 ---
 name: cai-audit
-description: Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Report-only — findings go to humans for triage, not to the implement subagent.
+description: Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Findings are pre-screened for duplicates/resolved at publish time via cai-dup-check; survivors enter the standard auto-improve:raised cycle.
 tools: Read, Grep, Glob
 model: sonnet
 memory: project
@@ -194,8 +194,9 @@ No findings.
   speculation about issues you can't see.
 - Stick to the 10 categories above; do not invent new ones.
 - Keep titles short and imperative.
-- These findings are **report-only** — they go to humans for triage.
-  Do not suggest automated fixes beyond what the deterministic
-  rollback, branch cleanup, and stale issue handling already handle.
+- Findings are pre-screened for duplicates/already-resolved via
+  `cai-dup-check` at publish time; surviving findings enter the
+  standard `auto-improve:raised` cycle and are picked up by
+  `cai triage` on the next run.
 - Do not output anything other than the markdown finding blocks (or
   the exact `No findings.` sentinel).
