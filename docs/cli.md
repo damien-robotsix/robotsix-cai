@@ -94,7 +94,7 @@ No arguments.
 
 ## unblock
 
-Scan open issues labelled `auto-improve:human-needed` and attempt to resume the FSM via admin comments. For each issue with a pending-transition marker in its body and at least one comment from an admin login (`CAI_ADMIN_LOGINS`), invokes the `cai-unblock` Haiku agent to classify the comment into a `ResumeTo:` target, then fires the matching `human_to_<state>` transition and strips the marker. Confidence below `HIGH` leaves the issue parked.
+Scan open issues parked at `auto-improve:human-needed` that an admin has explicitly marked ready for resume by applying the `human:solved` label. For each such issue with a pending-transition marker in its body and at least one comment from an admin login (`CAI_ADMIN_LOGINS`), invokes the `cai-unblock` Haiku agent to classify the comment into a `ResumeTo:` target, then fires the matching `human_to_<state>` transition, strips the marker, and removes the `human:solved` label. Confidence below `HIGH` leaves the issue parked (label stays on so the admin can iterate). Issues without `human:solved` are ignored entirely — the admin is free to discuss or ask questions without waking the classifier.
 
 PR-side (`auto-improve:pr-human-needed`) is not yet wired — follow-up.
 

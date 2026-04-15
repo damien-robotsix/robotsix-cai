@@ -123,5 +123,81 @@ class TestTryUnblockIssueSkips(unittest.TestCase):
         fake.assert_not_called()
 
 
+class TestListHumanNeededIssuesFiltersByLabel(unittest.TestCase):
+    """_list_human_needed_issues must require BOTH :human-needed and human:solved.
+
+    The label-gated handoff is the whole point of PR 3 — if this query
+    regresses to a single --label filter the classifier will start
+    firing on every parked issue again.
+    """
+
+    def test_queries_both_labels(self):
+        captured: list[list[str]] = []
+
+        def fake_gh(args):
+            captured.append(args)
+            return []
+
+        with mock.patch.object(U, "_gh_json", side_effect=fake_gh):
+            U._list_human_needed_issues()
+
+        self.assertEqual(len(captured), 1)
+        args = captured[0]
+        # --label appears twice, once for each required label.
+        label_flags = [args[i + 1] for i, a in enumerate(args) if a == "--label"]
+        self.assertIn("auto-improve:human-needed", label_flags)
+        self.assertIn("human:solved", label_flags)
+        self.assertEqual(len(label_flags), 2)
+
+
+class TestResumeStripsHumanSolvedLabel(unittest.TestCase):
+    """A successful resume must remove human:solved so the signal is one-shot."""
+
+    def test_apply_transition_receives_human_solved_in_extra_remove(self):
+        body = (
+            "issue text\n\n"
+            "<!-- cai-fsm-pending transition=refining_to_refined "
+            "from=REFINING intended=REFINED conf=MEDIUM -->\n"
+        )
+        issue = {
+            "number": 77,
+            "title": "t",
+            "body": body,
+            "labels": [
+                {"name": "auto-improve:human-needed"},
+                {"name": "human:solved"},
+            ],
+            "comments": [
+                {"author": {"login": "alice"},
+                 "createdAt": "2026-04-14T12:00:00Z",
+                 "body": "please retry"},
+            ],
+        }
+
+        agent_stdout = "ResumeTo: REFINING\nConfidence: HIGH\n"
+        fake_agent = mock.MagicMock()
+        fake_agent.returncode = 0
+        fake_agent.stdout = agent_stdout
+        fake_agent.stderr = ""
+
+        captured: dict = {}
+
+        def fake_apply(issue_number, transition_name, **kwargs):
+            captured["issue_number"] = issue_number
+            captured["transition_name"] = transition_name
+            captured["kwargs"] = kwargs
+            return True
+
+        with mock.patch.object(U, "_run_claude_p", return_value=fake_agent), \
+             mock.patch.object(U, "apply_transition", side_effect=fake_apply), \
+             mock.patch.object(U, "_clear_pending_marker_on_body", return_value=True):
+            result = U._try_unblock_issue(issue)
+
+        self.assertEqual(result, "resumed")
+        self.assertEqual(captured["issue_number"], 77)
+        self.assertEqual(captured["transition_name"], "human_to_refining")
+        self.assertIn("human:solved", captured["kwargs"].get("extra_remove", []))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -73,6 +73,12 @@ LABEL_APPLYING = "auto-improve:applying"
 LABEL_APPLIED  = "auto-improve:applied"
 LABEL_HUMAN_NEEDED    = "auto-improve:human-needed"    # IssueState.HUMAN_NEEDED
 LABEL_PR_HUMAN_NEEDED = "auto-improve:pr-human-needed" # PRState.PR_HUMAN_NEEDED
+# Explicit "admin is done, resume the FSM" signal. An issue/PR parked at
+# :human-needed is only considered for resume when this label is *also*
+# present — the admin applies it once their comment(s) fully address the
+# divert. Replaces the previous "any admin comment triggers resume" model,
+# which fired on incidental questions and ambiguous replies.
+LABEL_HUMAN_SOLVED = "human:solved"
 LABEL_TRIAGING         = "auto-improve:triaging"
 LABEL_KIND_CODE        = "kind:code"
 LABEL_KIND_MAINTENANCE = "kind:maintenance"
