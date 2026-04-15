@@ -190,51 +190,83 @@ class TestApplyTransitionWithConfidence(unittest.TestCase):
             return True
         return calls, _fake
 
+    def _recording_post_comment(self):
+        calls = []
+        def _fake(issue_number, body, *, log_prefix="cai"):
+            calls.append({
+                "issue_number": issue_number,
+                "body": body,
+                "log_prefix": log_prefix,
+            })
+            return True
+        return calls, _fake
+
     def test_high_confidence_applies_nominal_transition(self):
         calls, fake = self._recording_set_labels()
+        comments, fake_comment = self._recording_post_comment()
         ok, diverted = apply_transition_with_confidence(
             11, "refining_to_refined", Confidence.HIGH,
             current_labels=[LABEL_REFINING],
             set_labels=fake,
+            post_comment=fake_comment,
         )
         self.assertTrue(ok)
         self.assertFalse(diverted)
         self.assertIn(LABEL_REFINED, calls[0]["add"])
+        # No divert → no human-needed comment should be posted.
+        self.assertEqual(comments, [])
 
     def test_medium_confidence_diverts_to_human(self):
         calls, fake = self._recording_set_labels()
+        comments, fake_comment = self._recording_post_comment()
         ok, diverted = apply_transition_with_confidence(
             12, "refining_to_refined", Confidence.MEDIUM,
             current_labels=[LABEL_REFINING],
             set_labels=fake,
+            post_comment=fake_comment,
         )
         self.assertTrue(ok)
         self.assertTrue(diverted)
         self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
         self.assertIn(LABEL_REFINING, calls[0]["remove"])
         self.assertNotIn(LABEL_REFINED, calls[0]["add"])
+        # Divert → a reason comment must be posted with the failing transition
+        # and confidence values so the admin knows why they were summoned.
+        self.assertEqual(len(comments), 1)
+        body = comments[0]["body"]
+        self.assertIn("refining_to_refined", body)
+        self.assertIn("MEDIUM", body)
+        self.assertIn("HIGH", body)
 
     def test_missing_confidence_diverts_to_human(self):
         calls, fake = self._recording_set_labels()
+        comments, fake_comment = self._recording_post_comment()
         ok, diverted = apply_transition_with_confidence(
             13, "refining_to_refined", None,
             current_labels=[LABEL_REFINING],
             set_labels=fake,
+            post_comment=fake_comment,
         )
         self.assertTrue(ok)
         self.assertTrue(diverted)
         self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
+        self.assertEqual(len(comments), 1)
+        self.assertIn("MISSING", comments[0]["body"])
 
     def test_divert_respects_from_state_mismatch(self):
         calls, fake = self._recording_set_labels()
+        comments, fake_comment = self._recording_post_comment()
         ok, diverted = apply_transition_with_confidence(
             14, "refining_to_refined", None,
             current_labels=[LABEL_REFINED],  # wrong state
             set_labels=fake,
+            post_comment=fake_comment,
         )
         self.assertFalse(ok)
         self.assertFalse(diverted)
         self.assertEqual(calls, [])
+        # State mismatch aborts before the divert → no comment either.
+        self.assertEqual(comments, [])
 
 
 class TestPendingMarker(unittest.TestCase):
