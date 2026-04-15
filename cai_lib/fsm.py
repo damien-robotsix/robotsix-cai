@@ -250,6 +250,14 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_PR_OPEN]),
     Transition("pr_to_merged",               IssueState.PR,                IssueState.MERGED,
                labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_MERGED]),
+    # Recovery paths out of PR when the linked PR was closed unmerged
+    # (re-plan from scratch) or never existed (orphan — needs a human).
+    # Fired by handle_pr_bounce after inspecting recent closed PRs for
+    # the issue's branch.
+    Transition("pr_to_refined",              IssueState.PR,                IssueState.REFINED,
+               labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_REFINED]),
+    Transition("pr_to_human_needed",         IssueState.PR,                IssueState.HUMAN_NEEDED,
+               labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_HUMAN_NEEDED]),
     Transition("merged_to_solved",           IssueState.MERGED,            IssueState.SOLVED,
                labels_remove=[LABEL_MERGED],            labels_add=[LABEL_SOLVED]),
 
