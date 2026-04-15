@@ -98,11 +98,46 @@ class TestRollbackStaleInProgress(unittest.TestCase):
             issues_by_label={
                 cai.LABEL_IN_PROGRESS: [ip_issue],
                 cai.LABEL_REVISING: [rev_issue],
+                cai.LABEL_APPLYING: [],
             },
         )
         nums = {i["number"] for i in result}
         self.assertIn(401, nums, "7h-old :in-progress should be rolled back (TTL=6h)")
         self.assertIn(402, nums, "2h-old :revising should be rolled back (TTL=1h)")
+
+    def test_rollback_applying_stale(self):
+        """immediate=False should roll back :applying issues that exceed the 2h TTL."""
+        # 3-hour-old :applying (TTL is 2h — should be rolled back)
+        applying_issue = _make_issue(501, cai.LABEL_APPLYING, age_hours=3)
+
+        result = self._run_rollback(
+            immediate=False,
+            issues_by_label={
+                cai.LABEL_IN_PROGRESS: [],
+                cai.LABEL_REVISING: [],
+                cai.LABEL_APPLYING: [applying_issue],
+            },
+        )
+        nums = {i["number"] for i in result}
+        self.assertIn(501, nums,
+                      "3h-old :applying should be rolled back (TTL=2h)")
+
+    def test_rollback_applying_fresh(self):
+        """immediate=False should NOT roll back :applying issues within the 2h TTL."""
+        # 1-hour-old :applying (TTL is 2h — should NOT be rolled back)
+        applying_issue = _make_issue(601, cai.LABEL_APPLYING, age_hours=1)
+
+        result = self._run_rollback(
+            immediate=False,
+            issues_by_label={
+                cai.LABEL_IN_PROGRESS: [],
+                cai.LABEL_REVISING: [],
+                cai.LABEL_APPLYING: [applying_issue],
+            },
+        )
+        nums = {i["number"] for i in result}
+        self.assertNotIn(601, nums,
+                         "1h-old :applying should NOT be rolled back (TTL=2h)")
 
 
 if __name__ == "__main__":
