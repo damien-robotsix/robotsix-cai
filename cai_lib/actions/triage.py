@@ -9,7 +9,6 @@ calling :func:`handle_triage`.
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 import time
 
@@ -27,7 +26,7 @@ from cai_lib.fsm import (
     apply_transition,
     get_issue_state,
 )
-from cai_lib.github import _gh_json, _set_labels
+from cai_lib.github import _set_labels
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run, _run_claude_p
 
@@ -41,15 +40,14 @@ def _parse_issue_triage_verdict(text: str) -> dict:
     """Parse the structured output from the cai-triage agent.
 
     Expected format (one field per line):
-        RoutingDecision: DISMISS_DUPLICATE | DISMISS_RESOLVED | REFINE | HUMAN
+        RoutingDecision: REFINE | PLAN_APPROVE | APPLY | HUMAN
         RoutingConfidence: LOW | MEDIUM | HIGH
         Kind: code | maintenance          (required for REFINE verdict)
-        DuplicateOf: #N                   (required for DISMISS_DUPLICATE)
         Reasoning: <1-3 sentences>
 
     Returns a dict with lowercase keys: decision, confidence, kind,
-    duplicate_of (int or None), reasoning. Returns an empty dict if the
-    required fields cannot be parsed.
+    reasoning. Returns an empty dict if the required fields cannot be
+    parsed.
     """
     result: dict = {}
     for line in text.splitlines():
@@ -64,10 +62,6 @@ def _parse_issue_triage_verdict(text: str) -> dict:
         m = re.match(r"^Kind:\s*(\w+)", line, re.IGNORECASE)
         if m:
             result["kind"] = m.group(1).lower()
-            continue
-        m = re.match(r"^DuplicateOf:\s*#?(\d+)", line, re.IGNORECASE)
-        if m:
-            result["duplicate_of"] = int(m.group(1))
             continue
         m = re.match(r"^Reasoning:\s*(.+)$", line, re.IGNORECASE)
         if m:
@@ -128,11 +122,10 @@ def handle_triage(issue: dict) -> int:
 
     Moves RAISED → TRIAGING (if not already there), runs the cai-triage agent
     inline, then executes the verdict:
-    - DISMISS_DUPLICATE / DISMISS_RESOLVED at HIGH confidence → close issue.
     - PLAN_APPROVE with HIGH skip-confidence + code kind → TRIAGING → PLAN_APPROVED
       (embedded plan in issue body).
     - APPLY with HIGH skip-confidence + maintenance kind → TRIAGING → APPLYING.
-    - REFINE (or DISMISS/PLAN_APPROVE/APPLY at non-HIGH confidence) →
+    - REFINE (or PLAN_APPROVE/APPLY at non-HIGH confidence) →
       TRIAGING → REFINING + kind label.
     - HUMAN → TRIAGING → HUMAN_NEEDED.
     """
@@ -199,50 +192,14 @@ def handle_triage(issue: dict) -> int:
             file=sys.stderr,
         )
 
-    # 2. Gather context: other open auto-improve* issues + recent PRs.
-    try:
-        context_issues = _gh_json([
-            "issue", "list", "--repo", REPO,
-            "--label", "auto-improve",
-            "--state", "open",
-            "--json", "number,title,labels,body",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError:
-        context_issues = []
-
-    try:
-        recent_prs = _gh_json([
-            "pr", "list", "--repo", REPO,
-            "--state", "all",
-            "--json", "number,title,state,mergedAt",
-            "--limit", "30",
-        ]) or []
-    except subprocess.CalledProcessError:
-        recent_prs = []
-
-    # Exclude the issue being triaged from context.
-    context_issues = [ci for ci in context_issues if ci["number"] != issue_number]
-
-    # 3. Build user message.
-    ci_lines = "\n".join(
-        f"  #{ci['number']} [{', '.join(lb['name'] for lb in ci.get('labels', []))}] {ci['title']}"
-        for ci in context_issues[:50]
-    )
-    pr_lines = "\n".join(
-        f"  #{pr['number']} [{pr['state']}] {pr['title']}"
-        + (f" (merged {pr['mergedAt'][:10]})" if pr.get("mergedAt") else "")
-        for pr in recent_prs
-    )
+    # 2. Build user message.
     user_message = (
         f"## Issue to triage: #{issue_number}\n\n"
         f"**Title:** {title}\n\n"
-        f"**Body:**\n{issue.get('body', '')}\n\n"
-        f"## Other open auto-improve issues\n{ci_lines or '(none)'}\n\n"
-        f"## Recent PRs\n{pr_lines or '(none)'}\n"
+        f"**Body:**\n{issue.get('body', '')}\n"
     )
 
-    # 4. Run cai-triage agent.
+    # 3. Run cai-triage agent.
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-triage",
          "--dangerously-skip-permissions"],
@@ -268,7 +225,6 @@ def handle_triage(issue: dict) -> int:
     decision   = verdict.get("decision", "")
     confidence = verdict.get("confidence", "")
     kind       = verdict.get("kind", "code")
-    dup_of     = verdict.get("duplicate_of")
     reasoning  = verdict.get("reasoning", "(no reasoning)")
 
     print(
@@ -280,28 +236,7 @@ def handle_triage(issue: dict) -> int:
     dur = f"{int(time.monotonic() - t0)}s"
 
     # 6. Execute verdict.
-    if decision in ("DISMISS_DUPLICATE", "DISMISS_RESOLVED") and confidence == "HIGH":
-        reason_flag = "not-planned"
-        if decision == "DISMISS_DUPLICATE" and dup_of:
-            comment = f"Closed as duplicate of #{dup_of} by cai-triage. Reasoning: {reasoning}"
-        else:
-            comment = f"Closed as resolved by cai-triage. Reasoning: {reasoning}"
-        close_res = _run(
-            ["gh", "issue", "close", str(issue_number),
-             "--repo", REPO,
-             "--reason", reason_flag,
-             "--comment", comment],
-            capture_output=True,
-        )
-        if close_res.returncode != 0:
-            print(f"[cai triage] gh issue close failed:\n{close_res.stderr}", file=sys.stderr)
-            log_run("triage", repo=REPO, issue=issue_number,
-                    duration=dur, result="close_failed", exit=1)
-            return 1
-        # Remove the triaging label (issue is closed but label cleanup is tidy).
-        _set_labels(issue_number, remove=[LABEL_TRIAGING], log_prefix="cai triage")
-        action_taken = decision.lower()
-    elif decision == "HUMAN":
+    if decision == "HUMAN":
         apply_transition(
             issue_number, "triaging_to_human",
             current_labels=[LABEL_TRIAGING],
@@ -379,13 +314,7 @@ def handle_triage(issue: dict) -> int:
             )
             action_taken = "applying"
     else:
-        # REFINE, or DISMISS at sub-HIGH confidence → fall through to REFINE.
-        if decision in ("DISMISS_DUPLICATE", "DISMISS_RESOLVED"):
-            print(
-                f"[cai triage] #{issue_number}: dismiss at {confidence} confidence "
-                f"— downgrading to REFINE",
-                flush=True,
-            )
+        # REFINE or any unrecognised decision → fall through to REFINE.
         apply_transition(
             issue_number, "triaging_to_refining",
             current_labels=[LABEL_TRIAGING],
