@@ -9,7 +9,7 @@
 | `.claude/agents/cai-audit.md` | Agent: audit issue queue and lifecycle state machine |
 | `.claude/agents/cai-check-workflows.md` | Agent: analyze recent GitHub Actions workflow failures and emit structured findings |
 | `.claude/agents/cai-code-audit.md` | Agent: read-only source tree audit for inconsistencies and dead code |
-| `.claude/agents/cai-comment-filter.md` | TODO: add description |
+| `.claude/agents/cai-comment-filter.md` | Agent: classify PR comments as resolved or unresolved (replaces commit-timestamp watermark) |
 | `.claude/agents/cai-confirm.md` | Agent: verify merged PRs actually resolved their issues |
 | `.claude/agents/cai-cost-optimize.md` | Agent: weekly cost-reduction analysis |
 | `.claude/agents/cai-dup-check.md` | Agent: cheap haiku pre-check for duplicate / already-resolved issues |
@@ -98,6 +98,6 @@
 | `tests/test_plan.py` | TODO: add description |
 | `tests/test_pr_bounce.py` | TODO: add description |
 | `tests/test_publish.py` | Tests for publish.py issue publishing |
-| `tests/test_revise_filter.py` | TODO: add description |
+| `tests/test_revise_filter.py` | Tests for `_filter_comments_with_haiku` comment filtering in revise handler |
 | `tests/test_rollback.py` | Tests for rollback functionality |
 | `tests/test_unblock.py` | Tests for cai_lib.cmd_unblock — admin-comment filtering and agent input formatting |
