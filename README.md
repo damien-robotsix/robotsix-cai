@@ -69,7 +69,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — removes deprecated cai-managed labels from open issues, then keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
-| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `auto-improve:raised` + `audit` findings (Sonnet) |
+| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `auto-improve:raised` + `audit` findings (Sonnet) |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the triage → (optionally skip to `:plan-approved` / `:applying`) → refine → plan → implement pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
@@ -139,13 +139,12 @@ action so two concurrent `implement` runs can't pick the same issue.
                                                        (or re-queue)
 ```
 
-`:no-action` means the implement subagent reviewed the issue and decided no
-code change was needed. The agent's reasoning is posted as a comment
-on the issue. A human can either close the issue (agreeing with the
-bot), re-label to `:refined` to re-run through refine → plan → `:plan-approved` 
-before the implement subagent retries, or re-label to `:raised` to re-run through 
-the triage pipeline first (which may skip ahead if the triage agent has high
-confidence in the decision).
+When the implement subagent reviews an issue and determines no code change is
+needed, it closes the issue with `--reason "not planned"` (GitHub's native
+DISMISSED_RESOLVED state). The agent's reasoning is posted as a comment
+on the issue. If a human disagrees with the bot's assessment, they can
+re-open the issue (which transitions it to `:raised`) to restart the
+triage pipeline, allowing the triage agent to re-evaluate with new context.
 
 ### Filing issues with multi-step plans
 
@@ -194,28 +193,24 @@ Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 `prompt_contradiction`, `topic_duplicate`, `silent_failure`, `forgotten_backlog`,
 `cost_outlier`, `workflow_anomaly`, `fix_loop_efficiency`.
 
-There are six exceptions to "report-only": stale lock rollback,
-stale `:no-action` rollback, stale `:merged` flagging,
-orphaned-branch cleanup, `:pr-open` recovery, and retroactive `:no-action`
-application. Three lock types are rolled back: `:in-progress` issues after
+There are five exceptions to "report-only": stale lock rollback, stale `:merged`
+flagging, orphaned-branch cleanup, `:pr-open` recovery, and silent dismissal
+detection. Three lock types are rolled back: `:in-progress` issues after
 6 hours with no recent fix activity, `:revising` issues after 1 hour with no
 recent revise activity, and `:applying` issues after 2 hours with no recent
 maintain activity — `:in-progress` and `:revising` are rolled back to
-`:refined`, while `:applying` is rolled back to `:raised`. Stale `:no-action`
-issues (7+ days) are rolled back to `:raised` so the `refine` agent (and
-subsequently the implement agent) can retry with new context. Stale `:merged`
+`:refined`, while `:applying` is rolled back to `:raised`. Stale `:merged`
 issues (14+ days) are flagged with `needs-human-review` since the automation
 cannot determine whether the fix worked. Additionally, remote `auto-improve/*`
 branches with no open PR — including branches for merged/closed PRs and
 branches pushed by the implement agent that never had a PR opened — are deleted
 automatically. `:pr-open` issues whose linked PR was closed without merging
 are rolled back to `:refined` to restart the refinement and planning cycle
-before a human can re-approve them for the implement subagent. Finally, recently
-closed `auto-improve` issues that lack a terminal label
-(`auto-improve:merged`, `auto-improve:no-action`, `auto-improve:solved`)
-are automatically tagged with `:no-action` — this covers issues closed manually
-by a human without going through the normal pipeline (e.g., superseded work,
-direct implementation).
+before a human can re-approve them for the implement subagent. Finally, closed
+`auto-improve` issues that lack a terminal label (`auto-improve:merged`,
+`auto-improve:solved`) and were not closed with `--reason "not planned"` are
+flagged for potential manual re-opening, since they may have been closed
+without proper dismissal processing.
 
 ### Comment-driven PR iteration
 
@@ -313,8 +308,8 @@ implement their linked issue. For each open `:pr-open` PR on an
 5. If the action is `merge` and confidence meets the threshold,
    merges via `gh pr merge --merge --delete-branch`
 6. If the action is `reject` and confidence meets the threshold,
-   closes the PR via `gh pr close --delete-branch` and transitions
-   the issue to `auto-improve:no-action`
+   closes the PR via `gh pr close --delete-branch` and closes the
+   linked issue via `gh issue close --reason "not planned"`
 7. Otherwise, labels the issue `merge-blocked` and
    posts the verdict reasoning as a PR comment
 

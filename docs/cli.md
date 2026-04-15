@@ -14,7 +14,7 @@ No arguments.
 
 ## audit
 
-Run the periodic queue/PR consistency audit: roll back stale `:in-progress` locks, clean up orphaned branches, unstick stale `:no-action` issues, recover closed-PR issues, apply `:no-action` to closed issues lacking terminal labels, and invoke the `cai-audit` agent for a full state-machine review. Findings are pre-screened for duplicates/resolved via `cai-dup-check` before publishing; only survivors create issues.
+Run the periodic queue/PR consistency audit: roll back stale `:in-progress` locks, clean up orphaned branches, recover closed-PR issues, and invoke the `cai-audit` agent for a full state-machine review. Findings are pre-screened for duplicates/resolved via `cai-dup-check` before publishing; only survivors create issues.
 
 No arguments.
 

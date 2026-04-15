@@ -48,7 +48,6 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 | `auto-improve:revising` | Revise agent is running (lock; 1 h stale timeout) |
 | `auto-improve:merged` | PR merged, awaiting confirmation |
 | `auto-improve:solved` | Confirmed resolved |
-| `auto-improve:no-action` | No fix needed (7 d stale timeout → re-queued to `:raised`) |
 | `auto-improve:needs-exploration` | Needs autonomous exploration (explore handler) |
 | `auto-improve:planned` | Plan generated and stored in issue body; confidence gate pending |
 | `auto-improve:plan-approved` | Plan approved (HIGH confidence auto-approval or admin resume); ready for implement subagent |
