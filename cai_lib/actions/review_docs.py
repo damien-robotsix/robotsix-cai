@@ -167,6 +167,7 @@ def handle_review_docs(pr: dict) -> int:
             ["claude", "-p", "--agent", "cai-review-docs",
              "--permission-mode", "acceptEdits",
              "--max-budget-usd", "0.50",
+             "--allowedTools", "Read,Grep,Glob,Edit,Write",
              "--add-dir", str(work_dir)],
             category="review-docs",
             agent="cai-review-docs",

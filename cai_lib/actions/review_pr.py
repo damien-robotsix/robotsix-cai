@@ -290,6 +290,7 @@ def handle_review_pr(pr: dict) -> int:
             ["claude", "-p", "--agent", "cai-review-pr",
              "--permission-mode", "acceptEdits",
              "--max-budget-usd", "0.50",
+             "--allowedTools", "Read,Grep,Glob",
              "--add-dir", str(work_dir)],
             category="review-pr",
             agent="cai-review-pr",
