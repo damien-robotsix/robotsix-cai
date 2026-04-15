@@ -48,8 +48,8 @@ Subcommands:
                             activity), then runs a Sonnet-driven
                             semantic check for duplicates, stuck loops,
                             label corruption, etc. Findings are
-                            published as `audit:raised` issues in a
-                            separate label namespace.
+                            published as `auto-improve:raised` + `audit`
+                            issues in the unified label scheme.
 
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
@@ -1157,7 +1157,7 @@ def cmd_audit(args) -> int:
 
 
 # ---------------------------------------------------------------------------
-# audit-triage — autonomous resolution of `audit:raised` findings
+# audit-triage — autonomous resolution of `auto-improve:raised + audit` findings
 # ---------------------------------------------------------------------------
 
 
@@ -3302,7 +3302,7 @@ def main() -> int:
     sub.add_parser("audit", help="Run the queue/PR consistency audit")
     sub.add_parser(
         "audit-triage",
-        help="Autonomously resolve audit:raised findings (no PRs)",
+        help="Autonomously resolve auto-improve:raised + audit findings (no PRs)",
     )
     sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
     sub.add_parser("propose", help="Weekly creative improvement proposal")

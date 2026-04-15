@@ -6,7 +6,7 @@ Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `desc
 |---|---|---|---|---|
 | `cai-analyze` | Analyze parsed transcript signals and raise auto-improve findings | Read, Grep, Glob, Skill | sonnet | Read-only |
 | `cai-audit` | Audit issue queue and PRs for lifecycle state-machine inconsistencies | Read, Grep, Glob | sonnet | Read-only |
-| `cai-audit-triage` | Triage `audit:raised` findings and emit close/passthrough/escalate verdicts | Read | sonnet | Inline-only |
+| `cai-audit-triage` | Triage `auto-improve:raised` + `audit` findings and emit close/passthrough/escalate verdicts | Read | sonnet | Inline-only |
 | `cai-code-audit` | Read-only source tree audit for inconsistencies, dead code, and missing cross-file references | Read, Grep, Glob | sonnet | Worktree |
 | `cai-confirm` | Verify each `auto-improve:merged` issue is actually resolved | Read, Grep, Glob | sonnet | Read-only |
 | `cai-cost-optimize` | Weekly cost-reduction agent — analyzes spending trends, proposes one optimization | Read, Grep, Glob | sonnet | Read-only |
