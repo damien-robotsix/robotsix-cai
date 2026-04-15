@@ -25,6 +25,7 @@ from typing import Optional
 
 from cai_lib.config import (
     REPO,
+    ADMIN_LOGINS,
     LABEL_HUMAN_NEEDED,
     LABEL_PR_HUMAN_NEEDED,
     LABEL_HUMAN_SOLVED,
@@ -415,6 +416,15 @@ def handle_pr_human_needed(pr: dict) -> int:
 
 def cmd_unblock(args) -> int:
     """Scan :human-needed issues and PRs and attempt FSM resume via cai-unblock."""
+    if not ADMIN_LOGINS:
+        print(
+            "[cai unblock] WARNING: CAI_ADMIN_LOGINS is not set — no one is "
+            "recognised as an admin, so every human:solved label will be "
+            "ignored and parked issues/PRs will never be unblocked. "
+            "Set CAI_ADMIN_LOGINS to a comma-separated list of GitHub logins "
+            "in your .env or docker-compose.yml environment block.",
+            file=sys.stderr,
+        )
     t0 = time.monotonic()
     issues = _list_human_needed_issues()
     prs = _list_pr_human_needed_prs()

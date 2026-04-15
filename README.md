@@ -411,6 +411,12 @@ The installer asks for the **auth mode**:
 2. **Anthropic API key** — paste an `sk-ant-...` key when prompted; it's
    written to a `.env` file (chmod 600).
 
+The installer also prompts for **admin GitHub logins** (`CAI_ADMIN_LOGINS`).
+Without this, the `human:solved` label workflow silently does nothing —
+stuck issues and PRs will never be unblocked. See
+[docs/configuration.md](docs/configuration.md) for the full list of
+configuration options.
+
 The installer also asks whether to enable **Watchtower** — a small
 sidecar container that polls Docker Hub every 12 hours (43200 s) and
 automatically pulls + restarts cai when a new image is published.
