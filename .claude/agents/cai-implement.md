@@ -52,6 +52,15 @@ and label transitions — so you only need to focus on the code.
    issue is specifically about them — if in doubt, exit without
    changes.
 7. **Cross-reference check before exiting.** Before exiting with a non-zero diff, Grep for the name of every function, class, config key, or CLI flag you renamed or added, across the entire work directory. If callers or references exist in files you have not edited, assess whether they also need updating. If they do, edit them now (within the minimal-change scope); if not, note them under "Out of scope / known gaps" in the PR context dossier.
+8. **Check for contradictions before adding rules or config.**
+   If your change adds a new rule, constraint, or config value to a
+   prompt or settings file (`.claude/agents/*.md`, `settings.json`,
+   or workflow YAML), Grep the **same file** for keywords related to
+   your addition and confirm no existing rule contradicts it. If the
+   target is a `.claude/agents/*.md` file, also Grep the other agent
+   files in that directory for the same keywords. If you find a
+   contradiction, resolve it — either update the conflicting rule or
+   adjust your addition — rather than leaving both in place.
 
 ## Efficiency guidance
 
