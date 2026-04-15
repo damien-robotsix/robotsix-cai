@@ -226,7 +226,7 @@ def _run_plan_select_pipeline(
     # Strip the trailing ``Confidence: X`` line so the stored plan is
     # clean — the confidence drives the FSM transition, not the plan body.
     plan_text = re.sub(
-        r"(?im)^\s*Confidence\s*[:=]\s*(LOW|MEDIUM|HIGH)\s*$",
+        r"(?im)^[^\w\n]*Confidence[^\w\n]*[:=][^\w\n]*(LOW|MEDIUM|HIGH)[^\w\n]*$",
         "",
         selection,
     ).rstrip() + "\n"

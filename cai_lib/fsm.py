@@ -58,7 +58,7 @@ class Confidence(Enum):
 
 
 _CONFIDENCE_RE = re.compile(
-    r"^\s*Confidence\s*[:=]\s*(LOW|MEDIUM|HIGH)\s*$",
+    r"^[^\w\n]*Confidence[^\w\n]*[:=][^\w\n]*(LOW|MEDIUM|HIGH)[^\w\n]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
