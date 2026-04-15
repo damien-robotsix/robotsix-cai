@@ -14,6 +14,7 @@ Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `desc
 | `cai-fix-ci` | Diagnose and fix failing GitHub Actions checks on open PRs | Read, Edit, Write, Grep, Glob, Agent | sonnet | Worktree |
 | `cai-implement` | Autonomous code-editing subagent — makes the smallest targeted change for an issue | Read, Edit, Write, Grep, Glob, TodoWrite | sonnet | Worktree |
 | `cai-git` | Lightweight subagent that executes git operations on behalf of other agents | Bash | haiku | Worktree |
+| `cai-maintain` | Read the Ops block from a kind:maintenance issue, execute each declared operation via gh CLI, and emit a Confidence level | Bash, Read | sonnet | Worktree |
 | `cai-merge` | Assess whether a PR correctly implements its linked issue and emit a merge verdict | Read | opus | Inline-only |
 | `cai-plan` | Generate a detailed fix plan for an issue (first of two serial planners) | Read, Grep, Glob, Agent | sonnet | Worktree |
 | `cai-propose` | Weekly creative agent that proposes ambitious improvements | Read, Grep, Glob | sonnet | Worktree |
