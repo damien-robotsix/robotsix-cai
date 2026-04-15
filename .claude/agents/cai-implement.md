@@ -51,6 +51,7 @@ and label transitions — so you only need to focus on the code.
    directory. Don't modify `.github/workflows/` files unless the
    issue is specifically about them — if in doubt, exit without
    changes.
+7. **Cross-reference check before exiting.** Before exiting with a non-zero diff, Grep for the name of every function, class, config key, or CLI flag you renamed or added, across the entire work directory. If callers or references exist in files you have not edited, assess whether they also need updating. If they do, edit them now (within the minimal-change scope); if not, note them under "Out of scope / known gaps" in the PR context dossier.
 
 ## Efficiency guidance
 
