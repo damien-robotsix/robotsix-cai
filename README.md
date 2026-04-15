@@ -69,8 +69,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — removes deprecated cai-managed labels from open issues, then keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
-| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as findings (Sonnet). Findings are pre-screened for duplicates/resolved via `cai-dup-check`; survivors are published as `auto-improve:raised` + `audit` issues |
-| `cai.py audit-triage` | `10 */6 * * *` (every 6 hours) | Triages `auto-improve:raised` + `audit` findings and emits close/passthrough/escalate verdicts |
+| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `auto-improve:raised` + `audit` findings (Sonnet) |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the triage → (optionally skip to `:plan-approved` / `:applying`) → refine → plan → implement pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
@@ -83,7 +82,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 
 On `docker compose up -d` the entrypoint templates the crontab from
 the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_ANALYZER_SCHEDULE`,
-`CAI_AUDIT_SCHEDULE`, `CAI_AUDIT_TRIAGE_SCHEDULE`,
+`CAI_AUDIT_SCHEDULE`,
 `CAI_CODE_AUDIT_SCHEDULE`, `CAI_PROPOSE_SCHEDULE`,
 `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`,
 `CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`, `CAI_VERIFY_SCHEDULE`),
@@ -191,11 +190,6 @@ an `audit` source tag (e.g., `auto-improve`, `auto-improve:raised`, `audit`,
 `category:<finding_category>`). This unified scheme allows audit findings to
 flow through the standard refine → plan → implement pipeline alongside other
 auto-improve issues.
-
-On the next cycle tick, `cai.py audit-triage` processes these findings
-(filtering by both `auto-improve:raised` AND `audit` labels) and emits
-structured verdicts: `close_duplicate`, `close_resolved`, `passthrough`
-(proceed to refine), or `escalate` (route to `:human-needed` for human review).
 
 Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 `prompt_contradiction`, `topic_duplicate`, `silent_failure`, `forgotten_backlog`,
@@ -553,7 +547,7 @@ The container uses three Docker named volumes:
   Per-agent durable memory. Each declarative subagent has
   `memory: project` in its frontmatter, which Claude Code stores at
   `.claude/agent-memory/<agent-name>/MEMORY.md`. The /app agents
-  (analyze, audit, confirm, merge, audit-triage) read/write this
+  (analyze, audit, confirm, merge) read/write this
   volume directly. The cloned-worktree agents (fix, revise,
   review-pr, review-docs, code-audit, propose, propose-review, update-check,
   plan, select, git) also access their

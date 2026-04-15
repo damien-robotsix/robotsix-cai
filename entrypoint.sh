@@ -16,7 +16,6 @@
 #      - verify:         label-state reconciliation with GitHub
 #      - analyze:        parse own transcripts, raise findings as issues
 #      - audit:          periodic queue/PR consistency checks
-#      - audit-triage:   resolve auto-improve:raised + audit findings (unified label scheme)
 #      - code-audit:     periodic source code consistency checks
 #      - propose:        weekly creative improvement proposals
 #      - update-check:   periodic Claude Code release checks
@@ -40,7 +39,6 @@ CAI_CYCLE_SCHEDULE="${CAI_CYCLE_SCHEDULE:-0 * * * *}"
 CAI_VERIFY_SCHEDULE="${CAI_VERIFY_SCHEDULE:-15 * * * *}"
 CAI_ANALYZER_SCHEDULE="${CAI_ANALYZER_SCHEDULE:-0 0 * * *}"
 CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
-CAI_AUDIT_TRIAGE_SCHEDULE="${CAI_AUDIT_TRIAGE_SCHEDULE:-10 */6 * * *}"
 CAI_CODE_AUDIT_SCHEDULE="${CAI_CODE_AUDIT_SCHEDULE:-0 3 * * 0}"
 CAI_PROPOSE_SCHEDULE="${CAI_PROPOSE_SCHEDULE:-0 4 * * 0}"
 CAI_UPDATE_CHECK_SCHEDULE="${CAI_UPDATE_CHECK_SCHEDULE:-0 4 * * 1}"
@@ -58,7 +56,6 @@ $CAI_CYCLE_SCHEDULE python /app/cai.py cycle
 $CAI_VERIFY_SCHEDULE python /app/cai.py verify
 $CAI_ANALYZER_SCHEDULE python /app/cai.py analyze
 $CAI_AUDIT_SCHEDULE python /app/cai.py audit
-$CAI_AUDIT_TRIAGE_SCHEDULE python /app/cai.py audit-triage
 $CAI_CODE_AUDIT_SCHEDULE python /app/cai.py code-audit
 $CAI_PROPOSE_SCHEDULE python /app/cai.py propose
 $CAI_UPDATE_CHECK_SCHEDULE python /app/cai.py update-check

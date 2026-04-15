@@ -80,7 +80,7 @@ services:
       # Each declarative subagent has `memory: project` in its
       # frontmatter, which Claude Code stores under
       # `.claude/agent-memory/<agent-name>/`. The /app agents
-      # (analyze, audit, confirm, merge, audit-triage) read/write
+      # (analyze, audit, confirm, merge) read/write
       # this volume directly. The cloned-worktree agents (fix,
       # revise, review-pr, review-docs, code-audit, propose,
       # propose-review, update-check, plan, select, git) also
