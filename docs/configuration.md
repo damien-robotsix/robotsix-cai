@@ -24,7 +24,6 @@ Cron schedules are configurable via environment variables. Default values are se
 | `CAI_VERIFY_SCHEDULE` | `15 * * * *` | Label-state reconciliation (cmd_verify) — removes deprecated cai-managed labels from open issues, then keeps :pr-open / :merged / etc. consistent with actual GitHub state. |
 | `CAI_ANALYZER_SCHEDULE` | `0 0 * * *` | Daily transcript analysis and issue raising |
 | `CAI_AUDIT_SCHEDULE` | `0 */6 * * *` | Every 6 hours — queue/PR lifecycle audit |
-| `CAI_AUDIT_TRIAGE_SCHEDULE` | `10 */6 * * *` | Every 6 hours — resolve `auto-improve:raised` + `audit` findings |
 | `CAI_CODE_AUDIT_SCHEDULE` | `0 3 * * 0` | Weekly (Sunday 03:00 UTC) — source tree audit |
 | `CAI_PROPOSE_SCHEDULE` | `0 4 * * 0` | Weekly (Sunday 04:00 UTC) — creative proposals |
 | `CAI_COST_OPTIMIZE_SCHEDULE` | `0 5 * * 0` | Weekly (Sunday 05:00 UTC) — cost-reduction analysis |
