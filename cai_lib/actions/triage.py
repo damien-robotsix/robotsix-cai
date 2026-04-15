@@ -8,7 +8,7 @@ calling :func:`handle_triage`.
 
 from __future__ import annotations
 
-import re
+import json
 import sys
 import time
 
@@ -32,84 +32,49 @@ from cai_lib.subprocess_utils import _run, _run_claude_p
 
 
 # ---------------------------------------------------------------------------
-# Handler-local verdict parsers (moved from cai.py)
+# JSON schema for structured triage verdict (forced tool-use via --json-schema)
 # ---------------------------------------------------------------------------
 
-
-def _parse_issue_triage_verdict(text: str) -> dict:
-    """Parse the structured output from the cai-triage agent.
-
-    Expected format (one field per line):
-        RoutingDecision: REFINE | PLAN_APPROVE | APPLY | HUMAN
-        RoutingConfidence: LOW | MEDIUM | HIGH
-        Kind: code | maintenance          (required for REFINE verdict)
-        Reasoning: <1-3 sentences>
-
-    Returns a dict with lowercase keys: decision, confidence, kind,
-    reasoning. Returns an empty dict if the required fields cannot be
-    parsed.
-    """
-    result: dict = {}
-    for line in text.splitlines():
-        m = re.match(r"^RoutingDecision:\s*(\w+)", line, re.IGNORECASE)
-        if m:
-            result["decision"] = m.group(1).upper()
-            continue
-        m = re.match(r"^RoutingConfidence:\s*(\w+)", line, re.IGNORECASE)
-        if m:
-            result["confidence"] = m.group(1).upper()
-            continue
-        m = re.match(r"^Kind:\s*(\w+)", line, re.IGNORECASE)
-        if m:
-            result["kind"] = m.group(1).lower()
-            continue
-        m = re.match(r"^Reasoning:\s*(.+)$", line, re.IGNORECASE)
-        if m:
-            result["reasoning"] = m.group(1).strip()
-            continue
-    return result
-
-
-_TRIAGE_SKIP_CONFIDENCE_RE = re.compile(
-    r"^\s*SkipConfidence\s*[:=]\s*(LOW|MEDIUM|HIGH)\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
-
-_TRIAGE_PLAN_BLOCK_RE = re.compile(
-    r"^\s*Plan\s*[:=]\s*(.+?)(?=^\s*\w+\s*[:=]|\Z)",
-    re.IGNORECASE | re.MULTILINE | re.DOTALL,
-)
-
-_TRIAGE_OPS_BLOCK_RE = re.compile(
-    r"^\s*Ops\s*[:=]\s*(.+?)(?=^\s*\w+\s*[:=]|\Z)",
-    re.IGNORECASE | re.MULTILINE | re.DOTALL,
-)
-
-
-def _parse_triage_skip_confidence(text: str) -> "Confidence | None":
-    """Extract ``SkipConfidence: LOW|MEDIUM|HIGH`` from cai-triage output."""
-    if not text:
-        return None
-    m = _TRIAGE_SKIP_CONFIDENCE_RE.search(text)
-    if not m:
-        return None
-    return Confidence[m.group(1).upper()]
-
-
-def _parse_triage_plan(text: str) -> "str | None":
-    """Extract ``Plan: <body>`` block from cai-triage output."""
-    if not text:
-        return None
-    m = _TRIAGE_PLAN_BLOCK_RE.search(text)
-    return m.group(1).strip() if m else None
-
-
-def _parse_triage_ops(text: str) -> "str | None":
-    """Extract ``Ops: <list>`` block from cai-triage output."""
-    if not text:
-        return None
-    m = _TRIAGE_OPS_BLOCK_RE.search(text)
-    return m.group(1).strip() if m else None
+_TRIAGE_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "routing_decision": {
+            "type": "string",
+            "enum": ["REFINE", "DISMISS_DUPLICATE", "DISMISS_RESOLVED", "PLAN_APPROVE", "APPLY", "HUMAN"],
+            "description": "Verdict routing decision",
+        },
+        "routing_confidence": {
+            "type": "string",
+            "enum": ["LOW", "MEDIUM", "HIGH"],
+        },
+        "kind": {
+            "type": "string",
+            "enum": ["code", "maintenance"],
+        },
+        "duplicate_of": {
+            "type": "integer",
+            "description": "Issue number; required only for DISMISS_DUPLICATE",
+        },
+        "reasoning": {
+            "type": "string",
+            "description": "1-3 sentences explaining the routing decision",
+        },
+        "skip_confidence": {
+            "type": "string",
+            "enum": ["LOW", "MEDIUM", "HIGH"],
+            "description": "Required when routing_decision is PLAN_APPROVE or APPLY",
+        },
+        "plan": {
+            "type": "string",
+            "description": "Full markdown plan body; required when skip_confidence is HIGH and routing_decision is PLAN_APPROVE",
+        },
+        "ops": {
+            "type": "string",
+            "description": "Ordered markdown list of operations; required when skip_confidence is HIGH and routing_decision is APPLY",
+        },
+    },
+    "required": ["routing_decision", "routing_confidence", "kind", "reasoning"],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -199,15 +164,15 @@ def handle_triage(issue: dict) -> int:
         f"**Body:**\n{issue.get('body', '')}\n"
     )
 
-    # 3. Run cai-triage agent.
+    # 3. Run cai-triage agent with structured JSON output.
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-triage",
-         "--dangerously-skip-permissions"],
+         "--dangerously-skip-permissions",
+         "--json-schema", json.dumps(_TRIAGE_JSON_SCHEMA)],
         category="triage",
         agent="cai-triage",
         input=user_message,
     )
-    print(result.stdout, flush=True)
 
     if result.returncode != 0:
         print(
@@ -220,12 +185,22 @@ def handle_triage(issue: dict) -> int:
                 duration=dur, result="agent_failed", exit=result.returncode)
         return result.returncode
 
-    # 5. Parse verdict.
-    verdict = _parse_issue_triage_verdict(result.stdout)
-    decision   = verdict.get("decision", "")
-    confidence = verdict.get("confidence", "")
-    kind       = verdict.get("kind", "code")
-    reasoning  = verdict.get("reasoning", "(no reasoning)")
+    # 5. Parse verdict from structured JSON.
+    try:
+        tool_input = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(
+            f"[cai triage] failed to parse JSON verdict: {exc}; "
+            f"stdout starts with: {(result.stdout or '')[:120]!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        tool_input = {}
+
+    decision   = tool_input.get("routing_decision", "")
+    confidence = tool_input.get("routing_confidence", "")
+    kind       = tool_input.get("kind", "code")
+    reasoning  = tool_input.get("reasoning", "(no reasoning)")
 
     print(
         f"[cai triage] verdict: decision={decision} confidence={confidence} "
@@ -246,7 +221,8 @@ def handle_triage(issue: dict) -> int:
     elif decision in ("PLAN_APPROVE", "APPLY"):
         # Dual-gate skip-ahead logic: both RoutingDecision and SkipConfidence
         # must be HIGH for the fast path to fire; otherwise fall through to REFINE.
-        skip_conf = _parse_triage_skip_confidence(result.stdout)
+        skip_conf_str = tool_input.get("skip_confidence")
+        skip_conf = Confidence[skip_conf_str] if skip_conf_str else None
         kind_label = LABEL_KIND_MAINTENANCE if kind == "maintenance" else LABEL_KIND_CODE
         if skip_conf is None or skip_conf < Confidence.HIGH:
             print(
@@ -262,7 +238,7 @@ def handle_triage(issue: dict) -> int:
             _set_labels(issue_number, add=[kind_label], log_prefix="cai triage")
             action_taken = "refine"
         elif decision == "PLAN_APPROVE":
-            plan_body = _parse_triage_plan(result.stdout)
+            plan_body = tool_input.get("plan")
             if plan_body:
                 existing_body = issue.get("body") or ""
                 stripped_body = _strip_stored_plan_block(existing_body)
@@ -288,7 +264,7 @@ def handle_triage(issue: dict) -> int:
             )
             action_taken = "plan_approve"
         else:  # decision == "APPLY"
-            ops_body = _parse_triage_ops(result.stdout)
+            ops_body = tool_input.get("ops")
             if ops_body:
                 existing_body = issue.get("body") or ""
                 stripped_body = _strip_stored_plan_block(existing_body)
