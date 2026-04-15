@@ -48,7 +48,7 @@ Print a human-readable cost report from `/var/log/cai/cai-cost.jsonl`.
 
 ## cycle
 
-One cycle tick: restart-recover stale locks → verify label state against PR/issue reality → run the periodic audit → dispatch a single actionable issue or PR via the FSM dispatcher. A flock serializes overlapping runs. No explicit per-phase ordering — the FSM label is the source of truth and the dispatcher picks the handler for whichever state the oldest actionable item is in.
+One cycle tick: restart-recover stale locks → drain the actionable queue. The drain loops "pick oldest actionable issue/PR → run its state handler" until the queue is empty (or a loop guard / max-iter cap fires). A flock serializes overlapping runs. No explicit per-phase ordering — the FSM label is the source of truth and the dispatcher picks the handler for whichever state the oldest actionable item is in. Verify and audit run on their own crons (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`).
 
 No arguments.
 
@@ -60,7 +60,7 @@ Three modes:
 
 | Invocation | Behavior |
 |---|---|
-| `cai dispatch` | Dispatch the oldest actionable open issue or PR (used by `cai cycle`). |
+| `cai dispatch` | Drain the actionable queue: dispatch the oldest open issue/PR, repeat until empty (used by `cai cycle`). |
 | `cai dispatch --issue N` | Dispatch a specific issue by number. |
 | `cai dispatch --pr N` | Dispatch a specific PR by number. |
 

@@ -248,16 +248,17 @@ def dispatch_pr(pr_number: int) -> int:
     return handler(pr)
 
 
-def dispatch_oldest_actionable() -> int:
-    """List every open issue and PR in a state that has a registered handler;
-    pick the oldest (by ``createdAt``) and dispatch it.
+def _pick_oldest_actionable_target() -> Optional[tuple[str, int]]:
+    """Return ``(kind, number)`` of the oldest open issue/PR in a state with
+    a registered handler, or ``None`` if the queue is empty.
 
-    Returns the handler's exit code, or 0 if the queue is empty.
+    ``kind`` is ``"issue"`` or ``"pr"``. Sort key is the GitHub
+    ``createdAt`` timestamp (oldest first), so PRs that have been around
+    longer get the next tick — keeps in-flight work ahead of fresh intake.
     """
     issue_states = actionable_issue_states()
     pr_states = actionable_pr_states()
 
-    # Fetch all open auto-improve issues with their current labels.
     try:
         issues = _gh_json([
             "issue", "list",
@@ -284,7 +285,7 @@ def dispatch_oldest_actionable() -> int:
         print(f"[cai dispatch] gh pr list failed:\n{e.stderr}", file=sys.stderr)
         prs = []
 
-    candidates: list[tuple[str, str, int]] = []  # (createdAt, kind, number)
+    candidates: list[tuple[str, str, int]] = []
 
     for issue in issues:
         label_names = [lb["name"] for lb in issue.get("labels", [])]
@@ -298,11 +299,66 @@ def dispatch_oldest_actionable() -> int:
             candidates.append((pr.get("createdAt", ""), "pr", pr["number"]))
 
     if not candidates:
-        print("[cai dispatch] no actionable issues or PRs", flush=True)
-        return 0
+        return None
 
-    candidates.sort(key=lambda c: c[0])  # oldest first
+    candidates.sort(key=lambda c: c[0])
     _, kind, number = candidates[0]
-    if kind == "issue":
-        return dispatch_issue(number)
-    return dispatch_pr(number)
+    return (kind, number)
+
+
+# Default cap on how many handlers a single drain pass will run. The
+# cron tick interval (CAI_CYCLE_SCHEDULE) is the wall-clock rate limit;
+# this cap is the loop-detection backstop in case a handler keeps
+# re-picking itself without advancing state.
+_DEFAULT_DRAIN_MAX_ITER = 50
+
+
+def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
+    """Drain the actionable queue: pick oldest, dispatch, repeat.
+
+    Stops when one of:
+      - the queue is empty (no actionable issues or PRs left),
+      - the same ``(kind, number)`` is picked twice in a row (loop guard
+        — should not happen with idempotent handlers, but defends against
+        a regression),
+      - ``max_iter`` iterations have run (defense against systemic
+        non-advancing handlers; the cycle's flock prevents overlap).
+
+    Returns the worst exit code seen across handlers (0 if every dispatch
+    succeeded or the queue was empty from the start).
+    """
+    last_target: Optional[tuple[str, int]] = None
+    worst_rc = 0
+
+    for i in range(max_iter):
+        target = _pick_oldest_actionable_target()
+        if target is None:
+            print(f"[cai dispatch] drain complete after {i} dispatch(es): "
+                  "queue empty", flush=True)
+            return worst_rc
+        if target == last_target:
+            print(f"[cai dispatch] same target {target!r} picked twice in a "
+                  "row; stopping drain to avoid loop", flush=True)
+            return worst_rc
+
+        kind, number = target
+        if kind == "issue":
+            rc = dispatch_issue(number)
+        else:
+            rc = dispatch_pr(number)
+        if rc != 0 and worst_rc == 0:
+            worst_rc = rc
+        elif rc > worst_rc:
+            worst_rc = rc
+        last_target = target
+
+    print(f"[cai dispatch] hit drain cap (max_iter={max_iter}); remaining "
+          "actionable items will run on the next cycle tick", flush=True)
+    return worst_rc
+
+
+# Back-compat alias: dispatcher tests + cmd_dispatch still call
+# `dispatch_oldest_actionable`. Now drains.
+def dispatch_oldest_actionable() -> int:
+    """Alias for :func:`dispatch_drain` — drains the actionable queue."""
+    return dispatch_drain()

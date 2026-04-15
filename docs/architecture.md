@@ -69,7 +69,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 `cai cycle` is one tick of the dispatcher loop. The implementation is deliberately minimal:
 
 1. **Restart recovery** — roll back `:in-progress` and `:revising` locks past their stale-timeout.
-2. **Dispatch** — call `dispatch_oldest_actionable()`, which lists every open issue and PR whose state has a registered handler, picks the oldest by `createdAt`, and runs that handler.
+2. **Drain** — call `dispatch_drain()`, which loops `pick oldest actionable → dispatch handler` until the queue is empty (no more issues/PRs in any handler-backed state). A loop guard breaks if the same target gets picked twice in a row, and a `max_iter=50` cap defends against systemic non-advancing handlers; the cron interval is the wall-clock rate limit and the flock prevents overlapping ticks.
 
 A flock serializes overlapping runs so two cron ticks cannot dispatch the same item concurrently.
 

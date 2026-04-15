@@ -200,7 +200,7 @@ from cai_lib.actions.confirm import (  # noqa: E402
     _parse_verdicts,
     _update_parent_checklist_item,
 )
-from cai_lib.dispatcher import dispatch_oldest_actionable  # noqa: E402
+from cai_lib.dispatcher import dispatch_drain  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -2549,7 +2549,7 @@ def _cmd_cycle_inner(args) -> int:
               flush=True)
 
     # Phase 2: dispatch a single actionable issue/PR via the FSM dispatcher.
-    rc = _run_step("dispatch", lambda _a: dispatch_oldest_actionable(), args)
+    rc = _run_step("dispatch", lambda _a: dispatch_drain(), args)
     all_results["dispatch"] = rc
     if rc != 0:
         had_failure = True
@@ -2565,19 +2565,20 @@ def _cmd_cycle_inner(args) -> int:
 def cmd_dispatch(args) -> int:
     """Dispatch one or more FSM actions.
 
-    With no args, picks the oldest actionable issue/PR across all
-    states with a handler and dispatches it. With --issue N, fetches
-    issue N, derives its FSM state, and runs the matching handler.
-    With --pr N, same for a PR.
+    With no args, drains the actionable queue: repeatedly picks the
+    oldest actionable issue/PR and dispatches it until the queue is
+    empty (or a loop-guard / max-iter cap fires). With --issue N,
+    fetches issue N, derives its FSM state, and runs the matching
+    handler exactly once. With --pr N, same for a PR.
     """
     from cai_lib.dispatcher import (
-        dispatch_issue, dispatch_pr, dispatch_oldest_actionable,
+        dispatch_issue, dispatch_pr, dispatch_drain,
     )
     if getattr(args, "issue", None) is not None:
         return dispatch_issue(args.issue)
     if getattr(args, "pr", None) is not None:
         return dispatch_pr(args.pr)
-    return dispatch_oldest_actionable()
+    return dispatch_drain()
 
 
 
