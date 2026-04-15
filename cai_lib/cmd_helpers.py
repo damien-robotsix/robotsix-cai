@@ -147,6 +147,21 @@ def _build_attempt_history_block(attempts: list[dict]) -> str:
     return block
 
 
+def _extract_stored_plan(issue_body: str) -> str | None:
+    """Extract the stored plan from an issue body, or None if not present."""
+    start_marker = "<!-- cai-plan-start -->"
+    end_marker = "<!-- cai-plan-end -->"
+    start = issue_body.find(start_marker)
+    end = issue_body.find(end_marker)
+    if start == -1 or end == -1 or end <= start:
+        return None
+    content = issue_body[start + len(start_marker):end].strip()
+    heading = "## Selected Implementation Plan"
+    if content.startswith(heading):
+        content = content[len(heading):].strip()
+    return content if content else None
+
+
 def _strip_stored_plan_block(issue_body: str) -> str:
     """Remove an existing cai-plan block from the issue body, if present."""
     start_marker = "<!-- cai-plan-start -->"

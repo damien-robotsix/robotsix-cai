@@ -50,6 +50,7 @@ from cai_lib.cmd_helpers import (
     _setup_agent_edit_staging,
     _apply_agent_edit_staging,
     _build_attempt_history_block,
+    _extract_stored_plan,
 )
 from cai_lib.fsm import (
     apply_transition,
@@ -81,10 +82,6 @@ def _get_plan_for_fix(issue: dict) -> str | None:
     called after that gate, so the plan should always be present; the
     None branch is kept as a defensive WARNING rather than a hard abort.
     """
-    # Local import avoids a circular dependency: cai.py imports from
-    # this module once the dispatcher wires handle_implement in.
-    from cai import _extract_stored_plan
-
     plan = _extract_stored_plan(issue.get("body", ""))
     if plan:
         print(f"[cai implement] using stored plan from issue body ({len(plan)} chars)", flush=True)
@@ -284,10 +281,6 @@ def handle_implement(issue: dict) -> int:
     ``in_progress_to_pr``; on pre-screen ``spike`` / subagent "Needs
     Spike" marker we divert to ``:human-needed``.
     """
-    # Local import of _extract_stored_plan lives inside _get_plan_for_fix
-    # (circular-import guard).  Here we need it too for the pre-lock gate.
-    from cai import _extract_stored_plan
-
     issue_number = issue["number"]
     title = issue["title"]
     label_names = [lbl["name"] for lbl in issue.get("labels", [])]
