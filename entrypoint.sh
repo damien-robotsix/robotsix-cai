@@ -16,7 +16,7 @@
 #      - verify:         label-state reconciliation with GitHub
 #      - analyze:        parse own transcripts, raise findings as issues
 #      - audit:          periodic queue/PR consistency checks
-#      - audit-triage:   resolve audit:raised findings
+#      - audit-triage:   resolve auto-improve:raised + audit findings (unified label scheme)
 #      - code-audit:     periodic source code consistency checks
 #      - propose:        weekly creative improvement proposals
 #      - update-check:   periodic Claude Code release checks

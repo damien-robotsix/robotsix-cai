@@ -203,7 +203,7 @@ from cai_lib.github import (  # noqa: E402
     _set_labels, _set_pr_labels, _issue_has_label, _build_issue_block,
     _build_implement_user_message, _fetch_linked_issue_block,
 )
-from cai_lib.watchdog import _rollback_stale_in_progress  # noqa: E402
+from cai_lib.watchdog import _rollback_stale_in_progress, _migrate_audit_raised_labels  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.actions.confirm import (  # noqa: E402
     _parse_verdicts,
@@ -528,10 +528,9 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
             continue
         pr = _find_linked_pr(issue["number"])
         issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-        raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_RAISED
         remove_labels = [LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING]
         if pr is None:
-            if _set_labels(issue["number"], add=[raised_label], remove=remove_labels, log_prefix=log_prefix):
+            if _set_labels(issue["number"], add=[LABEL_RAISED], remove=remove_labels, log_prefix=log_prefix):
                 comment = (
                     "## Auto-improve: rolling back to :raised\n\n"
                     "No linked PR found for this `:pr-open` issue. "
@@ -552,8 +551,7 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
             continue
         state = (pr.get("state") or "").upper()
         if state == "CLOSED":
-            closed_raised_label = LABEL_AUDIT_RAISED if LABEL_AUDIT_RAISED in issue_labels else LABEL_REFINED
-            if _set_labels(issue["number"], add=[closed_raised_label], remove=remove_labels, log_prefix=log_prefix):
+            if _set_labels(issue["number"], add=[LABEL_REFINED], remove=remove_labels, log_prefix=log_prefix):
                 comment = (
                     "## Auto-improve: rolling back to :refined\n\n"
                     f"Linked PR #{pr['number']} was closed without merging. "
@@ -695,7 +693,7 @@ def cmd_verify(args) -> int:
         if LABEL_PR_OPEN in iss_labels:
             continue
         # Issue is open, has an open PR, but missing :pr-open — recover.
-        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED, LABEL_APPLYING, LABEL_APPLIED, LABEL_RAISED, LABEL_AUDIT_RAISED) if l in iss_labels]  # noqa: E741
+        remove = [l for l in (LABEL_IN_PROGRESS, LABEL_REFINED, LABEL_PLANNED, LABEL_PLAN_APPROVED, LABEL_APPLYING, LABEL_APPLIED, LABEL_RAISED) if l in iss_labels]  # noqa: E741
         if _set_labels(issue_num, add=[LABEL_PR_OPEN], remove=remove, log_prefix="cai verify"):
             print(
                 f"[cai verify] recovered #{issue_num}: added :pr-open "
@@ -1206,25 +1204,35 @@ def _parse_triage_verdicts(text: str) -> list[dict]:
 
 
 def cmd_audit_triage(args) -> int:
-    """Autonomously resolve `audit:raised` findings without opening a PR.
+    """Autonomously resolve audit findings labelled ``auto-improve:raised + audit``.
 
-    Calls a triage subagent that classifies each open `audit:raised`
-    issue as one of: close_duplicate, close_resolved, passthrough,
+    Transitional function: drains the unified ``auto-improve:raised`` queue
+    filtered to issues carrying the ``audit`` source tag.  Once the unified
+    ``cmd_triage`` function lands (a later step of #621), this function will
+    be retired and ``audit-triage`` remapped to ``cmd_triage``.
+
+    TODO(#621-step4): Delete this function once cmd_triage is merged and
+    remap the ``audit-triage`` subparser entry to ``cmd_triage``.
+
+    Calls a triage subagent that classifies each open audit issue
+    as one of: close_duplicate, close_resolved, passthrough,
     escalate. The wrapper then executes deterministically — only
     `close_*` verdicts at `high` confidence are acted on; everything
     else is left for the implement subagent or escalated to human triage
-    via the `audit:needs-human` label.
+    via the `auto-improve:human-needed` label.
 
-    Refs #193.
+    Refs #193, #621.
     """
     print("[cai audit-triage] running audit triage", flush=True)
     t0 = time.monotonic()
 
-    # 1. List `audit:raised` issues.
+    # 1. List open auto-improve:raised issues carrying the "audit" source tag.
+    #    Multiple --label flags act as an AND filter in gh issue list.
     try:
         raised_issues = _gh_json([
             "issue", "list", "--repo", REPO,
-            "--label", LABEL_AUDIT_RAISED,
+            "--label", LABEL_RAISED,
+            "--label", "audit",
             "--state", "open",
             "--json", "number,title,labels,body,createdAt,updatedAt",
             "--limit", "100",
@@ -1239,7 +1247,7 @@ def cmd_audit_triage(args) -> int:
 
     if not raised_issues:
         print(
-            "[cai audit-triage] no audit:raised issues; nothing to do",
+            "[cai audit-triage] no auto-improve:raised audit issues; nothing to do",
             flush=True,
         )
         log_run("audit-triage", repo=REPO, raised=0, closed_dup=0,
@@ -1247,7 +1255,7 @@ def cmd_audit_triage(args) -> int:
         return 0
 
     print(
-        f"[cai audit-triage] found {len(raised_issues)} audit:raised issue(s)",
+        f"[cai audit-triage] found {len(raised_issues)} auto-improve:raised audit issue(s)",
         flush=True,
     )
 
@@ -1295,7 +1303,7 @@ def cmd_audit_triage(args) -> int:
 
     # 3. Build the user message. System prompt, tool allowlist, and
     #    model (sonnet) all live in `.claude/agents/cai-audit-triage.md`.
-    raised_section = "## audit:raised issues to triage\n\n"
+    raised_section = "## audit issues to triage\n\n"
     for oi in raised_issues:
         labels = ", ".join(lbl["name"] for lbl in oi.get("labels", []))
         raised_section += (
@@ -1461,7 +1469,7 @@ def cmd_audit_triage(args) -> int:
                 f"**Reasoning:** {reason}\n\n"
                 "---\n"
                 "_The audit triage agent could not resolve this finding "
-                "autonomously. Re-labelled `audit:needs-human` for human "
+                "autonomously. Re-labelled `auto-improve:human-needed` for human "
                 "triage._"
             )
             _run(
@@ -1471,29 +1479,22 @@ def cmd_audit_triage(args) -> int:
             )
             _set_labels(
                 n,
-                add=[LABEL_AUDIT_NEEDS_HUMAN],
-                remove=[LABEL_AUDIT_RAISED],
+                add=[LABEL_HUMAN_NEEDED],
+                remove=[LABEL_RAISED],
                 log_prefix="cai audit-triage",
             )
             print(
-                f"[cai audit-triage] #{n}: escalated to audit:needs-human",
+                f"[cai audit-triage] #{n}: escalated to auto-improve:human-needed",
                 flush=True,
             )
             escalated += 1
 
         else:
-            # passthrough — relabel to auto-improve:raised so the refine
-            # subagent can structure it, then transition to :refined for
-            # the implement subagent (fix no longer selects audit:raised directly,
-            # ensuring all audit issues go through triage first).
-            _set_labels(
-                n,
-                add=[LABEL_RAISED],
-                remove=[LABEL_AUDIT_RAISED],
-                log_prefix="cai audit-triage",
-            )
+            # passthrough — issue already carries auto-improve:raised; the
+            # refine subagent will pick it up on the next cycle tick.
+            # No label change needed — audit source tag stays for filtering.
             print(
-                f"[cai audit-triage] #{n}: passthrough → auto-improve:raised "
+                f"[cai audit-triage] #{n}: passthrough (already auto-improve:raised) "
                 f"(action={action}, confidence={confidence})",
                 flush=True,
             )
@@ -2685,6 +2686,15 @@ def _cmd_cycle_inner(args) -> int:
     t0 = time.monotonic()
     all_results: dict[str, int] = {}
     had_failure = False
+
+    # Phase 0: idempotent migration — relabel any open audit:raised issues to
+    # auto-improve:raised + audit so they flow through the unified pipeline.
+    # Safe to call every cycle; exits immediately when there is nothing to do.
+    migrated = _migrate_audit_raised_labels()
+    if migrated:
+        nums = ", ".join(f"#{n}" for n in migrated)
+        print(f"[cai cycle] migrated {len(migrated)} audit:raised issue(s) to auto-improve:raised: {nums}",
+              flush=True)
 
     # Phase 1: restart recovery — force-rollback any stuck locks left
     # behind by a previous run that crashed mid-handler.

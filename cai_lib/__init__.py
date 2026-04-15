@@ -37,8 +37,6 @@ from cai_lib.config import (
     LABEL_REVISING,
     LABEL_PARENT,
     LABEL_MERGE_BLOCKED,
-    LABEL_AUDIT_RAISED,
-    LABEL_AUDIT_NEEDS_HUMAN,
     LABEL_PR_NEEDS_HUMAN,
     LABEL_PLANNED,
     LABEL_PLAN_APPROVED,
@@ -80,7 +78,7 @@ from cai_lib.github import (
     _build_implement_user_message,
 )
 
-from cai_lib.watchdog import _rollback_stale_in_progress
+from cai_lib.watchdog import _rollback_stale_in_progress, _migrate_audit_raised_labels
 
 from cai_lib.cmd_implement import _parse_decomposition
 
@@ -100,7 +98,7 @@ __all__ = [
     "LABEL_RAISED", "LABEL_IN_PROGRESS", "LABEL_PR_OPEN",
     "LABEL_MERGED", "LABEL_SOLVED", "LABEL_NO_ACTION",
     "LABEL_NEEDS_EXPLORATION", "LABEL_REFINED", "LABEL_REVISING", "LABEL_PARENT",
-    "LABEL_MERGE_BLOCKED", "LABEL_AUDIT_RAISED", "LABEL_AUDIT_NEEDS_HUMAN",
+    "LABEL_MERGE_BLOCKED",
     "LABEL_PR_NEEDS_HUMAN", "LABEL_PLANNED", "LABEL_PLAN_APPROVED",
     "LABEL_REFINING", "LABEL_PLANNING",
     "LABEL_APPLYING", "LABEL_APPLIED",
@@ -117,7 +115,7 @@ __all__ = [
     "_gh_json", "check_gh_auth", "check_claude_auth", "_transcript_dir_is_empty",
     "_set_labels", "_issue_has_label", "_build_issue_block", "_build_implement_user_message",
     # watchdog
-    "_rollback_stale_in_progress",
+    "_rollback_stale_in_progress", "_migrate_audit_raised_labels",
     # cmd_implement
     "_parse_decomposition",
     # fsm

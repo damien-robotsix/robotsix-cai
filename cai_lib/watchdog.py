@@ -21,7 +21,6 @@ from cai_lib.config import (
     LABEL_APPLYING,
     LABEL_RAISED,
     LABEL_REFINED,
-    LABEL_AUDIT_RAISED,
     _STALE_IN_PROGRESS_HOURS,
     _STALE_REVISING_HOURS,
     _STALE_APPLYING_HOURS,
@@ -130,17 +129,12 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
                     log_prefix="cai audit",
                 )
             else:
-                # In-progress lock: roll back to the appropriate label.
-                # Check originating label: audit-raised go back to
-                # :audit-raised; all others go back to :refined.
-                issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
-                if LABEL_AUDIT_RAISED in issue_labels:
-                    raised_label = LABEL_AUDIT_RAISED
-                else:
-                    raised_label = LABEL_REFINED
+                # In-progress lock: roll back to :refined.
+                # Audit-originated issues carry an "audit" source tag so they
+                # remain filterable; they no longer need a separate rollback path.
                 ok = _set_labels(
                     issue_num,
-                    add=[raised_label],
+                    add=[LABEL_REFINED],
                     remove=[LABEL_IN_PROGRESS],
                     log_prefix="cai audit",
                 )
@@ -160,3 +154,60 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
                 )
 
     return rolled_back
+
+
+def _migrate_audit_raised_labels() -> list[int]:
+    """Idempotent one-time migration: relabel open ``audit:raised`` issues.
+
+    Finds open issues that still carry the retired ``audit:raised`` label and
+    adds ``auto-improve`` + ``auto-improve:raised`` while removing
+    ``audit:raised``.  The ``audit`` source tag is left in place so
+    audit-originated issues remain filterable.
+
+    Safe to call on every cycle iteration — issues that have already been
+    migrated (no ``audit:raised`` label) are simply not returned by the
+    ``gh issue list`` query.
+
+    Returns the list of issue numbers that were migrated in this call.
+    """
+    try:
+        stale_issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", "audit:raised",
+            "--state", "open",
+            "--json", "number,title",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai migrate] gh issue list (audit:raised) failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        return []
+
+    if not stale_issues:
+        return []
+
+    migrated: list[int] = []
+    for issue in stale_issues:
+        n = issue["number"]
+        ok = _set_labels(
+            n,
+            add=["auto-improve", LABEL_RAISED],
+            remove=["audit:raised"],
+            log_prefix="cai migrate",
+        )
+        if ok:
+            migrated.append(n)
+            log_run(
+                "migrate",
+                action="audit_raised_migration",
+                issue=n,
+            )
+            print(
+                f"[cai migrate] #{n} migrated: audit:raised → auto-improve:raised + audit",
+                flush=True,
+            )
+
+    return migrated
