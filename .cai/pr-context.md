@@ -43,6 +43,20 @@ Refs: damien-robotsix/robotsix-cai#624
 - APPLYING is NOT in the dispatcher registry (test_dispatcher.py asserts this)
 - The BFS test (test_no_orphan_states) already passes because triaging_to_applying exists
 
+## Revision 2 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py`:2515 — removed unused `apply_transition` from `cmd_maintain` local import
+
+### Decisions this revision
+- `apply_transition` was imported but never called; only `apply_transition_with_confidence` and `parse_confidence` are used; removed to eliminate dead dependency
+
+### New gaps / deferred
+- none
+
 ## Revision 1 (2026-04-15)
 
 ### Rebase

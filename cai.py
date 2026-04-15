@@ -2513,7 +2513,6 @@ def cmd_maintain(args) -> int:
     """
     from cai_lib.cmd_helpers import _work_directory_block
     from cai_lib.fsm import (
-        apply_transition,
         apply_transition_with_confidence,
         parse_confidence,
     )
