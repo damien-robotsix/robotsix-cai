@@ -208,7 +208,7 @@ from cai_lib.github import (  # noqa: E402
     _set_labels, _set_pr_labels, _issue_has_label, _build_issue_block,
     _build_implement_user_message, _fetch_linked_issue_block,
 )
-from cai_lib.watchdog import _rollback_stale_in_progress, _migrate_audit_raised_labels  # noqa: E402
+from cai_lib.watchdog import _rollback_stale_in_progress, _migrate_audit_raised_labels, _migrate_check_workflows_raised  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.actions.confirm import (  # noqa: E402
     _parse_verdicts,
@@ -3211,6 +3211,15 @@ def cmd_health_report(args) -> int:
 def cmd_check_workflows(args) -> int:
     """Check GitHub Actions for recent workflow failures and raise findings."""
     print("[cai check-workflows] running workflow check", flush=True)
+    # Idempotent migration: relabel any open check-workflows:raised issues to
+    # auto-improve:raised + check-workflows so they flow through the unified pipeline.
+    migrated = _migrate_check_workflows_raised()
+    if migrated:
+        nums = ", ".join(f"#{n}" for n in migrated)
+        print(
+            f"[cai check-workflows] migrated {len(migrated)} check-workflows:raised issue(s) to auto-improve:raised: {nums}",
+            flush=True,
+        )
     t0 = time.monotonic()
 
     # 1. Fetch recent failed runs from GitHub Actions.
