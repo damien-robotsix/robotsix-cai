@@ -426,6 +426,23 @@ def handle_plan_gate(issue: dict) -> int:
         current_labels=[LABEL_PLANNED],
         log_prefix="cai plan",
     )
+    if not ok:
+        # Transition or divert refused (e.g. state drift, label-edit failure).
+        # Returning 0 here would leave the issue at :planned and cause the
+        # dispatcher to re-pick the same target every cycle (#657). Report
+        # failure so the cycle's worst_rc reflects the stall.
+        dur = f"{int(time.monotonic() - t0)}s"
+        conf_name = plan_confidence.name if plan_confidence else "MISSING"
+        print(
+            f"[cai plan] #{issue_number} gate refused — state did not advance",
+            file=sys.stderr,
+            flush=True,
+        )
+        log_run("plan", repo=REPO, issue=issue_number,
+                duration=dur, result="gate_refused",
+                confidence=conf_name, diverted=int(diverted),
+                exit=1)
+        return 1
     if diverted:
         # Append a pending marker so cai-unblock knows what we were
         # trying to do when the admin comments. Re-read the body so the
