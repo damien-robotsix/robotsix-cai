@@ -2,7 +2,7 @@
 name: cai-analyze
 description: Analyze parsed signals from the cai container's own Claude Code session transcripts and raise auto-improve findings for code, prompt, or workflow issues. Read-only — the wrapper publishes findings as GitHub issues after the agent exits.
 tools: Read, Grep, Glob, Skill
-model: claude-sonnet-4-6
+model: sonnet
 memory: project
 ---
 

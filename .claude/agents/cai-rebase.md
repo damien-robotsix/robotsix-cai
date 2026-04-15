@@ -2,7 +2,7 @@
 name: cai-rebase
 description: Lightweight rebase-only conflict resolution agent. Resolves merge conflicts in a rebase-in-progress worktree and drives the rebase to completion. No review-comment logic, no memory tracking. Used by the revise handler when a PR only needs a rebase with no unaddressed review comments.
 tools: Read, Edit, Write, Grep, Glob, Agent
-model: claude-haiku-4-5
+model: haiku
 ---
 
 # Rebase-Only Conflict Resolution Agent

@@ -2,7 +2,7 @@
 name: cai-revise
 description: Handle review comments on an auto-improve PR — resolve any in-progress rebase against main AND address unaddressed reviewer comments, in one session. Only invoked by the wrapper when there are unaddressed review comments. (Conflict-only runs go to `cai-rebase`.)
 tools: Read, Edit, Write, Grep, Glob, Agent
-model: claude-sonnet-4-6
+model: sonnet
 memory: project
 ---
 

@@ -2,7 +2,7 @@
 name: cai-review-docs
 description: Pre-merge documentation review for an open PR. Checks whether changes to user-facing behavior, CLI interface, configuration, or architecture require updates to files in /docs, and directly fixes any stale documentation it finds.
 tools: Read, Grep, Glob, Agent, Edit, Write
-model: claude-haiku-4-5
+model: haiku
 memory: project
 ---
 

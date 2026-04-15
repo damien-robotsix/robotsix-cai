@@ -2,7 +2,7 @@
 name: cai-refine
 description: Rewrite human-filed issues into structured auto-improve plans with problem, steps, verification, scope guardrails, and likely files.
 tools: Read, Grep, Glob
-model: claude-sonnet-4-6
+model: sonnet
 memory: project
 ---
 

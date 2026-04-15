@@ -1,8 +1,8 @@
 ---
 name: cai-audit-triage
-description: Triage `auto-improve:raised` + `audit` findings and emit structured verdicts (close_duplicate / close_resolved / passthrough / escalate). Inline-only — all the state (raised issues, other open issues, recent PRs) is provided in the user message. No tool use needed.
+description: Triage `auto-improve:raised` + `audit` findings and emit structured verdicts (close_duplicate / close_resolved / passthrough / escalate). Inline-only — all the state (raised issues, other open issues, recent PRs) is provided in the user message. Minimal tool use.
 tools: Read
-model: claude-sonnet-4-6
+model: sonnet
 memory: project
 ---
 

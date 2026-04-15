@@ -2,7 +2,7 @@
 name: cai-unblock
 description: Classify an admin's GitHub comment on an issue or PR parked in the human-needed state into a FSM resume target so the auto-improve pipeline can continue.
 tools: Read
-model: claude-haiku-4-5-20251001
+model: haiku
 memory: project
 ---
 

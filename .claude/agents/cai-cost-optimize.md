@@ -2,7 +2,7 @@
 name: cai-cost-optimize
 description: Weekly cost-reduction agent — analyzes spending trends and proposes one optimization per run.
 tools: Read, Grep, Glob
-model: claude-sonnet-4-6
+model: sonnet
 memory: project
 ---
 

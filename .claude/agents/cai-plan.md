@@ -2,7 +2,7 @@
 name: cai-plan
 description: Generate a detailed fix plan for an auto-improve issue. Read-only — examines the codebase and produces a structured plan that the fix agent will implement. First of two serial planners — the second receives this plan and proposes an alternative. Output is evaluated by cai-select.
 tools: Read, Grep, Glob, Agent
-model: claude-sonnet-4-6
+model: sonnet
 ---
 
 # Plan Generator

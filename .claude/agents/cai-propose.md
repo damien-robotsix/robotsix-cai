@@ -2,7 +2,7 @@
 name: cai-propose
 description: Weekly creative agent that explores the codebase and proposes ambitious improvements — from small wins to full architectural reworks.
 tools: Read, Grep, Glob
-model: claude-sonnet-4-6
+model: sonnet
 memory: project
 ---
 

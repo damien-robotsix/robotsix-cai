@@ -2,7 +2,7 @@
 name: cai-fix-ci
 description: Diagnose and fix failing CI checks on an open auto-improve PR. Receives a CI failure log section in the user message, identifies the root cause (test, lint, build, or type error), locates the relevant source in the clone, and makes the minimal targeted fix. Leaves edits uncommitted for the wrapper to commit and push.
 tools: Read, Edit, Write, Grep, Glob, Agent
-model: claude-sonnet-4-6
+model: sonnet
 memory: project
 ---
 
