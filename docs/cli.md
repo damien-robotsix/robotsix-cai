@@ -30,6 +30,12 @@ Clone the repo and run `cai-code-audit` to find concrete inconsistencies, dead c
 
 No arguments.
 
+## check-workflows
+
+Monitor GitHub Actions for recent workflow failures and publish findings as issues. Fetches recent failed workflow runs (last 24 hours), filters out bot branches, and runs a Haiku agent to identify and group related failures. Findings are published with the `check-workflows` namespace and integrated into the unified auto-improve pipeline.
+
+No arguments.
+
 ## cost-optimize
 
 Run the weekly `cai-cost-optimize` agent to analyze spending trends and propose one cost-reduction optimization.
