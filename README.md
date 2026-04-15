@@ -200,23 +200,28 @@ Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 `prompt_contradiction`, `topic_duplicate`, `silent_failure`, `forgotten_backlog`,
 `cost_outlier`, `workflow_anomaly`, `fix_loop_efficiency`.
 
-There are five exceptions to "report-only": stale lock rollback,
+There are six exceptions to "report-only": stale lock rollback,
 stale `:no-action` rollback, stale `:merged` flagging,
-orphaned-branch cleanup, and `:pr-open` recovery. Three lock types are
-rolled back: `:in-progress` issues after 6 hours with no recent fix
-activity, `:revising` issues after 1 hour with no recent revise
-activity, and `:applying` issues after 2 hours with no recent maintain
-activity — `:in-progress` and `:revising` are rolled back to `:refined`,
-while `:applying` is rolled back to `:raised`. Stale
-`:no-action` issues (7+ days) are rolled back to `:raised` so the `refine`
-agent (and subsequently the implement agent) can retry with new context. Stale `:merged` issues (14+ days)
-are flagged with `needs-human-review` since the automation cannot
-determine whether the fix worked. Additionally, remote `auto-improve/*`
+orphaned-branch cleanup, `:pr-open` recovery, and retroactive `:no-action`
+application. Three lock types are rolled back: `:in-progress` issues after
+6 hours with no recent fix activity, `:revising` issues after 1 hour with no
+recent revise activity, and `:applying` issues after 2 hours with no recent
+maintain activity — `:in-progress` and `:revising` are rolled back to
+`:refined`, while `:applying` is rolled back to `:raised`. Stale `:no-action`
+issues (7+ days) are rolled back to `:raised` so the `refine` agent (and
+subsequently the implement agent) can retry with new context. Stale `:merged`
+issues (14+ days) are flagged with `needs-human-review` since the automation
+cannot determine whether the fix worked. Additionally, remote `auto-improve/*`
 branches with no open PR — including branches for merged/closed PRs and
 branches pushed by the implement agent that never had a PR opened — are deleted
-automatically. Finally, `:pr-open` issues whose linked PR was closed without
-merging are rolled back to `:refined` to restart the refinement and planning
-cycle before a human can re-approve them for the implement subagent.
+automatically. `:pr-open` issues whose linked PR was closed without merging
+are rolled back to `:refined` to restart the refinement and planning cycle
+before a human can re-approve them for the implement subagent. Finally, recently
+closed `auto-improve` issues that lack a terminal label
+(`auto-improve:merged`, `auto-improve:no-action`, `auto-improve:solved`)
+are automatically tagged with `:no-action` — this covers issues closed manually
+by a human without going through the normal pipeline (e.g., superseded work,
+direct implementation).
 
 ### Comment-driven PR iteration
 

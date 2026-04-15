@@ -44,12 +44,17 @@ Subcommands:
 
     python cai.py audit     Periodic queue/PR consistency audit.
                             Deterministically rolls back stale
-                            `:in-progress` issues (>6h with no fix
-                            activity), then runs a Sonnet-driven
-                            semantic check for duplicates, stuck loops,
-                            label corruption, etc. Findings are
-                            published as `auto-improve:raised` + `audit`
-                            issues in the unified label scheme.
+                            `:in-progress` (>6h), `:revising` (>1h),
+                            and `:applying` (>2h) locks; unsticks stale
+                            `:no-action` issues; flags stale `:merged`
+                            issues; recovers `:pr-open` issues with closed
+                            PRs; cleans up orphaned branches; applies
+                            `:no-action` to closed issues lacking terminal
+                            labels; then runs a Sonnet-driven semantic
+                            check for duplicates, stuck loops, label
+                            corruption, etc. Findings are published as
+                            `auto-improve:raised` + `audit` issues in the
+                            unified label scheme.
 
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
