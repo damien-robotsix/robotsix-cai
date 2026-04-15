@@ -12,6 +12,7 @@
 | `.claude/agents/cai-code-audit.md` | Agent: read-only source tree audit for inconsistencies and dead code |
 | `.claude/agents/cai-confirm.md` | Agent: verify merged PRs actually resolved their issues |
 | `.claude/agents/cai-cost-optimize.md` | Agent: weekly cost-reduction analysis |
+| `.claude/agents/cai-dup-check.md` | Agent: cheap haiku pre-check for duplicate / already-resolved issues |
 | `.claude/agents/cai-explore.md` | Agent: autonomous exploration and benchmarking |
 | `.claude/agents/cai-fix-ci.md` | Agent: diagnose and fix failing CI checks on auto-improve PRs |
 | `.claude/agents/cai-git.md` | Agent: lightweight git operations subagent |
@@ -63,6 +64,7 @@
 | `cai_lib/cmd_unblock.py` | Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock) |
 | `cai_lib/config.py` | Shared constants and path definitions |
 | `cai_lib/dispatcher.py` | FSM dispatcher — routes issues/PRs to the handler registered for their state |
+| `cai_lib/dup_check.py` | Pre-triage duplicate / already-resolved check (calls cai-dup-check haiku subagent) |
 | `cai_lib/fsm.py` | FSM data structures + transition application helpers (Confidence enum, apply_transition, divert-to-human, pending markers) |
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
@@ -85,6 +87,7 @@
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
 | `tests/__init__.py` | Test package init |
 | `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
+| `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
