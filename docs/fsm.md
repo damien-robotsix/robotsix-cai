@@ -69,6 +69,7 @@ stateDiagram-v2
     CI_FAILING --> REBASING : ci_failing_to_rebasing [≥HIGH]
     REBASING --> REVIEWING_CODE : rebasing_to_reviewing_code [≥HIGH]
     REVIEWING_CODE --> PR_HUMAN_NEEDED : reviewing_code_to_human [≥HIGH]
+    APPROVED --> PR_HUMAN_NEEDED : approved_to_human [≥HIGH]
     PR_HUMAN_NEEDED --> REVIEWING_CODE : pr_human_to_reviewing_code [≥HIGH]
     PR_HUMAN_NEEDED --> REVISION_PENDING : pr_human_to_revision_pending [≥HIGH]
     PR_HUMAN_NEEDED --> REVIEWING_DOCS : pr_human_to_reviewing_docs [≥HIGH]
