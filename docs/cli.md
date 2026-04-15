@@ -18,12 +18,6 @@ Run the periodic queue/PR consistency audit: roll back stale `:in-progress` lock
 
 No arguments.
 
-## audit-triage
-
-Autonomously resolve `auto-improve:raised` + `audit` findings without opening a PR. Calls `cai-audit-triage` which classifies each finding as `close_duplicate`, `close_resolved`, `passthrough`, or `escalate`.
-
-No arguments.
-
 ## code-audit
 
 Clone the repo and run `cai-code-audit` to find concrete inconsistencies, dead code, and missing cross-file references.

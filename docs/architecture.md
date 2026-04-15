@@ -100,4 +100,4 @@ For review and planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-pr
 
 ### Read-only agents
 
-`cai-analyze`, `cai-audit`, `cai-audit-triage`, `cai-confirm`, `cai-cost-optimize`, `cai-merge`, `cai-refine` receive all context in their prompt or read the live repo without a dedicated clone. They emit structured output (findings, verdicts, label transitions) that the wrapper acts on deterministically.
+`cai-analyze`, `cai-audit`, `cai-confirm`, `cai-cost-optimize`, `cai-merge`, `cai-refine` receive all context in their prompt or read the live repo without a dedicated clone. They emit structured output (findings, verdicts, label transitions) that the wrapper acts on deterministically.

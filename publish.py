@@ -134,7 +134,6 @@ LABELS_TO_DELETE = [
     "pr:reviewed-accept",
     "pr:documented",
     # Retired audit-specific state labels — unified into auto-improve:raised + audit source tag.
-    # Migration: _migrate_audit_raised_labels in cai_lib/watchdog.py relabels existing issues.
     "audit:raised",
     "audit:needs-human",
     "audit:solved",

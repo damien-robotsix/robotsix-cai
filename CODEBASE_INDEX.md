@@ -6,7 +6,6 @@
 | File | Purpose |
 |------|---------|
 | `.claude/agents/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
-| `.claude/agents/cai-audit-triage.md` | Agent: triage `auto-improve:raised` + `audit` findings with structured verdicts |
 | `.claude/agents/cai-audit.md` | Agent: audit issue queue and lifecycle state machine |
 | `.claude/agents/cai-check-workflows.md` | Agent: analyze recent GitHub Actions workflow failures and emit structured findings |
 | `.claude/agents/cai-code-audit.md` | Agent: read-only source tree audit for inconsistencies and dead code |

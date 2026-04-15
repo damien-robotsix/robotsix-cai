@@ -78,7 +78,7 @@ from cai_lib.github import (
     _build_implement_user_message,
 )
 
-from cai_lib.watchdog import _rollback_stale_in_progress, _migrate_audit_raised_labels
+from cai_lib.watchdog import _rollback_stale_in_progress
 
 from cai_lib.cmd_implement import _parse_decomposition
 
@@ -115,7 +115,7 @@ __all__ = [
     "_gh_json", "check_gh_auth", "check_claude_auth", "_transcript_dir_is_empty",
     "_set_labels", "_issue_has_label", "_build_issue_block", "_build_implement_user_message",
     # watchdog
-    "_rollback_stale_in_progress", "_migrate_audit_raised_labels",
+    "_rollback_stale_in_progress",
     # cmd_implement
     "_parse_decomposition",
     # fsm
