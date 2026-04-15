@@ -44,22 +44,51 @@ def handle_review_docs(pr: dict) -> int:
 
     print(f"[cai review-docs] targeting PR #{pr_number}: {title}", flush=True)
 
-    # Idempotency: skip if we already posted a docs review for this SHA.
-    for comment in pr.get("comments", []):
+    # Idempotency: if we already posted a docs review for this SHA, advance
+    # the FSM based on the cached outcome instead of re-running the agent.
+    # Walk comments newest-first so the most recent verdict for this SHA wins.
+    for comment in reversed(pr.get("comments", [])):
         body = (comment.get("body") or "")
         first_line = body.split("\n", 1)[0]
-        if (
+        if not (
             first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_PREFIX)
             and head_sha in first_line
         ):
+            continue
+        if first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_CLEAN):
+            # Prior run reviewed cleanly but failed to advance state.
+            # Apply the transition the fresh-run path would have applied.
             print(
-                f"[cai review-docs] PR #{pr_number}: already reviewed at "
-                f"{head_sha[:8]}; skipping",
+                f"[cai review-docs] PR #{pr_number}: cached clean review at "
+                f"{head_sha[:8]} — advancing to APPROVED",
                 flush=True,
             )
+            apply_pr_transition(
+                pr_number, "reviewing_docs_to_approved",
+                log_prefix="cai review-docs",
+            )
             log_run("review_docs", repo=REPO, pr=pr_number,
-                    result="already_reviewed", exit=0)
+                    result="cached_clean_advanced", exit=0)
             return 0
+        if first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_APPLIED):
+            # A docs-fix push happened at this SHA; the new code needs
+            # re-review. Bounce back to REVIEWING_CODE so the next tick
+            # picks up handle_review_pr.
+            print(
+                f"[cai review-docs] PR #{pr_number}: cached applied-fix at "
+                f"{head_sha[:8]} — bouncing to REVIEWING_CODE",
+                flush=True,
+            )
+            apply_pr_transition(
+                pr_number, "reviewing_docs_to_reviewing_code",
+                log_prefix="cai review-docs",
+            )
+            log_run("review_docs", repo=REPO, pr=pr_number,
+                    result="cached_applied_bounced", exit=0)
+            return 0
+        # Heading prefix matched but suffix is unfamiliar — fall through
+        # to a fresh review rather than guess.
+        break
 
     # State gate (defensive — dispatcher should already have verified).
     if get_pr_state(pr) != PRState.REVIEWING_DOCS:
