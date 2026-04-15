@@ -110,6 +110,7 @@ LABELS = [
     ("pr:revision-pending", "d93f0b", "Code review posted findings; revise needed"),
     ("pr:reviewing-docs",   "0075ca", "Code clean; in docs review (cai-review-docs)"),
     ("pr:approved",         "0e8a16", "Docs reviewed clean; ready for merge handler"),
+    ("pr:rebasing",         "fbca04", "PR has merge conflicts with main; cai-rebase will attempt a rebase"),
     ("pr:ci-failing",       "e11d48", "CI is red; cai-fix-ci will attempt a repair"),
     ("category:reliability", "d73a4a", "Errors, failures, flaky behavior"),
     ("category:cost_reduction", "fbca04", "Token waste, unnecessary tool calls"),

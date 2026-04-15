@@ -47,6 +47,7 @@ class TestActionableStateSets(unittest.TestCase):
             PRState.REVISION_PENDING,
             PRState.REVIEWING_DOCS,
             PRState.APPROVED,
+            PRState.REBASING,
             PRState.CI_FAILING,
         }
         self.assertEqual(dispatcher.actionable_pr_states(), expected)
@@ -174,6 +175,71 @@ class TestDispatchPR(unittest.TestCase):
             rc = dispatcher.dispatch_pr(99)
         self.assertEqual(rc, 0)
         handler.assert_not_called()
+
+    def test_conflicting_pr_diverts_to_rebase(self):
+        """mergeable=CONFLICTING overrides the pipeline label and routes to handle_rebase."""
+        pr = _pr(99, "pr:reviewing-code")
+        pr["mergeable"] = "CONFLICTING"
+        rebase_handler = MagicMock(return_value=0)
+        rebase_handler.__name__ = "handle_rebase"
+        review_handler = MagicMock(return_value=0)
+        review_handler.__name__ = "handle_review_pr"
+        registry = {PRState.REVIEWING_CODE: review_handler}
+        applied: list[tuple[int, str]] = []
+
+        def fake_apply_pr_transition(pr_number, transition_name, **kw):
+            applied.append((pr_number, transition_name))
+            return True
+
+        with patch.object(dispatcher, "_gh_json", return_value=pr), \
+             patch.object(dispatcher, "_pr_registry", return_value=registry), \
+             patch("cai_lib.fsm.apply_pr_transition",
+                   side_effect=fake_apply_pr_transition), \
+             patch("cai_lib.actions.rebase.handle_rebase",
+                   side_effect=rebase_handler):
+            rc = dispatcher.dispatch_pr(99)
+
+        self.assertEqual(rc, 0)
+        review_handler.assert_not_called()
+        rebase_handler.assert_called_once_with(pr)
+        self.assertEqual(applied, [(99, "reviewing_code_to_rebasing")])
+
+    def test_dirty_merge_state_diverts_to_rebase(self):
+        """mergeStateStatus=DIRTY also triggers the rebase divert."""
+        pr = _pr(99, "pr:approved")
+        pr["mergeable"] = "MERGEABLE"
+        pr["mergeStateStatus"] = "DIRTY"
+        rebase_handler = MagicMock(return_value=0)
+        rebase_handler.__name__ = "handle_rebase"
+        merge_handler = MagicMock(return_value=0)
+        merge_handler.__name__ = "handle_merge"
+        registry = {PRState.APPROVED: merge_handler}
+
+        with patch.object(dispatcher, "_gh_json", return_value=pr), \
+             patch.object(dispatcher, "_pr_registry", return_value=registry), \
+             patch("cai_lib.fsm.apply_pr_transition", return_value=True), \
+             patch("cai_lib.actions.rebase.handle_rebase",
+                   side_effect=rebase_handler):
+            rc = dispatcher.dispatch_pr(99)
+
+        self.assertEqual(rc, 0)
+        merge_handler.assert_not_called()
+        rebase_handler.assert_called_once_with(pr)
+
+    def test_rebasing_state_does_not_re_divert(self):
+        """A PR already at REBASING runs handle_rebase normally without re-applying entry transition."""
+        pr = _pr(99, "pr:rebasing")
+        pr["mergeable"] = "CONFLICTING"
+        rebase_handler = MagicMock(return_value=0)
+        rebase_handler.__name__ = "handle_rebase"
+        registry = {PRState.REBASING: rebase_handler}
+
+        with patch.object(dispatcher, "_gh_json", return_value=pr), \
+             patch.object(dispatcher, "_pr_registry", return_value=registry):
+            rc = dispatcher.dispatch_pr(99)
+
+        self.assertEqual(rc, 0)
+        rebase_handler.assert_called_once_with(pr)
 
 
 # ---------------------------------------------------------------------------

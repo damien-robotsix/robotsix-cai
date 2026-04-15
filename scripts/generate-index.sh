@@ -63,6 +63,7 @@ declare -A DESCRIPTIONS=(
   ["cai_lib/actions/implement.py"]="Handler for IssueState.PLAN_APPROVED / IN_PROGRESS — runs cai-implement"
   ["cai_lib/actions/merge.py"]="Handler for PRState.APPROVED — final merge step"
   ["cai_lib/actions/open_pr.py"]="Handler for PRState.OPEN — tags a fresh PR into :reviewing-code"
+  ["cai_lib/actions/rebase.py"]="Handler for PRState.REBASING — runs cai-rebase, posts outcome comment, bounces to REVIEWING_CODE"
   ["cai_lib/actions/plan.py"]="Handler for IssueState.REFINED / PLANNING / PLANNED — runs cai-plan + confidence gate"
   ["cai_lib/actions/pr_bounce.py"]="Handler for IssueState.PR — dispatches the linked PR"
   ["cai_lib/actions/refine.py"]="Handler for IssueState.REFINING — runs cai-refine"
