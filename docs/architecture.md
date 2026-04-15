@@ -66,20 +66,21 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 
 ## The Cycle Command
 
-`cai cycle` is one tick of the dispatcher loop. The implementation is deliberately minimal:
+`cai cycle` is one tick of the dispatcher loop. The implementation has three phases:
 
-1. **Restart recovery** — roll back `:in-progress` and `:revising` locks past their stale-timeout.
+1. **Restart recovery** — roll back `:in-progress`, `:revising`, and `:applying` locks past their stale-timeout.
 2. **Drain** — call `dispatch_drain()`, which loops `pick oldest actionable → dispatch handler` until the queue is empty (no more issues/PRs in any handler-backed state). A `max_iter=50` cap is the sole loop backstop — handlers that return nonzero or raise are added to a per-drain skip set so one bad target can't stall the queue. The cron interval is the wall-clock rate limit and the flock prevents overlapping ticks.
+3. **Maintenance apply** — if any `:applying` issues remain (transient state during maintenance operations), call `cai maintain` to drain them by executing the declared operations and transitioning to `:applied` or `:human-needed` based on Confidence.
 
 A flock serializes overlapping runs so two cron ticks cannot dispatch the same item concurrently.
 
-Verify (`cai verify`) and audit (`cai audit`) are **independent cron jobs** — they run on their own schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`) rather than inside the cycle. Verify syncs label state with actual PR/issue state (merged → `:merged`, closed → `:raised`, etc.); audit runs the queue/PR consistency audit.
+Verify (`cai verify`) and audit (`cai audit`) are **independent cron jobs** — they run on their own schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`) rather than inside the cycle. Verify syncs label state with actual PR/issue state (merged → `:merged`, closed → `:raised`, etc.); audit runs the queue/PR consistency audit. Maintain operations (Phase 3) are drained within the cycle rather than on a separate schedule because they are transient states that should unblock quickly.
 
 ## Agent Execution Modes
 
 ### Worktree agents
 
-`cai-code-audit`, `cai-implement`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-rebase`, `cai-review-docs`, `cai-review-pr`, `cai-revise`, `cai-select`, `cai-update-check` run in a **fresh git worktree clone**. The wrapper clones the repo and passes the clone path as the agent's work directory. The agent itself never runs `git push` or `gh` — the wrapper owns all remote state.
+`cai-code-audit`, `cai-implement`, `cai-git`, `cai-maintain`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-rebase`, `cai-review-docs`, `cai-review-pr`, `cai-revise`, `cai-select`, `cai-update-check` run in a **fresh git worktree clone**. The wrapper clones the repo and passes the clone path as the agent's work directory. The agent itself never runs `git push` or `gh` — the wrapper owns all remote state.
 
 For code-editing agents (`cai-implement`, `cai-revise`, `cai-rebase`), the wrapper also:
 - Creates an isolated branch (`auto-improve/<issue>-<slug>`)
@@ -89,6 +90,8 @@ For code-editing agents (`cai-implement`, `cai-revise`, `cai-rebase`), the wrapp
 For review and planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-pr`, `cai-select`, `cai-update-check`), the clone provides read access to the full repo tree; these agents emit structured output (findings, plans, verdicts) that the wrapper acts on deterministically — no commit or PR is created.
 
 `cai-review-docs` is a special review agent that can edit documentation: it has `Edit` and `Write` tools to fix stale docs directly, and the wrapper automatically commits and pushes any changes to the same PR branch (not to a new isolated branch).
+
+`cai-maintain` is a maintenance agent that executes operations (label mutations, bulk-close, workflow YAML edits) declared in the `Ops:` block of a `kind:maintenance` issue. It runs `gh` CLI commands to perform administrative tasks and emits a Confidence level for transition gating.
 
 ### Clone agents
 

@@ -62,8 +62,8 @@ a soft `forgotten_backlog` finding with **low** confidence as a gentle
 reminder. This is distinct from `stale_lifecycle`, which applies only
 to issues that have entered an active state.
 
-Active states (`:raised`, `:refined`, `:planned`, `auto-improve:plan-approved`, `:in-progress`, `:pr-open`,
-`:merged`, `:no-action`, `:revising`) should continue to be checked
+Active states (`:raised`, `:triaging`, `:refined`, `:planned`, `auto-improve:plan-approved`, `:in-progress`, `:pr-open`,
+`:merged`, `:no-action`, `:revising`, `:applying`, `:applied`) should continue to be checked
 normally against all the rules below. (Note: stale `:no-action`
 issues are rolled back to `:raised` before the LLM audit runs, and
 stale `:merged` issues are flagged with `needs-human-review`.)
@@ -109,11 +109,12 @@ quiet run, but the same line right after analyzer output containing
 `### Finding:` blocks is a real failure.
 
 **Note:** stale lock rollback is handled deterministically before you
-run — you will NOT see stale `:in-progress` (6-hour TTL) or
-`:revising` (1-hour TTL) issues. If a rollback happened, it will
-appear in the log tail as an `[audit] action=stale_lock_rollback`
-line. The issue is rolled back to `:refined` (since it has already
-passed through refine).
+run — you will NOT see stale `:in-progress` (6-hour TTL),
+`:revising` (1-hour TTL), or `:applying` (2-hour TTL) issues. If a
+rollback happened, it will appear in the log tail as an `[audit]
+action=stale_lock_rollback` line. `:in-progress` and `:revising`
+issues are rolled back to `:refined`; `:applying` issues are rolled
+back to `:raised`.
 
 **Note:** branch cleanup is also handled deterministically before you
 run — all remote `auto-improve/*` branches with no open PR are deleted

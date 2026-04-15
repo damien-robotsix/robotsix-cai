@@ -135,6 +135,15 @@ Subcommands:
                             `check-workflows` namespace. Runs every 6 hours
                             by default (CAI_CHECK_WORKFLOWS_SCHEDULE).
 
+    python cai.py maintain  Apply ops from the oldest
+                            `auto-improve:applying` issue (kind:maintenance).
+                            Clones the repo into /tmp, invokes the
+                            cai-maintain subagent (limited tool set) to
+                            execute declared operations (label mutations,
+                            bulk-close, workflow YAML edits), and transitions
+                            the issue based on Confidence: HIGH → `:applied`,
+                            anything else → `:human-needed`.
+
 The container runs `entrypoint.sh`, which executes `cai.py cycle` once
 synchronously at startup (driving the full issue-solving pipeline:
 verify → confirm → drain PRs → refine → plan → implement loop), then hands
@@ -2487,6 +2496,143 @@ def cmd_update_check(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# maintain — apply Ops from kind:maintenance issues in :applying state
+# ---------------------------------------------------------------------------
+
+
+def cmd_maintain(args) -> int:
+    """Apply declared ops from the oldest ``auto-improve:applying`` issue.
+
+    The issue carries an ``Ops:`` block written by the triage pipeline.
+    ``cai-maintain`` reads the block, executes each op via the ``gh`` CLI
+    (label mutations, bulk-close, workflow YAML edits), and emits a
+    ``Confidence: HIGH|MEDIUM|LOW`` line. HIGH → ``:applied``; anything
+    else → ``:human-needed``.
+
+    APPLYING itself is the lock (no separate in-progress label).
+    """
+    from cai_lib.cmd_helpers import _work_directory_block
+    from cai_lib.fsm import (
+        apply_transition_with_confidence,
+        parse_confidence,
+    )
+
+    print("[cai maintain] starting maintenance apply step", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Find the oldest APPLYING issue.
+    issue_number = getattr(args, "issue", None)
+    if issue_number is not None:
+        try:
+            issues = _gh_json([
+                "issue", "view", str(issue_number),
+                "--repo", REPO,
+                "--json", "number,title,body,labels,createdAt",
+            ])
+            issues = [issues] if issues else []
+        except subprocess.CalledProcessError as e:
+            print(f"[cai maintain] gh issue view failed:\n{e.stderr}",
+                  file=sys.stderr)
+            log_run("maintain", repo=REPO, exit=1)
+            return 1
+    else:
+        try:
+            issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", LABEL_APPLYING,
+                "--state", "open",
+                "--json", "number,title,body,labels,createdAt",
+                "--limit", "1",
+                "--sort", "created",
+                "--order", "asc",
+            ]) or []
+        except subprocess.CalledProcessError as e:
+            print(f"[cai maintain] gh issue list failed:\n{e.stderr}",
+                  file=sys.stderr)
+            log_run("maintain", repo=REPO, exit=1)
+            return 1
+
+    if not issues:
+        print("[cai maintain] no auto-improve:applying issues; nothing to do",
+              flush=True)
+        log_run("maintain", repo=REPO, applying=0, exit=0)
+        return 0
+
+    issue = issues[0]
+    issue_number = issue["number"]
+    title = issue["title"]
+    print(f"[cai maintain] picked #{issue_number}: {title}", flush=True)
+
+    # 2. Clone the repo so the agent can edit workflow files if needed.
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-maintain-{issue_number}-{_uid}")
+
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+
+    _run(["gh", "auth", "setup-git"], capture_output=True)
+    clone = _run(
+        ["git", "clone", "--depth", "1",
+         f"https://github.com/{REPO}.git", str(work_dir)],
+        capture_output=True,
+    )
+    if clone.returncode != 0:
+        print(f"[cai maintain] git clone failed:\n{clone.stderr}",
+              file=sys.stderr)
+        log_run("maintain", repo=REPO, issue=issue_number,
+                result="clone_failed", exit=1)
+        return 1
+
+    # 3. Run the cai-maintain agent.
+    user_message = _work_directory_block(work_dir) + "\n" + _build_issue_block(issue)
+    print(f"[cai maintain] running cai-maintain agent for #{issue_number}",
+          flush=True)
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-maintain",
+         "--dangerously-skip-permissions",
+         "--add-dir", str(work_dir)],
+        category="maintain",
+        agent="cai-maintain",
+        input=user_message,
+        cwd="/app",
+        timeout=1800,
+    )
+    if result.stdout:
+        print(result.stdout, flush=True)
+    shutil.rmtree(work_dir, ignore_errors=True)
+
+    if result.returncode != 0:
+        print(
+            f"[cai maintain] agent failed (exit {result.returncode}):\n"
+            f"{result.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("maintain", repo=REPO, issue=issue_number,
+                result="agent_failed", duration=dur, exit=result.returncode)
+        return result.returncode
+
+    # 4. Parse confidence and apply FSM transition.
+    confidence = parse_confidence(result.stdout)
+    issue_labels = [lbl["name"] for lbl in issue.get("labels", [])]
+    ok, diverted = apply_transition_with_confidence(
+        issue_number,
+        "applying_to_applied",
+        confidence,
+        current_labels=issue_labels,
+        log_prefix="cai maintain",
+    )
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    outcome = "diverted_to_human" if diverted else ("applied" if ok else "failed")
+    log_run("maintain", repo=REPO, issue=issue_number,
+            confidence=str(confidence), result=outcome, duration=dur,
+            exit=0 if ok else 1)
+    return 0 if ok else 1
+
+
+# ---------------------------------------------------------------------------
 # Cycle (full pipeline without analyze)
 # ---------------------------------------------------------------------------
 
@@ -2548,11 +2694,53 @@ def _cmd_cycle_inner(args) -> int:
         print(f"[cai cycle] recovered {len(rolled_back)} stale lock(s): {nums}",
               flush=True)
 
+    # Phase 1.5: deterministic drain — advance :applied issues to :solved
+    # without an agent (maintenance ops are already done; this is bookkeeping).
+    from cai_lib.fsm import apply_transition as _apply_transition
+    try:
+        applied_issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_APPLIED,
+            "--state", "open",
+            "--json", "number,labels",
+            "--limit", "100",
+        ]) or []
+    except Exception:
+        applied_issues = []
+    for _ai in applied_issues:
+        _ai_labels = [lbl["name"] for lbl in _ai.get("labels", [])]
+        _apply_transition(
+            _ai["number"], "applied_to_solved",
+            current_labels=_ai_labels,
+            log_prefix="cai cycle",
+        )
+        print(f"[cai cycle] advanced #{_ai['number']} :applied → :solved",
+              flush=True)
+
     # Phase 2: dispatch a single actionable issue/PR via the FSM dispatcher.
     rc = _run_step("dispatch", lambda _a: dispatch_drain(), args)
     all_results["dispatch"] = rc
     if rc != 0:
         had_failure = True
+
+    # Phase 3: maintenance apply — drain :applying issues via cmd_maintain.
+    try:
+        applying_issues = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_APPLYING,
+            "--state", "open",
+            "--json", "number",
+            "--limit", "1",
+        ]) or []
+    except Exception:
+        applying_issues = []
+    if applying_issues:
+        rc = _run_step("maintain", cmd_maintain, args)
+        all_results["maintain"] = rc
+        if rc != 0:
+            had_failure = True
 
     dur = f"{time.monotonic() - t0:.1f}s"
     summary = " ".join(f"{k}={v}" for k, v in all_results.items())
@@ -3118,6 +3306,15 @@ def main() -> int:
     sub.add_parser("cycle", help="One cycle tick: verify, audit, dispatch one actionable issue/PR")
     sub.add_parser("test", help="Run the project test suite")
 
+    maintain_parser = sub.add_parser(
+        "maintain",
+        help="Apply ops from the oldest auto-improve:applying issue (kind:maintenance)",
+    )
+    maintain_parser.add_argument(
+        "--issue", type=int, default=None,
+        help="Target a specific issue by number (default: oldest :applying)",
+    )
+
     cost_parser = sub.add_parser(
         "cost-report",
         help="Print a human-readable cost report from the cost log",
@@ -3172,6 +3369,7 @@ def main() -> int:
         "health-report": cmd_health_report,
         "cost-optimize": cmd_cost_optimize,
         "check-workflows": cmd_check_workflows,
+        "maintain": cmd_maintain,
         "test": cmd_test,
     }
     return handlers[args.command](args)

@@ -1,9 +1,9 @@
 """cai_lib.watchdog — stale-lock recovery for the auto-improve pipeline.
 
 Contains the single deterministic watchdog that rolls back issues whose
-``:in-progress`` or ``:revising`` lock has outlived its TTL (or every
-such issue on container restart). The FSM in :mod:`cai_lib.fsm` is the
-source of truth for issue state; this module is the paranoia backstop
+``:in-progress``, ``:revising``, or ``:applying`` lock has outlived its TTL
+(or every such issue on container restart). The FSM in :mod:`cai_lib.fsm`
+is the source of truth for issue state; this module is the paranoia backstop
 that un-sticks locks a crashed driver left behind.
 """
 
@@ -18,17 +18,20 @@ from cai_lib.config import (
     LOG_PATH,
     LABEL_IN_PROGRESS,
     LABEL_REVISING,
+    LABEL_APPLYING,
+    LABEL_RAISED,
     LABEL_REFINED,
     LABEL_AUDIT_RAISED,
     _STALE_IN_PROGRESS_HOURS,
     _STALE_REVISING_HOURS,
+    _STALE_APPLYING_HOURS,
 )
 from cai_lib.github import _gh_json, _set_labels
 from cai_lib.logging_utils import log_run
 
 
 def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
-    """Deterministic rollback: :in-progress or :revising issues with no recent activity.
+    """Deterministic rollback: :in-progress, :revising, or :applying issues with no recent activity.
 
     When ``immediate=True`` every locked issue is rolled back regardless of age
     (used by ``cmd_cycle`` on container restart where all in-flight locks are
@@ -37,7 +40,7 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
     Returns the list of issues that were rolled back.
     """
     all_issues = []
-    for lock_label in (LABEL_IN_PROGRESS, LABEL_REVISING):
+    for lock_label in (LABEL_IN_PROGRESS, LABEL_REVISING, LABEL_APPLYING):
         try:
             issues = _gh_json([
                 "issue", "list",
@@ -62,7 +65,7 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
 
     issues = all_issues
 
-    # Read the log tail to find the most recent [fix] line per issue.
+    # Read the log tail to find the most recent [fix], [revise], or [maintain] line per issue.
     fix_timestamps: dict[int, float] = {}
     if LOG_PATH.exists():
         try:
@@ -70,7 +73,7 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
         except Exception:
             lines = []
         for line in lines:
-            if "[fix]" not in line and "[revise]" not in line:
+            if "[fix]" not in line and "[revise]" not in line and "[maintain]" not in line:
                 continue
             # Extract issue number from "issue=<N>"
             m = re.search(r"issue=(\d+)", line)
@@ -94,7 +97,12 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
     for issue in issues:
         issue_num = issue["number"]
         lock_label = issue.get("_lock_label", LABEL_IN_PROGRESS)
-        ttl_hours = _STALE_REVISING_HOURS if lock_label == LABEL_REVISING else _STALE_IN_PROGRESS_HOURS
+        if lock_label == LABEL_REVISING:
+            ttl_hours = _STALE_REVISING_HOURS
+        elif lock_label == LABEL_APPLYING:
+            ttl_hours = _STALE_APPLYING_HOURS
+        else:
+            ttl_hours = _STALE_IN_PROGRESS_HOURS
         threshold = 0 if immediate else ttl_hours * 3600
         last_fix = fix_timestamps.get(issue_num)
         if last_fix is not None:
@@ -113,6 +121,14 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
             if lock_label == LABEL_REVISING:
                 # Revising lock: just remove the lock, leave :pr-open.
                 ok = _set_labels(issue_num, remove=[LABEL_REVISING], log_prefix="cai audit")
+            elif lock_label == LABEL_APPLYING:
+                # Applying lock: roll back to :raised (no provenance check needed).
+                ok = _set_labels(
+                    issue_num,
+                    add=[LABEL_RAISED],
+                    remove=[LABEL_APPLYING],
+                    log_prefix="cai audit",
+                )
             else:
                 # In-progress lock: roll back to the appropriate label.
                 # Check originating label: audit-raised go back to
