@@ -31,7 +31,7 @@ Handler registry (PR states):
 
 Terminal / parked states (`SOLVED`, `HUMAN_NEEDED`, `PR_HUMAN_NEEDED`, PR `MERGED`) have no handler; the dispatcher returns without doing anything.
 
-Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised`. Low-confidence planner outcomes still park at `:human-needed`, and an admin's comment is still resumed via `cai unblock`.
+Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised`. Low-confidence planner outcomes still park at `:human-needed`; the admin resolves the issue in comments and then applies the `human:solved` label, which `cai unblock` picks up to resume the FSM.
 
 ## Lifecycle Labels
 

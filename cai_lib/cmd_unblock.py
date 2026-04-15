@@ -1,10 +1,20 @@
-"""cai_lib.cmd_unblock — admin-comment-driven FSM resume.
+"""cai_lib.cmd_unblock — label-gated FSM resume.
 
-Scans issues parked at ``auto-improve:human-needed``. For each one
-carrying a pending-transition marker and at least one admin comment,
-invokes the ``cai-unblock`` Haiku agent to classify the admin's reply
-into a resume target, then fires the matching ``human_to_<state>``
-transition via :func:`cai_lib.fsm.apply_transition`.
+Scans issues parked at ``auto-improve:human-needed`` that the admin
+has marked ready for resume by applying the ``human:solved`` label.
+Picking up on the *label* (rather than any fresh admin comment) means:
+
+- An admin can discuss or ask questions on the issue without the
+  automation prematurely deciding the divert is resolved.
+- The resume loop skips parked issues entirely until the admin opts in,
+  so we don't re-run the classifier every cycle on every open
+  :human-needed issue.
+
+For each gated issue carrying a pending-transition marker, invokes the
+``cai-unblock`` Haiku agent to classify the admin's reply into a resume
+target, fires the matching ``human_to_<state>`` transition via
+:func:`cai_lib.fsm.apply_transition`, and finally removes the
+``human:solved`` label so the signal is one-shot.
 
 PR-side unblock (``auto-improve:pr-human-needed``) is handled in a
 follow-up — the PR submachine needs a PR-labelling counterpart to
@@ -20,6 +30,7 @@ from typing import Optional
 from cai_lib.config import (
     REPO,
     LABEL_HUMAN_NEEDED,
+    LABEL_HUMAN_SOLVED,
     is_admin_login,
 )
 from cai_lib.fsm import (
@@ -31,18 +42,25 @@ from cai_lib.fsm import (
     resume_transition_for,
     strip_pending_marker,
 )
-from cai_lib.github import _gh_json
+from cai_lib.github import _gh_json, _set_labels
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run, _run_claude_p
 
 
 def _list_human_needed_issues() -> list[dict]:
-    """Return open issues labelled ``auto-improve:human-needed``."""
+    """Return open issues parked at ``:human-needed`` that the admin has
+    marked ready for resume via ``human:solved``.
+
+    Passing ``--label`` twice to ``gh issue list`` ANDs the filters, so
+    we only get issues that carry BOTH labels. Everything else stays
+    parked and is ignored by this pass.
+    """
     try:
         return _gh_json([
             "issue", "list",
             "--repo", REPO,
             "--label", LABEL_HUMAN_NEEDED,
+            "--label", LABEL_HUMAN_SOLVED,
             "--state", "open",
             "--json", "number,title,body,labels,updatedAt,comments",
             "--limit", "100",
@@ -126,10 +144,11 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
 
     Result tags (used for logging):
       - ``"no_marker"``        — no pending marker in body, left parked
-      - ``"no_admin_comment"`` — no admin has commented yet
+      - ``"no_admin_comment"`` — ``human:solved`` applied but no admin
+        comment yet — the classifier has nothing to read
       - ``"low_confidence"``   — agent's Confidence < HIGH, left parked
       - ``"no_target"``        — agent emitted no valid ResumeTo target
-      - ``"resumed"``          — transition fired, marker cleared
+      - ``"resumed"``          — transition fired, marker + solved label cleared
       - ``"agent_failed"``     — claude invocation returned non-zero
     """
     issue_number = issue["number"]
@@ -140,6 +159,10 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
 
     admin_comments = _extract_admin_comments(issue)
     if not admin_comments:
+        # Admin applied human:solved without leaving any comment. The
+        # classifier would have nothing to read, so leave the issue parked
+        # rather than guess. The label stays on so we retry once a comment
+        # lands.
         return "no_admin_comment"
 
     user_message = _build_unblock_message(
@@ -188,9 +211,12 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
         return "no_target"
 
     current_labels = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
+    # The transition already clears :human-needed; also drop the
+    # human:solved signal so the label is one-shot.
     ok = apply_transition(
         issue_number, transition.name,
         current_labels=current_labels,
+        extra_remove=[LABEL_HUMAN_SOLVED],
         log_prefix="cai unblock",
     )
     if not ok:
