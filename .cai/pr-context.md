@@ -29,3 +29,18 @@ Refs: robotsix/robotsix-cai#672
 ## Invariants this change relies on
 - `cai-dup-check` runs before `cai-triage` and handles duplicate/resolved classification at HIGH confidence
 - `cai-triage` only receives issues that survived the dup-check pre-step
+
+## Revision 1 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `scripts/generate-index.sh`:52 — added missing `.claude/agents/cai-triage.md` entry to DESCRIPTIONS array
+- `CODEBASE_INDEX.md` — regenerated; cai-triage.md row now shows real description instead of TODO placeholder
+
+### Decisions this revision
+- Used reviewer-suggested description verbatim (matches updated agent frontmatter after DISMISS_* removal)
+
+### New gaps / deferred
+- None

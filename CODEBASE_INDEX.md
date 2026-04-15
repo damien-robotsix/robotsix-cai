@@ -29,7 +29,7 @@
 | `.claude/agents/cai-review-pr.md` | Agent: pre-merge ripple-effect review |
 | `.claude/agents/cai-revise.md` | Agent: handle review comments on auto-improve PRs |
 | `.claude/agents/cai-select.md` | Agent: evaluate and select best fix plan |
-| `.claude/agents/cai-triage.md` | TODO: add description |
+| `.claude/agents/cai-triage.md` | Agent: triage `auto-improve:raised` issues one at a time — classify as REFINE, PLAN_APPROVE, APPLY, or HUMAN. Inline-only — full issue body is provided in the user message. No tool use needed. |
 | `.claude/agents/cai-unblock.md` | Agent: classify admin comments on :human-needed issues into FSM resume targets |
 | `.claude/agents/cai-update-check.md` | Agent: check for new Claude Code releases |
 | `.claude/settings.json` | Claude Code harness configuration |
