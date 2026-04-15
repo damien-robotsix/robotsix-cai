@@ -1,24 +1,20 @@
 """cai_lib.cmd_unblock — label-gated FSM resume.
 
-Scans issues parked at ``auto-improve:human-needed`` that the admin
-has marked ready for resume by applying the ``human:solved`` label.
-Picking up on the *label* (rather than any fresh admin comment) means:
+Scans issues parked at ``auto-improve:human-needed`` and PRs parked at
+``auto-improve:pr-human-needed`` that the admin has marked ready for
+resume by applying the ``human:solved`` label. Picking up on the
+*label* (rather than any fresh admin comment) means:
 
-- An admin can discuss or ask questions on the issue without the
+- An admin can discuss or ask questions on the issue/PR without the
   automation prematurely deciding the divert is resolved.
-- The resume loop skips parked issues entirely until the admin opts in,
+- The resume loop skips parked targets entirely until the admin opts in,
   so we don't re-run the classifier every cycle on every open
-  :human-needed issue.
+  parked issue/PR.
 
-For each gated issue carrying a pending-transition marker, invokes the
-``cai-unblock`` Haiku agent to classify the admin's reply into a resume
-target, fires the matching ``human_to_<state>`` transition via
-:func:`cai_lib.fsm.apply_transition`, and finally removes the
-``human:solved`` label so the signal is one-shot.
-
-PR-side unblock (``auto-improve:pr-human-needed``) is handled in a
-follow-up — the PR submachine needs a PR-labelling counterpart to
-``_set_labels`` before it can be wired symmetrically.
+For each gated target, invokes the ``cai-unblock`` Haiku agent to
+classify the admin's reply into a resume target, fires the matching
+``human_to_<state>`` / ``pr_human_to_<state>`` transition, and finally
+removes the ``human:solved`` label so the signal is one-shot.
 """
 from __future__ import annotations
 
@@ -30,19 +26,22 @@ from typing import Optional
 from cai_lib.config import (
     REPO,
     LABEL_HUMAN_NEEDED,
+    LABEL_PR_HUMAN_NEEDED,
     LABEL_HUMAN_SOLVED,
     is_admin_login,
 )
 from cai_lib.fsm import (
     Confidence,
     apply_transition,
+    apply_pr_transition,
     parse_confidence,
     parse_pending_marker,
     parse_resume_target,
     resume_transition_for,
+    resume_pr_transition_for,
     strip_pending_marker,
 )
-from cai_lib.github import _gh_json, _set_labels
+from cai_lib.github import _gh_json, _set_pr_labels
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run, _run_claude_p
 
@@ -87,16 +86,25 @@ def _build_unblock_message(
     *,
     kind: str,
     issue: dict,
-    marker: dict,
+    marker: Optional[dict],
     admin_comments: list[dict],
 ) -> str:
-    """Format the user message for the cai-unblock agent."""
-    marker_line = (
-        f"transition={marker.get('transition', '?')} "
-        f"from={marker.get('from', '?')} "
-        f"intended={marker.get('intended', '?')} "
-        f"conf={marker.get('conf', '?')}"
-    )
+    """Format the user message for the cai-unblock agent.
+
+    ``marker`` may be ``None`` — PRs are parked without a pending
+    marker written to their body (the ``approved_to_human`` path in
+    ``cai merge`` doesn't emit one), so the agent gets "(no marker)"
+    and relies solely on the admin comment plus PR body for context.
+    """
+    if marker is None:
+        marker_line = "(no marker — target was parked without one)"
+    else:
+        marker_line = (
+            f"transition={marker.get('transition', '?')} "
+            f"from={marker.get('from', '?')} "
+            f"intended={marker.get('intended', '?')} "
+            f"conf={marker.get('conf', '?')}"
+        )
     body = issue.get("body") or "(no body)"
     comments_block = ""
     for c in admin_comments:
@@ -256,12 +264,162 @@ def handle_human_needed(issue: dict) -> int:
     return 1 if tag == "agent_failed" else 0
 
 
+def _list_pr_human_needed_prs() -> list[dict]:
+    """PR-side counterpart to :func:`_list_human_needed_issues`.
+
+    Returns open PRs carrying BOTH ``auto-improve:pr-human-needed`` and
+    ``human:solved``. PRs lacking ``human:solved`` stay parked and are
+    ignored by this pass.
+    """
+    try:
+        return _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--label", LABEL_PR_HUMAN_NEEDED,
+            "--label", LABEL_HUMAN_SOLVED,
+            "--state", "open",
+            "--json", "number,title,body,labels,updatedAt,comments",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai unblock] gh pr list failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        return []
+
+
+def _try_unblock_pr(pr: dict) -> Optional[str]:
+    """Attempt to resume *pr* from :pr-human-needed. Returns the result tag.
+
+    Mirrors :func:`_try_unblock_issue` with two differences:
+
+    - PR bodies are not expected to carry a pending marker (the
+      ``approved_to_human`` path in ``cai merge`` doesn't write one),
+      so the absence of a marker is not a skip condition.
+    - Resume target → ``pr_human_to_<state>`` transition via
+      :func:`resume_pr_transition_for`, applied with
+      :func:`apply_pr_transition`.
+
+    Result tags mirror the issue side; ``no_marker`` cannot occur here.
+    """
+    pr_number = pr["number"]
+    body = pr.get("body") or ""
+    marker = parse_pending_marker(body)  # may be None — informational only
+
+    admin_comments = _extract_admin_comments(pr)
+    if not admin_comments:
+        return "no_admin_comment"
+
+    user_message = _build_unblock_message(
+        kind="pr", issue=pr, marker=marker, admin_comments=admin_comments,
+    )
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-unblock",
+         "--dangerously-skip-permissions"],
+        category="unblock",
+        agent="cai-unblock",
+        input=user_message,
+    )
+    if result.returncode != 0:
+        print(
+            f"[cai unblock] PR #{pr_number} agent failed "
+            f"(exit {result.returncode}):\n{result.stderr}",
+            file=sys.stderr,
+        )
+        return "agent_failed"
+
+    stdout = result.stdout
+    print(stdout, flush=True)
+
+    target = parse_resume_target(stdout)
+    confidence = parse_confidence(stdout)
+    if confidence != Confidence.HIGH:
+        print(
+            f"[cai unblock] PR #{pr_number} confidence="
+            f"{confidence.name if confidence else 'MISSING'}; leaving parked",
+            flush=True,
+        )
+        return "low_confidence"
+
+    if not target:
+        print(f"[cai unblock] PR #{pr_number} no ResumeTo target; leaving parked",
+              flush=True)
+        return "no_target"
+
+    transition = resume_pr_transition_for(target)
+    if transition is None:
+        print(
+            f"[cai unblock] PR #{pr_number} unknown resume target {target!r}; "
+            f"leaving parked",
+            flush=True,
+        )
+        return "no_target"
+
+    # The transition already clears :pr-human-needed via labels_remove.
+    # The human:solved label needs an explicit removal pass — unlike the
+    # issue-side helper, apply_pr_transition has no ``extra_remove`` kw.
+    ok = apply_pr_transition(
+        pr_number, transition.name,
+        log_prefix="cai unblock",
+    )
+    if not ok:
+        return "agent_failed"
+
+    if not _set_pr_labels(
+        pr_number, remove=[LABEL_HUMAN_SOLVED], log_prefix="cai unblock",
+    ):
+        # The state transition landed; failing to clear :solved will make
+        # the next pass re-pick this PR and loop on the same decision.
+        # Log and surface as a non-fatal agent_failed so the wrapper can
+        # retry or a human can intervene.
+        print(
+            f"[cai unblock] PR #{pr_number} resumed via {transition.name} "
+            f"but failed to clear {LABEL_HUMAN_SOLVED}",
+            file=sys.stderr,
+        )
+        return "agent_failed"
+
+    print(
+        f"[cai unblock] PR #{pr_number} resumed via {transition.name} "
+        f"→ {transition.to_state.name}",
+        flush=True,
+    )
+    return "resumed"
+
+
+def handle_pr_human_needed(pr: dict) -> int:
+    """Dispatcher handler for :class:`PRState.PR_HUMAN_NEEDED` PRs.
+
+    Mirrors :func:`handle_human_needed`. Only fires ``_try_unblock_pr``
+    when the admin has applied ``human:solved``; otherwise returns 0 so
+    the inner driver treats the PR as blocked. The dispatcher's picker
+    already filters PRs lacking ``human:solved``, so this branch is a
+    belt-and-braces guard against a race with label removal.
+    """
+    labels = [
+        (lb.get("name") if isinstance(lb, dict) else lb)
+        for lb in pr.get("labels", [])
+    ]
+    if LABEL_HUMAN_SOLVED not in labels:
+        print(
+            f"[cai dispatch] PR #{pr['number']} parked at :pr-human-needed "
+            f"without {LABEL_HUMAN_SOLVED} — leaving parked",
+            flush=True,
+        )
+        return 0
+    tag = _try_unblock_pr(pr) or "skipped"
+    print(f"[cai dispatch] auto-unblock PR #{pr['number']}: {tag}", flush=True)
+    return 1 if tag == "agent_failed" else 0
+
+
 def cmd_unblock(args) -> int:
-    """Scan :human-needed issues and attempt FSM resume via cai-unblock."""
+    """Scan :human-needed issues and PRs and attempt FSM resume via cai-unblock."""
     t0 = time.monotonic()
     issues = _list_human_needed_issues()
-    if not issues:
-        print("[cai unblock] no :human-needed issues; nothing to do",
+    prs = _list_pr_human_needed_prs()
+    if not issues and not prs:
+        print("[cai unblock] no :human-needed issues or PRs; nothing to do",
               flush=True)
         log_run("unblock", repo=REPO, result="no_targets", exit=0)
         return 0
@@ -269,7 +427,10 @@ def cmd_unblock(args) -> int:
     counters: dict[str, int] = {}
     for issue in issues:
         tag = _try_unblock_issue(issue) or "skipped"
-        counters[tag] = counters.get(tag, 0) + 1
+        counters[f"issue_{tag}"] = counters.get(f"issue_{tag}", 0) + 1
+    for pr in prs:
+        tag = _try_unblock_pr(pr) or "skipped"
+        counters[f"pr_{tag}"] = counters.get(f"pr_{tag}", 0) + 1
 
     dur = f"{int(time.monotonic() - t0)}s"
     summary = ", ".join(f"{k}={v}" for k, v in sorted(counters.items()))

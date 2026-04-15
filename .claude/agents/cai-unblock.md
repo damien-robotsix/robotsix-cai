@@ -61,14 +61,15 @@ maps to a `pr_human_to_<state>` transition defined in
 
 | State              | Admin intent (examples)                                   |
 |--------------------|-----------------------------------------------------------|
-| `REVIEWING`        | "re-run the automated review" / ambiguous comment         |
+| `REVIEWING_CODE`   | "re-run the automated review" / ambiguous comment         |
+| `REVIEWING_DOCS`   | "just re-check docs — code is fine"                       |
 | `REVISION_PENDING` | "revise this PR per my comments"                          |
 | `APPROVED`         | "looks good — queue for merge"                            |
 
 (`MERGED` is not a valid resume target — PRs must funnel back
-through `REVIEWING` / `REVISION_PENDING` / `APPROVED` before the
-merge pipeline takes over. Pick `APPROVED` if the admin greenlights
-the merge.)
+through `REVIEWING_CODE` / `REVIEWING_DOCS` / `REVISION_PENDING` /
+`APPROVED` before the merge pipeline takes over. Pick `APPROVED` if
+the admin greenlights the merge.)
 
 ## Fallback
 
@@ -76,7 +77,7 @@ If the admin's comment is unrelated to the pending decision or you
 cannot decide with confidence:
 
 - For `Kind: issue`, emit `ResumeTo: RAISED` with `Confidence: LOW`.
-- For `Kind: pr`, emit `ResumeTo: REVIEWING` with `Confidence: LOW`.
+- For `Kind: pr`, emit `ResumeTo: REVIEWING_CODE` with `Confidence: LOW`.
 
 Either restarts the relevant submachine without pretending certainty.
 

@@ -52,10 +52,13 @@ class TestActionableStateSets(unittest.TestCase):
             PRState.APPROVED,
             PRState.REBASING,
             PRState.CI_FAILING,
+            # PR_HUMAN_NEEDED is actionable via handle_pr_human_needed —
+            # the picker filters to only those PRs carrying ``human:solved``
+            # so parked-waiting PRs stay out of the queue.
+            PRState.PR_HUMAN_NEEDED,
         }
         self.assertEqual(dispatcher.actionable_pr_states(), expected)
         self.assertNotIn(PRState.MERGED, dispatcher.actionable_pr_states())
-        self.assertNotIn(PRState.PR_HUMAN_NEEDED, dispatcher.actionable_pr_states())
 
 
 # ---------------------------------------------------------------------------
