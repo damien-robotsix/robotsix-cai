@@ -142,6 +142,9 @@ GitHub issue will be created automatically instead.
    PR, emit an `## Out-of-scope Issue` block (see Output format)
    rather than a `### Finding:` block. Do not block the PR on work
    that belongs in a separate issue.
+9. **Do not use Bash.** You have `Read`, `Grep`, and `Glob` — use
+   them exclusively. Bash is not available and all Bash calls will be
+   rejected by the sandbox.
 
 ## Agent-specific efficiency guidance
 
