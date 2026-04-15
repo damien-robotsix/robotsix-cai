@@ -120,6 +120,25 @@ LABEL
     ;;
 esac
 
+# Prompt for GitHub admin logins — required for the human:solved unblock
+# workflow.  Without CAI_ADMIN_LOGINS every human:solved label is ignored
+# and parked issues/PRs silently stay parked.
+echo
+echo "Which GitHub logins can use the 'human:solved' label to unblock stuck"
+echo "tasks? (see docs/configuration.md for details)"
+echo
+GH_DEFAULT_LOGIN="$(gh api user --jq .login 2>/dev/null || true)"
+if [[ -n "$GH_DEFAULT_LOGIN" ]]; then
+  prompt ADMIN_LOGINS "Admin GitHub logins (comma-separated)" "$GH_DEFAULT_LOGIN"
+else
+  prompt ADMIN_LOGINS "Admin GitHub logins (comma-separated, or press Enter to skip)"
+fi
+if [[ -n "$ADMIN_LOGINS" ]]; then
+  CAI_ADMIN_ENV_LINE="      CAI_ADMIN_LOGINS: \"${ADMIN_LOGINS}\""
+else
+  CAI_ADMIN_ENV_LINE=""
+fi
+
 case "$AUTH_CHOICE" in
   1)
     cat > docker-compose.yml <<YAML
@@ -153,6 +172,7 @@ services:
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
+${CAI_ADMIN_ENV_LINE}
     volumes:
       # Persistent state for the cai user (Claude OAuth credentials,
       # session transcripts, gh config, claude-code's runtime
@@ -224,6 +244,7 @@ services:
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
+${CAI_ADMIN_ENV_LINE}
     volumes:
       # Persistent state for the cai user (Claude transcripts, gh
       # config, claude-code's runtime \`.claude.json\`, etc.).
@@ -249,6 +270,7 @@ YAML
     cat > .env <<ENV
 ANTHROPIC_API_KEY=${API_KEY}
 ENV
+    [[ -n "${ADMIN_LOGINS:-}" ]] && printf 'CAI_ADMIN_LOGINS=%s\n' "${ADMIN_LOGINS}" >> .env
     chmod 600 .env
     echo
     echo "[OK] Wrote $INSTALL_DIR/docker-compose.yml (API-key mode)"
