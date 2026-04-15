@@ -317,41 +317,48 @@ def _pick_oldest_actionable_target(
     return (kind, number)
 
 
-# Default cap on how many handlers a single drain pass will run. The
-# cron tick interval (CAI_CYCLE_SCHEDULE) is the wall-clock rate limit;
-# this cap is the sole backstop against a runaway loop (e.g. a handler
-# that keeps re-picking the same target without advancing state, or a
-# routing handler like pr_bounce repeatedly delegating to a PR that's
-# already done). Handler-level idempotence + ``failed_targets`` skipping
-# of any nonzero/crashing handler are the primary safety nets.
+# Default cap on how many handlers a single drain pass will run. With
+# per-target dedup (each ``(kind, number)`` dispatches at most once per
+# drain) this cap bounds the work pass to ``max_iter`` distinct targets;
+# the cron tick interval (CAI_CYCLE_SCHEDULE) is the wall-clock rate
+# limit; ``dispatched_targets`` skipping is the per-drain loop backstop.
 _DEFAULT_DRAIN_MAX_ITER = 50
 
 
 def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
     """Drain the actionable queue: pick oldest, dispatch, repeat.
 
+    Each ``(kind, number)`` is dispatched **at most once per drain pass**.
+    After a dispatch (success, nonzero, or crash), the target is added
+    to a per-drain skip set so the picker moves on to the next oldest.
+    This kills the class of loop where a routing handler (``pr_bounce``)
+    or an idempotent no-op handler keeps returning 0 on a target whose
+    underlying state never changes (e.g. PR parked at ``PR_HUMAN_NEEDED``,
+    merge handler short-circuiting on "already evaluated at this SHA").
+
     Stops when one of:
       - the queue is empty (no actionable issues or PRs left),
-      - ``max_iter`` iterations have run (defense against systemic
-        non-advancing handlers; the cycle's flock prevents overlap).
+      - ``max_iter`` iterations have run (hard upper bound; the cycle's
+        flock prevents overlap).
 
-    No same-target loop guard: routing handlers like ``pr_bounce`` make
-    legitimate progress on a *delegated* target (the linked PR) without
-    changing the picked issue's own state, so a same-target guard
-    produces false positives that abort the drain mid-pipeline. The
-    ``max_iter`` cap plus ``failed_targets`` skipping handle the
-    regression cases the guard was meant to catch.
+    A side effect of per-drain dedup: when a handler legitimately advances
+    state and the same item is now actionable in a *new* state (e.g.
+    implement advancing PLAN_APPROVED → PR), the follow-up handler fires
+    on the next cron tick rather than in the same drain pass. The cron
+    interval is the wall-clock rate limit anyway, so this is just a
+    one-tick deferral — cheap insurance against the no-op-loop class of
+    bugs.
 
     Returns the worst exit code seen across handlers (0 if every dispatch
     succeeded or the queue was empty from the start).
     """
     import traceback
 
-    failed_targets: set[tuple[str, int]] = set()
+    dispatched_targets: set[tuple[str, int]] = set()
     worst_rc = 0
 
     for i in range(max_iter):
-        target = _pick_oldest_actionable_target(skip=failed_targets)
+        target = _pick_oldest_actionable_target(skip=dispatched_targets)
         if target is None:
             print(f"[cai dispatch] drain complete after {i} dispatch(es): "
                   "queue empty", flush=True)
@@ -364,20 +371,21 @@ def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
             else:
                 rc = dispatch_pr(number)
         except Exception:  # noqa: BLE001 — keep draining the queue
-            # Handler crashed. Record failure, skip this target for the rest
-            # of this drain pass (#657 — one crashing item must not stall
-            # the cycle), and continue with the next actionable target.
+            # Handler crashed. Record dispatch, skip this target for the
+            # rest of this drain pass (#657 — one crashing item must not
+            # stall the cycle), and continue with the next actionable target.
             traceback.print_exc()
             print(f"[cai dispatch] handler for {kind} #{number} raised; "
                   "skipping this target for the remainder of the drain",
                   flush=True)
-            failed_targets.add(target)
+            dispatched_targets.add(target)
             worst_rc = max(worst_rc, 1)
             continue
-        if rc != 0:
-            failed_targets.add(target)
-            if rc > worst_rc:
-                worst_rc = rc
+        # Every dispatch — success or failure — counts. No target runs
+        # twice in the same drain.
+        dispatched_targets.add(target)
+        if rc > worst_rc:
+            worst_rc = rc
 
     print(f"[cai dispatch] hit drain cap (max_iter={max_iter}); remaining "
           "actionable items will run on the next cycle tick", flush=True)
