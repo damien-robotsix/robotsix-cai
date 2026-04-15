@@ -65,7 +65,7 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
 
     issues = all_issues
 
-    # Read the log tail to find the most recent [fix] line per issue.
+    # Read the log tail to find the most recent [fix], [revise], or [maintain] line per issue.
     fix_timestamps: dict[int, float] = {}
     if LOG_PATH.exists():
         try:
@@ -73,7 +73,7 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
         except Exception:
             lines = []
         for line in lines:
-            if "[fix]" not in line and "[revise]" not in line:
+            if "[fix]" not in line and "[revise]" not in line and "[maintain]" not in line:
                 continue
             # Extract issue number from "issue=<N>"
             m = re.search(r"issue=(\d+)", line)

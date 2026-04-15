@@ -42,3 +42,17 @@ Refs: damien-robotsix/robotsix-cai#624
 - `publish.py` already has label entries for applying/applied (from step 2 #636)
 - APPLYING is NOT in the dispatcher registry (test_dispatcher.py asserts this)
 - The BFS test (test_no_orphan_states) already passes because triaging_to_applying exists
+
+## Revision 1 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai_lib/watchdog.py`:68,76 — add `[maintain]` to log-activity guard so in-flight maintain ops suppress stale-lock rollback
+
+### Decisions this revision
+- Added `[maintain]` check alongside `[fix]` and `[revise]` in the log-tail staleness scan — `cmd_maintain` logs with category="maintain" so its activity must be visible to the watchdog; without this, a long-running maintain op could be incorrectly rolled back before its 2-hour TTL expires
+
+### New gaps / deferred
+- none
