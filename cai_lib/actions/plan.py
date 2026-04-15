@@ -394,14 +394,14 @@ def handle_plan(issue: dict) -> int:
         dur = f"{int(time.monotonic() - t0)}s"
         conf_name = plan_confidence.name if plan_confidence else "MISSING"
         print(
-            f"[cai plan] #{issue_number} planned and advanced :planning → :planned "
-            f"in {dur} (confidence={conf_name})",
+            f"[cai plan] #{issue_number} planned :planning → :planned in {dur} "
+            f"(confidence={conf_name}); running confidence gate inline",
             flush=True,
         )
-        log_run("plan", repo=REPO, issue=issue_number,
-                duration=dur, result="ok",
-                confidence=conf_name, exit=0)
-        return 0
+        # Run the confidence gate inline so it is atomic with planning.
+        # (The dispatcher also has PLANNED → handle_plan_gate as a safety net
+        # for issues already stuck at :planned.)
+        return handle_plan_gate(issue)
 
     finally:
         if work_dir.exists():
