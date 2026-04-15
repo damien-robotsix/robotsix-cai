@@ -202,7 +202,7 @@ _ALL_MANAGED_ISSUE_LABELS: frozenset[str] = frozenset({
     LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
     LABEL_TRIAGING, LABEL_MERGE_BLOCKED,
     LABEL_HUMAN_SOLVED, LABEL_KIND_CODE, LABEL_KIND_MAINTENANCE,
-    "auto-improve", "audit", "check-workflows",
+    "auto-improve", "audit", "check-workflows", "check-workflows:raised",
 })
 
 # Prefixes that identify a label as cai-owned on an issue.

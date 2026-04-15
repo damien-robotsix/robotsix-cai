@@ -36,6 +36,20 @@ Refs: robotsix/robotsix-cai#628
 ### New gaps / deferred
 - None
 
+## Revision 2 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai.py`:205 — added `"check-workflows:raised"` to `_ALL_MANAGED_ISSUE_LABELS` frozenset
+
+### Decisions this revision
+- `"check-workflows:raised"` is created by `ensure_all_labels()` (via `CHECK_WORKFLOWS_LABELS` in publish.py) but had no corresponding `LABEL_*` constant in `cai_lib/config.py`, so the string literal was added directly to the frozenset alongside the three base labels on line 205
+
+### New gaps / deferred
+- `category:workflow_*` labels from `CHECK_WORKFLOWS_LABELS` are not swept (prefix `"category"` is not in `_MANAGED_ISSUE_PREFIXES`) — intentional, same as existing `LABEL_KIND_*` pattern
+
 ## Out of scope / known gaps
 - PR objects are NOT swept — `_issue_label_sweep` only calls `gh issue list`; PR label lifecycle remains separate
 - `LABEL_PR_*` labels (pr:reviewing-code etc.) are absent from `_ALL_MANAGED_ISSUE_LABELS` intentionally — they are valid on PRs but stale if found on issues, and `"pr"` prefix in `_MANAGED_ISSUE_PREFIXES` handles removal
