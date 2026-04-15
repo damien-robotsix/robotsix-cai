@@ -5,7 +5,6 @@
 
 | File | Purpose |
 |------|---------|
-| `.cai-staging/agents/cai-audit-triage.md` | TODO: add description |
 | `.cai/pr-context.md` | Per-PR dossier with touched files, key symbols, and design decisions for the CI-fix subagent |
 | `.claude/agents/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
 | `.claude/agents/cai-audit-triage.md` | Agent: triage `auto-improve:raised` + `audit` findings with structured verdicts |
