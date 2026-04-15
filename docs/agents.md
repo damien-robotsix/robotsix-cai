@@ -7,6 +7,7 @@ Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `desc
 | `cai-analyze` | Analyze parsed transcript signals and raise auto-improve findings | Read, Grep, Glob, Skill | sonnet | Read-only |
 | `cai-audit` | Audit issue queue and PRs for lifecycle state-machine inconsistencies | Read, Grep, Glob | sonnet | Read-only |
 | `cai-check-workflows` | Analyze recent GitHub Actions workflow failures and emit structured findings for new, unreported failures | Read, Grep, Glob | haiku | Read-only |
+| `cai-comment-filter` | Classify PR comments as resolved or unresolved, replacing the commit-timestamp watermark in the revise handler | None | haiku | Inline-only |
 | `cai-code-audit` | Read-only source tree audit for inconsistencies, dead code, and missing cross-file references | Read, Grep, Glob | sonnet | Worktree |
 | `cai-confirm` | Verify each `auto-improve:merged` issue is actually resolved | Read, Grep, Glob | sonnet | Read-only |
 | `cai-cost-optimize` | Weekly cost-reduction agent — analyzes spending trends, proposes one optimization | Read, Grep, Glob | sonnet | Read-only |

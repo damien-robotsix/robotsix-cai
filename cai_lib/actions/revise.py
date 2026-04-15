@@ -9,12 +9,12 @@ back to ``REVIEWING_CODE``.
 """
 from __future__ import annotations
 
+import json as _json
 import re
 import shutil
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from cai_lib.config import (
@@ -35,10 +35,9 @@ from cai_lib.cmd_helpers import (
     _git,
     _gh_user_identity,
     _fetch_review_comments,
-    _filter_unaddressed_comments,
     _parse_iso_ts,
     _apply_agent_edit_staging,
-    _is_bot_comment,  # noqa: F401  (re-exported for completeness)
+    _is_bot_comment,
     _setup_agent_edit_staging,
     _select_revise_targets,
     _work_directory_block,
@@ -143,6 +142,103 @@ def _strip_review_pr_boilerplate(body: str) -> str:
 # request and explicitly chose not to act — so we should NOT keep
 # re-processing the same comments forever.
 _NO_ADDITIONAL_CHANGES_MARKER = "## Revise subagent: no additional changes"
+
+# JSON schema for cai-comment-filter output.
+_FILTER_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "unresolved": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["id", "reason"],
+            },
+        },
+    },
+    "required": ["unresolved"],
+}
+
+# Maximum characters of PR diff to pass to the comment-filter haiku.
+_FILTER_DIFF_MAX_CHARS = 20000
+
+
+def _filter_comments_with_haiku(
+    all_comments: list[dict],
+    pr_number: int,
+) -> list[dict]:
+    """Filter PR comments using the cai-comment-filter haiku agent.
+
+    Replaces the old commit-timestamp watermark. Returns only comments
+    the agent judges to be genuinely unresolved. On agent failure,
+    returns all non-bot comments (conservative fallback — better to
+    over-process than silently drop human requests).
+    """
+    if not all_comments:
+        return []
+
+    # Assign a stable synthetic index to each comment so the agent
+    # can reference them by ID without needing a GitHub comment ID.
+    indexed = [{"_idx": str(i), **c} for i, c in enumerate(all_comments)]
+
+    # Fetch the PR diff (truncated if large).
+    diff_result = _run(
+        ["gh", "pr", "diff", str(pr_number), "--repo", REPO],
+        capture_output=True,
+    )
+    pr_diff = (diff_result.stdout or "").strip()
+    if len(pr_diff) > _FILTER_DIFF_MAX_CHARS:
+        pr_diff = pr_diff[:_FILTER_DIFF_MAX_CHARS] + "\n\n[diff truncated]"
+
+    # Build user message for the haiku agent.
+    comments_text = ""
+    for c in indexed:
+        idx = c["_idx"]
+        author = c.get("author", {}).get("login", "unknown")
+        created = c.get("createdAt", "")
+        body = c.get("body", "")
+        comments_text += f"### Comment {idx} by @{author} ({created})\n\n{body}\n\n"
+
+    user_message = (
+        f"## PR #{pr_number}\n\n"
+        f"## All PR Comments\n\n{comments_text}"
+        f"## Current PR Diff\n\n```diff\n{pr_diff}\n```\n"
+    )
+
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-comment-filter",
+         "--dangerously-skip-permissions",
+         "--json-schema", _json.dumps(_FILTER_JSON_SCHEMA)],
+        category="revise.filter",
+        agent="cai-comment-filter",
+        input=user_message,
+        cwd="/app",
+    )
+
+    if result.returncode != 0 or not (result.stdout or "").strip():
+        print(
+            f"[cai revise] cai-comment-filter failed (rc={result.returncode}); "
+            "treating all non-bot comments as unaddressed",
+            file=sys.stderr,
+        )
+        return [c for c in all_comments if not _is_bot_comment(c)]
+
+    try:
+        payload = _json.loads(result.stdout)
+    except (_json.JSONDecodeError, ValueError) as exc:
+        print(
+            f"[cai revise] cai-comment-filter output was not valid JSON: {exc}; "
+            "treating all non-bot comments as unaddressed",
+            file=sys.stderr,
+        )
+        return [c for c in all_comments if not _is_bot_comment(c)]
+
+    unresolved_ids = {item["id"] for item in payload.get("unresolved", [])}
+    return [c for c, ic in zip(all_comments, indexed) if ic["_idx"] in unresolved_ids]
+
 
 # Marker that revise posts when an auto-rebase against main fails
 # even after the resolver subagent has tried to merge the conflicts.
@@ -432,19 +528,8 @@ def handle_revise(pr: dict) -> int:
     issue_comments = pr_detail.get("comments", [])
     line_comments = _fetch_review_comments(pr_detail["number"])
     all_comments = issue_comments + line_comments
-    # Use commit timestamp to filter unaddressed comments.
-    commits = pr_detail.get("commits", [])
-    if commits:
-        last_commit_date = commits[-1].get("committedDate", "")
-        try:
-            commit_ts = datetime.strptime(
-                last_commit_date, "%Y-%m-%dT%H:%M:%SZ"
-            ).replace(tzinfo=timezone.utc)
-        except ValueError:
-            commit_ts = datetime.min.replace(tzinfo=timezone.utc)
-    else:
-        commit_ts = datetime.min.replace(tzinfo=timezone.utc)
-    unaddressed = _filter_unaddressed_comments(all_comments, commit_ts)
+    # Filter to genuinely unresolved comments using the haiku agent.
+    unaddressed = _filter_comments_with_haiku(all_comments, pr_detail["number"])
     needs_rebase = pr_detail.get("mergeable") == "CONFLICTING" or \
         pr_detail.get("mergeStateStatus") == "DIRTY"
     targets = [{
