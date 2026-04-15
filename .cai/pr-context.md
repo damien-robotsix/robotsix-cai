@@ -38,6 +38,20 @@ Refs: damien-robotsix/robotsix-cai#692
 ### New gaps / deferred
 - none
 
+## Revision 2 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `cai_lib/actions/plan.py:182` — corrected return type annotation from `tuple[str, object] | None` to `tuple[str, Confidence] | None`
+
+### Decisions this revision
+- Reviewer was correct: `object` was a placeholder that contradicted the actual return type and callers' use of `.name`; `Confidence` is the precise type
+
+### New gaps / deferred
+- none
+
 ## Out of scope / known gaps
 - `parse_confidence` in `fsm.py` left intact — still used by `handle_plan_gate` (reads from stored plan block) and `cmd_unblock.py`
 - `_run_plan_agent` (for cai-plan) still uses `_run_claude_p` subprocess path — only cai-select migrated in this step
