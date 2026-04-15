@@ -250,13 +250,17 @@ def dispatch_pr(pr_number: int) -> int:
 
 def _pick_oldest_actionable_target(
     skip: Optional[set[tuple[str, int]]] = None,
-) -> Optional[tuple[str, int]]:
-    """Return ``(kind, number)`` of the oldest open issue/PR in a state with
-    a registered handler, or ``None`` if the queue is empty.
+) -> Optional[tuple[str, int, str]]:
+    """Return ``(kind, number, state_name)`` of the oldest open issue/PR in a
+    state with a registered handler, or ``None`` if the queue is empty.
 
-    ``kind`` is ``"issue"`` or ``"pr"``. Sort key is the GitHub
-    ``createdAt`` timestamp (oldest first), so PRs that have been around
-    longer get the next tick — keeps in-flight work ahead of fresh intake.
+    ``kind`` is ``"issue"`` or ``"pr"``. ``state_name`` is the ``.name`` of
+    the :class:`IssueState` / :class:`PRState` the target is currently in —
+    callers use it to distinguish "same item, new state" (legitimate
+    handler-driven progression across drain iterations) from "same item,
+    same state" (true loop). Sort key is the GitHub ``createdAt`` timestamp
+    (oldest first), so PRs that have been around longer get the next tick —
+    keeps in-flight work ahead of fresh intake.
 
     ``skip`` is an optional set of ``(kind, number)`` tuples to exclude — used
     by :func:`dispatch_drain` to move past a target whose handler already
@@ -292,7 +296,7 @@ def _pick_oldest_actionable_target(
         print(f"[cai dispatch] gh pr list failed:\n{e.stderr}", file=sys.stderr)
         prs = []
 
-    candidates: list[tuple[str, str, int]] = []
+    candidates: list[tuple[str, str, int, str]] = []
 
     for issue in issues:
         label_names = [lb["name"] for lb in issue.get("labels", [])]
@@ -300,21 +304,25 @@ def _pick_oldest_actionable_target(
         if state is not None and state in issue_states:
             if ("issue", issue["number"]) in skip:
                 continue
-            candidates.append((issue.get("createdAt", ""), "issue", issue["number"]))
+            candidates.append(
+                (issue.get("createdAt", ""), "issue", issue["number"], state.name)
+            )
 
     for pr in prs:
         state = get_pr_state(pr)
         if state in pr_states:
             if ("pr", pr["number"]) in skip:
                 continue
-            candidates.append((pr.get("createdAt", ""), "pr", pr["number"]))
+            candidates.append(
+                (pr.get("createdAt", ""), "pr", pr["number"], state.name)
+            )
 
     if not candidates:
         return None
 
     candidates.sort(key=lambda c: c[0])
-    _, kind, number = candidates[0]
-    return (kind, number)
+    _, kind, number, state_name = candidates[0]
+    return (kind, number, state_name)
 
 
 # Default cap on how many handlers a single drain pass will run. The
@@ -329,9 +337,12 @@ def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
 
     Stops when one of:
       - the queue is empty (no actionable issues or PRs left),
-      - the same ``(kind, number)`` is picked twice in a row (loop guard
-        — should not happen with idempotent handlers, but defends against
-        a regression),
+      - the same ``(kind, number, state)`` is picked twice in a row (loop
+        guard — should not happen with idempotent handlers, but defends
+        against a regression). State is part of the key so that a handler
+        which legitimately advances its target to another actionable state
+        (e.g. implement: PLAN_APPROVED → PR, plan_gate: PLANNED →
+        PLAN_APPROVED) isn't mistaken for a loop,
       - ``max_iter`` iterations have run (defense against systemic
         non-advancing handlers; the cycle's flock prevents overlap).
 
@@ -340,7 +351,7 @@ def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
     """
     import traceback
 
-    last_target: Optional[tuple[str, int]] = None
+    last_target: Optional[tuple[str, int, str]] = None
     failed_targets: set[tuple[str, int]] = set()
     worst_rc = 0
 
@@ -352,10 +363,12 @@ def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
             return worst_rc
         if target == last_target:
             print(f"[cai dispatch] same target {target!r} picked twice in a "
-                  "row; stopping drain to avoid loop", flush=True)
+                  "row with no state change; stopping drain to avoid loop",
+                  flush=True)
             return worst_rc
 
-        kind, number = target
+        kind, number, _state_name = target
+        target_key = (kind, number)
         try:
             if kind == "issue":
                 rc = dispatch_issue(number)
@@ -369,12 +382,12 @@ def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
             print(f"[cai dispatch] handler for {kind} #{number} raised; "
                   "skipping this target for the remainder of the drain",
                   flush=True)
-            failed_targets.add(target)
+            failed_targets.add(target_key)
             worst_rc = max(worst_rc, 1)
             last_target = target
             continue
         if rc != 0:
-            failed_targets.add(target)
+            failed_targets.add(target_key)
             if rc > worst_rc:
                 worst_rc = rc
         last_target = target
