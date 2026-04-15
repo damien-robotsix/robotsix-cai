@@ -207,7 +207,7 @@ Example of creating a plugin skill:
 You have a project-scope memory pool at
 `.claude/agent-memory/cai-implement/MEMORY.md` — **read it before doing
 anything else.** It records durable judgements from earlier runs:
-approaches that kept getting rejected by `cai merge`, classes of
+approaches that kept getting rejected by the merge handler, classes of
 issue that are wrongly-raised (always exit with zero diff), and
 patterns the supervisor has explicitly accepted.
 
@@ -246,7 +246,8 @@ Choose your exit path based on *why* you answered "no":
   i.e., question 3 is answerable but describes an evaluation
   outcome rather than a diff): emit a `## Needs Spike` block
   (see the `## When to make NO changes` section below) so the
-  wrapper routes the issue to `auto-improve:needs-spike`.
+  wrapper routes the issue to `auto-improve:human-needed` for
+  human review.
 - **Ambiguous or feature-request-shaped** (the issue is vague,
   unclear, or describes a desired capability without specifying
   what code to change): exit with **zero diff and no `## Needs
@@ -283,11 +284,10 @@ another run can try later. You should exit without changes when:
   ~~~
 
   When the wrapper sees this marker, it transitions the issue to
-  the `auto-improve:needs-spike` label (instead of the default
-  `auto-improve:no-action`) so the spike-handling agent
-  (cai-spike, see #314) picks it up later. The spike may be
-  driven by a different agent, a later cycle, or a human —
-  emitting the marker is the handoff.
+  the `auto-improve:human-needed` label (instead of the default
+  `auto-improve:no-action`) so a human can decide how to proceed
+  — no automated spike agent exists. Emitting the marker is the
+  handoff.
 - You'd be guessing
 
 In all of these cases, **print a short paragraph to stdout

@@ -20,7 +20,6 @@ from cai_lib.config import (
     LABEL_REVISING,
     LABEL_REFINED,
     LABEL_AUDIT_RAISED,
-    LABEL_NEEDS_SPIKE,
     _STALE_IN_PROGRESS_HOURS,
     _STALE_REVISING_HOURS,
 )
@@ -71,7 +70,7 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
         except Exception:
             lines = []
         for line in lines:
-            if "[fix]" not in line and "[revise]" not in line and "[spike]" not in line:
+            if "[fix]" not in line and "[revise]" not in line:
                 continue
             # Extract issue number from "issue=<N>"
             m = re.search(r"issue=(\d+)", line)
@@ -116,14 +115,11 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
                 ok = _set_labels(issue_num, remove=[LABEL_REVISING], log_prefix="cai audit")
             else:
                 # In-progress lock: roll back to the appropriate label.
-                # Check originating label: spike-provenance issues go back to
-                # :needs-spike; audit-raised go back to :audit-raised; all
-                # others go back to :refined.
+                # Check originating label: audit-raised go back to
+                # :audit-raised; all others go back to :refined.
                 issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
                 if LABEL_AUDIT_RAISED in issue_labels:
                     raised_label = LABEL_AUDIT_RAISED
-                elif LABEL_NEEDS_SPIKE in issue_labels:
-                    raised_label = LABEL_NEEDS_SPIKE
                 else:
                     raised_label = LABEL_REFINED
                 ok = _set_labels(

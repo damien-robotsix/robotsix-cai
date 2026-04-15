@@ -47,33 +47,26 @@ The container is long-lived. It runs as a **scheduler**
 fires tasks on configurable cron schedules. `cai.py` is a subcommand
 dispatcher so each task is its own subprocess with no shared state.
 
-The issue-solving pipeline is split across two cron lines:
+The issue-solving pipeline runs through a single FSM dispatcher.
+`cai.py cycle` is one tick: it recovers stale locks, verifies label
+state, runs the audit, then calls `dispatch_oldest_actionable()` which
+picks the oldest open issue or PR whose lifecycle state has a
+registered handler in `cai_lib/actions/` and runs that handler. State
+is the program counter — the label on an issue/PR determines which
+handler fires; handlers are safely re-enterable so a crashed run
+resumes on the next tick. HIGH-confidence plans auto-promote to
+`:plan-approved`; lower-confidence plans divert to `:human-needed`
+for admin review, where an admin comment resumes them via
+`cai unblock`.
 
-- `cai.py cycle` drains pending PRs and fixes `auto-improve:plan-approved`
-  issues only. `:raised`, `:refined`, and `:planned` issues are
-  invisible to the implement loop.
-- `cai.py plan-all` drives every `:raised` / `:refined` issue
-  through triage. For high-confidence triage decisions, issues may
-  skip directly to `:plan-approved` (code issues) or `:applying`
-  (maintenance issues); otherwise they proceed through refine → plan.
-  HIGH-confidence plans auto-promote to `:plan-approved` and feed
-  the implement loop on the next tick; lower-confidence plans divert
-  to `:human-needed` for admin review, where an admin comment resumes
-  them via `cai unblock`. `plan-all` also runs at the end of each
-  `cycle` so the next approval pass has a fresh queue.
-
-A flock in `cmd_cycle` serializes overlapping runs, so issues are
-processed one at a time: each cycle fixes, drains pending PRs, and
-only advances to the next issue when the current one is solved or
-has reached a blocking point (human review, `:merge-blocked`, etc.).
-The individual pipeline subcommands (`implement`, `refine`, `plan`,
-`plan-all`, `spike`, `revise`, `review-pr`, `merge`, `verify`,
-`confirm`) remain available for manual/on-demand use.
+A flock in `cmd_cycle` serializes overlapping runs. For manual or
+targeted invocation, `cai.py dispatch --issue N` and
+`cai.py dispatch --pr N` run the dispatcher against a single item.
 
 | Subcommand | Default schedule | What it does |
 |---|---|---|
-| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | Implement pipeline on `auto-improve:plan-approved` issues: verify → confirm → drain pending PRs (revise → fix-ci → review-pr → review-docs → merge) → loop(implement/spike/explore → drain) → plan-all → confirm. A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
-| `cai.py plan-all` | `30 * * * *` (hourly, offset 30) | Drains every open `:raised` / `:refined` issue through triage (which may skip to `:plan-approved` or `:applying` for high-confidence decisions) → refine → plan → `:planned` so humans have a queue to review. Also runs at the end of each `cycle`; the cron line provides a mid-cycle catch-up pass |
+| `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | One dispatcher tick: restart-recover → verify → audit → `dispatch_oldest_actionable()` (runs the handler for whatever state the oldest actionable issue or PR is in). A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
+| `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL) and `:revising` (1-hour TTL) locks and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
 | `cai.py audit-triage` | `10 */6 * * *` (every 6 hours) | Triages `audit:raised` findings and emits close/passthrough/escalate verdicts |
@@ -83,7 +76,7 @@ The individual pipeline subcommands (`implement`, `refine`, `plan`,
 | `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
 | `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
 | `cai.py check-workflows` | `0 */6 * * *` (every 6 hours) | GitHub Actions failure monitor — fetches recent failed workflow runs (last 24 h), filters out bot branches, and runs a Haiku agent to group related failures and identify root causes; findings are published as `check-workflows` namespace issues. |
-| `cai.py triage` / `refine` / `plan` / `spike` / `implement` / `revise` / `fix-ci` / `review-pr` / `review-docs` / `merge` / `verify` / `confirm` | _(invoked by `cycle`; also manual/on-demand)_ | Individual pipeline stages. See the lifecycle below for how `cycle` chains them. |
+| `cai.py verify` / `audit` / `unblock` | _(invoked by `cycle`; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
@@ -194,10 +187,10 @@ to distinguish its findings from analyzer findings (`auto-improve:*`).
 Audit findings flag inconsistencies in the issue/PR lifecycle.
 Issues labelled `audit:raised` go through `cai.py audit-triage`
 first, which relabels eligible ones to `auto-improve:raised` so the
-`refine` subagent can structure them and transition them to
-`auto-improve:refined`. They then flow through `cai.py plan`
+dispatcher's refine handler can structure them and transition them to
+`auto-improve:refined`. They then flow through the plan handler
 to `:planned`, awaiting human approval to transition to `:plan-approved`
-before the implement subagent picks them up.
+before the implement handler picks them up.
 
 | Label | Meaning |
 |---|---|
@@ -362,43 +355,21 @@ just-trying-things-out from the terminal would use:
 
 ```bash
 docker compose exec cai python /app/cai.py analyze
-docker compose exec cai python /app/cai.py fix              # automatic scoring-based selection
-docker compose exec cai python /app/cai.py fix --issue 12   # specific issue
-docker compose exec cai python /app/cai.py review-pr        # automatic queue-based selection
-docker compose exec cai python /app/cai.py review-pr --pr 45  # specific PR
-docker compose exec cai python /app/cai.py review-docs      # automatic queue-based selection
-docker compose exec cai python /app/cai.py review-docs --pr 45  # specific PR
-docker compose exec cai python /app/cai.py revise           # automatic queue-based selection
-docker compose exec cai python /app/cai.py revise --pr 45   # specific PR
+docker compose exec cai python /app/cai.py dispatch             # oldest actionable
+docker compose exec cai python /app/cai.py dispatch --issue 12  # specific issue
+docker compose exec cai python /app/cai.py dispatch --pr 45     # specific PR
 docker compose exec cai python /app/cai.py verify
 docker compose exec cai python /app/cai.py audit
-docker compose exec cai python /app/cai.py confirm          # automatic queue-based selection
-docker compose exec cai python /app/cai.py confirm --issue 12  # specific issue
-docker compose exec cai python /app/cai.py merge            # automatic queue-based selection
-docker compose exec cai python /app/cai.py merge --pr 45    # specific PR
-docker compose exec cai python /app/cai.py refine           # automatic queue-based selection
-docker compose exec cai python /app/cai.py refine --issue 12  # specific issue
-docker compose exec cai python /app/cai.py spike            # automatic queue-based selection
-docker compose exec cai python /app/cai.py spike --issue 12   # specific issue
-docker compose exec cai python /app/cai.py explore          # automatic queue-based selection
-docker compose exec cai python /app/cai.py explore --issue 12  # specific issue
 ```
 
 A short alias makes this trivial:
 
 ```bash
 alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /app/cai.py'
-cai implement --issue 12
-cai review-pr --pr 45
-cai review-docs --pr 45
-cai revise --pr 45
+cai dispatch --issue 12
+cai dispatch --pr 45
 cai verify
 cai audit
-cai confirm --issue 12
-cai merge --pr 45
-cai refine --issue 12
-cai spike --issue 12
-cai explore --issue 12
 ```
 
 See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
@@ -612,7 +583,7 @@ the same global window settings.
   the [Confidence-gated auto-merge](#confidence-gated-auto-merge)
   section for details.
 
-**Troubleshooting: `cannot run ssh` errors.** If `cai.py fix` fails
+**Troubleshooting: `cannot run ssh` errors.** If `cai.py dispatch` fails
 with `error: cannot run ssh: No such file or directory`, your
 `cai_home` volume has `git_protocol` set to `ssh` (the container
 has no SSH client). Fix it without reinstalling:

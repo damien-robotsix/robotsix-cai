@@ -20,7 +20,7 @@ from cai_lib.config import (
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
     LABEL_TRIAGING, LABEL_APPLYING, LABEL_APPLIED,
     LABEL_PR_REVIEWING_CODE, LABEL_PR_REVISION_PENDING,
-    LABEL_PR_REVIEWING_DOCS, LABEL_PR_CI_FAILING,
+    LABEL_PR_REVIEWING_DOCS, LABEL_PR_APPROVED, LABEL_PR_CI_FAILING,
 )
 
 
@@ -128,7 +128,8 @@ class PRState(str, Enum):
     OPEN              = "pr:open"                     # no label yet
     REVIEWING_CODE    = LABEL_PR_REVIEWING_CODE       # cai-review-pr runs
     REVISION_PENDING  = LABEL_PR_REVISION_PENDING     # findings; awaiting revise push
-    REVIEWING_DOCS    = LABEL_PR_REVIEWING_DOCS       # cai-review-docs runs / merge gate
+    REVIEWING_DOCS    = LABEL_PR_REVIEWING_DOCS       # cai-review-docs runs
+    APPROVED          = LABEL_PR_APPROVED             # docs clean; merge handler picks it up
     CI_FAILING        = LABEL_PR_CI_FAILING           # cai-fix-ci runs
     MERGED            = "pr:merged"                   # derived from gh merged flag
     PR_HUMAN_NEEDED   = LABEL_PR_HUMAN_NEEDED         # parked for admin comment
@@ -303,10 +304,24 @@ PR_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_PR_REVIEWING_DOCS],
                labels_add=[LABEL_PR_REVIEWING_CODE],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
-    # Terminal gate: docs clean → merge (CI-green check is at merge time).
-    Transition("reviewing_docs_to_merged",
-               PRState.REVIEWING_DOCS, PRState.MERGED,
+    # Docs clean → approved. The merge handler picks up APPROVED as a
+    # separate state so future pre-merge steps (release notes, tag
+    # checks, …) can slot in without bloating the review handler.
+    Transition("reviewing_docs_to_approved",
+               PRState.REVIEWING_DOCS, PRState.APPROVED,
                labels_remove=[LABEL_PR_REVIEWING_DOCS],
+               labels_add=[LABEL_PR_APPROVED],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    # Terminal gate: approved → merged (CI-green check is at merge time).
+    Transition("approved_to_merged",
+               PRState.APPROVED, PRState.MERGED,
+               labels_remove=[LABEL_PR_APPROVED],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    # If new commits arrive while APPROVED, kick back to code review.
+    Transition("approved_to_reviewing_code",
+               PRState.APPROVED, PRState.REVIEWING_CODE,
+               labels_remove=[LABEL_PR_APPROVED],
+               labels_add=[LABEL_PR_REVIEWING_CODE],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
 
     # CI orthogonal gate: any pre-merge state can dive into CI_FAILING
@@ -325,6 +340,11 @@ PR_TRANSITIONS: list[Transition] = [
     Transition("reviewing_docs_to_ci_failing",
                PRState.REVIEWING_DOCS, PRState.CI_FAILING,
                labels_remove=[LABEL_PR_REVIEWING_DOCS],
+               labels_add=[LABEL_PR_CI_FAILING],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("approved_to_ci_failing",
+               PRState.APPROVED, PRState.CI_FAILING,
+               labels_remove=[LABEL_PR_APPROVED],
                labels_add=[LABEL_PR_CI_FAILING],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     Transition("ci_failing_to_reviewing_code",
@@ -354,8 +374,13 @@ PR_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_PR_HUMAN_NEEDED],
                labels_add=[LABEL_PR_REVIEWING_DOCS],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("pr_human_to_approved",
+               PRState.PR_HUMAN_NEEDED, PRState.APPROVED,
+               labels_remove=[LABEL_PR_HUMAN_NEEDED],
+               labels_add=[LABEL_PR_APPROVED],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     # NOTE: no pr_human_to_merged — PR_HUMAN_NEEDED must funnel back
-    # through the review states so a PR never bypasses review on its
+    # through a reviewable state so a PR never bypasses review on its
     # way to MERGED.
 ]
 
@@ -373,6 +398,7 @@ _PR_LABEL_STATES = [
     (LABEL_PR_HUMAN_NEEDED,     PRState.PR_HUMAN_NEEDED),
     (LABEL_PR_CI_FAILING,       PRState.CI_FAILING),
     (LABEL_PR_REVISION_PENDING, PRState.REVISION_PENDING),
+    (LABEL_PR_APPROVED,         PRState.APPROVED),
     (LABEL_PR_REVIEWING_DOCS,   PRState.REVIEWING_DOCS),
     (LABEL_PR_REVIEWING_CODE,   PRState.REVIEWING_CODE),
 ]

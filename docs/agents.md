@@ -1,6 +1,6 @@
 # Agents
 
-Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `description`, `tools`, `model`). The `cai.py` wrapper selects the appropriate agent for each pipeline phase and passes context via the prompt.
+Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `description`, `tools`, `model`). The FSM dispatcher (`cai dispatch`) selects the appropriate agent based on the current lifecycle state of an issue or PR: each state has one handler in `cai_lib/actions/<name>.py` that invokes the matching subagent and passes context via the prompt.
 
 | Agent | Description | Tools | Model | Mode |
 |---|---|---|---|---|
@@ -24,7 +24,6 @@ Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `desc
 | `cai-review-pr` | Pre-merge ripple-effect review — finds inconsistencies the PR introduced but didn't update | Read, Grep, Glob | haiku | Worktree |
 | `cai-revise` | Handle PR review comments: resolve rebase conflicts AND address unaddressed reviewer comments | Read, Edit, Write, Grep, Glob, Agent | sonnet | Worktree |
 | `cai-select` | Evaluate two fix plans and select the better one | Read | opus | Worktree |
-| `cai-spike` | Research/verification agent for `:needs-spike` issues — produces Findings, Refined Issue, or Blocked output | Read, Grep, Glob, Bash, Agent | opus | Clone |
 | `cai-update-check` | Periodic Claude Code release checker — emits findings for new versions, deprecations, and best-practice changes | Read, Grep, Glob | sonnet | Worktree |
 
-**Inline-only** agents receive all context in the user message and require no file access. **Worktree** agents run in a fresh git clone provided by the wrapper; code-editing agents (`cai-implement`, `cai-revise`, `cai-rebase`) commit changes and open PRs, while review/planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-docs`, `cai-review-pr`, `cai-select`, `cai-update-check`) read from the clone and emit structured output. **Clone** agents (`cai-explore`, `cai-spike`) also run against a fresh repo clone but post outcomes directly to GitHub issues rather than opening PRs. **Read-only** agents read the repo or external data without writing anything.
+**Inline-only** agents receive all context in the user message and require no file access. **Worktree** agents run in a fresh git clone provided by the wrapper; code-editing agents (`cai-implement`, `cai-revise`, `cai-rebase`) commit changes and open PRs, while review/planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-docs`, `cai-review-pr`, `cai-select`, `cai-update-check`) read from the clone and emit structured output. **Clone** agents (`cai-explore`) also run against a fresh repo clone but post outcomes directly to GitHub issues rather than opening PRs. **Read-only** agents read the repo or external data without writing anything.

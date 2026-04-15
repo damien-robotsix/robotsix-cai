@@ -16,12 +16,11 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives implement → revise → fix-ci → review-pr → review-docs → merge → confirm on `auto-improve:plan-approved` issues (flock-serialized, one issue at a time). `CAI_PLAN_ALL_SCHEDULE` drives every `:raised` / `:refined` issue through triage (which may skip ahead to `:plan-approved` or `:applying` for high-confidence decisions) → refine → plan; `plan-all` also runs at the end of each `cycle`. The plan step is confidence-gated: at HIGH confidence the issue auto-promotes to `:plan-approved` and enters the implement loop on the next tick; at MEDIUM / LOW / missing confidence it diverts to `:human-needed` with a pending marker, where an admin comment resumes it via `cai unblock`. `:raised`, `:refined`, and `:planned` are never picked up by the implement loop. Individual pipeline subcommands (`implement`, `triage`, `refine`, `plan`, `plan-all`, `spike`, `revise`, `fix-ci`, `review-pr`, `review-docs`, `merge`, `verify`, `confirm`, `unblock`) remain callable manually or from GitHub Actions.
+`CAI_CYCLE_SCHEDULE` drives the unified dispatcher: each tick runs restart-recover → verify → audit → `dispatch_oldest_actionable()`, which picks the oldest open issue or PR whose lifecycle state has a handler and runs the matching handler in `cai_lib/actions/`. A flock serializes overlapping runs. The planner confidence gate is unchanged — HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker, where an admin comment resumes it via `cai unblock`. `cai dispatch --issue N` / `cai dispatch --pr N` remains callable manually or from GitHub Actions for targeted retries.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly implement pipeline on `auto-improve:plan-approved` issues (flock-serialized) |
-| `CAI_PLAN_ALL_SCHEDULE` | `30 * * * *` | Hourly (offset 30) — drain `:raised`/`:refined` into `:planned` |
+| `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Hourly FSM dispatcher tick (flock-serialized) |
 | `CAI_ANALYZER_SCHEDULE` | `0 0 * * *` | Daily transcript analysis and issue raising |
 | `CAI_AUDIT_SCHEDULE` | `0 */6 * * *` | Every 6 hours — queue/PR lifecycle audit |
 | `CAI_AUDIT_TRIAGE_SCHEDULE` | `10 */6 * * *` | Every 6 hours — resolve `audit:raised` findings |
@@ -31,7 +30,6 @@ The issue-solving pipeline is split in two. `CAI_CYCLE_SCHEDULE` drives implemen
 | `CAI_UPDATE_CHECK_SCHEDULE` | `0 4 * * 1` | Weekly (Monday 04:00 UTC) — Claude Code release check |
 | `CAI_HEALTH_REPORT_SCHEDULE` | `0 7 * * 1` | Weekly (Monday 07:00 UTC) — pipeline health report |
 | `CAI_CHECK_WORKFLOWS_SCHEDULE` | `0 */6 * * *` | Every 6 hours — GitHub Actions workflow check |
-| `CAI_FIX_CI_SCHEDULE` | `50 * * * *` | Hourly (offset 50) — diagnose and fix failing CI checks |
 
 Schedule values use standard cron format: `minute hour day month weekday`. To disable a scheduled agent, set its variable to an empty string or a comment value.
 
