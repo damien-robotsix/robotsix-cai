@@ -38,3 +38,18 @@ Refs: damien-robotsix/robotsix-cai#719
 - `_run_claude_p` rewrites `proc.stdout` to the agent's result text (not the raw JSON envelope)
 - `gh pr diff <N> --repo <REPO>` returns a unified diff without needing a clone
 - The `_idx` synthetic index is a 0-based integer matching the comment's position in `all_comments`; the zip in the return expression preserves this alignment
+
+## Revision 1 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.claude/agents/cai-comment-filter.md` (via staging) — removed `## cai pre-merge review` and `## cai ` wildcard from rule 1 bot-self-comment list; added clarifying note that findings comments flow to rule 3 instead
+
+### Decisions this revision
+- Removed two lines from rule 1 rather than just the wildcard — both entries were wrong: the plain `## cai pre-merge review` form carries `### Finding:` blocks that revise must act on (established pattern in `_BOT_COMMENT_MARKERS`); the wildcard `## cai ` would have caught it too
+- Added an explicit note in the rule explaining the intentional gap so future edits don't re-introduce it
+
+### New gaps / deferred
+- None
