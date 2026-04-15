@@ -21,11 +21,6 @@ refine vague proposals into actionable plans, and let ambitious ideas
 through. Err on the side of approving: the human reviewer is the real
 gatekeeper. A proposal being "too big" is NOT a reason to reject it.
 
-## Your working directory
-
-**Your `cwd` is `/app`, NOT the clone.** The fresh clone is at the
-path provided in the `## Work directory` section. Use absolute paths.
-
 ## What you receive
 
 The user message contains:

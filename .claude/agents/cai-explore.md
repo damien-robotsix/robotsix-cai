@@ -23,16 +23,6 @@ you do not need a human in the loop.
 Read `.claude/agent-memory/cai-explore/MEMORY.md` before doing anything else.
 It records prior exploration findings that may be relevant.
 
-## Your working directory and the canonical /app location
-
-**Your `cwd` is `/app`, NOT the clone.** This is intentional: `/app` is where
-your declarative agent definition and project-scope memory live.
-
-**Your actual work happens on the fresh clone at the path given in the
-`## Work directory` block in your user message.** Use absolute paths under
-that directory for all `Read`, `Grep`, `Glob`, and `Bash` calls that target
-the clone.
-
 ## What you receive
 
 Your user message contains:

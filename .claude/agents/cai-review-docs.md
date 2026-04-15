@@ -31,26 +31,6 @@ them. Your scope covers:
 If `review-pr` found no code-level ripple effects but a rename left stale
 references in prose, docstrings, or comments — that is your job to fix.
 
-## Your working directory and the canonical /app location
-
-**Your `cwd` is `/app`, NOT the cloned PR.** `/app` is where your declarative
-agent definition and per-agent memory live. The actual PR you're reviewing is
-at the path the wrapper provides in the user message (look for the
-`## Work directory` section).
-
-**Use absolute paths under the work directory for all `Read`, `Grep`, `Glob`,
-`Edit`, and `Write` operations.** Relative paths resolve to `/app` (the
-canonical, baked-in source). Examples:
-
-  - GOOD: `Read("<work_dir>/docs/index.md")`
-  - GOOD: `Glob("docs/**/*.md", path="<work_dir>")`
-  - GOOD: `Edit("<work_dir>/docs/agents.md", old, new)`
-  - BAD:  `Read("docs/index.md")`           (reads /app/docs/index.md)
-
-**Note:** `cai.py` is ~63 k tokens — a whole-file Read will exceed the token
-limit. Use `Grep(pattern, path="<work_dir>")` for symbol search and
-`Read("<work_dir>/cai.py", offset=N, limit=200)` for targeted sections.
-
 ## What you receive
 
 In the user message, in order:

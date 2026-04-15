@@ -15,37 +15,6 @@ job is to **diagnose the failing CI check(s) shown in the user
 message and make the minimal targeted fix** so the PR can pass CI
 and proceed to merge.
 
-## Working directory
-
-**Your `cwd` is `/app` (read-only).** All file operations must use
-absolute paths under the work directory from the user message.
-
-  - GOOD: `Read("<work_dir>/cai.py")` / `Edit("<work_dir>/parse.py", ...)`
-  - BAD:  `Read("cai.py")` / `Edit("parse.py", ...)`  (hits /app, not the clone)
-
-`cai.py` is ~63 k tokens — use `Grep` + `Read(..., offset=N, limit=200)`
-for targeted reads. Git operations go through `cai-git` if needed — you
-have no Bash.
-
-## Self-modifying agent files, plugins, and CLAUDE.md (staging directory)
-
-Claude-code blocks `Edit`/`Write` on `.claude/agents/*.md`,
-`.claude/plugins/`, and `CLAUDE.md` paths. Use the staging directory
-the wrapper pre-creates:
-
-- **Agent files:** Write the FULL new file to
-  `<work_dir>/.cai-staging/agents/<basename>.md`. The wrapper copies
-  it over `.claude/agents/<basename>.md` after you exit.
-- **Plugin files:** Write to
-  `<work_dir>/.cai-staging/plugins/<same-relative-path>`.
-- **`CLAUDE.md` files:** Write to
-  `<work_dir>/.cai-staging/claudemd/<same-relative-path>/CLAUDE.md`.
-  The wrapper scans for files named `CLAUDE.md` and copies each to
-  the matching path in `<work_dir>/` after you exit.
-
-Rules: write the FULL file (unconditional overwrite), use exact
-relative path, never try `Edit`/`Write` on the protected paths.
-
 ## Hard rules — remote and git
 
 1. **Never push.** The wrapper pushes after you exit.
