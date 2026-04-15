@@ -38,10 +38,13 @@ of the following is true:
    - `## cai docs review (clean)`
    - `## cai docs review (applied)`
    - `## cai merge verdict`
-   - `## cai pre-merge review`  ← full findings (already acted on)
-   - `## cai ` ← any other cai automation prefix
    Do NOT use the author login to detect bots — cai comments are
    posted under the human account but have these header prefixes.
+   **Important:** The plain `## cai pre-merge review` form (without
+   the `(clean)` suffix) is NOT in this list — it carries `###
+   Finding:` blocks that revise must address. Let rule 3 (diff
+   already addresses it) determine whether those findings are
+   resolved.
 
 2. **Resolved review thread**: The comment body or a reply in the
    same thread contains `resolved: true` or a GitHub "Resolved"
