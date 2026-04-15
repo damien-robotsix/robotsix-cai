@@ -75,31 +75,33 @@ complete, correct plan or ops list yourself from the issue body alone.
 | `REFINE` | — | any | → `triaging_to_refining` |
 | `HUMAN` | — | — | → `triaging_to_human` |
 
-## Output format
+## Output format (JSON)
 
-Emit exactly one structured response block. Output ONLY these fields —
-no preamble, no trailing prose.
+Emit a single JSON object with the following fields. The system enforces
+this structure via `--json-schema`, so adhere exactly.
 
-```
-RoutingDecision: REFINE | PLAN_APPROVE | APPLY | HUMAN
-RoutingConfidence: LOW | MEDIUM | HIGH
-Kind: code | maintenance
-SkipConfidence: LOW | MEDIUM | HIGH
-Plan: <full markdown plan body>
-Ops: <ordered markdown list of ops>
-Reasoning: <1-3 sentences explaining the call. Be specific.>
+```json
+{
+  "routing_decision": "REFINE" | "PLAN_APPROVE" | "APPLY" | "HUMAN",
+  "routing_confidence": "LOW" | "MEDIUM" | "HIGH",
+  "kind": "code" | "maintenance",
+  "reasoning": "<1-3 sentences explaining the routing decision>",
+  "skip_confidence": "LOW" | "MEDIUM" | "HIGH",
+  "plan": "<full markdown plan body; omit unless skip_confidence=HIGH and routing_decision=PLAN_APPROVE>",
+  "ops": "<ordered markdown list of operations; omit unless skip_confidence=HIGH and routing_decision=APPLY>"
+}
 ```
 
 Rules:
-- `Kind:` is required for `REFINE`, `PLAN_APPROVE`, and `APPLY` verdicts;
+- `kind` is required for `REFINE`, `PLAN_APPROVE`, and `APPLY` verdicts;
   omit for `HUMAN`.
-- `SkipConfidence:` is required when `RoutingDecision ∈ {PLAN_APPROVE, APPLY}`;
+- `skip_confidence` is required when `routing_decision ∈ {PLAN_APPROVE, APPLY}`;
   omit for all other routing decisions.
-- `Plan:` is required when `SkipConfidence: HIGH` AND `Kind: code`. Provide
-  the full plan as a markdown body that the implement subagent can act on
+- `plan` is required when `skip_confidence=HIGH` AND `routing_decision=PLAN_APPROVE`.
+  Provide the full plan as a markdown body that the implement subagent can act on
   directly. Omit otherwise.
-- `Ops:` is required when `SkipConfidence: HIGH` AND `Kind: maintenance`.
+- `ops` is required when `skip_confidence=HIGH` AND `routing_decision=APPLY`.
   Provide an ordered markdown list of operations for `cai-maintain` to execute.
   Omit otherwise.
-- Do not write code, diffs, or remediation prose outside of `Plan:` / `Ops:`.
+- Do not write code, diffs, or remediation prose outside of `plan` / `ops`.
 - Do not propose new labels or lifecycle states.
