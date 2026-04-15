@@ -17,7 +17,6 @@ intentionally dropped here.
 """
 from __future__ import annotations
 
-import re
 import shutil
 import sys
 import time
@@ -154,32 +153,115 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
     return result.stdout or ""
 
 
-def _run_select_agent(issue: dict, plans: list[str], work_dir: Path) -> str:
-    """Run the cai-select agent to choose the best plan.
+def _strip_frontmatter(text: str) -> str:
+    """Strip YAML frontmatter (lines between first pair of --- delimiters)."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return text
+    for i, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return "\n".join(lines[i + 1:]).lstrip("\n")
+    return text
 
-    Returns the full stdout from the select agent.
 
-    Runs with `cwd=/app` and `--add-dir <work_dir>` so the agent
-    reads its definition from the canonical location while
-    operating on the clone via absolute paths (#342).
+def _extract_frontmatter_field(text: str, field: str) -> "str | None":
+    """Return the value of a simple ``key: value`` frontmatter field, or None."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith(f"{field}:"):
+            return line[len(field) + 1:].strip()
+    return None
+
+
+def _run_select_agent(
+    issue: dict, plans: list[str], work_dir: Path,
+) -> "tuple[str, object] | None":
+    """Run the cai-select agent via direct Anthropic API with forced tool-use.
+
+    Reads ``.claude/agents/cai-select.md``, strips the YAML frontmatter to
+    build the system prompt, then calls the Anthropic messages API with
+    ``tool_choice`` forced to ``submit_selection``.
+
+    Returns ``(plan_text, confidence)`` on success, or ``None`` on failure.
+    The ``confidence`` is a :class:`~cai_lib.fsm.Confidence` enum member.
     """
+    from cai_lib.fsm import Confidence
+    from cai_lib import structured_client
+
     user_message = _work_directory_block(work_dir) + "\n"
     user_message += _build_issue_block(issue)
     user_message += "\n---\n\n# Candidate Plans\n\n"
     for i, plan in enumerate(plans, 1):
         user_message += f"## Plan {i}\n\n{plan}\n\n---\n\n"
-    result = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-select",
-         "--dangerously-skip-permissions",
-         "--add-dir", str(work_dir)],
-        category="plan.select",
-        agent="cai-select",
-        input=user_message,
-        cwd="/app",
-    )
-    if result.returncode != 0:
-        return ""
-    return result.stdout or ""
+
+    agent_md_path = Path("/app/.claude/agents/cai-select.md")
+    try:
+        raw = agent_md_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"[cai plan] could not read cai-select.md: {exc}", file=sys.stderr)
+        return None
+
+    system_prompt = _strip_frontmatter(raw)
+    model = _extract_frontmatter_field(raw, "model") or "claude-opus-4-6"
+
+    tool_def = {
+        "name": "submit_selection",
+        "description": "Submit the selected plan with a confidence level.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type": "string",
+                    "description": "The full text of the chosen plan.",
+                },
+                "confidence": {
+                    "type": "string",
+                    "enum": ["HIGH", "MEDIUM", "LOW"],
+                    "description": "Confidence level for the selected plan.",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Optional note flagging critical weaknesses for the fix agent.",
+                },
+            },
+            "required": ["plan", "confidence"],
+        },
+    }
+
+    try:
+        result = structured_client.call_with_tool(
+            model=model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            tool_def=tool_def,
+            category="plan.select",
+            agent="cai-select",
+        )
+    except Exception as exc:
+        print(f"[cai plan] cai-select API call failed: {exc}", file=sys.stderr)
+        return None
+
+    plan_text = result.get("plan", "")
+    confidence_str = result.get("confidence", "")
+    note = result.get("note", "")
+
+    if note:
+        plan_text = f"> **Note:** {note}\n\n{plan_text}"
+
+    try:
+        confidence = Confidence[confidence_str.upper()]
+    except KeyError:
+        print(
+            f"[cai plan] cai-select returned invalid confidence: {confidence_str!r}",
+            file=sys.stderr,
+        )
+        return None
+
+    return plan_text.rstrip() + "\n", confidence
 
 
 def _run_plan_select_pipeline(
@@ -192,15 +274,13 @@ def _run_plan_select_pipeline(
     best and emits a trailing ``Confidence: HIGH|MEDIUM|LOW`` line
     indicating how sure it is that the chosen plan will succeed.
 
-    Returns ``(plan_text, confidence)`` — the confidence line is
-    stripped from ``plan_text`` before it is stored on the issue so
-    the implement agent receives only the plan. ``confidence`` is
-    ``None`` when the select agent omits the marker (treated as
-    below-threshold by the caller).
+    Returns ``(plan_text, confidence)`` — plan text and confidence arrive
+    as separate structured fields from the select agent's forced tool-use
+    call. ``confidence`` is a :class:`~cai_lib.fsm.Confidence` enum member,
+    or ``None`` when the select agent fails (treated as below-threshold by
+    the caller).
     Returns ``None`` if the pipeline fails to produce any output.
     """
-    from cai_lib.fsm import parse_confidence
-
     issue_number = issue["number"]
 
     # Step 1: Run Plan 1.
@@ -217,20 +297,12 @@ def _run_plan_select_pipeline(
 
     # Step 3: Run the select agent to pick the best plan.
     print(f"[cai plan] running select agent for #{issue_number}", flush=True)
-    selection = _run_select_agent(issue, plans, work_dir)
-    if not selection.strip():
+    select_result = _run_select_agent(issue, plans, work_dir)
+    if select_result is None:
         print("[cai plan] select agent produced no output; skipping pipeline", flush=True)
         return None
 
-    confidence = parse_confidence(selection)
-    # Strip the trailing ``Confidence: X`` line so the stored plan is
-    # clean — the confidence drives the FSM transition, not the plan body.
-    plan_text = re.sub(
-        r"(?im)^[^\w\n]*Confidence[^\w\n]*[:=][^\w\n]*(LOW|MEDIUM|HIGH)[^\w\n]*$",
-        "",
-        selection,
-    ).rstrip() + "\n"
-
+    plan_text, confidence = select_result
     conf_name = confidence.name if confidence else "MISSING"
     print(
         f"[cai plan] select agent produced {len(plan_text)} chars "
