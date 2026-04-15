@@ -526,17 +526,3 @@ def _pr_set_needs_human(pr_number: int, needs: bool) -> None:
             f"label `{LABEL_PR_NEEDS_HUMAN}`:\n{res.stderr}",
             file=sys.stderr,
         )
-
-
-def _parse_merge_verdict(text: str) -> dict | None:
-    """Extract confidence, action, and reasoning from the agent's output."""
-    conf_m = re.search(r"\*\*Confidence:\*\*\s*(high|medium|low)", text, re.IGNORECASE)
-    act_m = re.search(r"\*\*Action:\*\*\s*(merge|hold|reject)", text, re.IGNORECASE)
-    reason_m = re.search(r"\*\*Reasoning:\*\*\s*(.+)", text, re.IGNORECASE)
-    if not conf_m or not act_m:
-        return None
-    return {
-        "confidence": conf_m.group(1).lower(),
-        "action": act_m.group(1).lower(),
-        "reasoning": reason_m.group(1).strip() if reason_m else "(no reasoning provided)",
-    }

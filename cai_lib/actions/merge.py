@@ -32,7 +32,6 @@ from cai_lib.fsm import apply_pr_transition, get_pr_state, PRState
 from cai_lib.github import _gh_json, _set_labels, _issue_has_label, close_issue_not_planned
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import (
-    _parse_merge_verdict,
     _pr_set_needs_human,
     _parse_iso_ts,
     _is_bot_comment,
@@ -63,6 +62,25 @@ _BOT_BRANCH_RE = re.compile(r"^auto-improve/(\d+)-")
 # token cost per PR.  Configurable via env var so the ceiling can be
 # raised without a code change.
 _MERGE_MAX_DIFF_LEN = int(os.environ.get("CAI_MERGE_MAX_DIFF_LEN", "40000"))
+
+# JSON schema for structured merge verdict (forced tool-use via --json-schema).
+_MERGE_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+        },
+        "action": {
+            "type": "string",
+            "enum": ["merge", "hold", "reject"],
+        },
+        "reasoning": {
+            "type": "string",
+        },
+    },
+    "required": ["confidence", "action", "reasoning"],
+}
 
 
 def _assemble_diff(raw_diff: str, max_len: int) -> str:
@@ -384,26 +402,46 @@ def handle_merge(pr: dict) -> int:
         f"{comments_section}\n"
     )
 
-    agent = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-merge"],
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-merge",
+         "--dangerously-skip-permissions",
+         "--json-schema", json.dumps(_MERGE_JSON_SCHEMA)],
         category="merge",
         agent="cai-merge",
         input=user_message,
     )
-    if agent.returncode != 0:
+    if result.returncode != 0:
         print(
             f"[cai merge] model failed for PR #{pr_number} "
-            f"(exit {agent.returncode}):\n{agent.stderr}",
+            f"(exit {result.returncode}):\n{result.stderr}",
             file=sys.stderr,
         )
         log_run("merge", repo=REPO, pr=pr_number,
-                result="agent_failed", exit=agent.returncode)
-        return agent.returncode
+                result="agent_failed", exit=result.returncode)
+        return result.returncode
 
-    agent_output = (agent.stdout or "").strip()
-    verdict = _parse_merge_verdict(agent_output)
+    try:
+        tool_input = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(
+            f"[cai merge] failed to parse JSON verdict: {exc}; "
+            f"stdout starts with: {(result.stdout or '')[:120]!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        tool_input = {}
 
-    if not verdict:
+    confidence = tool_input.get("confidence", "")
+    action = tool_input.get("action", "")
+    reasoning = tool_input.get("reasoning", "(no reasoning provided)")
+
+    print(
+        f"[cai merge] verdict: confidence={confidence} action={action} "
+        f"reasoning={reasoning}",
+        flush=True,
+    )
+
+    if not confidence or not action:
         print(
             f"[cai merge] PR #{pr_number}: could not parse verdict; "
             f"skipping",
@@ -413,13 +451,12 @@ def handle_merge(pr: dict) -> int:
                 result="verdict_unparseable", exit=0)
         return 0
 
-    confidence = verdict["confidence"]
-    action = verdict["action"]
-
     # Post the verdict as a PR comment.
     comment_body = (
         f"{_MERGE_COMMENT_HEADING} \u2014 {head_sha}\n\n"
-        f"{agent_output}\n\n"
+        f"**Confidence:** {confidence}\n"
+        f"**Action:** {action}\n"
+        f"**Reasoning:** {reasoning}\n\n"
         f"---\n"
         f"_Auto-merge review by `cai merge`. "
         f"Threshold: `{_MERGE_THRESHOLD}`, verdict: `{confidence}`, "
