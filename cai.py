@@ -52,9 +52,10 @@ Subcommands:
                             `:no-action` to closed issues lacking terminal
                             labels; then runs a Sonnet-driven semantic
                             check for duplicates, stuck loops, label
-                            corruption, etc. Findings are published as
-                            `auto-improve:raised` + `audit` issues in the
-                            unified label scheme.
+                            corruption, etc. Findings are pre-screened for
+                            duplicates/resolved via cai-dup-check; survivors
+                            are published as `auto-improve:raised` + `audit`
+                            issues in the unified label scheme.
 
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
