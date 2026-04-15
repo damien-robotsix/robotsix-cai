@@ -248,14 +248,21 @@ def dispatch_pr(pr_number: int) -> int:
     return handler(pr)
 
 
-def _pick_oldest_actionable_target() -> Optional[tuple[str, int]]:
+def _pick_oldest_actionable_target(
+    skip: Optional[set[tuple[str, int]]] = None,
+) -> Optional[tuple[str, int]]:
     """Return ``(kind, number)`` of the oldest open issue/PR in a state with
     a registered handler, or ``None`` if the queue is empty.
 
     ``kind`` is ``"issue"`` or ``"pr"``. Sort key is the GitHub
     ``createdAt`` timestamp (oldest first), so PRs that have been around
     longer get the next tick — keeps in-flight work ahead of fresh intake.
+
+    ``skip`` is an optional set of ``(kind, number)`` tuples to exclude — used
+    by :func:`dispatch_drain` to move past a target whose handler already
+    failed in the current drain pass so the rest of the queue can still run.
     """
+    skip = skip or set()
     issue_states = actionable_issue_states()
     pr_states = actionable_pr_states()
 
@@ -291,11 +298,15 @@ def _pick_oldest_actionable_target() -> Optional[tuple[str, int]]:
         label_names = [lb["name"] for lb in issue.get("labels", [])]
         state = get_issue_state(label_names)
         if state is not None and state in issue_states:
+            if ("issue", issue["number"]) in skip:
+                continue
             candidates.append((issue.get("createdAt", ""), "issue", issue["number"]))
 
     for pr in prs:
         state = get_pr_state(pr)
         if state in pr_states:
+            if ("pr", pr["number"]) in skip:
+                continue
             candidates.append((pr.get("createdAt", ""), "pr", pr["number"]))
 
     if not candidates:
@@ -327,11 +338,14 @@ def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
     Returns the worst exit code seen across handlers (0 if every dispatch
     succeeded or the queue was empty from the start).
     """
+    import traceback
+
     last_target: Optional[tuple[str, int]] = None
+    failed_targets: set[tuple[str, int]] = set()
     worst_rc = 0
 
     for i in range(max_iter):
-        target = _pick_oldest_actionable_target()
+        target = _pick_oldest_actionable_target(skip=failed_targets)
         if target is None:
             print(f"[cai dispatch] drain complete after {i} dispatch(es): "
                   "queue empty", flush=True)
@@ -342,14 +356,27 @@ def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:
             return worst_rc
 
         kind, number = target
-        if kind == "issue":
-            rc = dispatch_issue(number)
-        else:
-            rc = dispatch_pr(number)
-        if rc != 0 and worst_rc == 0:
-            worst_rc = rc
-        elif rc > worst_rc:
-            worst_rc = rc
+        try:
+            if kind == "issue":
+                rc = dispatch_issue(number)
+            else:
+                rc = dispatch_pr(number)
+        except Exception:  # noqa: BLE001 — keep draining the queue
+            # Handler crashed. Record failure, skip this target for the rest
+            # of this drain pass (#657 — one crashing item must not stall
+            # the cycle), and continue with the next actionable target.
+            traceback.print_exc()
+            print(f"[cai dispatch] handler for {kind} #{number} raised; "
+                  "skipping this target for the remainder of the drain",
+                  flush=True)
+            failed_targets.add(target)
+            worst_rc = max(worst_rc, 1)
+            last_target = target
+            continue
+        if rc != 0:
+            failed_targets.add(target)
+            if rc > worst_rc:
+                worst_rc = rc
         last_target = target
 
     print(f"[cai dispatch] hit drain cap (max_iter={max_iter}); remaining "

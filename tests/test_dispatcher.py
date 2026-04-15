@@ -465,5 +465,69 @@ class TestDispatchDrain(unittest.TestCase):
         self.assertEqual(rc, 2)
 
 
+    def test_handler_exception_skips_target_and_continues_drain(self):
+        """A crashing handler must not stall the queue — drain skips it and
+        processes the rest of the actionable items (#657)."""
+        pool = [
+            {"number": 10, "createdAt": "2024-01-01T00:00:00Z",
+             "labels": [{"name": "auto-improve:refining"}]},
+            {"number": 20, "createdAt": "2024-01-02T00:00:00Z",
+             "labels": [{"name": "auto-improve:in-progress"}]},
+        ]
+
+        def fake_gh_json(cmd):
+            if "issue" in cmd and "list" in cmd:
+                return pool
+            return []
+
+        calls: list[int] = []
+
+        def fake_di(n):
+            calls.append(n)
+            if n == 10:
+                raise RuntimeError("boom")
+            pool[:] = [i for i in pool if i["number"] != n]
+            return 0
+
+        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
+             patch.object(dispatcher, "dispatch_issue", side_effect=fake_di):
+            rc = dispatcher.dispatch_drain()
+
+        # Crash on #10 is recorded as worst_rc=1, but #20 still ran.
+        self.assertEqual(rc, 1)
+        self.assertEqual(calls, [10, 20])
+
+    def test_nonzero_handler_skips_target_and_continues_drain(self):
+        """A handler that returns nonzero is also skipped so the drain can
+        still reach the next actionable target in the same pass."""
+        pool = [
+            {"number": 10, "createdAt": "2024-01-01T00:00:00Z",
+             "labels": [{"name": "auto-improve:refining"}]},
+            {"number": 20, "createdAt": "2024-01-02T00:00:00Z",
+             "labels": [{"name": "auto-improve:in-progress"}]},
+        ]
+
+        def fake_gh_json(cmd):
+            if "issue" in cmd and "list" in cmd:
+                return pool
+            return []
+
+        calls: list[int] = []
+
+        def fake_di(n):
+            calls.append(n)
+            if n == 10:
+                return 1  # non-advancing failure — don't shrink pool
+            pool[:] = [i for i in pool if i["number"] != n]
+            return 0
+
+        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
+             patch.object(dispatcher, "dispatch_issue", side_effect=fake_di):
+            rc = dispatcher.dispatch_drain()
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(calls, [10, 20])
+
+
 if __name__ == "__main__":
     unittest.main()
