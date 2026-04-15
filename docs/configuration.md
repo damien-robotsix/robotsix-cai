@@ -18,7 +18,7 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-`CAI_CYCLE_SCHEDULE` drives the unified dispatcher: each tick runs restart-recover → `dispatch_oldest_actionable()`, which picks the oldest open issue or PR whose lifecycle state has a handler and runs the matching handler in `cai_lib/actions/`. A flock serializes overlapping runs. The planner confidence gate is unchanged — HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker, where an admin comment resumes it via `cai unblock`. `cai dispatch --issue N` / `cai dispatch --pr N` remains callable manually or from GitHub Actions for targeted retries. Verify and audit run on their own independent cron schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`).
+`CAI_CYCLE_SCHEDULE` drives the unified dispatcher: each tick runs restart-recover → `dispatch_oldest_actionable()`, which picks the oldest open issue or PR whose lifecycle state has a handler and runs the matching handler in `cai_lib/actions/`. A flock serializes overlapping runs. The planner confidence gate is unchanged — HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker and a comment explaining why the plan didn't reach HIGH confidence (e.g., unverified assumptions, ambiguous scope). An admin comment resumes it via `cai unblock`. `cai dispatch --issue N` / `cai dispatch --pr N` remains callable manually or from GitHub Actions for targeted retries. Verify and audit run on their own independent cron schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`).
 
 | Variable | Default | Description |
 |---|---|---|

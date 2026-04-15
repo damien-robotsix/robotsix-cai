@@ -13,7 +13,7 @@ Handler registry (issue states):
 | `RAISED` / `TRIAGING` | `cai_lib/actions/triage.py` | Pre-check for duplicates/resolved issues via `cai-dup-check` (closes at HIGH confidence). Then classify the issue (REFINE / PLAN_APPROVE / APPLY / HUMAN). PLAN_APPROVE / APPLY at HIGH SkipConfidence skips ahead to `:plan-approved` or `:applying`. |
 | `REFINING` | `cai_lib/actions/refine.py` | Rewrite the issue into a structured plan with steps, verification, and scope guardrails. |
 | `NEEDS_EXPLORATION` | `cai_lib/actions/explore.py` | Run `cai-explore` to investigate an under-specified issue and route back to `:refining`. |
-| `REFINED` / `PLANNING` / `PLANNED` | `cai_lib/actions/plan.py` | Run plan + select, store the plan in the issue body, then apply the confidence gate: HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker. |
+| `REFINED` / `PLANNING` / `PLANNED` | `cai_lib/actions/plan.py` | Run plan + select, store the plan in the issue body, then apply the confidence gate: HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker and a comment explaining the confidence reason (e.g., unverified assumptions, ambiguous scope). |
 | `PLAN_APPROVED` / `IN_PROGRESS` | `cai_lib/actions/implement.py` | Run `cai-implement` in a fresh worktree; commit, push, and open a PR. |
 | `PR` | `cai_lib/actions/pr_bounce.py` | Bounce to the linked PR's dispatcher. |
 | `MERGED` | `cai_lib/actions/confirm.py` | Verify the merged fix actually resolved the issue; transition to `:solved` or re-queue to `:refined`. |
