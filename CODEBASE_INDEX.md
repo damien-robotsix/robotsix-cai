@@ -91,6 +91,7 @@
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
 | `tests/test_maintain.py` | TODO: add description |
+| `tests/test_merge_diff.py` | TODO: add description |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
 | `tests/test_parse.py` | Tests for parse.py signal extraction |
 | `tests/test_plan.py` | TODO: add description |
