@@ -57,6 +57,10 @@ RUN wget -nv -O /usr/local/bin/supercronic \
     && chmod +x /usr/local/bin/supercronic \
     && supercronic -version
 
+# Install the Anthropic Python SDK so structured_client.py can call the
+# messages API directly (forced tool-use for gate-critical agents).
+RUN pip install --no-cache-dir "anthropic>=0.25"
+
 # Create a non-root user. claude-code refuses
 # `--dangerously-skip-permissions` when running as root
 # ("cannot be used with root/sudo privileges for security reasons"),
