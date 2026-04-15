@@ -144,7 +144,6 @@ services:
       CAI_PLAN_ALL_SCHEDULE: "30 * * * *"   # hourly @30 — drain :raised/:refined into :planned
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
-      CAI_AUDIT_TRIAGE_SCHEDULE: "10 */6 * * *" # every 6h at :10 (triage raised findings)
       CAI_CODE_AUDIT_SCHEDULE: "0 3 * * 0"  # weekly Sunday 03:00 UTC (Sonnet, code consistency)
       CAI_PROPOSE_SCHEDULE: "0 4 * * 0"    # weekly Sunday 04:00 UTC (creative improvement proposals)
       CAI_UPDATE_CHECK_SCHEDULE: "0 4 * * 1" # weekly Monday 04:00 UTC (Claude Code release check)
@@ -216,7 +215,6 @@ services:
       CAI_PLAN_ALL_SCHEDULE: "30 * * * *"   # hourly @30 — drain :raised/:refined into :planned
       CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
-      CAI_AUDIT_TRIAGE_SCHEDULE: "10 */6 * * *" # every 6h at :10 (triage raised findings)
       CAI_CODE_AUDIT_SCHEDULE: "0 3 * * 0"  # weekly Sunday 03:00 UTC (Sonnet, code consistency)
       CAI_PROPOSE_SCHEDULE: "0 4 * * 0"    # weekly Sunday 04:00 UTC (creative improvement proposals)
       CAI_UPDATE_CHECK_SCHEDULE: "0 4 * * 1" # weekly Monday 04:00 UTC (Claude Code release check)
