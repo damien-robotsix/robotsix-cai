@@ -82,8 +82,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 
 On `docker compose up -d` the entrypoint templates the crontab from
 the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_ANALYZER_SCHEDULE`,
-`CAI_AUDIT_SCHEDULE`,
-`CAI_CODE_AUDIT_SCHEDULE`, `CAI_PROPOSE_SCHEDULE`,
+`CAI_AUDIT_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`, `CAI_PROPOSE_SCHEDULE`,
 `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`,
 `CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`, `CAI_VERIFY_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
