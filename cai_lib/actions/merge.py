@@ -36,9 +36,9 @@ from cai_lib.cmd_helpers import (
     _pr_set_needs_human,
     _parse_iso_ts,
     _is_bot_comment,
-    _filter_unaddressed_comments,
     _fetch_review_comments,
 )
+from cai_lib.actions.revise import _filter_comments_with_haiku
 from cai_lib.logging_utils import log_run
 
 
@@ -262,26 +262,7 @@ def handle_merge(pr: dict) -> int:
     except Exception:
         pass
 
-    # Fetch the most recent commit timestamp on the branch.
-    try:
-        commits = _gh_json([
-            "pr", "view", str(pr_number),
-            "--repo", REPO,
-            "--json", "commits",
-        ])
-        commit_list = commits.get("commits", [])
-        last_commit_date = (
-            commit_list[-1].get("committedDate", "") if commit_list else ""
-        )
-    except (subprocess.CalledProcessError, KeyError):
-        last_commit_date = ""
-
-    commit_ts = _parse_iso_ts(last_commit_date)
-    unaddressed = (
-        _filter_unaddressed_comments(all_comments, commit_ts)
-        if commit_ts is not None
-        else []
-    )
+    unaddressed = _filter_comments_with_haiku(all_comments, pr_number)
     has_unaddressed = bool(unaddressed)
 
     if has_unaddressed:

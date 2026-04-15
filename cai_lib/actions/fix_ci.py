@@ -37,8 +37,8 @@ from cai_lib.cmd_helpers import (
     _apply_agent_edit_staging,
     _parse_iso_ts,
     _fetch_review_comments,
-    _filter_unaddressed_comments,
 )
+from cai_lib.actions.revise import _filter_comments_with_haiku
 
 
 # Marker posted on a PR after each CI-fix subagent attempt. The per-SHA loop
@@ -145,7 +145,7 @@ def _select_ci_fix_targets() -> list[dict]:
         issue_comments = pr.get("comments", [])
         line_comments = _fetch_review_comments(pr["number"])
         all_comments = issue_comments + line_comments
-        unaddressed = _filter_unaddressed_comments(all_comments, commit_ts)
+        unaddressed = _filter_comments_with_haiku(all_comments, pr["number"])
         if unaddressed:
             print(
                 f"[cai fix-ci] PR #{pr['number']}: skipping — "
