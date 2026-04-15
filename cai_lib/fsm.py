@@ -20,7 +20,8 @@ from cai_lib.config import (
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
     LABEL_TRIAGING, LABEL_APPLYING, LABEL_APPLIED,
     LABEL_PR_REVIEWING_CODE, LABEL_PR_REVISION_PENDING,
-    LABEL_PR_REVIEWING_DOCS, LABEL_PR_APPROVED, LABEL_PR_CI_FAILING,
+    LABEL_PR_REVIEWING_DOCS, LABEL_PR_APPROVED, LABEL_PR_REBASING,
+    LABEL_PR_CI_FAILING,
 )
 
 
@@ -130,6 +131,7 @@ class PRState(str, Enum):
     REVISION_PENDING  = LABEL_PR_REVISION_PENDING     # findings; awaiting revise push
     REVIEWING_DOCS    = LABEL_PR_REVIEWING_DOCS       # cai-review-docs runs
     APPROVED          = LABEL_PR_APPROVED             # docs clean; merge handler picks it up
+    REBASING          = LABEL_PR_REBASING             # mergeable=CONFLICTING; cai-rebase runs
     CI_FAILING        = LABEL_PR_CI_FAILING           # cai-fix-ci runs
     MERGED            = "pr:merged"                   # derived from gh merged flag
     PR_HUMAN_NEEDED   = LABEL_PR_HUMAN_NEEDED         # parked for admin comment
@@ -353,6 +355,43 @@ PR_TRANSITIONS: list[Transition] = [
                labels_add=[LABEL_PR_REVIEWING_CODE],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
 
+    # Rebase orthogonal gate: any pre-merge state can dive into REBASING
+    # when the dispatcher detects mergeable=CONFLICTING. The handler
+    # always exits to REVIEWING_CODE (success or failure) — the rebase
+    # outcome is posted as a PR comment so the next reviewer sees what
+    # happened and can either approve the rebased SHA, leave findings,
+    # or escalate to human if conflicts were unresolvable.
+    Transition("reviewing_code_to_rebasing",
+               PRState.REVIEWING_CODE, PRState.REBASING,
+               labels_remove=[LABEL_PR_REVIEWING_CODE],
+               labels_add=[LABEL_PR_REBASING],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("revision_pending_to_rebasing",
+               PRState.REVISION_PENDING, PRState.REBASING,
+               labels_remove=[LABEL_PR_REVISION_PENDING],
+               labels_add=[LABEL_PR_REBASING],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("reviewing_docs_to_rebasing",
+               PRState.REVIEWING_DOCS, PRState.REBASING,
+               labels_remove=[LABEL_PR_REVIEWING_DOCS],
+               labels_add=[LABEL_PR_REBASING],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("approved_to_rebasing",
+               PRState.APPROVED, PRState.REBASING,
+               labels_remove=[LABEL_PR_APPROVED],
+               labels_add=[LABEL_PR_REBASING],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("ci_failing_to_rebasing",
+               PRState.CI_FAILING, PRState.REBASING,
+               labels_remove=[LABEL_PR_CI_FAILING],
+               labels_add=[LABEL_PR_REBASING],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    Transition("rebasing_to_reviewing_code",
+               PRState.REBASING, PRState.REVIEWING_CODE,
+               labels_remove=[LABEL_PR_REBASING],
+               labels_add=[LABEL_PR_REVIEWING_CODE],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+
     # Human-needed divert + resume paths.
     Transition("reviewing_code_to_human",
                PRState.REVIEWING_CODE, PRState.PR_HUMAN_NEEDED,
@@ -396,6 +435,7 @@ def get_issue_state(labels: list[str]) -> Optional[IssueState]:
 
 _PR_LABEL_STATES = [
     (LABEL_PR_HUMAN_NEEDED,     PRState.PR_HUMAN_NEEDED),
+    (LABEL_PR_REBASING,         PRState.REBASING),
     (LABEL_PR_CI_FAILING,       PRState.CI_FAILING),
     (LABEL_PR_REVISION_PENDING, PRState.REVISION_PENDING),
     (LABEL_PR_APPROVED,         PRState.APPROVED),

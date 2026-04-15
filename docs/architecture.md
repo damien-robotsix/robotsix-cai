@@ -61,6 +61,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 | `pr:revision-pending` | Review-pr handler posted findings; revise handler will address them |
 | `pr:reviewing-docs` | Code review clean; docs review is next |
 | `pr:approved` | Docs review clean; merge handler runs the final confidence-gated merge from here |
+| `pr:rebasing` | Mergeable=CONFLICTING with main; rebase handler runs cai-rebase, posts an outcome comment, and always bounces back to `pr:reviewing-code` so the rebased SHA is re-reviewed |
 | `pr:ci-failing` | Checks are red; fix-ci handler is the action — returns to `pr:reviewing-code` after a push |
 
 ## The Cycle Command

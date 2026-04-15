@@ -84,6 +84,7 @@ def _build_pr_registry() -> dict[PRState, PRHandler]:
     from cai_lib.actions.review_docs import handle_review_docs
     from cai_lib.actions.fix_ci      import handle_fix_ci
     from cai_lib.actions.merge       import handle_merge
+    from cai_lib.actions.rebase      import handle_rebase
 
     return {
         PRState.OPEN:             handle_open_to_review,
@@ -91,9 +92,33 @@ def _build_pr_registry() -> dict[PRState, PRHandler]:
         PRState.REVISION_PENDING: handle_revise,
         PRState.REVIEWING_DOCS:   handle_review_docs,
         PRState.APPROVED:         handle_merge,
+        PRState.REBASING:         handle_rebase,
         PRState.CI_FAILING:       handle_fix_ci,
         # MERGED, PR_HUMAN_NEEDED → no handler
     }
+
+
+# Pre-merge PR states from which the dispatcher can divert into REBASING
+# when it sees ``mergeable == "CONFLICTING"`` / ``mergeStateStatus == "DIRTY"``.
+# Maps each from-state to the canonical ``*_to_rebasing`` transition name.
+# REBASING itself, MERGED, PR_HUMAN_NEEDED, and OPEN are intentionally
+# excluded — REBASING is already running it; OPEN doesn't have a label
+# so apply_pr_transition wouldn't have one to remove.
+_REBASE_ENTRY_TRANSITIONS: dict[PRState, str] = {
+    PRState.REVIEWING_CODE:   "reviewing_code_to_rebasing",
+    PRState.REVISION_PENDING: "revision_pending_to_rebasing",
+    PRState.REVIEWING_DOCS:   "reviewing_docs_to_rebasing",
+    PRState.APPROVED:         "approved_to_rebasing",
+    PRState.CI_FAILING:       "ci_failing_to_rebasing",
+}
+
+
+def _pr_needs_rebase(pr: dict) -> bool:
+    """True when the PR has merge conflicts with main."""
+    return (
+        pr.get("mergeable") == "CONFLICTING"
+        or pr.get("mergeStateStatus") == "DIRTY"
+    )
 
 
 # Lazily built on first use to keep module import cheap and cycle-free.
@@ -175,7 +200,12 @@ def dispatch_issue(issue_number: int) -> int:
 def dispatch_pr(pr_number: int) -> int:
     """Dispatch a single PR by number.
 
-    Fetches the PR, derives state from labels + merged flag, runs handler.
+    Fetches the PR, derives state from labels. If the PR is mergeable
+    against main, runs the registered handler for its state. If a
+    rebase against main is needed, applies the matching ``*_to_rebasing``
+    transition first and routes to ``handle_rebase`` regardless of the
+    pipeline label — the rebase handler always exits to REVIEWING_CODE
+    so the next tick re-reviews the rebased SHA.
     """
     try:
         pr = _gh_json([
@@ -183,7 +213,7 @@ def dispatch_pr(pr_number: int) -> int:
             "--repo", REPO,
             "--json",
             "number,title,headRefName,headRefOid,labels,state,mergeable,"
-            "mergedAt,comments,reviews",
+            "mergeStateStatus,mergedAt,comments,reviews",
         ])
     except subprocess.CalledProcessError as e:
         print(
@@ -193,6 +223,20 @@ def dispatch_pr(pr_number: int) -> int:
         return 1
 
     state = get_pr_state(pr)
+
+    # Conflict override: divert to REBASING regardless of pipeline label.
+    if state in _REBASE_ENTRY_TRANSITIONS and _pr_needs_rebase(pr):
+        from cai_lib.fsm import apply_pr_transition
+        from cai_lib.actions.rebase import handle_rebase
+        entry = _REBASE_ENTRY_TRANSITIONS[state]
+        print(f"[cai dispatch] PR #{pr_number} at {state.name} has "
+              f"mergeable={pr.get('mergeable')} / "
+              f"mergeStateStatus={pr.get('mergeStateStatus')} → "
+              f"{entry} → handle_rebase", flush=True)
+        apply_pr_transition(pr_number, entry, current_pr=pr,
+                            log_prefix="cai dispatch")
+        return handle_rebase(pr)
+
     handler = _pr_registry().get(state)
     if handler is None:
         print(f"[cai dispatch] PR #{pr_number} at {state.name} — "

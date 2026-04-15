@@ -471,7 +471,7 @@ class TestPRStateShape(unittest.TestCase):
     def test_expected_pr_states(self):
         expected = {
             "OPEN", "REVIEWING_CODE", "REVISION_PENDING",
-            "REVIEWING_DOCS", "APPROVED", "CI_FAILING", "MERGED",
+            "REVIEWING_DOCS", "APPROVED", "REBASING", "CI_FAILING", "MERGED",
             "PR_HUMAN_NEEDED",
         }
         self.assertEqual({s.name for s in PRState}, expected)
@@ -495,7 +495,7 @@ class TestPRStateShape(unittest.TestCase):
 
     def test_reviewing_docs_to_approved(self):
         """New flow: REVIEWING_DOCS → APPROVED → MERGED (two-step)."""
-        # REVIEWING_DOCS outgoing: back to code, APPROVED, or CI_FAILING.
+        # REVIEWING_DOCS outgoing: back to code, APPROVED, REBASING, or CI_FAILING.
         docs_dests = {
             t.to_state
             for t in PR_TRANSITIONS
@@ -503,7 +503,8 @@ class TestPRStateShape(unittest.TestCase):
         }
         self.assertEqual(
             docs_dests,
-            {PRState.REVIEWING_CODE, PRState.APPROVED, PRState.CI_FAILING},
+            {PRState.REVIEWING_CODE, PRState.APPROVED,
+             PRState.REBASING, PRState.CI_FAILING},
         )
         # APPROVED must be able to reach MERGED (the terminal step).
         approved_dests = {

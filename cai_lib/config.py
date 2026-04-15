@@ -83,6 +83,7 @@ LABEL_PR_REVIEWING_CODE   = "pr:reviewing-code"    # PRState.REVIEWING_CODE
 LABEL_PR_REVISION_PENDING = "pr:revision-pending"  # PRState.REVISION_PENDING
 LABEL_PR_REVIEWING_DOCS   = "pr:reviewing-docs"    # PRState.REVIEWING_DOCS
 LABEL_PR_APPROVED         = "pr:approved"          # PRState.APPROVED
+LABEL_PR_REBASING         = "pr:rebasing"          # PRState.REBASING
 LABEL_PR_CI_FAILING       = "pr:ci-failing"        # PRState.CI_FAILING
 
 # PR-level label applied by `cai merge` when the verdict is below the
