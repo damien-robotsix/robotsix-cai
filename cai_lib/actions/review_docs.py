@@ -71,20 +71,21 @@ def handle_review_docs(pr: dict) -> int:
                     result="cached_clean_advanced", exit=0)
             return 0
         if first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_APPLIED):
-            # A docs-fix push happened at this SHA; the new code needs
-            # re-review. Bounce back to REVIEWING_CODE so the next tick
-            # picks up handle_review_pr.
+            # A docs-fix push happened at this SHA. Docs review is the
+            # last gate before merge; we do not bounce back to code
+            # review just because doc files changed (the merge handler
+            # is the final gatekeeper).
             print(
                 f"[cai review-docs] PR #{pr_number}: cached applied-fix at "
-                f"{head_sha[:8]} — bouncing to REVIEWING_CODE",
+                f"{head_sha[:8]} — advancing to APPROVED",
                 flush=True,
             )
             apply_pr_transition(
-                pr_number, "reviewing_docs_to_reviewing_code",
+                pr_number, "reviewing_docs_to_approved",
                 log_prefix="cai review-docs",
             )
             log_run("review_docs", repo=REPO, pr=pr_number,
-                    result="cached_applied_bounced", exit=0)
+                    result="cached_applied_advanced", exit=0)
             return 0
         # Heading prefix matched but suffix is unfamiliar — fall through
         # to a fresh review rather than guess.
@@ -236,23 +237,19 @@ def handle_review_docs(pr: dict) -> int:
             capture_output=True,
         )
 
-        # Advance FSM state based on docs review outcome.
+        # Advance FSM state. Docs review is the final pre-merge gate:
+        # whether or not it pushed doc fixes, the PR moves to APPROVED
+        # and the merge handler decides whether to merge. Bouncing back
+        # to REVIEWING_CODE on a doc push caused review/docs ping-pong
+        # loops that produced no new code findings.
+        apply_pr_transition(
+            pr_number, "reviewing_docs_to_approved",
+            log_prefix="cai review-docs",
+        )
         if has_doc_changes:
-            # Docs fix pushed — re-enter code review on the new HEAD.
-            apply_pr_transition(
-                pr_number, "reviewing_docs_to_reviewing_code",
-                log_prefix="cai review-docs",
-            )
             result_word = "fixes pushed"
             result_tag = "fixes_pushed"
         else:
-            # Clean — mark the PR :approved so actions/merge can own
-            # the final approved_to_merged step. (Replaces the old
-            # terminal reviewing_docs_to_merged transition.)
-            apply_pr_transition(
-                pr_number, "reviewing_docs_to_approved",
-                log_prefix="cai review-docs",
-            )
             result_word = "clean"
             result_tag = "clean"
 

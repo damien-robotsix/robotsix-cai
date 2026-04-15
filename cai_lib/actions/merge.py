@@ -56,10 +56,6 @@ _MERGE_THRESHOLD = os.environ.get("CAI_MERGE_CONFIDENCE_THRESHOLD", "high").lowe
 
 _CONFIDENCE_RANKS = {"high": 3, "medium": 2, "low": 1}
 
-# Heading of the docs-review "clean" marker used to verify the docs
-# review that earned APPROVED is still valid at the current HEAD.
-_DOCS_REVIEW_COMMENT_HEADING_CLEAN = "## cai docs review (clean)"
-
 # Bot-PR branch prefix regex. Only PRs on ``auto-improve/<issue>-…``
 # branches are eligible for auto-merge.
 _BOT_BRANCH_RE = re.compile(r"^auto-improve/(\d+)-")
@@ -76,8 +72,6 @@ def handle_merge(pr: dict) -> int:
     ``PRState.APPROVED``. This handler either:
 
     * merges the PR (``approved_to_merged``), or
-    * diverts back to code review when new commits have arrived
-      (``approved_to_reviewing_code``), or
     * applies ``approved_to_human`` (clears ``pr:approved``, sets
       ``pr:human-needed``) when the merge agent refuses / yields low
       confidence / merge itself fails on a still-open PR. Parking is
@@ -200,34 +194,14 @@ def handle_merge(pr: dict) -> int:
                 result="wrong_state", exit=0)
         return 0
 
-    # New-commits-arrived check: the clean docs-review comment that
-    # earned APPROVED was pinned to a specific HEAD SHA. If no clean
-    # comment exists for the *current* HEAD, the branch has advanced
-    # since APPROVED was applied — divert back to code review so the
-    # pipeline re-enters review on the new SHA.
-    docs_clean_at_head = False
-    for comment in pr.get("comments", []):
-        body_line = (comment.get("body") or "").split("\n", 1)[0]
-        if (
-            body_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_CLEAN)
-            and head_sha in body_line
-        ):
-            docs_clean_at_head = True
-            break
-    if not docs_clean_at_head:
-        print(
-            f"[cai merge] PR #{pr_number}: new commits since APPROVED "
-            f"(HEAD {head_sha[:8]} has no clean docs review); "
-            f"diverting to reviewing-code",
-            flush=True,
-        )
-        apply_pr_transition(
-            pr_number, "approved_to_reviewing_code",
-            log_prefix="cai merge",
-        )
-        log_run("merge", repo=REPO, pr=pr_number,
-                result="new_commits_divert", exit=0)
-        return 0
+    # NOTE: the previous SHA gate that diverted APPROVED → REVIEWING_CODE
+    # when the current HEAD had no `(clean)` docs-review comment caused
+    # ping-pong with the docs-review push path: every doc fix advanced
+    # HEAD, the gate fired, code review re-ran on doc-only changes, and
+    # docs-review ran again. Docs-review now always advances to APPROVED
+    # (push or no push), so this handler trusts the FSM label and lets
+    # the unaddressed-comments / CI / merge-agent gates below catch
+    # anything that genuinely needs another look.
 
     # Safety filter 3: unaddressed review comments → let revise handle.
     # Mirror the revise subcommand's filter logic via the shared helper
