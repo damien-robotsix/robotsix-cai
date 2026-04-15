@@ -26,7 +26,6 @@ declare -A DESCRIPTIONS=(
   ["pyproject.toml"]="Python project configuration (ruff lint settings)"
   [".env.example"]="Template for required environment variables"
   [".gitignore"]="Git ignore rules"
-  [".cai/pr-context.md"]="Per-PR dossier with touched files, key symbols, and design decisions for the CI-fix subagent"
   [".claude/settings.json"]="Claude Code harness configuration"
   [".claude/agents/cai-analyze.md"]="Agent: parse transcript signals and raise auto-improve findings"
   [".claude/agents/cai-audit.md"]="Agent: audit issue queue and lifecycle state machine"
@@ -118,7 +117,7 @@ declare -A DESCRIPTIONS=(
 |------|---------|
 HEADER
 
-  git -C "$REPO_ROOT" ls-files | sort | while IFS= read -r f; do
+  git -C "$REPO_ROOT" ls-files | grep -v '^\.cai/' | sort | while IFS= read -r f; do
     desc="${DESCRIPTIONS[$f]:-TODO: add description}"
     printf '| `%s` | %s |\n' "$f" "$desc"
   done
