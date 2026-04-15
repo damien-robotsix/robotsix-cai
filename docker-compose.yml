@@ -46,6 +46,7 @@ services:
       CAI_COST_OPTIMIZE_SCHEDULE: "0 5 * * 0" # weekly Sunday 05:00 UTC (cost-reduction analysis)
       CAI_CHECK_WORKFLOWS_SCHEDULE: "0 */6 * * *" # every 6h (check for CI workflow failures)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
+      CAI_MERGE_MAX_DIFF_LEN: "40000"       # max chars of PR diff passed to merge agent
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
     volumes:

@@ -47,3 +47,18 @@ Refs: robotsix-cai/robotsix-cai#679
 
 ### New gaps / deferred
 - None
+
+## Revision 2 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `docker-compose.yml`:49 — added `CAI_MERGE_MAX_DIFF_LEN: "40000"` after `CAI_MERGE_CONFIDENCE_THRESHOLD`
+- `install.sh`:173,245 — same addition in both OAuth and API-key YAML templates
+
+### Decisions this revision
+- Used `replace_all: true` for install.sh since both YAML templates had identical surrounding text and required identical change
+
+### New gaps / deferred
+- None
