@@ -125,6 +125,43 @@ def _set_pr_labels(pr_number: int, *, add: list[str] = (), remove: list[str] = (
     return True
 
 
+def _post_issue_comment(issue_number: int, body: str, *, log_prefix: str = "cai") -> bool:
+    """Post a comment on an issue. Returns True on success.
+
+    Kept permissive — a failure here is logged but does not abort the
+    caller's state transition. The comment is informational context for
+    the admin.
+    """
+    result = _run(
+        ["gh", "issue", "comment", str(issue_number),
+         "--repo", REPO, "--body", body],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"[{log_prefix}] failed to post comment on #{issue_number}:\n{result.stderr}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _post_pr_comment(pr_number: int, body: str, *, log_prefix: str = "cai") -> bool:
+    """Post a comment on a PR. Returns True on success. See :func:`_post_issue_comment`."""
+    result = _run(
+        ["gh", "pr", "comment", str(pr_number),
+         "--repo", REPO, "--body", body],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"[{log_prefix}] failed to post comment on PR #{pr_number}:\n{result.stderr}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def _issue_has_label(issue_number: int, label: str) -> bool:
     """Re-fetch an issue's labels and check for *label*. Avoids stale-snapshot races."""
     try:

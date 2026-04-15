@@ -604,6 +604,39 @@ def apply_transition(
     )
 
 
+def _render_human_divert_reason(
+    *,
+    transition_name: str,
+    transition: "Transition",
+    confidence: Optional[Confidence],
+    extra: str = "",
+) -> str:
+    """Render the user-visible reason for a confidence-gated divert.
+
+    Kept close to the divert call sites so a future change to gate
+    semantics only needs to touch one formatter.
+    """
+    conf_name = confidence.name if confidence is not None else "MISSING"
+    required = transition.min_confidence.name
+    lines = [
+        "**🙋 Human attention needed**",
+        "",
+        f"Automation paused `{transition_name}` because the confidence gate "
+        f"was not met.",
+        "",
+        f"- Required confidence: `{required}`",
+        f"- Reported confidence: `{conf_name}`",
+    ]
+    if extra:
+        lines.extend(["", extra.rstrip()])
+    lines.extend([
+        "",
+        "See the pending marker in the body for how the automation intends "
+        "to resume once an admin responds.",
+    ])
+    return "\n".join(lines)
+
+
 def apply_transition_with_confidence(
     issue_number: int,
     transition_name: str,
@@ -613,6 +646,8 @@ def apply_transition_with_confidence(
     extra_remove: Sequence[str] = (),
     log_prefix: str = "cai",
     set_labels=None,
+    post_comment=None,
+    reason_extra: str = "",
 ) -> tuple[bool, bool]:
     """Apply an issue FSM transition gated on *confidence*.
 
@@ -626,6 +661,12 @@ def apply_transition_with_confidence(
       where the automation stopped — see :func:`render_pending_marker`.
     - When confidence meets the threshold, delegates to
       :func:`apply_transition` and returns ``(ok, False)``.
+
+    On a successful divert, also posts a comment on the issue explaining
+    the reason (the failing transition and confidence gate). ``post_comment``
+    is injectable for tests; defaults to ``cai_lib.github._post_issue_comment``.
+    ``reason_extra`` lets the caller append handler-specific context (e.g. a
+    failed-transition name when the divert is not driven by confidence).
     """
     transition = find_transition(transition_name, ISSUE_TRANSITIONS)
 
@@ -667,6 +708,19 @@ def apply_transition_with_confidence(
         remove=list(transition.labels_remove) + list(extra_remove),
         log_prefix=log_prefix,
     )
+    if ok:
+        if post_comment is None:
+            from cai_lib.github import _post_issue_comment as post_comment  # local import — avoids cycle
+        post_comment(
+            issue_number,
+            _render_human_divert_reason(
+                transition_name=transition_name,
+                transition=transition,
+                confidence=confidence,
+                extra=reason_extra,
+            ),
+            log_prefix=log_prefix,
+        )
     return ok, True
 
 
@@ -738,8 +792,15 @@ def apply_pr_transition_with_confidence(
     current_pr: Optional[dict] = None,
     log_prefix: str = "cai",
     set_pr_labels=None,
+    post_comment=None,
+    reason_extra: str = "",
 ) -> tuple[bool, bool]:
-    """Confidence-gated PR transition. Mirrors ``apply_transition_with_confidence``."""
+    """Confidence-gated PR transition. Mirrors ``apply_transition_with_confidence``.
+
+    On successful divert, posts a comment on the PR with the failing
+    transition / confidence values. ``post_comment`` is injectable for tests;
+    defaults to ``cai_lib.github._post_pr_comment``.
+    """
     transition = find_transition(transition_name, PR_TRANSITIONS)
 
     if transition.accepts(confidence):
@@ -778,6 +839,19 @@ def apply_pr_transition_with_confidence(
         remove=list(transition.labels_remove),
         log_prefix=log_prefix,
     )
+    if ok:
+        if post_comment is None:
+            from cai_lib.github import _post_pr_comment as post_comment  # local import — avoids cycle
+        post_comment(
+            pr_number,
+            _render_human_divert_reason(
+                transition_name=transition_name,
+                transition=transition,
+                confidence=confidence,
+                extra=reason_extra,
+            ),
+            log_prefix=log_prefix,
+        )
     return ok, True
 
 
