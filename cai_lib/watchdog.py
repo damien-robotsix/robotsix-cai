@@ -1,9 +1,9 @@
 """cai_lib.watchdog — stale-lock recovery for the auto-improve pipeline.
 
 Contains the single deterministic watchdog that rolls back issues whose
-``:in-progress`` or ``:revising`` lock has outlived its TTL (or every
-such issue on container restart). The FSM in :mod:`cai_lib.fsm` is the
-source of truth for issue state; this module is the paranoia backstop
+``:in-progress``, ``:revising``, or ``:applying`` lock has outlived its TTL
+(or every such issue on container restart). The FSM in :mod:`cai_lib.fsm`
+is the source of truth for issue state; this module is the paranoia backstop
 that un-sticks locks a crashed driver left behind.
 """
 
@@ -31,7 +31,7 @@ from cai_lib.logging_utils import log_run
 
 
 def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
-    """Deterministic rollback: :in-progress or :revising issues with no recent activity.
+    """Deterministic rollback: :in-progress, :revising, or :applying issues with no recent activity.
 
     When ``immediate=True`` every locked issue is rolled back regardless of age
     (used by ``cmd_cycle`` on container restart where all in-flight locks are

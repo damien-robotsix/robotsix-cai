@@ -69,7 +69,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
-| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL) and `:revising` (1-hour TTL) locks and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
+| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
 | `cai.py audit-triage` | `10 */6 * * *` (every 6 hours) | Triages `audit:raised` findings and emits close/passthrough/escalate verdicts |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the triage → (optionally skip to `:plan-approved` / `:applying`) → refine → plan → implement pipeline |
@@ -77,6 +77,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
 | `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
 | `cai.py check-workflows` | `0 */6 * * *` (every 6 hours) | GitHub Actions failure monitor — fetches recent failed workflow runs (last 24 h), filters out bot branches, and runs a Haiku agent to group related failures and identify root causes; findings are published as `check-workflows` namespace issues. |
+| `cai.py maintain` | _(manual/on-demand via cai.py cycle)_ | Maintenance operations driver. Reads the `Ops:` block from the oldest issue labelled `auto-improve:applying` (kind:maintenance), clones the repo, runs the cai-maintain subagent to execute each declared operation (label mutations, bulk-close, workflow edits), and transitions based on Confidence: HIGH → `:applied`, else → `:human-needed`. Called automatically by `cai.py cycle` when `:applying` issues are present. |
 | `cai.py verify` / `audit` / `unblock` | _(own cron schedules; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
@@ -205,10 +206,12 @@ Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 
 There are five exceptions to "report-only": stale lock rollback,
 stale `:no-action` rollback, stale `:merged` flagging,
-orphaned-branch cleanup, and `:pr-open` recovery. Two lock types are
+orphaned-branch cleanup, and `:pr-open` recovery. Three lock types are
 rolled back: `:in-progress` issues after 6 hours with no recent fix
-activity, and `:revising` issues after 1 hour with no recent revise
-activity — both are automatically rolled back to `:refined`. Stale
+activity, `:revising` issues after 1 hour with no recent revise
+activity, and `:applying` issues after 2 hours with no recent maintain
+activity — `:in-progress` and `:revising` are rolled back to `:refined`,
+while `:applying` is rolled back to `:raised`. Stale
 `:no-action` issues (7+ days) are rolled back to `:raised` so the `refine`
 agent (and subsequently the implement agent) can retry with new context. Stale `:merged` issues (14+ days)
 are flagged with `needs-human-review` since the automation cannot

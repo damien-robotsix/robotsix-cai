@@ -135,6 +135,15 @@ Subcommands:
                             `check-workflows` namespace. Runs every 6 hours
                             by default (CAI_CHECK_WORKFLOWS_SCHEDULE).
 
+    python cai.py maintain  Apply ops from the oldest
+                            `auto-improve:applying` issue (kind:maintenance).
+                            Clones the repo into /tmp, invokes the
+                            cai-maintain subagent (limited tool set) to
+                            execute declared operations (label mutations,
+                            bulk-close, workflow YAML edits), and transitions
+                            the issue based on Confidence: HIGH → `:applied`,
+                            anything else → `:human-needed`.
+
 The container runs `entrypoint.sh`, which executes `cai.py cycle` once
 synchronously at startup (driving the full issue-solving pipeline:
 verify → confirm → drain PRs → refine → plan → implement loop), then hands
