@@ -20,7 +20,7 @@ No arguments.
 
 ## audit-triage
 
-Autonomously resolve `audit:raised` findings without opening a PR. Calls `cai-audit-triage` which classifies each finding as `close_duplicate`, `close_resolved`, `passthrough`, or `escalate`.
+Autonomously resolve `auto-improve:raised` + `audit` findings without opening a PR. Calls `cai-audit-triage` which classifies each finding as `close_duplicate`, `close_resolved`, `passthrough`, or `escalate`.
 
 No arguments.
 

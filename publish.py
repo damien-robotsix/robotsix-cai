@@ -133,13 +133,15 @@ LABELS_TO_DELETE = [
     "pr:reviewed-reject",
     "pr:reviewed-accept",
     "pr:documented",
+    # Retired audit-specific state labels — unified into auto-improve:raised + audit source tag.
+    # Migration: _migrate_audit_raised_labels in cai_lib/watchdog.py relabels existing issues.
+    "audit:raised",
+    "audit:needs-human",
+    "audit:solved",
 ]
 
 AUDIT_LABELS = [
-    ("audit", "c5def5", "Queue/PR consistency audit finding"),
-    ("audit:raised", "0e8a16", "Audit finding freshly raised; needs human triage"),
-    ("audit:needs-human", "e11d48", "Audit finding needs human decision"),
-    ("audit:solved", "6f42c1", "Audit finding addressed"),
+    ("audit", "c5def5", "Queue/PR consistency audit finding (source tag)"),
     ("category:stale_lifecycle", "d93f0b", "Issue stuck in a state longer than expected"),
     ("category:lock_corruption", "e11d48", "Mutually exclusive labels or dangling references"),
     ("category:loop_stuck", "fbca04", "Findings raised but no fixes landing"),
@@ -425,8 +427,9 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     )
     if namespace == "audit":
         labels = ",".join([
+            "auto-improve",
+            "auto-improve:raised",
             "audit",
-            "audit:raised",
             f"category:{f.category}",
         ])
     elif namespace == "check-workflows":

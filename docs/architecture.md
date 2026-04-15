@@ -53,8 +53,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 | `auto-improve:applying` | Maintenance ops are being applied (transient; Step 3 agent drains this state) |
 | `auto-improve:applied` | Maintenance ops applied; awaiting verification |
 | `auto-improve:parent` | Parent issue; child sub-issues carry the work |
-| `audit:raised` | Audit finding awaiting triage by `cai audit-triage` |
-| `audit:needs-human` | Audit finding escalated to human |
+| `audit` | Source tag indicating an audit-originated finding (combined with `auto-improve:raised` in unified FSM) |
 | `merge-blocked` | PR has a blocking review finding; will not auto-merge |
 | `needs-human-review` | Issue or PR requires human attention |
 | `pr:reviewing-code` | PR is in code review (review-pr handler); a new SHA lands here on any push |

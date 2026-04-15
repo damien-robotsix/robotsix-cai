@@ -69,8 +69,8 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
-| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `audit:raised` issues (Sonnet) |
-| `cai.py audit-triage` | `10 */6 * * *` (every 6 hours) | Triages `audit:raised` findings and emits close/passthrough/escalate verdicts |
+| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, and stale `:no-action` issues, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, and label corruption as `auto-improve:raised` + `audit` findings (Sonnet) |
+| `cai.py audit-triage` | `10 */6 * * *` (every 6 hours) | Triages `auto-improve:raised` + `audit` findings and emits close/passthrough/escalate verdicts |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the triage → (optionally skip to `:plan-approved` / `:applying`) → refine → plan → implement pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
@@ -184,21 +184,17 @@ You can watch the parent issue's checklist to monitor progress. Note: if an issu
 
 ### Audit findings
 
-The `audit` subcommand uses a **separate label namespace** (`audit:*`)
-to distinguish its findings from analyzer findings (`auto-improve:*`).
-Audit findings flag inconsistencies in the issue/PR lifecycle.
-Issues labelled `audit:raised` go through `cai.py audit-triage`
-first, which relabels eligible ones to `auto-improve:raised` so the
-dispatcher's refine handler can structure them and transition them to
-`auto-improve:refined`. They then flow through the plan handler
-to `:planned`, awaiting human approval to transition to `:plan-approved`
-before the implement handler picks them up.
+The `audit` subcommand flags inconsistencies in the issue/PR lifecycle
+by raising findings with a unified label scheme: `auto-improve:raised` plus
+an `audit` source tag (e.g., `auto-improve`, `auto-improve:raised`, `audit`,
+`category:<finding_category>`). This unified scheme allows audit findings to
+flow through the standard refine → plan → implement pipeline alongside other
+auto-improve issues.
 
-| Label | Meaning |
-|---|---|
-| `audit:raised` | Freshly raised audit finding |
-| `audit:solved` | Addressed (manually closed or auto-resolved on next audit) |
-| `audit:needs-human` | Finding requires human judgement and cannot be resolved autonomously |
+On the next cycle tick, `cai.py audit-triage` processes these findings
+(filtering by both `auto-improve:raised` AND `audit` labels) and emits
+structured verdicts: `close_duplicate`, `close_resolved`, `passthrough`
+(proceed to refine), or `escalate` (route to `:human-needed` for human review).
 
 Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 `prompt_contradiction`, `topic_duplicate`, `silent_failure`, `forgotten_backlog`,
