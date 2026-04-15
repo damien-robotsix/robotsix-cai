@@ -20,6 +20,7 @@ from cai_lib.config import (
     LABEL_TRIAGING,
     REPO,
 )
+from cai_lib.dup_check import check_duplicate_or_resolved
 from cai_lib.fsm import (
     Confidence,
     IssueState,
@@ -150,6 +151,52 @@ def handle_triage(issue: dict) -> int:
             issue_number, "raise_to_triaging",
             current_labels=issue_labels,
             log_prefix="cai triage",
+        )
+
+    # 1b. Cheap pre-check: cai-dup-check (haiku) decides whether the
+    # issue is an obvious duplicate of another open issue or has
+    # already been resolved by a recent merged PR. At HIGH
+    # confidence we close directly and skip the heavier triage
+    # agent. Any other outcome (NONE, MEDIUM/LOW confidence, parse
+    # failure, agent failure) falls through.
+    dup_verdict = check_duplicate_or_resolved(issue)
+    if dup_verdict is not None and dup_verdict.should_close:
+        if dup_verdict.verdict == "DUPLICATE":
+            comment = (
+                f"Closed as duplicate of #{dup_verdict.target} by "
+                f"cai-dup-check. Reasoning: {dup_verdict.reasoning}"
+            )
+        else:
+            comment = (
+                f"Closed as resolved by {dup_verdict.commit_sha} "
+                f"(cai-dup-check). Reasoning: {dup_verdict.reasoning}"
+            )
+        close_res = _run(
+            ["gh", "issue", "close", str(issue_number),
+             "--repo", REPO,
+             "--reason", "not-planned",
+             "--comment", comment],
+            capture_output=True,
+        )
+        if close_res.returncode == 0:
+            _set_labels(issue_number, remove=[LABEL_TRIAGING], log_prefix="cai triage")
+            dur = f"{int(time.monotonic() - t0)}s"
+            action = (
+                "dup_check_duplicate" if dup_verdict.verdict == "DUPLICATE"
+                else "dup_check_resolved"
+            )
+            log_run("triage", repo=REPO, issue=issue_number,
+                    duration=dur, result=action, exit=0)
+            print(
+                f"[cai triage] #{issue_number}: closed by cai-dup-check "
+                f"({dup_verdict.verdict}, reasoning={dup_verdict.reasoning})",
+                flush=True,
+            )
+            return 0
+        print(
+            f"[cai triage] gh issue close failed in dup-check path; "
+            f"falling through to triage agent:\n{close_res.stderr}",
+            file=sys.stderr,
         )
 
     # 2. Gather context: other open auto-improve* issues + recent PRs.
