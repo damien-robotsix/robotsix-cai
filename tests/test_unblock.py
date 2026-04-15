@@ -199,5 +199,42 @@ class TestResumeStripsHumanSolvedLabel(unittest.TestCase):
         self.assertIn("human:solved", captured["kwargs"].get("extra_remove", []))
 
 
+class TestHandleHumanNeeded(unittest.TestCase):
+    """Dispatcher hook — gated on ``human:solved`` to avoid spinning on
+    parked-waiting issues each cycle tick."""
+
+    def test_noop_without_human_solved(self):
+        issue = {"number": 1, "labels": [{"name": "auto-improve:human-needed"}]}
+        with mock.patch.object(U, "_try_unblock_issue") as fake:
+            rc = U.handle_human_needed(issue)
+        self.assertEqual(rc, 0)
+        fake.assert_not_called()
+
+    def test_delegates_when_human_solved_present(self):
+        issue = {
+            "number": 2,
+            "labels": [
+                {"name": "auto-improve:human-needed"},
+                {"name": "human:solved"},
+            ],
+        }
+        with mock.patch.object(U, "_try_unblock_issue", return_value="resumed") as fake:
+            rc = U.handle_human_needed(issue)
+        self.assertEqual(rc, 0)
+        fake.assert_called_once_with(issue)
+
+    def test_agent_failed_returns_nonzero(self):
+        issue = {
+            "number": 3,
+            "labels": [
+                {"name": "auto-improve:human-needed"},
+                {"name": "human:solved"},
+            ],
+        }
+        with mock.patch.object(U, "_try_unblock_issue", return_value="agent_failed"):
+            rc = U.handle_human_needed(issue)
+        self.assertEqual(rc, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

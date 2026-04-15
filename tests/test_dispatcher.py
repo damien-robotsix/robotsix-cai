@@ -34,10 +34,13 @@ class TestActionableStateSets(unittest.TestCase):
             IssueState.IN_PROGRESS,
             IssueState.PR,
             IssueState.MERGED,
+            # HUMAN_NEEDED is actionable via handle_human_needed — the
+            # picker filters to only those issues carrying ``human:solved``
+            # so parked-waiting ones stay out of the queue.
+            IssueState.HUMAN_NEEDED,
         }
         self.assertEqual(dispatcher.actionable_issue_states(), expected)
-        # HUMAN_NEEDED and SOLVED are explicitly not actionable.
-        self.assertNotIn(IssueState.HUMAN_NEEDED, dispatcher.actionable_issue_states())
+        # SOLVED is terminal and must not be dispatched.
         self.assertNotIn(IssueState.SOLVED, dispatcher.actionable_issue_states())
 
     def test_actionable_pr_states(self):
@@ -311,6 +314,52 @@ class TestDispatchOldestActionable(unittest.TestCase):
         # Oldest first: issue #10 (Jan 1), PR #99 (Jan 15), issue #20 (Feb 1).
         self.assertEqual(di_calls, [10, 20])
         self.assertEqual(dp_calls, [99])
+
+    def test_human_needed_picked_only_with_human_solved(self):
+        """HUMAN_NEEDED issues are only pickable when the admin has
+        applied ``human:solved``. Parked-waiting issues must stay out of
+        the drain queue so the cycle doesn't spin on them each tick.
+        """
+        from cai_lib.config import LABEL_HUMAN_SOLVED
+        issues = [
+            # Parked, no solved label → must be ignored.
+            {"number": 30, "createdAt": "2024-01-01T00:00:00Z",
+             "labels": [{"name": "auto-improve:human-needed"}]},
+            # Parked with solved label → pickable.
+            {"number": 31, "createdAt": "2024-01-02T00:00:00Z",
+             "labels": [{"name": "auto-improve:human-needed"},
+                        {"name": LABEL_HUMAN_SOLVED}]},
+        ]
+
+        def fake_pool(cmd):
+            if "issue" in cmd and "list" in cmd:
+                return issues
+            if "pr" in cmd and "list" in cmd:
+                return []
+            raise AssertionError(f"unexpected _gh_json call: {cmd}")
+
+        di_calls: list[int] = []
+
+        def fake_fetch_issue_state(n):
+            if n in di_calls:
+                issues[:] = [i for i in issues if i["number"] != n]
+                return None
+            return dispatcher.IssueState.HUMAN_NEEDED
+
+        def fake_di(n):
+            di_calls.append(n)
+            return 0
+
+        with patch.object(dispatcher, "_gh_json", side_effect=fake_pool), \
+             patch.object(dispatcher, "_fetch_issue_state",
+                          side_effect=fake_fetch_issue_state), \
+             patch.object(dispatcher, "dispatch_issue", side_effect=fake_di), \
+             patch.object(dispatcher, "dispatch_pr") as dp:
+            rc = dispatcher.dispatch_oldest_actionable()
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(di_calls, [31])
+        dp.assert_not_called()
 
     def test_empty_pools_returns_zero(self):
         def fake_gh_json(cmd):

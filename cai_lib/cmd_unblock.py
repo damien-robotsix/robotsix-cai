@@ -231,6 +231,31 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
     return "resumed"
 
 
+def handle_human_needed(issue: dict) -> int:
+    """Dispatcher handler for :class:`IssueState.HUMAN_NEEDED` issues.
+
+    Picked up by :func:`cai_lib.dispatcher.dispatch_issue` when the cycle
+    selects a parked issue. Delegates to :func:`_try_unblock_issue` only
+    when the admin has applied ``human:solved``; otherwise returns 0 so
+    the inner driver treats the issue as blocked and moves on. The
+    picker in :func:`_pick_oldest_actionable_target` skips parked
+    issues lacking ``human:solved`` so this branch is rarely hit, but
+    it keeps manual ``cai dispatch --issue N`` safe against a
+    race with label removal.
+    """
+    labels = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
+    if LABEL_HUMAN_SOLVED not in labels:
+        print(
+            f"[cai dispatch] #{issue['number']} parked at :human-needed "
+            f"without {LABEL_HUMAN_SOLVED} — leaving parked",
+            flush=True,
+        )
+        return 0
+    tag = _try_unblock_issue(issue) or "skipped"
+    print(f"[cai dispatch] auto-unblock #{issue['number']}: {tag}", flush=True)
+    return 1 if tag == "agent_failed" else 0
+
+
 def cmd_unblock(args) -> int:
     """Scan :human-needed issues and attempt FSM resume via cai-unblock."""
     t0 = time.monotonic()

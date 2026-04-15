@@ -26,7 +26,6 @@ import subprocess
 import sys
 from typing import Callable, Optional
 
-
 # Matches sub-issue titles produced by cai_lib.actions.refine:
 # ``[#123 Step 2/5] Do the thing``. Group 1 = parent number, group 2 = step.
 _SUB_ISSUE_TITLE_RE = re.compile(r"^\[#(\d+)\s+Step\s+(\d+)/\d+\]")
@@ -41,7 +40,7 @@ def _parse_sub_issue_step(title: str) -> Optional[tuple[int, int]]:
         return None
     return int(m.group(1)), int(m.group(2))
 
-from cai_lib.config import REPO
+from cai_lib.config import LABEL_HUMAN_SOLVED, REPO
 from cai_lib.fsm import (
     IssueState, PRState,
     get_issue_state, get_pr_state,
@@ -58,9 +57,10 @@ from cai_lib.github import _gh_json
 # entry (apply the raise_to_triaging transition first) or a resume
 # (skip the entry transition).
 #
-# States with no handler (SOLVED, HUMAN_NEEDED, PR_HUMAN_NEEDED, MERGED
-# on the PR side) are terminal or parked and the dispatcher returns
-# without doing anything.
+# States with no handler (SOLVED, PR_HUMAN_NEEDED, MERGED on the PR
+# side) are terminal or parked and the dispatcher returns without doing
+# anything. HUMAN_NEEDED has a handler that auto-resumes the FSM when
+# the admin has applied ``human:solved`` and no-ops otherwise.
 
 IssueHandler = Callable[[dict], int]
 PRHandler    = Callable[[dict], int]
@@ -76,6 +76,7 @@ def _build_issue_registry() -> dict[IssueState, IssueHandler]:
     from cai_lib.actions.implement import handle_implement
     from cai_lib.actions.confirm   import handle_confirm
     from cai_lib.actions.pr_bounce import handle_pr_bounce
+    from cai_lib.cmd_unblock       import handle_human_needed
 
     return {
         IssueState.RAISED:            handle_triage,
@@ -89,7 +90,10 @@ def _build_issue_registry() -> dict[IssueState, IssueHandler]:
         IssueState.IN_PROGRESS:       handle_implement,   # resume
         IssueState.PR:                handle_pr_bounce,
         IssueState.MERGED:            handle_confirm,
-        # SOLVED, HUMAN_NEEDED → no handler
+        # HUMAN_NEEDED is only picked up when the admin has applied
+        # ``human:solved`` (see filter in _pick_oldest_actionable_target).
+        IssueState.HUMAN_NEEDED:      handle_human_needed,
+        # SOLVED → no handler (terminal)
     }
 
 
@@ -338,6 +342,12 @@ def _pick_oldest_actionable_target(
                         flush=True,
                     )
                     continue
+            # HUMAN_NEEDED is actionable only when the admin has signalled
+            # ready-to-resume via ``human:solved``. Other parked issues
+            # stay out of the queue so we don't spin on them each tick.
+            if (state == IssueState.HUMAN_NEEDED
+                    and LABEL_HUMAN_SOLVED not in label_names):
+                continue
             candidates.append((issue.get("createdAt", ""), "issue", issue["number"]))
 
     for pr in prs:
