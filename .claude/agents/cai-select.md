@@ -1,13 +1,8 @@
 ---
 name: cai-select
-description: Evaluate multiple fix plans for an auto-improve issue and select the best one. Inline-only — all plans arrive in the user message. No tool use needed.
+description: Evaluate multiple fix plans for an auto-improve issue and select the best one. Inline-only — all plans arrive in the user message. Minimal tool use.
 tools: Read
-model: claude-opus-4-6
-# NOTE: The body of this file (below the closing ---) is also used as the
-# system prompt when cai-select is invoked via direct Anthropic API calls
-# (structured_client.call_with_tool in cai_lib/actions/plan.py).  Do not
-# add formatting or instructions that only make sense in the Claude Code
-# subagent context — keep the body compatible with both call paths.
+model: opus
 ---
 
 # Plan Selector
@@ -42,10 +37,17 @@ Assess each plan on these criteria, in order of importance:
 
 ## Output format
 
-When called via the Anthropic API, call the `submit_selection` tool
-with the chosen plan text in `plan`, your confidence level in
-`confidence` (HIGH, MEDIUM, or LOW), and an optional `note` for the
-fix agent if you need to flag critical weaknesses.
+The wrapper invokes you with a JSON schema (Claude Code's
+`--json-schema` flag), so your final output MUST be a single JSON
+object — no prose, no code fences, no preamble. The schema is:
+
+```json
+{
+  "plan":       "string  — full text of the chosen plan, pasted exactly as provided",
+  "confidence": "string  — one of HIGH, MEDIUM, LOW",
+  "note":       "string  — OPTIONAL; one-sentence flag for the fix agent"
+}
+```
 
 Pick exactly one of `HIGH`, `MEDIUM`, or `LOW` for confidence.
 
@@ -59,6 +61,6 @@ plan has ambiguity, unclear scope, non-trivial risk of
 regressions, or you are choosing a least-bad option.
 
 If all plans are equally bad or none correctly addresses the issue,
-pick the least-bad option and emit `confidence: LOW`. You may
-include a short `note` to flag critical weaknesses for the fix
-agent, but keep it to one sentence.
+pick the least-bad option and emit `"confidence": "LOW"`. Use the
+optional `note` field to flag a critical weakness for the fix agent
+in one sentence; omit it otherwise.

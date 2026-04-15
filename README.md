@@ -550,12 +550,11 @@ The container uses three Docker named volumes:
   (analyze, audit, confirm, merge) read/write this
   volume directly. The cloned-worktree agents (fix, revise,
   review-pr, review-docs, code-audit, propose, propose-review, update-check,
-  plan, git) also access their
+  plan, select, git) also access their
   memory directly from `/app/.claude/agent-memory/<agent-name>/`
   via the mounted `cai_agent_memory` volume — no copy in/out by
   the wrapper. (cai-rebase is excluded — it is a lightweight
-  agent with no memory tracking by design. cai-select is called via
-  the Anthropic API directly from plan.py, not via the worktree wrapper.)
+  agent with no memory tracking by design.)
 - **`cai_logs`** (mounted at `/var/log/cai`) — run log. One
   key=value line per `cai` invocation. Using a named volume avoids
   the host permission issues that a bind-mount causes.

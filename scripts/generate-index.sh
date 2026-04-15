@@ -81,7 +81,6 @@ declare -A DESCRIPTIONS=(
   ["cai_lib/fsm.py"]="FSM data structures + transition application helpers (Confidence enum, apply_transition, divert-to-human, pending markers)"
   ["cai_lib/github.py"]="GitHub/gh CLI helpers and shared label utilities"
   ["cai_lib/logging_utils.py"]="Logging utilities extracted from cai.py"
-  ["cai_lib/structured_client.py"]="Structured Anthropic API client for forced tool-use on gate-critical agents"
   ["cai_lib/subprocess_utils.py"]="Subprocess helpers extracted from cai.py"
   ["docs/_config.yml"]="Jekyll configuration for GitHub Pages docs"
   ["docs/agents.md"]="Documentation: agent definitions and pipeline phase mapping"
