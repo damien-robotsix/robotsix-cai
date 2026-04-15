@@ -24,6 +24,7 @@ from cai_lib.subprocess_utils import _run
 # to the clone root.
 AGENT_EDIT_STAGING_REL = Path(".cai-staging") / "agents"
 PLUGIN_STAGING_REL = Path(".cai-staging") / "plugins"
+CLAUDEMD_STAGING_REL = Path(".cai-staging") / "claudemd"
 
 
 # IMPORTANT: only "no-action" / "summary" bot comments belong here.
@@ -172,6 +173,8 @@ def _setup_agent_edit_staging(work_dir: Path) -> Path:
     staging.mkdir(parents=True, exist_ok=True)
     plugin_staging = work_dir / PLUGIN_STAGING_REL
     plugin_staging.mkdir(parents=True, exist_ok=True)
+    claudemd_staging = work_dir / CLAUDEMD_STAGING_REL
+    claudemd_staging.mkdir(parents=True, exist_ok=True)
     return staging
 
 
@@ -257,6 +260,34 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
             # or retry. Do not fall through to shutil.rmtree below.
             return applied
 
+    # Apply any CLAUDE.md staging: .cai-staging/claudemd/ → <work_dir>/.
+    # Use rglob("CLAUDE.md") so only files literally named CLAUDE.md
+    # are copied — stray files in the staging tree are ignored.
+    claudemd_staging = work_dir / CLAUDEMD_STAGING_REL
+    if claudemd_staging.exists() and claudemd_staging.is_dir():
+        for staged_file in sorted(claudemd_staging.rglob("CLAUDE.md")):
+            rel = staged_file.relative_to(claudemd_staging)
+            target = work_dir / rel
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                content = staged_file.read_text()
+                target.write_text(content)
+                print(
+                    f"[cai] applied staged CLAUDE.md: {rel} "
+                    f"({len(content)} bytes)",
+                    flush=True,
+                )
+                applied += 1
+            except OSError as exc:
+                print(
+                    f"[cai] agent edit staging: failed to apply "
+                    f"CLAUDE.md at {rel}: {exc}",
+                    file=sys.stderr,
+                )
+                # Preserve .cai-staging so staged files are not
+                # silently lost when the copy fails.
+                return applied
+
     # Clean up the entire .cai-staging tree (one level above the
     # agents/ subdir) so nothing leaks into the PR.
     cai_staging_root = work_dir / ".cai-staging"
@@ -308,6 +339,7 @@ def _work_directory_block(work_dir: Path) -> str:
     """
     staging_rel = AGENT_EDIT_STAGING_REL.as_posix()
     staging_abs = (work_dir / AGENT_EDIT_STAGING_REL).as_posix()
+    claudemd_abs = (work_dir / CLAUDEMD_STAGING_REL).as_posix()
     return (
         "## Work directory\n\n"
         "You are running with cwd `/app` so your declarative agent "
@@ -367,6 +399,36 @@ def _work_directory_block(work_dir: Path) -> str:
         "\"<full new file content>\")`\n"
         f"  - BAD:  `Edit(\"{work_dir}/.claude/agents/cai-implement.md\", "
         "...)`  (blocked by claude-code)\n"
+        "\n"
+        "## Updating `CLAUDE.md` files (self-modification)\n\n"
+        "Claude-code's headless `-p` mode also hardcodes a write block "
+        "on `CLAUDE.md` files (project-level context files). Edit/Write "
+        f"calls against `{work_dir}/CLAUDE.md` or any subdirectory "
+        "`CLAUDE.md` WILL fail with a sensitive-file protection error.\n\n"
+        "The wrapper provides a **staging directory** at:\n\n"
+        f"    {claudemd_abs}\n\n"
+        "To update a `CLAUDE.md` file at any path (root or subdirectory), "
+        f"write it to `{claudemd_abs}/<same-relative-path>/CLAUDE.md`. "
+        "The wrapper scans for all files named exactly `CLAUDE.md` under "
+        f"the staging tree and copies each to the matching path in "
+        f"`{work_dir}/`, creating parent directories as needed. The "
+        "staging directory is then deleted so it never lands in the PR.\n\n"
+        "Rules:\n"
+        "  - Only files literally named `CLAUDE.md` are copied — other "
+        "files in the staging tree are ignored.\n"
+        "  - Preserve the full relative path (e.g., to update "
+        f"`{work_dir}/CLAUDE.md`, write to "
+        f"`{claudemd_abs}/CLAUDE.md`; to update "
+        f"`{work_dir}/subdir/CLAUDE.md`, write to "
+        f"`{claudemd_abs}/subdir/CLAUDE.md`).\n"
+        "  - Write the FULL file, not a diff or patch.\n"
+        f"  - Do NOT attempt `Edit` or `Write` on `{work_dir}/CLAUDE.md` "
+        "directly — it will always fail. Go through the staging dir.\n\n"
+        "Example:\n"
+        f"  - GOOD: `Write(\"{claudemd_abs}/CLAUDE.md\", "
+        "\"<full new file content>\")`\n"
+        f"  - BAD:  `Edit(\"{work_dir}/CLAUDE.md\", ...)`  "
+        "(blocked by claude-code)\n"
     )
 
 

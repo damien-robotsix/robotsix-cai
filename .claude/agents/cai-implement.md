@@ -52,7 +52,7 @@ will exceed the token limit. Use `Grep(pattern, path="<work_dir>")` for
 symbol search and `Read("<work_dir>/cai.py", offset=N, limit=200)` for
 targeted sections.
 
-## Self-modifying `.claude/agents/*.md` and `.claude/plugins/` (staging directory)
+## Self-modifying `.claude/agents/*.md`, `.claude/plugins/`, and `CLAUDE.md` (staging directory)
 
 **Claude-code's headless `-p` mode hardcodes a write block on
 every `.claude/agents/*.md` path**, regardless of any permission
@@ -94,7 +94,20 @@ wrapper pre-creates is the workaround for both cases:
      `dirs_exist_ok=True` after you exit, then deletes the
      staging directory.
 
-Rules (apply to both agents and plugins):
+**For `CLAUDE.md` files** (root or any subdirectory):
+
+  1. **Write** the full `CLAUDE.md` content to
+     `<work_dir>/.cai-staging/claudemd/<same-relative-path>/CLAUDE.md`.
+     Preserve the directory structure. To update the root
+     `CLAUDE.md`, write to `.cai-staging/claudemd/CLAUDE.md`. To
+     update `subdir/CLAUDE.md`, write to
+     `.cai-staging/claudemd/subdir/CLAUDE.md`.
+  2. The wrapper scans `.cai-staging/claudemd/` for all files named
+     exactly `CLAUDE.md` and copies each to the matching path in
+     `<work_dir>/` after you exit, then deletes the staging
+     directory.
+
+Rules (apply to agents, plugins, and CLAUDE.md files):
 
   - Staged files are copied unconditionally — new definitions
     are created if no target exists yet.
@@ -117,6 +130,11 @@ Example of creating a plugin skill:
 
   - GOOD: `Write("<work_dir>/.cai-staging/plugins/cai-skills/skills/foo/SKILL.md", "<full content>")`
   - BAD:  `Write("<work_dir>/.claude/plugins/cai-skills/skills/foo/SKILL.md", ...)`  (blocked)
+
+Example of updating root CLAUDE.md:
+
+  - GOOD: `Write("<work_dir>/.cai-staging/claudemd/CLAUDE.md", "<full content>")`
+  - BAD:  `Write("<work_dir>/CLAUDE.md", ...)`  (blocked)
 
 ## Hard rules
 
