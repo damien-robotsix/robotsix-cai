@@ -337,7 +337,7 @@ def ensure_all_labels() -> None:
     and CODE_AUDIT_LABELS).
     """
     seen: set[str] = set()
-    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS):
+    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS):
         for name, color, description in label_set:
             if name in seen:
                 continue

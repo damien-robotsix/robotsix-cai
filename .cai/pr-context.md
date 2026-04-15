@@ -22,6 +22,20 @@ Refs: robotsix/robotsix-cai#628
 - `_issue_label_sweep()` returns counts tuple — allows callers to log or react to results
 - Rejected: modifying `cai_lib/config.py` or `publish.py` — scope guardrails explicitly forbid it
 
+## Revision 1 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `publish.py`:340 — added `CHECK_WORKFLOWS_LABELS` to `ensure_all_labels()` label-set tuple
+
+### Decisions this revision
+- Reviewer requested publish.py change; scope guardrail was about not sourcing accepted-label set from publish.py, not an absolute prohibition on touching it — pre-existing omission of CHECK_WORKFLOWS_LABELS from ensure_all_labels() is a legitimate co-change
+
+### New gaps / deferred
+- None
+
 ## Out of scope / known gaps
 - PR objects are NOT swept — `_issue_label_sweep` only calls `gh issue list`; PR label lifecycle remains separate
 - `LABEL_PR_*` labels (pr:reviewing-code etc.) are absent from `_ALL_MANAGED_ISSUE_LABELS` intentionally — they are valid on PRs but stale if found on issues, and `"pr"` prefix in `_MANAGED_ISSUE_PREFIXES` handles removal
