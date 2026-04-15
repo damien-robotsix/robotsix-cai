@@ -5,7 +5,6 @@
 
 | File | Purpose |
 |------|---------|
-| `.cai-staging/agents/cai-select.md` | TODO: add description |
 | `.claude/agents/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
 | `.claude/agents/cai-audit.md` | Agent: audit issue queue and lifecycle state machine |
 | `.claude/agents/cai-check-workflows.md` | Agent: analyze recent GitHub Actions workflow failures and emit structured findings |
