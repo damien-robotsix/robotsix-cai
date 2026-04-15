@@ -33,18 +33,23 @@ absolute paths under the work directory from the user message.
 `cai.py` is ~63 k tokens — use `Grep` + `Read(..., offset=N, limit=200)`. **Git
 operations go through `cai-git`** — you have no Bash.
 
-## Self-modifying agent files and plugins (staging directory)
+## Self-modifying agent files, plugins, and CLAUDE.md (staging directory)
 
-Claude-code blocks `Edit`/`Write` on `.claude/agents/*.md` and `.claude/plugins/`
-paths. Use the staging directory the wrapper pre-creates:
+Claude-code blocks `Edit`/`Write` on `.claude/agents/*.md`, `.claude/plugins/`,
+and `CLAUDE.md` paths. Use the staging directory the wrapper pre-creates:
 
 - **Agent files:** Write the FULL new file to
   `<work_dir>/.cai-staging/agents/<basename>.md`. The wrapper copies it over
   `.claude/agents/<basename>.md` after you exit.
 - **Plugin files:** Write to `<work_dir>/.cai-staging/plugins/<same-relative-path>`.
   The wrapper merges it into `.claude/plugins/` after you exit.
+- **`CLAUDE.md` files:** Write to
+  `<work_dir>/.cai-staging/claudemd/<same-relative-path>/CLAUDE.md`.
+  The wrapper scans for all files named `CLAUDE.md` in the staging
+  tree and copies each to the matching path in `<work_dir>/` after
+  you exit, preserving relative paths.
 
-Rules: write the FULL file (unconditional overwrite), use exact basename,
+Rules: write the FULL file (unconditional overwrite), use exact relative path,
 never try `Edit`/`Write` on the protected paths.
 
   - GOOD: `Read("<work_dir>/.claude/agents/cai-revise.md")` then
