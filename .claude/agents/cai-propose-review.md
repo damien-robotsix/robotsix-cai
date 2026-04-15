@@ -2,7 +2,7 @@
 name: cai-propose-review
 description: Review agent that evaluates creative improvement proposals for feasibility and value before they are submitted as issues for human review.
 tools: Read, Grep, Glob
-model: claude-sonnet-4-6
+model: sonnet
 memory: project
 ---
 

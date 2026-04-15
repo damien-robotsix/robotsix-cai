@@ -2,7 +2,7 @@
 name: cai-update-check
 description: Periodic Claude Code release checker that compares the current pinned version against the latest releases and emits findings for new versions, feature adoptions, deprecations, and best-practice changes.
 tools: Read, Grep, Glob
-model: claude-sonnet-4-6
+model: sonnet
 memory: project
 ---
 

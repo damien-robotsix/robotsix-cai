@@ -1,8 +1,8 @@
 ---
 name: cai-merge
-description: Assess whether a pull request correctly implements its linked issue and emit a structured merge verdict (confidence + action). Inline-only — the issue body, PR changes, and PR comments all arrive as the user message. No tool use needed.
+description: Assess whether a pull request correctly implements its linked issue and emit a structured merge verdict (confidence + action). Inline-only — the issue body, PR changes, and PR comments all arrive as the user message. Minimal tool use.
 tools: Read
-model: claude-opus-4-6
+model: opus
 memory: project
 ---
 
