@@ -61,14 +61,14 @@ You must emit exactly one of three confidence levels:
 - PR modifies workflow files (`.github/workflows/`)
 - PR modifies files the issue explicitly says not to touch
 - PR adds new test files or docstrings unless the issue asked for them
-  (updating *existing* test files to keep the suite green is
-  acceptable scope even without an explicit issue request)
+   (updating *existing* test files to keep the suite green is
+   acceptable scope even without an explicit issue request)
 - PR removes existing functionality not explicitly asked to be removed
 - You cannot trace every change in the diff back to a remediation
-  step in the issue
+   step in the issue
 - There are unaddressed review comments
 - The diff is empty or trivially wrong
-- The diff was truncated (emit **medium** at best when truncation is noted)
+- The diff was truncated without prioritising test coverage (emit **medium** at best); smart truncation that surfaces test files within the budget is acceptable for **high**
 
 When in doubt, output **medium** or **low**. The default merge
 threshold is `high`, so a `high` verdict should reflect genuine
@@ -87,11 +87,11 @@ When walking the diff, **evaluate the PR as if this file were not
 present**:
 
 - Do not count its addition as "new files not mentioned in the
-  issue" or as scope creep.
+   issue" or as scope creep.
 - Do not count it against the "PR adds tests or docstrings unless
-  the issue asked for them" rule.
+   the issue asked for them" rule.
 - Do not trace its contents back to the issue remediation — it is
-  not part of the fix, it is metadata about the fix.
+   not part of the fix, it is metadata about the fix.
 
 All other files in the diff must still meet the usual completeness,
 scope, and correctness criteria.
@@ -111,12 +111,12 @@ Emit exactly this structured block — nothing else:
 The action mapping:
 - `merge` — the PR should be merged. Typically paired with `high` confidence.
 - `hold` — the PR needs more work or human review before merging.
-  Typically paired with `medium` confidence.
+   Typically paired with `medium` confidence.
 - `reject` — the PR (and the underlying issue) should be **closed
-  without merging**. Use this when the issue itself is invalid,
-  duplicated, no longer relevant, or the PR demonstrates that the
-  requested change is unnecessary or harmful. Can be paired with any
-  confidence level; use `high` confidence when you are certain the
-  issue/PR should be closed outright.
+   without merging**. Use this when the issue itself is invalid,
+   duplicated, no longer relevant, or the PR demonstrates that the
+   requested change is unnecessary or harmful. Can be paired with any
+   confidence level; use `high` confidence when you are certain the
+   issue/PR should be closed outright.
 
 Do not add any text before or after the verdict block.

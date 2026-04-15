@@ -7,6 +7,7 @@
 | `ANTHROPIC_API_KEY` | API authentication for headless `claude` invocations inside the container | Required |
 | `CAI_ADMIN_LOGINS` | Comma-separated list of GitHub logins authorized to use the `human:solved` label to unblock stuck issues and PRs. Without this, the `human:solved` workflow is silently ignored and parked tasks remain unblocked. See `cai unblock` in the CLI reference for details. | _(optional; unblock workflow disabled if not set)_ |
 | `CAI_MERGE_CONFIDENCE_THRESHOLD` | Minimum confidence level for `cai merge` auto-merge (`high`, `medium`, `disabled`) | `high` |
+| `CAI_MERGE_MAX_DIFF_LEN` | Maximum character length for PR diffs passed to the merge agent; test files are prioritised within the budget so they remain visible even for large PRs | `40000` |
 
 `CAI_MERGE_CONFIDENCE_THRESHOLD` controls how aggressively the merge agent promotes PRs:
 - `high` — only auto-merge when `cai-merge` emits a `high` confidence verdict
