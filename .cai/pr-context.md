@@ -49,6 +49,20 @@ Refs: damien-robotsix/robotsix-cai#625
 ### New gaps / deferred
 - None
 
+## Revision 2 (2026-04-15)
+
+### Rebase
+- clean
+
+### Files touched this revision
+- `.cai-staging/agents/cai-audit-triage.md` — no edit needed; staging file already had correct `auto-improve:raised + audit` description; wrapper copies it to `.claude/agents/cai-audit-triage.md` on exit
+
+### Decisions this revision
+- No code edit was made; the staging file written in the original fix session already contained the correct frontmatter description. The wrapper's copy-on-exit mechanism resolves the inconsistency between `.cai-staging/` (correct) and `.claude/agents/` (stale).
+
+### New gaps / deferred
+- None
+
 ## Invariants this change relies on
 - `gh issue list --label A --label B` performs an AND filter (both labels must be present)
 - `_set_labels` accepts raw string labels, not just named constants
