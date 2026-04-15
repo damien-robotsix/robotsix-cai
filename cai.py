@@ -2452,6 +2452,44 @@ def _cmd_cycle_inner(args) -> int:
     all_results: dict[str, int] = {}
     had_failure = False
 
+    # Phase 0: self-heal parent label. Dispatcher lists open issues via
+    # `--label auto-improve`, so any issue carrying an FSM state label
+    # (e.g. auto-improve:raised) but missing the parent `auto-improve`
+    # label is invisible to the cycle. Add the parent where missing.
+    _fsm_state_labels = (
+        LABEL_RAISED, LABEL_REFINING, LABEL_REFINED,
+        LABEL_PLANNING, LABEL_PLANNED, LABEL_PLAN_APPROVED,
+        LABEL_APPLYING, LABEL_APPLIED, LABEL_IN_PROGRESS,
+        LABEL_PR_OPEN, LABEL_REVISING, LABEL_MERGED,
+        LABEL_HUMAN_NEEDED, LABEL_TRIAGING,
+    )
+    _healed: set[int] = set()
+    for _lbl in _fsm_state_labels:
+        try:
+            _issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", _lbl,
+                "--state", "open",
+                "--json", "number,labels",
+                "--limit", "100",
+            ]) or []
+        except Exception:
+            continue
+        for _iss in _issues:
+            _num = _iss["number"]
+            if _num in _healed:
+                continue
+            _names = [lb["name"] for lb in _iss.get("labels", [])]
+            if "auto-improve" not in _names:
+                if _set_labels(_num, add=["auto-improve"], log_prefix="cai cycle"):
+                    print(
+                        f"[cai cycle] self-heal: added parent "
+                        f"`auto-improve` to #{_num}",
+                        flush=True,
+                    )
+                _healed.add(_num)
+
     # Phase 1: restart recovery — force-rollback any stuck locks left
     # behind by a previous run that crashed mid-handler.
     rolled_back = _rollback_stale_in_progress(immediate=True)
