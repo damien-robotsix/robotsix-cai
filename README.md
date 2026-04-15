@@ -121,8 +121,9 @@ action so two concurrent `implement` runs can't pick the same issue.
                        │        ▼       solved
                        │     planned
                        │        │
-                       │   (gate: HIGH/
-                       │   low confidence)
+                       │   (confidence gate:
+                       │    HIGH skips;
+                       │    else → diverts)
                        │        ▼
                        └─→ human-needed
                             │ unblock
