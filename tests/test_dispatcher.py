@@ -403,6 +403,61 @@ class TestDispatchDrain(unittest.TestCase):
         self.assertEqual(rc, 0)
         di.assert_called_once_with(10)
 
+    def test_loop_guard_allows_same_target_across_state_change(self):
+        """Same (kind, number) but a new state is legitimate progression, not a loop.
+
+        Regression for the case where ``handle_implement`` advances an
+        issue from ``:plan-approved`` to ``:pr-open``. Before the fix the
+        loop guard keyed on ``(kind, number)`` only and aborted the drain
+        after one dispatch even though the state had legitimately
+        advanced; now it keys on state too.
+        """
+        # Issue #10: first seen at :plan-approved, then at :pr-open after the
+        # implement handler ran. Both states are actionable (handle_implement
+        # and handle_pr_bounce respectively).
+        state = {"label": "auto-improve:plan-approved"}
+
+        def fake_gh_json(cmd):
+            if "issue" in cmd and "list" in cmd:
+                return [{
+                    "number": 10,
+                    "createdAt": "2024-01-01T00:00:00Z",
+                    "labels": [{"name": state["label"]}],
+                }]
+            return []
+
+        di_calls: list[int] = []
+
+        def fake_di(n):
+            di_calls.append(n)
+            # First call simulates implement advancing the label.
+            if state["label"] == "auto-improve:plan-approved":
+                state["label"] = "auto-improve:pr-open"
+                return 0
+            # Second call simulates pr_bounce clearing the label (queue empties).
+            state["label"] = "none"
+            return 0
+
+        def fake_gh_json_stateful(cmd):
+            if "issue" in cmd and "list" in cmd:
+                if state["label"] == "none":
+                    return []
+                return [{
+                    "number": 10,
+                    "createdAt": "2024-01-01T00:00:00Z",
+                    "labels": [{"name": state["label"]}],
+                }]
+            return []
+
+        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json_stateful), \
+             patch.object(dispatcher, "dispatch_issue", side_effect=fake_di):
+            rc = dispatcher.dispatch_drain(max_iter=10)
+
+        # Both iterations ran — the guard didn't abort on the state
+        # transition, and the drain only stopped when the queue emptied.
+        self.assertEqual(rc, 0)
+        self.assertEqual(di_calls, [10, 10])
+
     def test_max_iter_cap(self):
         """A pool that keeps providing distinct targets stops at max_iter."""
         # Generate as many distinct issues as we want and never shrink.
