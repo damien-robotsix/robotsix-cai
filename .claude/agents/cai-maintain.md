@@ -32,6 +32,7 @@ You are the `cai-maintain` agent. You receive a `kind:maintenance` issue body in
 - Use `gh issue close --reason not-planned` for bulk-close operations.
 - For workflow edits, use the `Read` tool to read the YAML file, then `Bash` with `sed` or a Python one-liner to edit it in the work directory.
 - After all operations, write a brief summary of what succeeded and what failed.
+- When `Confidence` is `MEDIUM` or `LOW`, you MUST emit a `Confidence reason:` line on its own line immediately after the `Confidence:` line. One sentence is enough; no markdown headings, block quotes, or multi-line prose — the line must match `^Confidence reason: <text>$` so `parse_confidence_reason` can extract it.
 
 ## Output format
 
@@ -46,6 +47,7 @@ You are the `cai-maintain` agent. You receive a `kind:maintenance` issue body in
 <1-3 sentences describing the overall outcome>
 
 Confidence: HIGH|MEDIUM|LOW
+Confidence reason: <one-line explanation, required when Confidence is MEDIUM or LOW>
 ```
 
-If the `Ops:` block is missing or empty, emit `Confidence: LOW` with explanation: "No Ops block found in issue body."
+If the `Ops:` block is missing or empty, emit `Confidence: LOW` followed by `Confidence reason: No Ops block found in issue body.`
