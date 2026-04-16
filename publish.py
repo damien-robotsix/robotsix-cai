@@ -78,6 +78,12 @@ CHECK_WORKFLOWS_CATEGORIES = {
     "workflow_config_error",
 }
 
+AGENT_AUDIT_CATEGORIES = {
+    "best_practice_violation",
+    "unused_agent",
+    "redundant_agents",
+}
+
 # Labels we ensure exist before creating issues. These include FSM/lifecycle
 # state labels (auto-improve:*), PR state labels (pr:*), and kind labels (kind:*).
 # Category information is now stored in the issue body, not as labels. Idempotent —
@@ -186,6 +192,11 @@ CHECK_WORKFLOWS_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
     ("check-workflows", "e11d48", "GitHub Actions workflow failure finding (source tag)"),
+]
+
+AGENT_AUDIT_LABELS = [
+    ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
 ]
 
 
@@ -315,6 +326,8 @@ def _label_set_for(namespace: str):
         return UPDATE_CHECK_LABELS
     if namespace == "check-workflows":
         return CHECK_WORKFLOWS_LABELS
+    if namespace == "agent-audit":
+        return AGENT_AUDIT_LABELS
     return LABELS
 
 
@@ -342,7 +355,7 @@ def ensure_all_labels() -> None:
     and CODE_AUDIT_LABELS).
     """
     seen: set[str] = set()
-    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS):
+    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS, AGENT_AUDIT_LABELS):
         for name, color, description in label_set:
             if name in seen:
                 continue
@@ -410,6 +423,9 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     elif namespace == "check-workflows":
         source_note = "cai check-workflows agent"
         source_file = ".claude/agents/cai-check-workflows.md"
+    elif namespace == "agent-audit":
+        source_note = "cai agent-audit agent"
+        source_file = ".claude/agents/cai-agent-audit.md"
     else:
         source_note = "cai self-analyzer"
         source_file = ".claude/agents/cai-analyze.md"
@@ -465,7 +481,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
     parser.add_argument(
         "--namespace", default="auto-improve",
-        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows"],
+        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit"],
         help="Label namespace to use (default: auto-improve)",
     )
     args = parser.parse_args()
@@ -478,6 +494,8 @@ def main() -> int:
         valid_cats = UPDATE_CHECK_CATEGORIES
     elif namespace == "check-workflows":
         valid_cats = CHECK_WORKFLOWS_CATEGORIES
+    elif namespace == "agent-audit":
+        valid_cats = AGENT_AUDIT_CATEGORIES
     else:
         valid_cats = VALID_CATEGORIES
 

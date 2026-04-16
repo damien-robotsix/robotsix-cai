@@ -32,6 +32,8 @@ PROPOSE_MEMORY = Path("/var/log/cai/propose-memory.md")
 UPDATE_CHECK_MEMORY = Path("/var/log/cai/update-check-memory.md")
 # Persistent memory file for the cost-optimize agent.
 COST_OPTIMIZE_MEMORY = Path("/var/log/cai/cost-optimize-memory.md")
+# Persistent memory file for the agent-audit agent.
+AGENT_AUDIT_MEMORY = Path("/var/log/cai/agent-audit-memory.md")
 
 # Persistent per-agent memory directory. Each declarative subagent
 # has `memory: project` in its frontmatter, which Claude Code stores

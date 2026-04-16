@@ -114,6 +114,13 @@ Subcommands:
                             Findings are published as issues via
                             publish.py with the `code-audit` namespace.
 
+    python cai.py agent-audit  Weekly audit of .claude/agents/*.md for
+                            Claude Code best-practice violations, unused
+                            agents (not invoked via `--agent` anywhere), and
+                            near-duplicate agents. Runs on Opus. Findings are
+                            published via publish.py with the `agent-audit`
+                            namespace.
+
     python cai.py propose     Weekly creative improvement proposal.
                             Clones the repo read-only, runs a creative
                             agent to propose an ambitious improvement,
@@ -176,7 +183,7 @@ off to supercronic. Each cron tick is a fresh process. The pipeline is
 driven by a single `CAI_CYCLE_SCHEDULE` cron line; a flock in
 `cmd_cycle` serializes overlapping runs so issues are processed one
 at a time. Orthogonal tasks (analyze, audit, propose, update-check,
-health-report, cost-optimize, check-workflows, code-audit) keep their
+health-report, cost-optimize, check-workflows, code-audit, agent-audit) keep their
 own schedules and are not run at startup.
 
 The gh auth check is done once per subcommand invocation. We want a
@@ -1526,6 +1533,37 @@ def _save_code_audit_memory(agent_output: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# agent-audit — weekly audit of .claude/agents/ for consistency and usage
+# ---------------------------------------------------------------------------
+
+
+def _read_agent_audit_memory() -> str:
+    """Return the contents of the agent-audit memory file, or empty string."""
+    if not AGENT_AUDIT_MEMORY.exists():
+        return ""
+    try:
+        return AGENT_AUDIT_MEMORY.read_text().strip()
+    except OSError:
+        return ""
+
+
+def _save_agent_audit_memory(agent_output: str) -> None:
+    """Extract the ## Memory Update block from agent output and persist it."""
+    match = re.search(
+        r"^## Memory Update\s*\n(.*)",
+        agent_output,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not match:
+        return
+    try:
+        AGENT_AUDIT_MEMORY.parent.mkdir(parents=True, exist_ok=True)
+        AGENT_AUDIT_MEMORY.write_text(match.group(0).strip() + "\n")
+    except OSError as exc:
+        print(f"[cai agent-audit] could not write memory: {exc}", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # cost-optimize — weekly cost-reduction proposals
 # ---------------------------------------------------------------------------
 
@@ -2126,6 +2164,81 @@ def cmd_code_audit(args) -> int:
 
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("code-audit", repo=REPO, duration=dur, exit=published.returncode)
+    return published.returncode
+
+
+def cmd_agent_audit(args) -> int:
+    """Clone the repo and run the agent-audit agent to audit .claude/agents/."""
+    print("[cai agent-audit] running agent inventory audit", flush=True)
+    t0 = time.monotonic()
+
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-agent-audit-{_uid}")
+
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+
+    clone = _run(
+        ["git", "clone", "--depth", "1",
+         f"https://github.com/{REPO}.git", str(work_dir)],
+        capture_output=True,
+    )
+    if clone.returncode != 0:
+        print(
+            f"[cai agent-audit] git clone failed:\n{clone.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("agent-audit", repo=REPO, result="clone_failed",
+                duration=dur, exit=1)
+        return 1
+
+    memory = _read_agent_audit_memory()
+    memory_section = "## Memory from previous runs\n\n"
+    if memory:
+        memory_section += memory + "\n"
+    else:
+        memory_section += "(first run — no prior memory)\n"
+
+    user_message = _work_directory_block(work_dir) + "\n" + memory_section
+
+    print(f"[cai agent-audit] running agent for {work_dir}", flush=True)
+    agent = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-agent-audit",
+         "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob",
+         "--add-dir", str(work_dir)],
+        category="agent-audit",
+        agent="cai-agent-audit",
+        input=user_message,
+        cwd="/app",
+    )
+    if agent.stdout:
+        print(agent.stdout, flush=True)
+    if agent.returncode != 0:
+        print(
+            f"[cai agent-audit] claude -p failed (exit {agent.returncode}):\n"
+            f"{agent.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("agent-audit", repo=REPO, result="agent_failed",
+                duration=dur, exit=agent.returncode)
+        return agent.returncode
+
+    _save_agent_audit_memory(agent.stdout)
+
+    print("[cai agent-audit] publishing findings", flush=True)
+    published = _run(
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "agent-audit"],
+        input=agent.stdout,
+    )
+
+    shutil.rmtree(work_dir, ignore_errors=True)
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("agent-audit", repo=REPO, duration=dur, exit=published.returncode)
     return published.returncode
 
 
@@ -3102,6 +3215,7 @@ def main() -> int:
     sub.add_parser("verify", help="Update labels based on PR merge state")
     sub.add_parser("audit", help="Run the queue/PR consistency audit")
     sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
+    sub.add_parser("agent-audit", help="Weekly audit of .claude/agents/ for consistency and usage")
     sub.add_parser("propose", help="Weekly creative improvement proposal")
     sub.add_parser("update-check", help="Check Claude Code releases for workspace improvements")
     sub.add_parser(
@@ -3167,6 +3281,7 @@ def main() -> int:
         "verify": cmd_verify,
         "audit": cmd_audit,
         "code-audit": cmd_code_audit,
+        "agent-audit": cmd_agent_audit,
         "propose": cmd_propose,
         "update-check": cmd_update_check,
         "unblock": cmd_unblock,

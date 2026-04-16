@@ -22,6 +22,7 @@
 #      - health-report:  automated pipeline health report
 #      - cost-optimize:  weekly cost-reduction proposal or evaluation
 #      - check-workflows: monitor GitHub Actions for failures
+#      - agent-audit:    weekly audit of .claude/agents/ for consistency and usage
 #
 # 2. Do one synchronous `cai.py cycle` pass so `docker compose up -d`
 #    produces useful logs immediately rather than waiting for the first
@@ -45,6 +46,7 @@ CAI_UPDATE_CHECK_SCHEDULE="${CAI_UPDATE_CHECK_SCHEDULE:-0 4 * * 1}"
 CAI_HEALTH_REPORT_SCHEDULE="${CAI_HEALTH_REPORT_SCHEDULE:-0 7 * * 1}"
 CAI_COST_OPTIMIZE_SCHEDULE="${CAI_COST_OPTIMIZE_SCHEDULE:-0 5 * * 0}"
 CAI_CHECK_WORKFLOWS_SCHEDULE="${CAI_CHECK_WORKFLOWS_SCHEDULE:-0 */6 * * *}"
+CAI_AGENT_AUDIT_SCHEDULE="${CAI_AGENT_AUDIT_SCHEDULE:-0 6 * * 0}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -62,6 +64,7 @@ $CAI_UPDATE_CHECK_SCHEDULE python /app/cai.py update-check
 $CAI_HEALTH_REPORT_SCHEDULE python /app/cai.py health-report
 $CAI_COST_OPTIMIZE_SCHEDULE python /app/cai.py cost-optimize
 $CAI_CHECK_WORKFLOWS_SCHEDULE python /app/cai.py check-workflows
+$CAI_AGENT_AUDIT_SCHEDULE python /app/cai.py agent-audit
 CRONTAB
 
 echo "[entrypoint] crontab:"
