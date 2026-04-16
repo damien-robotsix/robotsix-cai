@@ -1,0 +1,6 @@
+[
+  {
+    "repo": "owner/other-repo",
+    "cycle_schedule": "0 * * * *"
+  }
+]

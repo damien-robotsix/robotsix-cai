@@ -25,6 +25,13 @@
 #      - agent-audit:    weekly audit of .claude/agents/ for consistency and usage
 #      - external-scout: weekly scout for open-source libraries that could replace in-house plumbing
 #
+# Environment variables:
+#   CAI_WORKSPACES_CONFIG  Path to a JSON file listing additional repos to maintain
+#                          (default: /app/workspaces.json). Each entry must have a
+#                          "repo" key (e.g. "owner/repo") and an optional
+#                          "cycle_schedule" (falls back to CAI_CYCLE_SCHEDULE).
+#                          If the file is absent the system behaves as today.
+#
 # 2. Do one synchronous `cai.py cycle` pass so `docker compose up -d`
 #    produces useful logs immediately rather than waiting for the first
 #    cron tick. Only the issue-solving cycle runs at startup; the
@@ -49,6 +56,7 @@ CAI_COST_OPTIMIZE_SCHEDULE="${CAI_COST_OPTIMIZE_SCHEDULE:-0 5 * * 0}"
 CAI_CHECK_WORKFLOWS_SCHEDULE="${CAI_CHECK_WORKFLOWS_SCHEDULE:-0 */6 * * *}"
 CAI_AGENT_AUDIT_SCHEDULE="${CAI_AGENT_AUDIT_SCHEDULE:-0 6 * * 0}"
 CAI_EXTERNAL_SCOUT_SCHEDULE="${CAI_EXTERNAL_SCOUT_SCHEDULE:-0 6 * * 1}"
+CAI_WORKSPACES_CONFIG="${CAI_WORKSPACES_CONFIG:-/app/workspaces.json}"
 
 CRONTAB_PATH=/tmp/crontab
 
@@ -70,6 +78,22 @@ $CAI_AGENT_AUDIT_SCHEDULE python /app/cai.py agent-audit
 $CAI_EXTERNAL_SCOUT_SCHEDULE python /app/cai.py external-scout
 CRONTAB
 
+# Append per-workspace cycle lines from the workspaces config file.
+if [ -s "$CAI_WORKSPACES_CONFIG" ]; then
+  python3 -c "
+import json, sys
+with open('$CAI_WORKSPACES_CONFIG') as f:
+    workspaces = json.load(f)
+default_schedule = '$CAI_CYCLE_SCHEDULE'
+for entry in workspaces:
+    repo = entry.get('repo', '').strip()
+    if not repo:
+        continue
+    schedule = entry.get('cycle_schedule', default_schedule)
+    print(schedule + ' CAI_REPO=' + repo + ' python /app/cai.py cycle')
+" >> "$CRONTAB_PATH" || echo "[entrypoint] warning: failed to parse $CAI_WORKSPACES_CONFIG"
+fi
+
 echo "[entrypoint] crontab:"
 sed 's/^/[entrypoint]   /' "$CRONTAB_PATH"
 echo
@@ -87,6 +111,22 @@ fi
 
 echo "[entrypoint] running initial cai.py cycle"
 python /app/cai.py cycle || echo "[entrypoint] cycle exited non-zero; continuing"
+
+# Run an eager startup cycle for each configured workspace.
+if [ -s "$CAI_WORKSPACES_CONFIG" ]; then
+  python3 -c "
+import json, sys
+with open('$CAI_WORKSPACES_CONFIG') as f:
+    workspaces = json.load(f)
+for entry in workspaces:
+    repo = entry.get('repo', '').strip()
+    if repo:
+        print(repo)
+" 2>/dev/null | while IFS= read -r repo; do
+    echo "[entrypoint] running initial cai.py cycle for workspace: $repo"
+    CAI_REPO="$repo" python /app/cai.py cycle || echo "[entrypoint] cycle for $repo exited non-zero; continuing"
+  done
+fi
 
 echo "[entrypoint] handing off to supercronic"
 exec supercronic "$CRONTAB_PATH"
