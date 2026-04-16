@@ -70,6 +70,10 @@ AUDIT_CATEGORIES = {
     "cost_outlier",
     "workflow_anomaly",
     "fix_loop_efficiency",
+    "human_needed_pipeline_jam",
+    "human_needed_abandoned",
+    "human_needed_loop",
+    "human_needed_reason_missing",
 }
 
 CODE_AUDIT_CATEGORIES = {

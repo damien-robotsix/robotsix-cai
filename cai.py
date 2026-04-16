@@ -364,6 +364,77 @@ def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
     return result
 
 
+def _fetch_human_needed_issues() -> list[dict]:
+    """Return open issues/PRs parked at HUMAN_NEEDED / PR_HUMAN_NEEDED.
+
+    For each, parse the most-recent agent-posted divert comment
+    (rendered by `_render_human_divert_reason` in cai_lib/fsm.py) to
+    extract the failing transition, required/reported confidence, and
+    count how many divert comments have been posted (used to detect
+    `human_needed_loop` recurrence). Returns a flat list; each entry
+    carries a ``parked_as`` field set to LABEL_HUMAN_NEEDED or
+    LABEL_PR_HUMAN_NEEDED for the audit agent.
+    """
+    import re as _re
+    MARKER = "🙋 Human attention needed"
+    out: list[dict] = []
+    for label in (LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED):
+        try:
+            issues = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", label,
+                "--state", "open",
+                "--json",
+                "number,title,labels,createdAt,updatedAt,comments",
+                "--limit", "100",
+            ]) or []
+        except subprocess.CalledProcessError:
+            issues = []
+        for it in issues:
+            comments = it.get("comments") or []
+            latest_body = None
+            latest_created = None
+            divert_count = 0
+            for c in comments:
+                body = (c.get("body") or "")
+                if MARKER not in body:
+                    continue
+                divert_count += 1
+                created = c.get("createdAt") or ""
+                if latest_created is None or created > latest_created:
+                    latest_body = body
+                    latest_created = created
+            transition = required_c = reported_c = None
+            if latest_body:
+                m = _re.search(r"Automation paused `([^`]+)`", latest_body)
+                if m:
+                    transition = m.group(1)
+                m = _re.search(r"Required confidence:\s*`([^`]+)`", latest_body)
+                if m:
+                    required_c = m.group(1)
+                m = _re.search(r"Reported confidence:\s*`([^`]+)`", latest_body)
+                if m:
+                    reported_c = m.group(1)
+            label_names = [lbl["name"] for lbl in it.get("labels", [])]
+            out.append({
+                "number": it["number"],
+                "title": it["title"],
+                "parked_as": label,
+                "labels": label_names,
+                "createdAt": it.get("createdAt", ""),
+                "updatedAt": it.get("updatedAt", ""),
+                "divert_count": divert_count,
+                "reason_found": latest_body is not None,
+                "latest_divert_at": latest_created or "",
+                "transition": transition,
+                "required_confidence": required_c,
+                "reported_confidence": reported_c,
+                "has_human_solved": LABEL_HUMAN_SOLVED in label_names,
+            })
+    return out
+
+
 def _review_pr_pattern_summary() -> str:
     """Read the review-pr pattern log and return a markdown summary block.
 
@@ -1193,6 +1264,31 @@ def cmd_audit(args) -> int:
     else:
         closed_section += "(none)\n"
 
+    # 2e. Issues/PRs currently parked at human-needed — include the
+    #     parsed divert reason so the LLM can classify root cause.
+    human_needed = _fetch_human_needed_issues()
+    human_section = "## Open issues/PRs parked at human-needed\n\n"
+    if human_needed:
+        human_section += (
+            "For each entry the most-recent divert comment (rendered by "
+            "`_render_human_divert_reason`) has been parsed. A missing "
+            "`Transition`/`Required`/`Reported` field means the divert "
+            "comment is absent or malformed (→ `human_needed_reason_missing`).\n\n"
+        )
+        for hn in human_needed:
+            human_section += (
+                f"- #{hn['number']} ({hn['parked_as']}): {hn['title']}\n"
+                f"  - Created: {hn['createdAt']}; Updated: {hn['updatedAt']}\n"
+                f"  - Divert comments on issue: {hn['divert_count']}; "
+                f"latest at: {hn['latest_divert_at'] or '(none)'}\n"
+                f"  - Transition: {hn['transition'] or '(missing)'}\n"
+                f"  - Required confidence: {hn['required_confidence'] or '(missing)'}; "
+                f"Reported confidence: {hn['reported_confidence'] or '(missing)'}\n"
+                f"  - human:solved applied: {hn['has_human_solved']}\n"
+            )
+    else:
+        human_section += "(none)\n"
+
     log_section = "## Log tail (last ~200 lines)\n\n```\n" + (log_tail or "(empty)") + "\n```\n"
 
     deterministic_section = ""
@@ -1244,6 +1340,7 @@ def cmd_audit(args) -> int:
         f"{cost_section}\n"
         f"{outcome_section}\n"
         f"{closed_section}\n"
+        f"{human_section}\n"
         f"{deterministic_section}"
         f"\n## Findings file\n\nWrite your findings to: `{findings_file}`\n"
     )
