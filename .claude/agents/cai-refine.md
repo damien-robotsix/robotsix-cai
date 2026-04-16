@@ -208,3 +208,8 @@ Multi-step guidelines:
   Description section.
 - **Keep it short.** The fix agent reads this plan as context. A
   wall of text is counterproductive.
+- **Never forbid `docs/` in scope guardrails.** Changes under
+  `docs/**` (and auto-generated indexes like `CODEBASE_INDEX.md`)
+  may be injected by the `cai-review-docs` pipeline stage regardless
+  of the implementer's plan. Omit them from "do not touch" lists —
+  they are implicitly allowed in every PR.

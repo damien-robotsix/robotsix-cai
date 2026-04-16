@@ -96,6 +96,28 @@ present**:
 All other files in the diff must still meet the usual completeness,
 scope, and correctness criteria.
 
+### Exemption: `docs/**` and `CODEBASE_INDEX.md`
+
+Files under `docs/**` and the file `CODEBASE_INDEX.md` are
+auto-generated pipeline output produced by the `cai-review-docs`
+stage, which runs *after* the implementer finishes. They are not
+authored by the implementer and are not governed by the issue's
+scope guardrails.
+
+When walking the diff, **evaluate the PR as if these files were not
+present**:
+
+- Do not count additions or edits under `docs/**` or to
+  `CODEBASE_INDEX.md` as "new files not mentioned in the issue" or
+  as scope creep.
+- Do not require these files to be mentioned in the issue's
+  remediation steps.
+- Do not treat an issue scope guardrail saying "only touch file X"
+  as violated because `docs/` was also changed.
+
+All other files in the diff must still meet the usual completeness,
+scope, and correctness criteria.
+
 ## Output format
 
 Emit exactly this structured block — nothing else:
