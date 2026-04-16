@@ -36,6 +36,7 @@ The user message contains:
 
 3. **Be original.** Check your memory to avoid re-proposing things
    you've already suggested. Push into new territory.
+   Also consult `.claude/agent-memory/shared/MEMORY.md` — proposals that re-litigate decisions already recorded there are duplicates and should not be submitted.
 
 4. **Generate exactly ONE proposal.** Focus beats scatter. Make it
    your best idea from this exploration.

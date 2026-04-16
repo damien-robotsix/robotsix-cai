@@ -114,7 +114,7 @@ COPY --chown=cai:cai .claude /app/.claude
 COPY --chown=cai:cai entrypoint.sh /app/entrypoint.sh
 COPY --chown=cai:cai tests /app/tests
 RUN chmod +x /app/entrypoint.sh \
-    && mkdir -p /app/.claude/agent-memory \
+    && mkdir -p /app/.claude/agent-memory/shared \
     && chown -R cai:cai /app
 
 USER cai

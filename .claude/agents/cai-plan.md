@@ -32,7 +32,7 @@ The user message contains:
 
 1. **Understand the issue.** Read the issue carefully. Identify
    what needs to change and why.
-2. **Explore the codebase.** Use Grep, Glob, and Read to find the
+2. **Explore the codebase.** Before exploring, read `.claude/agent-memory/shared/MEMORY.md` and any linked entries that look relevant to the issue — the shared pool records cross-cutting design decisions from prior issues and may already answer your question. Use Grep, Glob, and Read to find the
    relevant files, functions, and code paths. Understand the current
    state before proposing changes.
 3. **Identify the minimal change set.** Determine exactly which

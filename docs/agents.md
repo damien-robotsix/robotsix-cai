@@ -18,6 +18,7 @@ Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `desc
 | `cai-git` | Lightweight subagent that executes git operations on behalf of other agents | Bash | haiku | Worktree |
 | `cai-maintain` | Read the Ops block from a kind:maintenance issue, execute each declared operation via gh CLI, and emit a Confidence level | Bash, Read | sonnet | Worktree |
 | `cai-merge` | Assess whether a PR correctly implements its linked issue and emit a merge verdict; `docs/**` and `CODEBASE_INDEX.md` are automatically exempt from scope checks | Read | opus | Inline-only |
+| `cai-memorize` | Post-solved memory curator — decides whether a solved issue settled a cross-cutting design decision worth persisting to the shared agent memory pool | Read, Write, Edit, Glob | sonnet | Inline-only |
 | `cai-plan` | Generate a detailed fix plan for an issue (first of two serial planners) | Read, Grep, Glob, Agent | sonnet | Worktree |
 | `cai-propose` | Weekly creative agent that proposes ambitious improvements | Read, Grep, Glob | sonnet | Worktree |
 | `cai-propose-review` | Evaluate creative proposals for feasibility and value before filing issues | Read, Grep, Glob | sonnet | Worktree |
