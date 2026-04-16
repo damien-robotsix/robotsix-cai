@@ -26,7 +26,7 @@ from cai_lib.fsm import (
     apply_transition,
     get_issue_state,
 )
-from cai_lib.github import _set_labels
+from cai_lib.github import _post_issue_comment, _set_labels
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run, _run_claude_p
 
@@ -212,6 +212,13 @@ def handle_triage(issue: dict) -> int:
 
     # 6. Execute verdict.
     if decision == "HUMAN":
+        _post_issue_comment(
+            issue_number,
+            f"cai-triage routed this issue to `:human-needed` "
+            f"(confidence={confidence or 'MISSING'}).\n\n"
+            f"**Reasoning:** {reasoning}",
+            log_prefix="cai triage",
+        )
         apply_transition(
             issue_number, "triaging_to_human",
             current_labels=[LABEL_TRIAGING],
