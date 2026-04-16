@@ -23,26 +23,26 @@ State transitions between these rows are rendered in [the lifecycle FSM diagram]
 | `NEEDS_EXPLORATION` | [`handle_explore`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/explore.py) | `cai-explore` |
 | `REFINED` | [`handle_plan`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/plan.py) | `cai-plan` ×2 (serial) + `cai-select` |
 | `PLANNING` | [`handle_plan`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/plan.py) (resume) | `cai-plan` / `cai-select` |
-| `PLANNED` | [`handle_plan_gate`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/plan_gate.py) | *(confidence gate; no subagent)* |
+| `PLANNED` | [`handle_plan_gate`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/plan.py) | *(confidence gate; no subagent)* |
 | `PLAN_APPROVED` | [`handle_implement`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/implement.py) | `cai-implement` |
 | `IN_PROGRESS` | [`handle_implement`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/implement.py) (resume) | `cai-implement` |
 | `PR` | [`handle_pr_bounce`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/pr_bounce.py) | *(label transition only; no subagent)* |
 | `MERGED` | [`handle_confirm`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/confirm.py) | `cai-confirm` (and `cai-memorize` post-verification) |
-| `HUMAN_NEEDED` | [`handle_human_needed`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/human_needed.py) | `cai-unblock` (only when `human:solved` label present) |
+| `HUMAN_NEEDED` | [`handle_human_needed`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/cmd_unblock.py) | `cai-unblock` (only when `human:solved` label present) |
 | `SOLVED` | *terminal* | *(no handler)* |
 
 ### PR pipeline
 
 | State | Handler | Subagent(s) invoked |
 |---|---|---|
-| `OPEN` | [`handle_open_to_review`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/open_to_review.py) | *(label transition only)* |
+| `OPEN` | [`handle_open_to_review`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/open_pr.py) | *(label transition only)* |
 | `REVIEWING_CODE` | [`handle_review_pr`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/review_pr.py) | `cai-review-pr` |
 | `REVISION_PENDING` | [`handle_revise`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/revise.py) | `cai-revise` (or `cai-rebase` when conflict-only) + inline `cai-comment-filter` |
 | `REVIEWING_DOCS` | [`handle_review_docs`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/review_docs.py) | `cai-review-docs` |
 | `CI_FAILING` | [`handle_fix_ci`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/fix_ci.py) | `cai-fix-ci` |
 | `APPROVED` | [`handle_merge`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/merge.py) | `cai-merge` |
 | `REBASING` | [`handle_rebase`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/rebase.py) | `cai-rebase` |
-| `PR_HUMAN_NEEDED` | [`handle_pr_human_needed`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/pr_human_needed.py) | `cai-unblock` (only when `human:solved` present) |
+| `PR_HUMAN_NEEDED` | [`handle_pr_human_needed`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/cmd_unblock.py) | `cai-unblock` (only when `human:solved` present) |
 | `MERGED` | *terminal* | *(no handler)* |
 
 ## Agent catalog
