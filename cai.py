@@ -283,6 +283,7 @@ from cai_lib.github import (  # noqa: E402
     close_issue_not_planned, close_issue_completed,
 )
 from cai_lib.watchdog import _rollback_stale_in_progress  # noqa: E402
+from cai_lib.cmd_helpers import _work_directory_block  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.actions.confirm import (  # noqa: E402
     _parse_verdicts,
@@ -2485,7 +2486,6 @@ def cmd_maintain(args) -> int:
 
     APPLYING itself is the lock (no separate in-progress label).
     """
-    from cai_lib.cmd_helpers import _work_directory_block
     from cai_lib.fsm import (
         apply_transition_with_confidence,
         parse_confidence,
