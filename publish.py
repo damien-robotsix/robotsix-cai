@@ -78,9 +78,10 @@ CHECK_WORKFLOWS_CATEGORIES = {
     "workflow_config_error",
 }
 
-# Labels we ensure exist before creating issues. The first two are the
-# state labels; the rest are the category labels. Idempotent — `gh label
-# create` returns non-zero if the label already exists, which we ignore.
+# Labels we ensure exist before creating issues. These include FSM/lifecycle
+# state labels (auto-improve:*), PR state labels (pr:*), and kind labels (kind:*).
+# Category information is now stored in the issue body, not as labels. Idempotent —
+# `gh label create` returns non-zero if the label already exists, which we ignore.
 LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
@@ -111,10 +112,6 @@ LABELS = [
     ("pr:approved",         "0e8a16", "Docs reviewed clean; ready for merge handler"),
     ("pr:rebasing",         "fbca04", "PR has merge conflicts with main; cai-rebase will attempt a rebase"),
     ("pr:ci-failing",       "e11d48", "CI is red; cai-fix-ci will attempt a repair"),
-    ("category:reliability", "d73a4a", "Errors, failures, flaky behavior"),
-    ("category:cost_reduction", "fbca04", "Token waste, unnecessary tool calls"),
-    ("category:prompt_quality", "0075ca", "Unclear or missing prompt guidance"),
-    ("category:workflow_efficiency", "5319e7", "Unnecessary workflow steps or config"),
 ]
 
 # Labels that existed in an earlier design but are no longer active.
@@ -140,50 +137,55 @@ LABELS_TO_DELETE = [
     # Migration: _migrate_check_workflows_raised in cai_lib/watchdog.py relabels existing issues.
     "check-workflows:raised",
     "auto-improve:no-action",     # retired — replaced by gh issue close --reason "not planned"
+    # Retired informational category labels — category is parsed from the issue body (**Category:** `...`) instead.
+    "category:reliability",
+    "category:cost_reduction",
+    "category:prompt_quality",
+    "category:workflow_efficiency",
+    "category:stale_lifecycle",
+    "category:lock_corruption",
+    "category:loop_stuck",
+    "category:prompt_contradiction",
+    "category:topic_duplicate",
+    "category:silent_failure",
+    "category:forgotten_backlog",
+    "category:cost_outlier",
+    "category:workflow_anomaly",
+    "category:fix_loop_efficiency",
+    "category:cross_file_inconsistency",
+    "category:dead_code",
+    "category:missing_reference",
+    "category:duplicated_logic",
+    "category:hardcoded_drift",
+    "category:config_mismatch",
+    "category:registration_mismatch",
+    "category:version_update",
+    "category:feature_adoption",
+    "category:deprecation",
+    "category:best_practice",
+    "category:workflow_failure",
+    "category:workflow_flake",
+    "category:workflow_config_error",
 ]
 
 AUDIT_LABELS = [
     ("audit", "c5def5", "Queue/PR consistency audit finding (source tag)"),
-    ("category:stale_lifecycle", "d93f0b", "Issue stuck in a state longer than expected"),
-    ("category:lock_corruption", "e11d48", "Mutually exclusive labels or dangling references"),
-    ("category:loop_stuck", "fbca04", "Findings raised but no fixes landing"),
-    ("category:prompt_contradiction", "0075ca", "Conflicting rules in prompt files"),
-    ("category:topic_duplicate", "5319e7", "Two open issues about the same pattern"),
-    ("category:silent_failure", "b60205", "Step exited 0 but log shows it did not succeed"),
-    ("category:forgotten_backlog", "c2e0c6", "Tracking-only issue with no state label idle >30 days"),
-    ("category:cost_outlier", "fbca04", "A claude -p invocation or category aggregate that dominates token spend"),
-    ("category:workflow_anomaly", "e4e669", "Issue or PR lifecycle transition doesn't match expected workflow"),
-    ("category:fix_loop_efficiency", "e4e669", "A fix category where the loop is structurally struggling — success rate below 40% with ≥3 outcomes in 90 days"),
 ]
 
 CODE_AUDIT_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
-    ("category:cross_file_inconsistency", "d73a4a", "Constant/path/label mismatch across files"),
-    ("category:dead_code", "c5def5", "Unreachable or unused code"),
-    ("category:missing_reference", "e11d48", "Prompt or file reference that does not exist"),
-    ("category:duplicated_logic", "fbca04", "Same logic implemented in multiple places"),
-    ("category:hardcoded_drift", "0075ca", "Hardcoded values duplicated across files"),
-    ("category:config_mismatch", "5319e7", "Env var or config inconsistency"),
-    ("category:registration_mismatch", "d93f0b", "Handler registered without function or vice versa"),
 ]
 
 UPDATE_CHECK_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
-    ("category:version_update", "d73a4a", "New Claude Code version with relevant fixes"),
-    ("category:feature_adoption", "0075ca", "New feature that could improve the workspace"),
-    ("category:deprecation", "e11d48", "Deprecated flag or pattern we use"),
-    ("category:best_practice", "5319e7", "Best-practice change from release notes"),
 ]
 
 CHECK_WORKFLOWS_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
     ("check-workflows", "e11d48", "GitHub Actions workflow failure finding (source tag)"),
-    ("category:workflow_failure", "b60205", "GitHub Actions run failed"),
-    ("category:workflow_flake", "fbca04", "Flaky or intermittent workflow failure"),
-    ("category:workflow_config_error", "0075ca", "Workflow YAML misconfiguration"),
 ]
 
 
@@ -433,20 +435,17 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
             "auto-improve",
             "auto-improve:raised",
             "audit",
-            f"category:{f.category}",
         ])
     elif namespace == "check-workflows":
         labels = ",".join([
             "auto-improve",
             "auto-improve:raised",
             "check-workflows",
-            f"category:{f.category}",
         ])
     else:
         labels = ",".join([
             "auto-improve",
             "auto-improve:raised",
-            f"category:{f.category}",
         ])
 
     result = subprocess.run(

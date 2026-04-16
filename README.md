@@ -185,10 +185,10 @@ You can watch the parent issue's checklist to monitor progress. Note: if an issu
 
 The `audit` subcommand flags inconsistencies in the issue/PR lifecycle
 by raising findings with a unified label scheme: `auto-improve:raised` plus
-an `audit` source tag (e.g., `auto-improve`, `auto-improve:raised`, `audit`,
-`category:<finding_category>`). This unified scheme allows audit findings to
-flow through the standard refine → plan → implement pipeline alongside other
-auto-improve issues.
+an `audit` source tag (e.g., `auto-improve`, `auto-improve:raised`, `audit`).
+The finding category is stored in the issue body (e.g., `**Category:** `stale_lifecycle``).
+This unified scheme allows audit findings to flow through the standard
+refine → plan → implement pipeline alongside other auto-improve issues.
 
 Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 `prompt_contradiction`, `topic_duplicate`, `silent_failure`, `forgotten_backlog`,
