@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 
-REPO = "damien-robotsix/robotsix-cai"
+REPO: str = os.environ.get("CAI_REPO", "damien-robotsix/robotsix-cai")
 SMOKE_PROMPT = "Say hello in one short sentence."
 
 # Root of claude-code's per-cwd transcript dirs. claude-code writes
