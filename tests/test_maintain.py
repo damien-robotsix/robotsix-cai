@@ -1,8 +1,8 @@
-"""Tests for cmd_maintain — the maintenance ops driver."""
+"""Tests for handle_maintain — the dispatcher handler for :applying issues."""
 import sys
 import os
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -25,13 +25,6 @@ def _make_applying_issue(number=501):
     }
 
 
-def _make_args(issue=None):
-    """Minimal argparse namespace for cmd_maintain."""
-    args = MagicMock()
-    args.issue = issue
-    return args
-
-
 def _make_clone_result(rc=0):
     r = MagicMock()
     r.returncode = rc
@@ -52,10 +45,10 @@ def _make_agent_result(confidence="HIGH", rc=0, reason=None):
     return r
 
 
-class TestCmdMaintainHappyPath(unittest.TestCase):
+class TestHandleMaintainHappyPath(unittest.TestCase):
     """HIGH confidence → :applied transition fires."""
 
-    def test_cmd_maintain_happy_path(self):
+    def test_handle_maintain_happy_path(self):
         issue = _make_applying_issue()
         label_calls = []
 
@@ -64,15 +57,15 @@ class TestCmdMaintainHappyPath(unittest.TestCase):
                                  "add": list(add), "remove": list(remove)})
             return True
 
-        with patch("cai._gh_json", return_value=[issue]), \
-             patch("cai._run", return_value=_make_clone_result()), \
-             patch("cai._run_claude_p", return_value=_make_agent_result("HIGH")), \
-             patch("cai.shutil.rmtree"), \
-             patch("cai.log_run"), \
+        with patch("cai_lib.actions.maintain._run", return_value=_make_clone_result()), \
+             patch("cai_lib.actions.maintain._run_claude_p",
+                   return_value=_make_agent_result("HIGH")), \
+             patch("cai_lib.actions.maintain.shutil.rmtree"), \
+             patch("cai_lib.actions.maintain.log_run"), \
              patch("cai_lib.github._set_labels", side_effect=fake_set_labels), \
              patch("cai_lib.github._post_issue_comment", return_value=True):
-            from cai import cmd_maintain
-            rc = cmd_maintain(_make_args())
+            from cai_lib.actions.maintain import handle_maintain
+            rc = handle_maintain(issue)
 
         self.assertEqual(rc, 0)
         applied_calls = [c for c in label_calls
@@ -84,7 +77,7 @@ class TestCmdMaintainHappyPath(unittest.TestCase):
         )
 
 
-class TestCmdMaintainLowConfidence(unittest.TestCase):
+class TestHandleMaintainLowConfidence(unittest.TestCase):
     """LOW confidence → :human-needed diversion."""
 
     def test_low_confidence_diverts_to_human(self):
@@ -96,15 +89,15 @@ class TestCmdMaintainLowConfidence(unittest.TestCase):
                                  "add": list(add), "remove": list(remove)})
             return True
 
-        with patch("cai._gh_json", return_value=[issue]), \
-             patch("cai._run", return_value=_make_clone_result()), \
-             patch("cai._run_claude_p", return_value=_make_agent_result("LOW")), \
-             patch("cai.shutil.rmtree"), \
-             patch("cai.log_run"), \
+        with patch("cai_lib.actions.maintain._run", return_value=_make_clone_result()), \
+             patch("cai_lib.actions.maintain._run_claude_p",
+                   return_value=_make_agent_result("LOW")), \
+             patch("cai_lib.actions.maintain.shutil.rmtree"), \
+             patch("cai_lib.actions.maintain.log_run"), \
              patch("cai_lib.github._set_labels", side_effect=fake_set_labels), \
              patch("cai_lib.github._post_issue_comment", return_value=True):
-            from cai import cmd_maintain
-            rc = cmd_maintain(_make_args())
+            from cai_lib.actions.maintain import handle_maintain
+            rc = handle_maintain(issue)
 
         self.assertEqual(rc, 0)
         human_calls = [c for c in label_calls
@@ -123,15 +116,15 @@ class TestCmdMaintainLowConfidence(unittest.TestCase):
                                  "add": list(add), "remove": list(remove)})
             return True
 
-        with patch("cai._gh_json", return_value=[issue]), \
-             patch("cai._run", return_value=_make_clone_result()), \
-             patch("cai._run_claude_p", return_value=_make_agent_result("MEDIUM")), \
-             patch("cai.shutil.rmtree"), \
-             patch("cai.log_run"), \
+        with patch("cai_lib.actions.maintain._run", return_value=_make_clone_result()), \
+             patch("cai_lib.actions.maintain._run_claude_p",
+                   return_value=_make_agent_result("MEDIUM")), \
+             patch("cai_lib.actions.maintain.shutil.rmtree"), \
+             patch("cai_lib.actions.maintain.log_run"), \
              patch("cai_lib.github._set_labels", side_effect=fake_set_labels), \
              patch("cai_lib.github._post_issue_comment", return_value=True):
-            from cai import cmd_maintain
-            rc = cmd_maintain(_make_args())
+            from cai_lib.actions.maintain import handle_maintain
+            rc = handle_maintain(issue)
 
         self.assertEqual(rc, 0)
         human_calls = [c for c in label_calls
@@ -140,28 +133,6 @@ class TestCmdMaintainLowConfidence(unittest.TestCase):
             human_calls,
             f"Expected divert to HUMAN_NEEDED; got calls: {label_calls}"
         )
-
-
-class TestCmdMaintainNoIssues(unittest.TestCase):
-    """Empty :applying queue → return 0, no label calls."""
-
-    def test_no_issues(self):
-        label_calls = []
-
-        def fake_set_labels(issue_number, *, add=(), remove=(), log_prefix="cai"):
-            label_calls.append({"issue_number": issue_number,
-                                 "add": list(add), "remove": list(remove)})
-            return True
-
-        with patch("cai._gh_json", return_value=[]), \
-             patch("cai.log_run"), \
-             patch("cai_lib.github._set_labels", side_effect=fake_set_labels):
-            from cai import cmd_maintain
-            rc = cmd_maintain(_make_args())
-
-        self.assertEqual(rc, 0)
-        self.assertEqual(label_calls, [],
-                         "No label changes expected when queue is empty")
 
 
 if __name__ == "__main__":

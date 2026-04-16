@@ -214,7 +214,7 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_TRIAGING],   labels_add=[LABEL_APPLYING],
                min_confidence=None),
 
-    # APPLYING is transient — cmd_maintain (Step 3) drains it.
+    # APPLYING is transient — handle_maintain (dispatcher) drains it.
     Transition("applying_to_applied",       IssueState.APPLYING,      IssueState.APPLIED,
                labels_remove=[LABEL_APPLYING],   labels_add=[LABEL_APPLIED],
                min_confidence=Confidence.HIGH),
