@@ -149,6 +149,14 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
         cwd="/app",
     )
     if result.returncode != 0:
+        stderr_preview = (result.stderr or "")[:400].rstrip()
+        print(
+            f"[cai plan] plan agent {plan_index} failed for "
+            f"#{issue['number']} (exit {result.returncode})"
+            + (f":\n{stderr_preview}" if stderr_preview else ""),
+            file=sys.stderr,
+            flush=True,
+        )
         return f"(Plan {plan_index} failed: exit {result.returncode})"
     return result.stdout or ""
 
@@ -220,16 +228,36 @@ def _run_select_agent(
         cwd="/app",
     )
     if result.returncode != 0 or not (result.stdout or "").strip():
-        print("[cai plan] cai-select produced no output", file=sys.stderr)
+        stderr_preview = (result.stderr or "")[:400].rstrip()
+        stdout_preview = (result.stdout or "")[:200].rstrip()
+        print(
+            f"[cai plan] cai-select produced no output for #{issue['number']} "
+            f"(exit {result.returncode})"
+            + (f"\n  stderr: {stderr_preview}" if stderr_preview else "")
+            + (f"\n  stdout: {stdout_preview!r}" if stdout_preview else ""),
+            file=sys.stderr,
+            flush=True,
+        )
         return None
 
+    # Defensive: strip a surrounding ```json ... ``` fence if the model
+    # wrapped its schema-validated output in markdown. --json-schema
+    # normally prevents this, but fall back gracefully rather than
+    # diverting an otherwise-valid plan to :human-needed.
+    stdout_raw = (result.stdout or "").strip()
+    if stdout_raw.startswith("```"):
+        lines = stdout_raw.splitlines()
+        if lines[0].startswith("```") and lines[-1].startswith("```"):
+            stdout_raw = "\n".join(lines[1:-1]).strip()
+
     try:
-        payload = json.loads(result.stdout)
+        payload = json.loads(stdout_raw)
     except (json.JSONDecodeError, ValueError) as exc:
         print(
             f"[cai plan] cai-select output was not valid JSON: {exc}; "
-            f"stdout starts with: {(result.stdout or '')[:120]!r}",
+            f"stdout starts with: {(result.stdout or '')[:200]!r}",
             file=sys.stderr,
+            flush=True,
         )
         return None
 
