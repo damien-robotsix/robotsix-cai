@@ -82,7 +82,7 @@ Produce your plan in exactly this structure:
 - <anything the fix agent should watch out for>
 
 ### Scope guardrails
-- <what the fix agent must NOT touch; boundaries of the change>
+- <what the fix agent must NOT touch; boundaries of the change — do NOT list `docs/**` or `CODEBASE_INDEX.md` as off-limits; those may be updated by the cai-review-docs pipeline stage and are always allowed>
 ```
 
 Be concrete and specific. Name functions, variables, and line
