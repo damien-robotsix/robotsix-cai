@@ -19,7 +19,7 @@
 | `.claude/agents/cai-fix-ci.md` | Agent: diagnose and fix failing CI checks on auto-improve PRs |
 | `.claude/agents/cai-git.md` | Agent: lightweight git operations subagent |
 | `.claude/agents/cai-implement.md` | Agent: autonomous code-editing subagent for code-editing tasks |
-| `.claude/agents/cai-maintain.md` | TODO: add description |
+| `.claude/agents/cai-maintain.md` | Agent: apply approved maintenance ops — runs IaC/config changes and reports Confidence |
 | `.claude/agents/cai-memorize.md` | Agent: post-solved memory curator for cross-cutting design decisions |
 | `.claude/agents/cai-merge.md` | Agent: assess PR correctness and emit merge verdict |
 | `.claude/agents/cai-plan.md` | Agent: generate detailed fix plan for an issue |
@@ -53,7 +53,7 @@
 | `cai_lib/actions/explore.py` | Handler for IssueState.NEEDS_EXPLORATION — runs cai-explore |
 | `cai_lib/actions/fix_ci.py` | Handler for PRState.CI_FAILING — runs cai-fix-ci |
 | `cai_lib/actions/implement.py` | Handler for IssueState.PLAN_APPROVED / IN_PROGRESS — runs cai-implement |
-| `cai_lib/actions/maintain.py` | TODO: add description |
+| `cai_lib/actions/maintain.py` | Handler for IssueState.APPLYING / APPLIED — runs cai-maintain and handles maintenance ops application |
 | `cai_lib/actions/merge.py` | Handler for PRState.APPROVED — final merge step |
 | `cai_lib/actions/open_pr.py` | Handler for PRState.OPEN — tags a fresh PR into :reviewing-code |
 | `cai_lib/actions/plan.py` | Handler for IssueState.REFINED / PLANNING / PLANNED — runs cai-plan + confidence gate |
@@ -96,7 +96,7 @@
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
 | `tests/test_implement_consecutive_failures.py` | TODO: add description |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
-| `tests/test_maintain.py` | TODO: add description |
+| `tests/test_maintain.py` | Tests for cai_lib.actions.maintain — handle_maintain confidence routing and FSM transitions |
 | `tests/test_merge_diff.py` | TODO: add description |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
 | `tests/test_parse.py` | Tests for parse.py signal extraction |
