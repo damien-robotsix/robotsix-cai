@@ -40,10 +40,14 @@ def _make_clone_result(rc=0):
     return r
 
 
-def _make_agent_result(confidence="HIGH", rc=0):
+def _make_agent_result(confidence="HIGH", rc=0, reason=None):
     r = MagicMock()
+    reason_line = ""
+    if confidence in ("MEDIUM", "LOW"):
+        default_reason = "Some operations could not be verified." if reason is None else reason
+        reason_line = f"Confidence reason: {default_reason}\n"
     r.returncode = rc
-    r.stdout = f"## Maintenance Summary\n\nConfidence: {confidence}\n"
+    r.stdout = f"## Maintenance Summary\n\nConfidence: {confidence}\n{reason_line}"
     r.stderr = ""
     return r
 
