@@ -214,7 +214,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from publish import (  # noqa: E402
-    ensure_all_labels, AUDIT_CATEGORIES, parse_findings,
+    ensure_all_labels, AUDIT_CATEGORIES,
     create_issue, issue_exists, ensure_labels,
 )
 from cai_lib.dup_check import check_duplicate_or_resolved  # noqa: E402
