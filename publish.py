@@ -2,24 +2,35 @@
 """
 Publish analyzer findings as GitHub issues via the `gh` CLI.
 
-Reads the analyzer's stdout from this script's own stdin, parses
-`### Finding:` markdown blocks produced by `.claude/agents/cai-analyze.md`,
-and creates one issue per finding in the `damien-robotsix/robotsix-cai`
-repository. Existing findings are deduped by a fingerprint HTML comment
-embedded in the issue body (`<!-- fingerprint: <key> -->`).
+Reads findings from either stdin (markdown) or a JSON file (via --findings-file),
+parses `### Finding:` markdown blocks (when reading from stdin), and creates one
+issue per finding in the `damien-robotsix/robotsix-cai` repository. Existing
+findings are deduped by a fingerprint HTML comment embedded in the issue body
+(`<!-- fingerprint: <key> -->`).
 
 Phase C.2 scope — this is the Lane 1 publish step. Lane 2 (workspace
 targets) is still deferred.
 
-Non-empty stdin that produces zero parsed ``### Finding:`` blocks exits 1
-with a stderr diagnostic (including the first ~500 chars of input); empty
-stdin still exits 0.
+When reading from stdin: non-empty stdin that produces zero parsed ``### Finding:``
+blocks exits 1 with a stderr diagnostic (including the first ~500 chars of input);
+empty stdin still exits 0.
+
+When reading from a JSON file (--findings-file): malformed JSON or missing findings
+list exits 1. Entries with missing/invalid fields are logged to stderr and skipped;
+other entries proceed. Zero valid findings exits 1.
 
 No third-party Python dependencies — only stdlib plus the `gh` CLI.
 
 Usage::
 
+    # Read from stdin (markdown format):
     cat analyzer-output.md | python publish.py
+
+    # Or read from a JSON file:
+    python publish.py --findings-file findings.json
+
+    # With custom namespace:
+    python publish.py --findings-file findings.json --namespace code-audit
 
     # Or from cai.py, piped directly:
     # subprocess.run(["python", "/app/publish.py"], input=analyzer_stdout, ...)
