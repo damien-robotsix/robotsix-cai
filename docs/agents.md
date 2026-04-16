@@ -16,12 +16,12 @@ Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `desc
 | `cai-implement` | Autonomous code-editing subagent — makes the smallest targeted change for an issue | Read, Edit, Write, Grep, Glob, TodoWrite | sonnet | Worktree |
 | `cai-git` | Lightweight subagent that executes git operations on behalf of other agents | Bash | haiku | Worktree |
 | `cai-maintain` | Read the Ops block from a kind:maintenance issue, execute each declared operation via gh CLI, and emit a Confidence level | Bash, Read | sonnet | Worktree |
-| `cai-merge` | Assess whether a PR correctly implements its linked issue and emit a merge verdict | Read | opus | Inline-only |
+| `cai-merge` | Assess whether a PR correctly implements its linked issue and emit a merge verdict; `docs/**` and `CODEBASE_INDEX.md` are automatically exempt from scope checks | Read | opus | Inline-only |
 | `cai-plan` | Generate a detailed fix plan for an issue (first of two serial planners) | Read, Grep, Glob, Agent | sonnet | Worktree |
 | `cai-propose` | Weekly creative agent that proposes ambitious improvements | Read, Grep, Glob | sonnet | Worktree |
 | `cai-propose-review` | Evaluate creative proposals for feasibility and value before filing issues | Read, Grep, Glob | sonnet | Worktree |
 | `cai-rebase` | Lightweight rebase conflict resolution for PRs with no unaddressed review comments | Read, Edit, Write, Grep, Glob, Agent | haiku | Worktree |
-| `cai-refine` | Rewrite human-filed issues into structured plans with steps, verification, and scope guardrails | Read, Grep, Glob | sonnet | Read-only |
+| `cai-refine` | Rewrite human-filed issues into structured plans with steps, verification, and scope guardrails; `docs/**` is implicitly allowed and cannot be forbidden in scope guardrails | Read, Grep, Glob | sonnet | Read-only |
 | `cai-review-docs` | Pre-merge documentation review — checks whether PR changes require `/docs` updates, directly fixes stale documentation, and posts findings for issues that cannot be fixed automatically | Read, Grep, Glob, Edit, Write | haiku | Worktree |
 | `cai-review-pr` | Pre-merge ripple-effect review — finds inconsistencies the PR introduced but didn't update | Read, Grep, Glob | haiku | Worktree |
 | `cai-revise` | Handle PR review comments: resolve rebase conflicts AND address unaddressed reviewer comments | Read, Edit, Write, Grep, Glob, Agent | sonnet | Worktree |
