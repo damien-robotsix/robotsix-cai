@@ -15,7 +15,7 @@
 #    so they keep their own schedules:
 #      - verify:         label-state reconciliation with GitHub
 #      - analyze:        parse own transcripts, raise findings as issues
-#      - audit:          periodic queue/PR consistency checks
+#      - audit:          periodic queue/PR consistency checks (includes human-needed)
 #      - code-audit:     periodic source code consistency checks
 #      - propose:        weekly creative improvement proposals
 #      - update-check:   periodic Claude Code release checks

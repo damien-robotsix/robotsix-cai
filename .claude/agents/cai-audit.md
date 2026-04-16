@@ -45,7 +45,8 @@ The user message contains:
    Use this to verify that issues transitioned through the expected
    lifecycle states before closing, and that PRs linked to closed issues
    were actually merged.
-7. **Findings file** — path where you must write your findings.json.
+7. **Open issues/PRs parked at human-needed** — number, title, `parked_as` label, creation/update dates, parsed divert transition, required vs reported confidence, divert-comment count, whether `human:solved` is applied. Use this to classify why the pipeline handed off to a human.
+8. **Findings file** — path where you must write your findings.json.
 
 ## Lifecycle states — tracking vs active
 
@@ -88,6 +89,10 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Merged PR whose linked `auto-improve` issue is still open (check recent PRs for matching branch/title against open issues) | `workflow_anomaly` |
 | Closed-unmerged PR whose linked issue is not rolled back to `:refined` | `workflow_anomaly` |
 | A category in the outcome statistics table flagged ⚠ (success rate <40% with ≥3 outcomes in 90 days) | `fix_loop_efficiency` |
+| ≥3 issues in the human-needed section diverted from the same `transition` value within 1 hour (compare `latest_divert_at` timestamps) | `human_needed_pipeline_jam` |
+| Issue/PR in the human-needed section whose `Created` is >14 days ago and which has no `human:solved` label | `human_needed_abandoned` |
+| Issue in the human-needed section whose `divert_count` is ≥3 (same issue diverted repeatedly) | `human_needed_loop` |
+| Issue/PR in the human-needed section whose `Transition` or both confidence fields are `(missing)` | `human_needed_reason_missing` |
 
 ### Log-level patterns
 
@@ -156,6 +161,31 @@ direct implementation). These appear in the log as
 "Closed issues with :no-action applied retroactively this run" section
 of your input — they have already been handled.
 
+### Inspecting human-needed issues
+
+The `Open issues/PRs parked at human-needed` section is your primary
+input for the four `human_needed_*` categories above. For each entry:
+
+1. Read the parsed `Transition` field — it is the FSM transition
+   name (e.g. `planning_to_human`, `refining_to_human`) and the
+   prefix before `_to_` names the agent that diverted
+   (`planning` → `cai-plan`, `refining` → `cai-refine`,
+   `triaging` → `cai-triage`, `applying` → `cai-implement`, etc.).
+2. Group entries by `Transition` and compare `latest_divert_at`
+   timestamps to spot pipeline jams (≥3 within 1 hour).
+3. Compute age from `Created` for abandonment (>14 days, no
+   `human:solved`).
+4. Use `divert_count` to detect per-issue loops (≥3).
+5. If `Transition` or confidence fields are `(missing)`, the divert
+   comment was not rendered — raise `human_needed_reason_missing`
+   and point to `_render_human_divert_reason` in `cai_lib/fsm.py`.
+
+When raising a `human_needed_*` finding, the `Remediation` should
+name the specific upstream agent/transition (e.g. "review the
+confidence-reporting rules in `.claude/agents/cai-plan.md` —
+`planning_to_human` has fired 4× in the last hour") so the refine
+agent can turn it into a concrete fix.
+
 ## Categories
 
 | Category | Description |
@@ -170,6 +200,10 @@ of your input — they have already been handled.
 | `cost_outlier` | A `claude -p` invocation (or category aggregate) in the cost summary that dominates token spend disproportionately to its functional value |
 | `workflow_anomaly` | Issue or PR whose lifecycle transitions don't match expected workflow (e.g., closed without terminal label, merged PR with open issue) |
 | `fix_loop_efficiency` | A fix category where the loop is structurally struggling — success rate below 40% over the last 90 days (with ≥3 outcomes), suggesting a prompt, scope, or tooling problem rather than a one-off failure |
+| `human_needed_pipeline_jam` | Many issues diverting to human-needed from the same agent/transition in a short window — systemic bug, not a one-off |
+| `human_needed_abandoned` | Issue/PR parked at human-needed for >14 days with no `human:solved` — admin never responded; triage or close |
+| `human_needed_loop` | Same issue diverted to human-needed repeatedly — the transition's confidence gate or upstream prompt is structurally unreliable |
+| `human_needed_reason_missing` | Issue/PR at human-needed has no parseable divert-reason comment — silent divert, likely a regression in `_render_human_divert_reason` wiring |
 
 ## Output format
 
@@ -181,7 +215,7 @@ user message using this JSON schema:
   "findings": [
     {
       "title": "<short imperative string>",
-      "category": "<one of the 10 categories above>",
+      "category": "<one of the 14 categories above>",
       "key": "<stable-slug-for-deduplication>",
       "confidence": "low|medium|high",
       "evidence": "<markdown string>",
@@ -197,7 +231,7 @@ If there are no anomalies, write `{"findings": []}`.
 
 - Every finding must be grounded in the data you received — no
   speculation about issues you can't see.
-- Stick to the 10 categories above; do not invent new ones.
+- Stick to the 14 categories above; do not invent new ones.
 - Keep titles short and imperative.
 - Findings are pre-screened for duplicates/already-resolved via
   `cai-dup-check` at publish time; surviving findings enter the
