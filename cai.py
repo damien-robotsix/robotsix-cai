@@ -167,15 +167,6 @@ Subcommands:
                             `check-workflows` namespace. Runs every 6 hours
                             by default (CAI_CHECK_WORKFLOWS_SCHEDULE).
 
-    python cai.py maintain  Apply ops from the oldest
-                            `auto-improve:applying` issue (kind:maintenance).
-                            Clones the repo into /tmp, invokes the
-                            cai-maintain subagent (limited tool set) to
-                            execute declared operations (label mutations,
-                            bulk-close, workflow YAML edits), and transitions
-                            the issue based on Confidence: HIGH → `:applied`,
-                            anything else → `:human-needed`.
-
     python cai.py unblock   Scan open issues/PRs parked at
                             `auto-improve:human-needed` (or
                             `auto-improve:pr-human-needed`) that an admin

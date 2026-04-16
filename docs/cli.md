@@ -92,12 +92,6 @@ Seed the loop with a smoke test, but only if no prior transcripts exist. If tran
 
 No arguments.
 
-## maintain
-
-Apply maintenance operations (label mutations, bulk-close, workflow YAML edits) from the oldest open `auto-improve:applying` issue (marked with `kind:maintenance`). Reads the `Ops:` block from the issue body, executes each declared operation, and transitions the issue based on Confidence: HIGH → `:applied`, else → `:human-needed`.
-
-No arguments.
-
 ## propose
 
 Clone the repo and run `cai-propose` (creative improvements) followed by `cai-propose-review` to evaluate feasibility before filing issues.
