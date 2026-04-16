@@ -46,7 +46,7 @@
 | `cai.py` | Main CLI dispatcher — 16+ subcommands for the self-improvement loop |
 | `cai_lib/__init__.py` | Package init for cai_lib library modules |
 | `cai_lib/actions/__init__.py` | Per-state action handlers for the FSM dispatcher |
-| `cai_lib/actions/confirm.py` | Handler for IssueState.MERGED — verifies remediation and transitions to :solved |
+| `cai_lib/actions/confirm.py` | Handler for IssueState.MERGED — verifies remediation, transitions to :solved, and closes the issue in GitHub as "completed" |
 | `cai_lib/actions/explore.py` | Handler for IssueState.NEEDS_EXPLORATION — runs cai-explore |
 | `cai_lib/actions/fix_ci.py` | Handler for PRState.CI_FAILING — runs cai-fix-ci |
 | `cai_lib/actions/implement.py` | Handler for IssueState.PLAN_APPROVED / IN_PROGRESS — runs cai-implement |

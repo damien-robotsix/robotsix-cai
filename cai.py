@@ -70,8 +70,9 @@ Subcommands:
 
     python cai.py confirm   Re-analyze the recent transcript window and
                             verify whether `:merged` issues are actually
-                            solved. Patterns that disappeared get closed
-                            with `:solved`; patterns that persist are
+                            solved. Patterns that disappeared trigger a
+                            SOLVED transition, which closes the issue as
+                            GitHub "completed"; patterns that persist are
                             re-queued to `:refined` (up to 3 attempts),
                             then escalated to `:needs-human-review`.
 

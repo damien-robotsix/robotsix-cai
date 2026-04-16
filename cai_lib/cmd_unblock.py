@@ -156,7 +156,9 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
         comment yet — the classifier has nothing to anchor on
       - ``"low_confidence"``   — agent's Confidence < HIGH, left parked
       - ``"no_target"``        — agent emitted no valid ResumeTo target
-      - ``"resumed"``          — transition fired, solved label cleared
+      - ``"resumed"``          — transition fired, solved label cleared;
+        if resumed to SOLVED, the issue is also closed in GitHub as
+        "completed"
       - ``"agent_failed"``     — claude invocation returned non-zero
     """
     issue_number = issue["number"]

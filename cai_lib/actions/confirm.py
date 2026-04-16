@@ -1,10 +1,10 @@
 """MERGED -> SOLVED handler.
 
 Verifies that a merged PR actually remediated its linked issue. On a
-solved verdict we apply the ``merged_to_solved`` transition; on an
-unsolved verdict we re-queue up to three times before diverting to
-human review; inconclusive verdicts post reasoning without changing
-labels.
+solved verdict we apply the ``merged_to_solved`` transition and close
+the GitHub issue as "completed"; on an unsolved verdict we re-queue up
+to three times before diverting to human review; inconclusive verdicts
+post reasoning without changing labels.
 
 Derived from ``cmd_confirm`` in ``cai.py`` — the per-issue path is
 preserved byte-for-byte; only the outer "for each :merged issue" loop

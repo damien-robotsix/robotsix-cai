@@ -64,7 +64,7 @@ Three modes:
 | `cai dispatch --issue N` | Dispatch a specific issue by number. |
 | `cai dispatch --pr N` | Dispatch a specific PR by number. |
 
-Terminal or parked states (SOLVED, HUMAN_NEEDED, PR_HUMAN_NEEDED, PR MERGED) have no handler — the dispatcher returns without doing anything.
+Terminal or parked states (SOLVED, HUMAN_NEEDED, PR_HUMAN_NEEDED, PR MERGED) have no handler — the dispatcher returns without doing anything. Issues reaching the SOLVED state are automatically closed in GitHub as "completed".
 
 ## health-report
 

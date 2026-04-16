@@ -16,7 +16,7 @@ Handler registry (issue states):
 | `REFINED` / `PLANNING` / `PLANNED` | `cai_lib/actions/plan.py` | Run plan + select, store the plan in the issue body, then apply the confidence gate: HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker and a comment explaining the confidence reason (e.g., unverified assumptions, ambiguous scope). |
 | `PLAN_APPROVED` / `IN_PROGRESS` | `cai_lib/actions/implement.py` | Run `cai-implement` in a fresh worktree; commit, push, and open a PR. |
 | `PR` | `cai_lib/actions/pr_bounce.py` | Bounce to the linked PR's dispatcher. |
-| `MERGED` | `cai_lib/actions/confirm.py` | Verify the merged fix actually resolved the issue; transition to `:solved` or re-queue to `:refined`. |
+| `MERGED` | `cai_lib/actions/confirm.py` | Verify the merged fix actually resolved the issue; transition to `:solved` (and close the GitHub issue as "completed") or re-queue to `:refined`. |
 
 Handler registry (PR states):
 
@@ -47,7 +47,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 | `auto-improve:pr-open` | PR created, awaiting review and merge |
 | `auto-improve:revising` | Revise agent is running (lock; 1 h stale timeout) |
 | `auto-improve:merged` | PR merged, awaiting confirmation |
-| `auto-improve:solved` | Confirmed resolved |
+| `auto-improve:solved` | Confirmed resolved; GitHub issue is automatically closed as "completed" |
 | `auto-improve:needs-exploration` | Needs autonomous exploration (explore handler) |
 | `auto-improve:planned` | Plan generated and stored in issue body; confidence gate pending |
 | `auto-improve:planning` | Plan generation in progress (transient) |

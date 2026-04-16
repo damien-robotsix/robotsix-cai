@@ -9,7 +9,7 @@ Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `desc
 | `cai-check-workflows` | Analyze recent GitHub Actions workflow failures and emit structured findings for new, unreported failures | Read, Grep, Glob | haiku | Read-only |
 | `cai-comment-filter` | Classify PR comments as resolved or unresolved, replacing the commit-timestamp watermark in the revise handler | None | haiku | Inline-only |
 | `cai-code-audit` | Read-only source tree audit for inconsistencies, dead code, and missing cross-file references | Read, Grep, Glob | sonnet | Worktree |
-| `cai-confirm` | Verify each `auto-improve:merged` issue is actually resolved | Read, Grep, Glob | sonnet | Read-only |
+| `cai-confirm` | Verify each `auto-improve:merged` issue is actually resolved; close resolved issues in GitHub as "completed" | Read, Grep, Glob | sonnet | Read-only |
 | `cai-cost-optimize` | Weekly cost-reduction agent — analyzes spending trends, proposes one optimization | Read, Grep, Glob | sonnet | Read-only |
 | `cai-explore` | Autonomous exploration and benchmarking of `:needs-exploration` issues | Read, Grep, Glob, Bash, Agent, Write, Edit | opus | Clone |
 | `cai-fix-ci` | Diagnose and fix failing GitHub Actions checks on open PRs | Read, Edit, Write, Grep, Glob, Agent | sonnet | Worktree |
