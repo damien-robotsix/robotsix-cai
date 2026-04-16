@@ -84,6 +84,10 @@ AGENT_AUDIT_CATEGORIES = {
     "redundant_agents",
 }
 
+EXTERNAL_SCOUT_CATEGORIES = {
+    "external_solution",
+}
+
 # Labels we ensure exist before creating issues. These include FSM/lifecycle
 # state labels (auto-improve:*), PR state labels (pr:*), and kind labels (kind:*).
 # Category information is now stored in the issue body, not as labels. Idempotent —
@@ -195,6 +199,11 @@ CHECK_WORKFLOWS_LABELS = [
 ]
 
 AGENT_AUDIT_LABELS = [
+    ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
+]
+
+EXTERNAL_SCOUT_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
 ]
@@ -328,6 +337,8 @@ def _label_set_for(namespace: str):
         return CHECK_WORKFLOWS_LABELS
     if namespace == "agent-audit":
         return AGENT_AUDIT_LABELS
+    if namespace == "external-scout":
+        return EXTERNAL_SCOUT_LABELS
     return LABELS
 
 
@@ -355,7 +366,7 @@ def ensure_all_labels() -> None:
     and CODE_AUDIT_LABELS).
     """
     seen: set[str] = set()
-    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS, AGENT_AUDIT_LABELS):
+    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS, AGENT_AUDIT_LABELS, EXTERNAL_SCOUT_LABELS):
         for name, color, description in label_set:
             if name in seen:
                 continue
@@ -426,6 +437,9 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     elif namespace == "agent-audit":
         source_note = "cai agent-audit agent"
         source_file = ".claude/agents/cai-agent-audit.md"
+    elif namespace == "external-scout":
+        source_note = "cai external-scout agent"
+        source_file = ".claude/agents/cai-external-scout.md"
     else:
         source_note = "cai self-analyzer"
         source_file = ".claude/agents/cai-analyze.md"
@@ -481,7 +495,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
     parser.add_argument(
         "--namespace", default="auto-improve",
-        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit"],
+        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit", "external-scout"],
         help="Label namespace to use (default: auto-improve)",
     )
     args = parser.parse_args()
@@ -496,6 +510,8 @@ def main() -> int:
         valid_cats = CHECK_WORKFLOWS_CATEGORIES
     elif namespace == "agent-audit":
         valid_cats = AGENT_AUDIT_CATEGORIES
+    elif namespace == "external-scout":
+        valid_cats = EXTERNAL_SCOUT_CATEGORIES
     else:
         valid_cats = VALID_CATEGORIES
 

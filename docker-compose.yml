@@ -42,6 +42,7 @@ services:
       CAI_CODE_AUDIT_SCHEDULE: "0 3 * * 0"  # weekly Sunday 03:00 UTC (Sonnet, code consistency)
       CAI_PROPOSE_SCHEDULE: "0 4 * * 0"    # weekly Sunday 04:00 UTC (creative improvement proposals)
       CAI_UPDATE_CHECK_SCHEDULE: "0 4 * * 1" # weekly Monday 04:00 UTC (Claude Code release check)
+      CAI_EXTERNAL_SCOUT_SCHEDULE: "0 6 * * 1" # weekly Monday 06:00 UTC (scout for external libraries)
       CAI_HEALTH_REPORT_SCHEDULE: "0 7 * * 1" # weekly Monday 07:00 UTC (pipeline health report)
       CAI_COST_OPTIMIZE_SCHEDULE: "0 5 * * 0" # weekly Sunday 05:00 UTC (cost-reduction analysis)
       CAI_CHECK_WORKFLOWS_SCHEDULE: "0 */6 * * *" # every 6h (check for CI workflow failures)
@@ -83,8 +84,8 @@ services:
       # (analyze, audit, confirm, merge) read/write
       # this volume directly. The cloned-worktree agents (fix,
       # revise, review-pr, review-docs, code-audit, propose,
-      # propose-review, update-check, plan, select, git) also
-      # access their memory directly from the mounted volume.
+      # propose-review, update-check, external-scout, plan, select, git)
+      # also access their memory directly from the mounted volume.
       # (cai-rebase is excluded — lightweight agent, no memory
       # tracking by design.)
       - cai_agent_memory:/app/.claude/agent-memory

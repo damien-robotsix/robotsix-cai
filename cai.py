@@ -138,6 +138,18 @@ Subcommands:
                             practices) are published via publish.py with
                             the `update-check` namespace.
 
+    python cai.py external-scout  Weekly scout for open-source libraries
+                            that could replace in-house plumbing.
+                            Clones the repo, runs an Opus agent that
+                            walks the codebase, picks one category of
+                            in-house utility, searches the open-source
+                            ecosystem for mature alternatives, and emits
+                            a single adoption proposal (or No findings.).
+                            Findings are published via publish.py with
+                            the `external-scout` namespace. Uses the
+                            built-in `memory: project` pool to avoid
+                            re-proposing the same category or library.
+
     python cai.py health-report  Automated pipeline health report with
                             anomaly detection. Aggregates cost trends
                             (last 7d vs prior 7d), issue queue counts,
@@ -183,8 +195,8 @@ off to supercronic. Each cron tick is a fresh process. The pipeline is
 driven by a single `CAI_CYCLE_SCHEDULE` cron line; a flock in
 `cmd_cycle` serializes overlapping runs so issues are processed one
 at a time. Orthogonal tasks (analyze, audit, propose, update-check,
-health-report, cost-optimize, check-workflows, code-audit, agent-audit) keep their
-own schedules and are not run at startup.
+health-report, cost-optimize, check-workflows, code-audit, agent-audit,
+external-scout) keep their own schedules and are not run at startup.
 
 The gh auth check is done once per subcommand invocation. We want a
 clear error message in docker logs if credentials ever disappear from
@@ -2376,6 +2388,88 @@ def cmd_update_check(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# external-scout — weekly scout for open-source library replacements
+# ---------------------------------------------------------------------------
+
+
+def cmd_external_scout(args) -> int:
+    """Clone the repo and scout open-source libraries that could replace in-house plumbing."""
+    print("[cai external-scout] scouting for external solutions", flush=True)
+    t0 = time.monotonic()
+
+    # 1. Clone repo into a temporary directory.
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-external-scout-{_uid}")
+
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+
+    clone = _run(
+        ["git", "clone", "--depth", "1",
+         f"https://github.com/{REPO}.git", str(work_dir)],
+        capture_output=True,
+    )
+    if clone.returncode != 0:
+        print(
+            f"[cai external-scout] git clone failed:\n{clone.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("external-scout", repo=REPO, result="clone_failed",
+                duration=dur, exit=1)
+        return 1
+
+    # 2. Build the user message. System prompt, tool allowlist, and model all
+    #    live in `.claude/agents/cai-external-scout.md`. Durable per-agent
+    #    learnings live in its `memory: project` pool — auto-loaded by
+    #    claude-code, no external memory file needed.
+    user_message = _work_directory_block(work_dir)
+
+    # 3. Invoke the declared cai-external-scout subagent.
+    #    Runs with `cwd=/app` and `--add-dir <work_dir>` so the agent
+    #    reads its definition + memory from the canonical /app paths
+    #    while examining the clone via absolute paths.
+    print(f"[cai external-scout] running agent for {work_dir}", flush=True)
+    agent = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-external-scout",
+         "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob,WebSearch,WebFetch",
+         "--add-dir", str(work_dir)],
+        category="external-scout",
+        agent="cai-external-scout",
+        input=user_message,
+        cwd="/app",
+    )
+    if agent.stdout:
+        print(agent.stdout, flush=True)
+    if agent.returncode != 0:
+        print(
+            f"[cai external-scout] claude -p failed (exit {agent.returncode}):\n"
+            f"{agent.stderr}",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("external-scout", repo=REPO, result="agent_failed",
+                duration=dur, exit=agent.returncode)
+        return agent.returncode
+
+    # 4. Publish findings via publish.py with external-scout namespace.
+    print("[cai external-scout] publishing findings", flush=True)
+    published = _run(
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "external-scout"],
+        input=agent.stdout,
+    )
+
+    # 5. Clean up.
+    shutil.rmtree(work_dir, ignore_errors=True)
+
+    dur = f"{int(time.monotonic() - t0)}s"
+    log_run("external-scout", repo=REPO, duration=dur, exit=published.returncode)
+    return published.returncode
+
+
+# ---------------------------------------------------------------------------
 # maintain — apply Ops from kind:maintenance issues in :applying state
 # ---------------------------------------------------------------------------
 
@@ -3218,6 +3312,7 @@ def main() -> int:
     sub.add_parser("agent-audit", help="Weekly audit of .claude/agents/ for consistency and usage")
     sub.add_parser("propose", help="Weekly creative improvement proposal")
     sub.add_parser("update-check", help="Check Claude Code releases for workspace improvements")
+    sub.add_parser("external-scout", help="Scout open-source libraries to replace in-house plumbing")
     sub.add_parser(
         "unblock",
         help="Resume :human-needed issues when an admin has commented",
@@ -3284,6 +3379,7 @@ def main() -> int:
         "agent-audit": cmd_agent_audit,
         "propose": cmd_propose,
         "update-check": cmd_update_check,
+        "external-scout": cmd_external_scout,
         "unblock": cmd_unblock,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
