@@ -26,6 +26,7 @@ Usage::
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -291,6 +292,93 @@ def parse_findings(text: str, valid_categories: set[str] | None = None) -> list[
     return findings
 
 
+def load_findings_json(path: str, valid_categories: set[str]) -> list[Finding]:
+    """Load and validate a JSON findings file.
+
+    Schema:
+        {"findings": [{"title", "category", "key",
+                       "confidence", "evidence", "remediation"}, ...]}
+
+    Validation rules mirror parse_findings:
+      * Malformed JSON or missing top-level ``findings`` list -> sys.exit(1).
+      * Required fields (title, category, key) missing -> per-finding
+        stderr error, that entry skipped (other entries keep going).
+      * category outside ``valid_categories`` -> per-finding stderr error, skipped.
+      * confidence not in {"low","medium","high"} -> warn, default to
+        "unspecified" (matches parse_findings leniency).
+      * evidence / remediation missing -> default strings
+        ("(no evidence provided)" / "(no remediation provided)").
+    """
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[publish] ERROR: could not load findings file {path!r}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
+        print(
+            f"[publish] ERROR: {path!r} must be a JSON object with a top-level "
+            f'"findings" list',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    findings: list[Finding] = []
+    for idx, entry in enumerate(data["findings"]):
+        if not isinstance(entry, dict):
+            print(f"[publish] findings[{idx}]: not a dict — skipped", file=sys.stderr)
+            continue
+
+        skip = False
+        for field in ("title", "category", "key"):
+            if not entry.get(field):
+                print(
+                    f"[publish] findings[{idx}]: missing required field {field!r} — skipped",
+                    file=sys.stderr,
+                )
+                skip = True
+                break
+        if skip:
+            continue
+
+        title = entry["title"]
+        category = entry["category"]
+        key = entry["key"]
+
+        if category not in valid_categories:
+            print(
+                f"[publish] findings[{idx}]: invalid category {category!r} — skipped",
+                file=sys.stderr,
+            )
+            continue
+
+        confidence = entry.get("confidence", "")
+        if confidence not in {"low", "medium", "high"}:
+            print(
+                f"[publish] findings[{idx}]: confidence {confidence!r} not in "
+                f"{{low,medium,high}} — defaulting to 'unspecified'",
+                file=sys.stderr,
+            )
+            confidence = "unspecified"
+
+        evidence = entry.get("evidence") or "(no evidence provided)"
+        remediation = entry.get("remediation") or "(no remediation provided)"
+
+        findings.append(
+            Finding(
+                title=title,
+                category=category,
+                key=key,
+                confidence=confidence,
+                evidence=evidence,
+                remediation=remediation,
+            )
+        )
+
+    return findings
+
+
 def _extract_field(block: str, name: str) -> str:
     """Pull a single-line `- **Name:** value` field out of a block.
 
@@ -502,6 +590,12 @@ def main() -> int:
         choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit", "external-scout"],
         help="Label namespace to use (default: auto-improve)",
     )
+    parser.add_argument(
+        "--findings-file",
+        default=None,
+        help="Path to a JSON file with {\"findings\": [...]}; "
+             "when provided, replaces stdin/markdown parsing.",
+    )
     args = parser.parse_args()
     namespace = args.namespace
     if namespace == "audit":
@@ -519,12 +613,15 @@ def main() -> int:
     else:
         valid_cats = VALID_CATEGORIES
 
-    text = sys.stdin.read()
-    if not text.strip():
-        print("[publish] empty input; nothing to do")
-        return 0
+    if args.findings_file:
+        findings = load_findings_json(args.findings_file, valid_cats)
+    else:
+        text = sys.stdin.read()
+        if not text.strip():
+            print("[publish] empty input; nothing to do")
+            return 0
+        findings = parse_findings(text, valid_categories=valid_cats)
 
-    findings = parse_findings(text, valid_categories=valid_cats)
     if not findings:
         snippet = text[:500].replace("\n", "↵")
         print(
