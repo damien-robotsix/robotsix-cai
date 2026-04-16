@@ -5,6 +5,7 @@ agent via `claude -p` and is tested end-to-end in a live container.
 These tests cover the deterministic pieces that don't need claude:
 admin-comment filtering and agent-input formatting.
 """
+import json
 import os
 import sys
 import unittest
@@ -157,7 +158,11 @@ class TestResumeStripsHumanSolvedLabel(unittest.TestCase):
             ],
         }
 
-        agent_stdout = "ResumeTo: REFINING\nConfidence: HIGH\n"
+        agent_stdout = json.dumps({
+            "resume_to": "REFINING",
+            "confidence": "HIGH",
+            "reasoning": "admin asked to re-run refine",
+        })
         fake_agent = mock.MagicMock()
         fake_agent.returncode = 0
         fake_agent.stdout = agent_stdout
@@ -265,7 +270,11 @@ class TestTryUnblockPrSkips(unittest.TestCase):
                  "body": "looks good, merge it"},
             ],
         }
-        agent_stdout = "ResumeTo: APPROVED\nConfidence: HIGH\n"
+        agent_stdout = json.dumps({
+            "resume_to": "APPROVED",
+            "confidence": "HIGH",
+            "reasoning": "admin greenlighted merge",
+        })
         fake_agent = mock.MagicMock()
         fake_agent.returncode = 0
         fake_agent.stdout = agent_stdout

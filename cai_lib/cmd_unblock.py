@@ -18,6 +18,7 @@ removes the ``human:solved`` label so the signal is one-shot.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -35,14 +36,42 @@ from cai_lib.fsm import (
     Confidence,
     apply_transition,
     apply_pr_transition,
-    parse_confidence,
-    parse_resume_target,
     resume_transition_for,
     resume_pr_transition_for,
 )
 from cai_lib.github import _gh_json, _set_pr_labels
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run_claude_p
+
+
+# JSON schema for structured unblock verdict (forced tool-use via --json-schema).
+# Combined enum covers both the issue-side and PR-side resume targets — the
+# cai-unblock agent chooses from the subset appropriate for the ``Kind:`` header
+# in the user message.
+_UNBLOCK_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "resume_to": {
+            "type": "string",
+            "enum": [
+                # Issue-side (Kind: issue)
+                "RAISED", "REFINING", "NEEDS_EXPLORATION",
+                "PLAN_APPROVED", "SOLVED",
+                # PR-side (Kind: pr)
+                "REVIEWING_CODE", "REVIEWING_DOCS",
+                "REVISION_PENDING", "APPROVED",
+            ],
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["LOW", "MEDIUM", "HIGH"],
+        },
+        "reasoning": {
+            "type": "string",
+        },
+    },
+    "required": ["resume_to", "confidence", "reasoning"],
+}
 
 
 def _list_human_needed_issues() -> list[dict]:
@@ -142,7 +171,8 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
     user_message = _build_unblock_message(kind="issue", issue=issue)
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-unblock",
-         "--dangerously-skip-permissions"],
+         "--dangerously-skip-permissions",
+         "--json-schema", json.dumps(_UNBLOCK_JSON_SCHEMA)],
         category="unblock",
         agent="cai-unblock",
         input=user_message,
@@ -155,11 +185,27 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
         )
         return "agent_failed"
 
-    stdout = result.stdout
-    print(stdout, flush=True)
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(
+            f"[cai unblock] #{issue_number} failed to parse JSON: {exc}; "
+            f"stdout starts with: {(result.stdout or '')[:120]!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        payload = {}
 
-    target = parse_resume_target(stdout)
-    confidence = parse_confidence(stdout)
+    target = (payload.get("resume_to") or "").upper() or None
+    conf_str = (payload.get("confidence") or "").upper()
+    confidence = Confidence[conf_str] if conf_str in Confidence.__members__ else None
+    reasoning = payload.get("reasoning", "(no reasoning provided)")
+    print(
+        f"[cai unblock] #{issue_number} verdict: resume_to={target or 'MISSING'} "
+        f"confidence={conf_str or 'MISSING'} reasoning={reasoning}",
+        flush=True,
+    )
+
     if confidence != Confidence.HIGH:
         print(
             f"[cai unblock] #{issue_number} confidence="
@@ -269,7 +315,8 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
     user_message = _build_unblock_message(kind="pr", issue=pr)
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-unblock",
-         "--dangerously-skip-permissions"],
+         "--dangerously-skip-permissions",
+         "--json-schema", json.dumps(_UNBLOCK_JSON_SCHEMA)],
         category="unblock",
         agent="cai-unblock",
         input=user_message,
@@ -282,11 +329,27 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
         )
         return "agent_failed"
 
-    stdout = result.stdout
-    print(stdout, flush=True)
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(
+            f"[cai unblock] PR #{pr_number} failed to parse JSON: {exc}; "
+            f"stdout starts with: {(result.stdout or '')[:120]!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        payload = {}
 
-    target = parse_resume_target(stdout)
-    confidence = parse_confidence(stdout)
+    target = (payload.get("resume_to") or "").upper() or None
+    conf_str = (payload.get("confidence") or "").upper()
+    confidence = Confidence[conf_str] if conf_str in Confidence.__members__ else None
+    reasoning = payload.get("reasoning", "(no reasoning provided)")
+    print(
+        f"[cai unblock] PR #{pr_number} verdict: resume_to={target or 'MISSING'} "
+        f"confidence={conf_str or 'MISSING'} reasoning={reasoning}",
+        flush=True,
+    )
+
     if confidence != Confidence.HIGH:
         print(
             f"[cai unblock] PR #{pr_number} confidence="

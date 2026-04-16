@@ -42,7 +42,7 @@ After the header, three sections follow:
 
 ## Issue resume targets (Kind: issue)
 
-Return exactly one of these state names in a `ResumeTo:` line. Each
+Return exactly one of these state names in the `resume_to` field. Each
 maps to a `human_to_<state>` transition defined in
 `cai_lib/fsm.py`.
 
@@ -60,7 +60,7 @@ admin wants to accept an existing plan, pick `PLAN_APPROVED`.)
 
 ## PR resume targets (Kind: pr)
 
-Return exactly one of these state names in a `ResumeTo:` line. Each
+Return exactly one of these state names in the `resume_to` field. Each
 maps to a `pr_human_to_<state>` transition defined in
 `cai_lib/fsm.py`.
 
@@ -79,32 +79,38 @@ the admin greenlights the merge.)
 ## Fallback
 
 If the admin's comment is unrelated to the pending decision or you
-cannot decide with confidence:
+cannot decide with confidence, emit `confidence: LOW` with the safest
+restart target:
 
-- For `Kind: issue`, emit `ResumeTo: RAISED` with `Confidence: LOW`.
-- For `Kind: pr`, emit `ResumeTo: REVIEWING_CODE` with `Confidence: LOW`.
+- For `Kind: issue`, use `resume_to: RAISED`.
+- For `Kind: pr`, use `resume_to: REVIEWING_CODE`.
 
 Either restarts the relevant submachine without pretending certainty.
+The wrapper leaves the target parked whenever `confidence` is not
+`HIGH`, so `LOW` is the correct signal for an ambiguous comment.
 
 ## Output format
 
-Your last non-empty reply must end with these two lines, each on its
-own line, in this exact casing:
+You must respond by invoking the tool the runtime provides with a
+JSON object conforming to this schema:
 
 ```
-ResumeTo: <STATE_NAME>
-Confidence: HIGH | MEDIUM | LOW
+{
+  "resume_to": "<STATE_NAME>",       // one of the table entries above
+  "confidence": "HIGH|MEDIUM|LOW",
+  "reasoning": "≤3 sentences explaining your interpretation"
+}
 ```
 
-Before those two lines, include one short paragraph (≤3 sentences)
-explaining how you interpreted the admin's comment. No other
-sections.
+`--json-schema` forced tool-use guarantees the structure; do not emit
+free-form prose in addition. The `reasoning` field is where your
+short interpretation goes.
 
 ## Hard rules
 
 - Never invent states that are not in the table for the given kind.
-- Never emit `ResumeTo: HUMAN_NEEDED` or `ResumeTo: PR_HUMAN_NEEDED`
+- Never emit `resume_to: HUMAN_NEEDED` or `resume_to: PR_HUMAN_NEEDED`
   — the target is already parked there.
-- If you set `Confidence: LOW`, the wrapper will leave the target
-  parked rather than firing the resume transition — that is the
-  correct outcome when the admin comment is ambiguous.
+- If you set `confidence: LOW` (or `MEDIUM`), the wrapper will leave
+  the target parked rather than firing the resume transition — that
+  is the correct outcome when the admin comment is ambiguous.
