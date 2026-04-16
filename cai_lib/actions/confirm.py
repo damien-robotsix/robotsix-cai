@@ -1,10 +1,10 @@
 """MERGED -> SOLVED handler.
 
 Verifies that a merged PR actually remediated its linked issue. On a
-solved verdict we apply the ``merged_to_solved`` transition; on an
-unsolved verdict we re-queue up to three times before diverting to
-human review; inconclusive verdicts post reasoning without changing
-labels.
+solved verdict we apply the ``merged_to_solved`` transition and close
+the GitHub issue as "completed"; on an unsolved verdict we re-queue up
+to three times before diverting to human review; inconclusive verdicts
+post reasoning without changing labels.
 
 Derived from ``cmd_confirm`` in ``cai.py`` — the per-issue path is
 preserved byte-for-byte; only the outer "for each :merged issue" loop
@@ -28,7 +28,8 @@ from cai_lib.config import (
     TRANSCRIPT_DIR,
 )
 from cai_lib.cmd_helpers import _fetch_previous_fix_attempts
-from cai_lib.github import _gh_json, _set_labels
+from cai_lib.fsm import apply_transition
+from cai_lib.github import _gh_json, _set_labels, close_issue_completed
 from cai_lib.logging_utils import (
     _get_issue_category,
     _log_outcome,
@@ -231,13 +232,16 @@ def handle_confirm(issue: dict) -> int:
             cat = _get_issue_category(mi)
             prior_attempts = len(_fetch_previous_fix_attempts(issue_num))
             _log_outcome(issue_num, cat, "solved", prior_attempts)
-            _set_labels(issue_num, add=[LABEL_SOLVED], remove=[LABEL_MERGED], log_prefix="cai confirm")
-            _run(
-                ["gh", "issue", "close", str(issue_num),
-                 "--repo", REPO,
-                 "--comment",
-                 f"Confirmed solved: {reasoning}"],
-                capture_output=True,
+            current_labels = [lbl["name"] for lbl in mi.get("labels", [])]
+            apply_transition(
+                issue_num, "merged_to_solved",
+                current_labels=current_labels,
+                log_prefix="cai confirm",
+            )
+            close_issue_completed(
+                issue_num,
+                f"Confirmed solved: {reasoning}",
+                log_prefix="cai confirm",
             )
             print(f"[cai confirm] #{issue_num}: solved — closed", flush=True)
             # Update parent checklist if this is a sub-issue.

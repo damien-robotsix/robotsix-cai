@@ -140,6 +140,11 @@ action so two concurrent `implement` runs can't pick the same issue.
                                                        (or re-queue)
 ```
 
+When an issue reaches the `solved` state (either via the confirm handler or
+human resume to SOLVED), it is automatically closed in GitHub with the
+reason "completed". This indicates that the fix was verified and the issue
+is resolved.
+
 When the implement subagent reviews an issue and determines no code change is
 needed, it closes the issue with `--reason "not planned"` (GitHub's native
 DISMISSED_RESOLVED state). The agent's reasoning is posted as a comment

@@ -70,8 +70,9 @@ Subcommands:
 
     python cai.py confirm   Re-analyze the recent transcript window and
                             verify whether `:merged` issues are actually
-                            solved. Patterns that disappeared get closed
-                            with `:solved`; patterns that persist are
+                            solved. Patterns that disappeared trigger a
+                            SOLVED transition, which closes the issue as
+                            GitHub "completed"; patterns that persist are
                             re-queued to `:refined` (up to 3 attempts),
                             then escalated to `:needs-human-review`.
 
@@ -260,7 +261,7 @@ from cai_lib.github import (  # noqa: E402
     _gh_json, check_gh_auth, check_claude_auth, _transcript_dir_is_empty,
     _set_labels, _set_pr_labels, _issue_has_label, _build_issue_block,
     _build_implement_user_message, _fetch_linked_issue_block,
-    close_issue_not_planned,
+    close_issue_not_planned, close_issue_completed,
 )
 from cai_lib.watchdog import _rollback_stale_in_progress  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
@@ -2521,6 +2522,12 @@ def _cmd_cycle_inner(args) -> int:
         )
         print(f"[cai cycle] advanced #{_ai['number']} :applied → :solved",
               flush=True)
+        close_issue_completed(
+            _ai["number"],
+            "Maintenance ops applied and verified "
+            "(auto-improve:applied → :solved). Closing as completed.",
+            log_prefix="cai cycle",
+        )
 
     # Phase 2: dispatch a single actionable issue/PR via the FSM dispatcher.
     rc = _run_step("dispatch", lambda _a: dispatch_drain(), args)
