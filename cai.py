@@ -542,6 +542,10 @@ def cmd_analyze(args) -> int:
     # Closed-issue rationale lookup is now on-demand via the
     # skill:look-up-closed-finding plugin skill.
     review_pr_block = _review_pr_pattern_summary()
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-analyze-{_uid}")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    findings_file = work_dir / "findings.json"
     user_message = (
         "## Parsed signals\n\n"
         "```json\n"
@@ -549,13 +553,18 @@ def cmd_analyze(args) -> int:
         "```\n"
         f"{issues_block}"
         f"{review_pr_block}"
+        f"\n\n## Findings file\n\nWrite your findings to: `{findings_file}`\n"
     )
 
     analyzer = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-analyze"],
+        ["claude", "-p", "--agent", "cai-analyze",
+         "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob,Skill,Write",
+         "--add-dir", str(work_dir)],
         category="analyze",
         agent="cai-analyze",
         input=user_message,
+        cwd="/app",
     )
     print(analyzer.stdout, flush=True)
     if analyzer.returncode != 0:
@@ -564,17 +573,33 @@ def cmd_analyze(args) -> int:
             f"{analyzer.stderr}",
             flush=True,
         )
+        shutil.rmtree(work_dir, ignore_errors=True)
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("analyze", repo=REPO, sessions=session_count,
                 tool_calls=tool_calls, in_tokens=in_tokens,
                 out_tokens=out_tokens, duration=dur, exit=analyzer.returncode)
         return analyzer.returncode
 
+    if not findings_file.exists():
+        print(
+            f"[cai analyze] agent did not write {findings_file} — "
+            f"expected findings.json output",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("analyze", repo=REPO, sessions=session_count,
+                tool_calls=tool_calls, in_tokens=in_tokens,
+                out_tokens=out_tokens, result="no_findings_file",
+                duration=dur, exit=1)
+        return 1
+
     print("[cai analyze] publishing findings", flush=True)
     published = _run(
-        ["python", str(PUBLISH_SCRIPT)],
-        input=analyzer.stdout,
+        ["python", str(PUBLISH_SCRIPT),
+         "--findings-file", str(findings_file)],
     )
+    shutil.rmtree(work_dir, ignore_errors=True)
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("analyze", repo=REPO, sessions=session_count,
             tool_calls=tool_calls, in_tokens=in_tokens,
@@ -1208,6 +1233,10 @@ def cmd_audit(args) -> int:
     else:
         outcome_section = "## Outcome statistics (last 90 days)\n\n(no outcome-log entries yet)\n"
 
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-audit-{_uid}")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    findings_file = work_dir / "findings.json"
     user_message = (
         f"{issues_section}\n"
         f"{prs_section}\n"
@@ -1216,14 +1245,19 @@ def cmd_audit(args) -> int:
         f"{outcome_section}\n"
         f"{closed_section}\n"
         f"{deterministic_section}"
+        f"\n## Findings file\n\nWrite your findings to: `{findings_file}`\n"
     )
 
     # Step 3: Invoke the declared cai-audit subagent.
     audit = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-audit"],
+        ["claude", "-p", "--agent", "cai-audit",
+         "--permission-mode", "acceptEdits",
+         "--allowedTools", "Read,Grep,Glob,Write",
+         "--add-dir", str(work_dir)],
         category="audit",
         agent="cai-audit",
         input=user_message,
+        cwd="/app",
     )
     print(audit.stdout, flush=True)
     if audit.returncode != 0:
@@ -1232,6 +1266,7 @@ def cmd_audit(args) -> int:
             f"{audit.stderr}",
             flush=True,
         )
+        shutil.rmtree(work_dir, ignore_errors=True)
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("audit", repo=REPO, duration=dur,
                 pr_open_recovered=len(recovered_pr_open),
@@ -1240,57 +1275,35 @@ def cmd_audit(args) -> int:
                 exit=audit.returncode)
         return audit.returncode
 
-    # Step 4: Parse findings, pre-screen for duplicates/resolved, then create issues.
-    print("[cai audit] publishing audit findings", flush=True)
-    findings = parse_findings(audit.stdout, valid_categories=AUDIT_CATEGORIES)
-    ensure_labels("audit")
-    created = 0
-    skipped_exists = 0
-    dropped_dup = 0
-    failed = 0
-    for f in findings:
-        if issue_exists(f.key):
-            print(f"[cai audit] skip (already exists): {f.key}", flush=True)
-            skipped_exists += 1
-            continue
-        body = (
-            f"**Category:** {f.category}\n"
-            f"**Confidence:** {f.confidence}\n"
-            f"**Evidence:**\n{f.evidence}\n"
-            f"**Remediation:**\n{f.remediation}"
+    # Step 4: Publish findings via publish.py with audit namespace.
+    if not findings_file.exists():
+        print(
+            f"[cai audit] agent did not write {findings_file} — "
+            f"expected findings.json output",
+            file=sys.stderr, flush=True,
         )
-        pseudo_issue = {"number": 0, "title": f.title, "body": body, "labels": []}
-        verdict = check_duplicate_or_resolved(pseudo_issue)
-        if verdict and verdict.should_close:
-            log_run(
-                "audit-dup-drop",
-                repo=REPO,
-                key=f.key,
-                verdict=verdict.verdict,
-                target=verdict.target or verdict.commit_sha,
-                reasoning=verdict.reasoning[:120],
-            )
-            print(
-                f"[cai audit] drop (dup/resolved): {f.key} "
-                f"-> {verdict.verdict} target={verdict.target or verdict.commit_sha}",
-                flush=True,
-            )
-            dropped_dup += 1
-            continue
-        rc = create_issue(f, namespace="audit")
-        if rc == 0:
-            created += 1
-        else:
-            failed += 1
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("audit", repo=REPO, rollbacks=len(rolled_back),
+                pr_open_recovered=len(recovered_pr_open),
+                branches_cleaned=len(deleted_orphaned),
+                merged_flagged=len(flagged_merged),
+                result="no_findings_file", duration=dur, exit=1)
+        return 1
+
+    print("[cai audit] publishing audit findings", flush=True)
+    published = _run(
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "audit",
+         "--findings-file", str(findings_file)],
+    )
+    shutil.rmtree(work_dir, ignore_errors=True)
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("audit", repo=REPO, rollbacks=len(rolled_back),
             pr_open_recovered=len(recovered_pr_open),
             branches_cleaned=len(deleted_orphaned),
             merged_flagged=len(flagged_merged),
-            findings=len(findings), created=created,
-            skipped_exists=skipped_exists, dropped_dup=dropped_dup,
-            failed=failed, duration=dur, exit=0)
-    return 0
+            duration=dur, exit=published.returncode)
+    return published.returncode
 
 
 # ---------------------------------------------------------------------------
@@ -2106,9 +2119,11 @@ def cmd_code_audit(args) -> int:
                 duration=dur, exit=1)
         return 1
 
+    findings_file = work_dir / "findings.json"
+
     # 2. Build the user message with the runtime memory from the
     #    named-volume log directory (cai_logs). System prompt, tool allowlist
-    #    (Read/Grep/Glob), and model (sonnet) all live in
+    #    (Read/Grep/Glob/Write), and model (sonnet) all live in
     #    `.claude/agents/cai-code-audit.md`. Durable per-agent
     #    learnings live in its `memory: project` pool, which the
     #    agent reads directly from /app/.claude/agent-memory/cai-code-audit/
@@ -2131,7 +2146,7 @@ def cmd_code_audit(args) -> int:
     agent = _run_claude_p(
         ["claude", "-p", "--agent", "cai-code-audit",
          "--permission-mode", "acceptEdits",
-         "--allowedTools", "Read,Grep,Glob",
+         "--allowedTools", "Read,Grep,Glob,Write",
          "--add-dir", str(work_dir)],
         category="code-audit",
         agent="cai-code-audit",
@@ -2156,11 +2171,23 @@ def cmd_code_audit(args) -> int:
     #    state in /var/log/cai/code-audit-memory.md).
     _save_code_audit_memory(agent.stdout)
 
+    if not findings_file.exists():
+        print(
+            f"[cai code-audit] agent did not write {findings_file} — "
+            f"expected findings.json output",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("code-audit", repo=REPO, result="no_findings_file",
+                duration=dur, exit=1)
+        return 1
+
     # 5. Publish findings via publish.py with code-audit namespace.
     print("[cai code-audit] publishing findings", flush=True)
     published = _run(
-        ["python", str(PUBLISH_SCRIPT), "--namespace", "code-audit"],
-        input=agent.stdout,
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "code-audit",
+         "--findings-file", str(findings_file)],
     )
 
     # 6. Clean up.
@@ -2292,6 +2319,8 @@ def cmd_update_check(args) -> int:
                 duration=dur, exit=1)
         return 1
 
+    findings_file = work_dir / "findings.json"
+
     # 2. Read current pinned version from Dockerfile.
     try:
         dockerfile = (work_dir / "Dockerfile").read_text()
@@ -2354,7 +2383,7 @@ def cmd_update_check(args) -> int:
     agent = _run_claude_p(
         ["claude", "-p", "--agent", "cai-update-check",
          "--permission-mode", "acceptEdits",
-         "--allowedTools", "Read,Grep,Glob",
+         "--allowedTools", "Read,Grep,Glob,Write",
          "--add-dir", str(work_dir)],
         category="update-check",
         agent="cai-update-check",
@@ -2378,11 +2407,23 @@ def cmd_update_check(args) -> int:
     # 7. Save the memory update for next run.
     _save_update_check_memory(agent.stdout)
 
+    if not findings_file.exists():
+        print(
+            f"[cai update-check] agent did not write {findings_file} — "
+            f"expected findings.json output",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("update-check", repo=REPO, result="no_findings_file",
+                duration=dur, exit=1)
+        return 1
+
     # 8. Publish findings via publish.py with update-check namespace.
     print("[cai update-check] publishing findings", flush=True)
     published = _run(
-        ["python", str(PUBLISH_SCRIPT), "--namespace", "update-check"],
-        input=agent.stdout,
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "update-check",
+         "--findings-file", str(findings_file)],
     )
 
     # 9. Clean up.
@@ -2425,11 +2466,16 @@ def cmd_external_scout(args) -> int:
                 duration=dur, exit=1)
         return 1
 
+    findings_file = work_dir / "findings.json"
+
     # 2. Build the user message. System prompt, tool allowlist, and model all
     #    live in `.claude/agents/cai-external-scout.md`. Durable per-agent
     #    learnings live in its `memory: project` pool — auto-loaded by
     #    claude-code, no external memory file needed.
-    user_message = _work_directory_block(work_dir)
+    user_message = (
+        _work_directory_block(work_dir)
+        + f"\n\n## Findings file\n\nWrite your findings to: `{findings_file}`\n"
+    )
 
     # 3. Invoke the declared cai-external-scout subagent.
     #    Runs with `cwd=/app` and `--add-dir <work_dir>` so the agent
@@ -2439,7 +2485,7 @@ def cmd_external_scout(args) -> int:
     agent = _run_claude_p(
         ["claude", "-p", "--agent", "cai-external-scout",
          "--permission-mode", "acceptEdits",
-         "--allowedTools", "Read,Grep,Glob,WebSearch,WebFetch",
+         "--allowedTools", "Read,Grep,Glob,WebSearch,WebFetch,Write",
          "--add-dir", str(work_dir)],
         category="external-scout",
         agent="cai-external-scout",
@@ -2460,11 +2506,23 @@ def cmd_external_scout(args) -> int:
                 duration=dur, exit=agent.returncode)
         return agent.returncode
 
+    if not findings_file.exists():
+        print(
+            f"[cai external-scout] agent did not write {findings_file} — "
+            f"expected findings.json output",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("external-scout", repo=REPO, result="no_findings_file",
+                duration=dur, exit=1)
+        return 1
+
     # 4. Publish findings via publish.py with external-scout namespace.
     print("[cai external-scout] publishing findings", flush=True)
     published = _run(
-        ["python", str(PUBLISH_SCRIPT), "--namespace", "external-scout"],
-        input=agent.stdout,
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "external-scout",
+         "--findings-file", str(findings_file)],
     )
 
     # 5. Clean up.
@@ -3050,6 +3108,11 @@ def cmd_check_workflows(args) -> int:
         existing = []
 
     # 4. Build user message.
+    _uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-check-workflows-{_uid}")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    findings_file = work_dir / "findings.json"
+
     runs_section = "## Recent failed workflow runs\n\n"
     runs_section += json.dumps(recent_runs, indent=2) + "\n\n"
 
@@ -3062,7 +3125,11 @@ def cmd_check_workflows(args) -> int:
     else:
         existing_section += "(none)\n"
 
-    user_message = runs_section + existing_section
+    user_message = (
+        runs_section
+        + existing_section
+        + f"\n## Findings file\n\nWrite your findings to: `{findings_file}`\n"
+    )
 
     # 5. Invoke the declared cai-check-workflows agent.
     print(
@@ -3073,7 +3140,8 @@ def cmd_check_workflows(args) -> int:
         ["claude", "-p", "--agent", "cai-check-workflows",
          "--max-turns", "3",
          "--permission-mode", "acceptEdits",
-         "--allowedTools", "Read,Grep,Glob"],
+         "--allowedTools", "Read,Grep,Glob,Write",
+         "--add-dir", str(work_dir)],
         category="check-workflows",
         agent="cai-check-workflows",
         input=user_message,
@@ -3087,17 +3155,31 @@ def cmd_check_workflows(args) -> int:
             f"{agent.stderr}",
             file=sys.stderr, flush=True,
         )
+        shutil.rmtree(work_dir, ignore_errors=True)
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("check-workflows", repo=REPO, result="agent_failed",
                 duration=dur, exit=agent.returncode)
         return agent.returncode
 
+    if not findings_file.exists():
+        print(
+            f"[cai check-workflows] agent did not write {findings_file} — "
+            f"expected findings.json output",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("check-workflows", repo=REPO, result="no_findings_file",
+                duration=dur, exit=1)
+        return 1
+
     # 6. Publish findings via publish.py with check-workflows namespace.
     print("[cai check-workflows] publishing findings", flush=True)
     published = _run(
-        ["python", str(PUBLISH_SCRIPT), "--namespace", "check-workflows"],
-        input=agent.stdout,
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "check-workflows",
+         "--findings-file", str(findings_file)],
     )
+    shutil.rmtree(work_dir, ignore_errors=True)
 
     dur = f"{int(time.monotonic() - t0)}s"
     log_run("check-workflows", repo=REPO, failures=len(recent_runs),
