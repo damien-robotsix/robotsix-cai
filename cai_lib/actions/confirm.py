@@ -243,6 +243,40 @@ def handle_confirm(issue: dict) -> int:
                 f"Confirmed solved: {reasoning}",
                 log_prefix="cai confirm",
             )
+            # Fire-and-forget: let cai-memorize decide whether the solved
+            # issue yielded a cross-agent design decision worth recording.
+            # Failures must never block the confirm flow.
+            try:
+                memorize_msg = (
+                    f"## Issue\n\n"
+                    f"### #{issue_num} — {mi['title']}\n\n"
+                    f"{mi.get('body') or '(no body)'}\n\n"
+                )
+                if mi.get("_pr_diff"):
+                    memorize_msg += (
+                        f"## Merged PR diff (PR #{mi['_pr_number']})\n\n"
+                        f"```diff\n{mi['_pr_diff']}\n```\n"
+                    )
+                mem = _run_claude_p(
+                    ["claude", "-p", "--agent", "cai-memorize"],
+                    category="confirm",
+                    agent="cai-memorize",
+                    input=memorize_msg,
+                )
+                if mem.returncode != 0:
+                    print(
+                        f"[cai confirm] cai-memorize failed (exit {mem.returncode}) — "
+                        f"continuing",
+                        flush=True,
+                    )
+                else:
+                    first_line = (mem.stdout or "").strip().splitlines()[:1]
+                    marker = first_line[0] if first_line else ""
+                    print(f"[cai confirm] cai-memorize → {marker or '(empty)'}",
+                          flush=True)
+            except Exception as e:  # noqa: BLE001 - must not break confirm
+                print(f"[cai confirm] cai-memorize invocation error: {e}",
+                      flush=True)
             print(f"[cai confirm] #{issue_num}: solved — closed", flush=True)
             # Update parent checklist if this is a sub-issue.
             sub_body = mi.get("body") or ""
