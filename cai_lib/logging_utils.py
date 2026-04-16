@@ -1,6 +1,7 @@
 """Logging utilities extracted from cai.py."""
 
 import json
+import re
 from datetime import datetime, timezone
 
 from cai_lib.config import LOG_PATH, COST_LOG_PATH, OUTCOME_LOG_PATH
@@ -39,11 +40,14 @@ def log_cost(row: dict) -> None:
         pass
 
 
+_CATEGORY_BODY_RE = re.compile(r"\*\*Category:\*\*\s*`?([^`\n]+?)`?\s*$", re.MULTILINE)
+
+
 def _get_issue_category(issue: dict) -> str:
-    """Return the category label value for *issue*, or ``'(unknown)'`` if absent."""
-    for ln in (lbl["name"] for lbl in issue.get("labels", [])):
-        if ln.startswith("category:"):
-            return ln.split(":", 1)[1]
+    """Return the category value parsed from *issue*'s body, or ``'(unknown)'`` if absent."""
+    m = _CATEGORY_BODY_RE.search(issue.get("body") or "")
+    if m:
+        return m.group(1).strip()
     return "(unknown)"
 
 
