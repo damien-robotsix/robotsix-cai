@@ -100,4 +100,5 @@
 | `tests/test_publish.py` | Tests for publish.py issue publishing |
 | `tests/test_revise_filter.py` | TODO: add description |
 | `tests/test_rollback.py` | Tests for rollback functionality |
+| `tests/test_subprocess_utils.py` | TODO: add description |
 | `tests/test_unblock.py` | Tests for cai_lib.cmd_unblock — admin-comment filtering and agent input formatting |

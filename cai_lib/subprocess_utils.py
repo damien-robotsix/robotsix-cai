@@ -165,13 +165,37 @@ def _run_claude_p(
             row["subagents"] = subagent_rows
         log_cost(row)
 
-        # Rewrite stdout to the result text so existing callers stay
-        # backwards compatible. If `result` is missing (e.g. the run
-        # ended with subtype=error_max_budget_usd, which omits the
-        # result field), fall back to the text of the last assistant
-        # stream event so callers still see the agent's final output
-        # instead of the raw JSON envelope.
-        if "result" in envelope and isinstance(envelope["result"], str):
+        # Rewrite stdout so callers see a sensible final value. Priority:
+        #
+        #   1. `structured_output` — present when the caller passed
+        #      `--json-schema` and the Agent SDK's constrained-decoding
+        #      path succeeded. This is the *validated* payload; the
+        #      free-form `result` text in the same envelope contains
+        #      the model's reasoning and will not parse as JSON (bug
+        #      behind #729 / #695 — gate-critical agents read the wrong
+        #      field). Serialize it back so existing `json.loads(stdout)`
+        #      callers keep working unchanged.
+        #   2. `error_max_structured_output_retries` subtype — the
+        #      constrained-decoding retry loop gave up. Log it explicitly
+        #      so the caller's empty-output branch gets a clear reason,
+        #      and leave stdout empty.
+        #   3. `result` string — the normal free-form path for callers
+        #      without `--json-schema`.
+        #   4. Last assistant text — fallback when `result` is absent
+        #      (e.g. subtype=error_max_budget_usd drops that field).
+        subtype = envelope.get("subtype")
+        structured = envelope.get("structured_output")
+        if structured is not None:
+            proc.stdout = json.dumps(structured)
+        elif subtype == "error_max_structured_output_retries":
+            print(
+                f"[cai cost] structured output retries exhausted "
+                f"({category}/{agent}); schema was not satisfied",
+                file=sys.stderr,
+                flush=True,
+            )
+            proc.stdout = ""
+        elif "result" in envelope and isinstance(envelope["result"], str):
             proc.stdout = envelope["result"]
         elif isinstance(parsed, list):
             salvaged = _last_assistant_text(parsed)
