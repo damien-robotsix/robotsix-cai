@@ -228,13 +228,19 @@ def handle_triage(issue: dict) -> int:
     elif decision in ("PLAN_APPROVE", "APPLY"):
         # Dual-gate skip-ahead logic: both RoutingDecision and SkipConfidence
         # must be HIGH for the fast path to fire; otherwise fall through to REFINE.
+        # Additionally the RoutingDecision↔kind pairing must be consistent:
+        #   PLAN_APPROVE → kind:code, APPLY → kind:maintenance.
         skip_conf_str = tool_input.get("skip_confidence")
         skip_conf = Confidence[skip_conf_str] if skip_conf_str else None
         kind_label = LABEL_KIND_MAINTENANCE if kind == "maintenance" else LABEL_KIND_CODE
-        if skip_conf is None or skip_conf < Confidence.HIGH:
+        pair_ok = (
+            (decision == "PLAN_APPROVE" and kind == "code")
+            or (decision == "APPLY" and kind == "maintenance")
+        )
+
+        def _fallthrough_to_refine(reason: str) -> str:
             print(
-                f"[cai triage] #{issue_number}: {decision} but "
-                f"SkipConfidence={skip_conf} < HIGH — falling through to REFINE",
+                f"[cai triage] #{issue_number}: {decision} {reason} — falling through to REFINE",
                 flush=True,
             )
             apply_transition(
@@ -243,7 +249,16 @@ def handle_triage(issue: dict) -> int:
                 log_prefix="cai triage",
             )
             _set_labels(issue_number, add=[kind_label], log_prefix="cai triage")
-            action_taken = "refine"
+            return "refine"
+
+        if skip_conf is None or skip_conf < Confidence.HIGH:
+            action_taken = _fallthrough_to_refine(
+                f"but SkipConfidence={skip_conf} < HIGH"
+            )
+        elif not pair_ok:
+            action_taken = _fallthrough_to_refine(
+                f"with kind={kind} is inconsistent with the skip-ahead matrix"
+            )
         elif decision == "PLAN_APPROVE":
             plan_body = tool_input.get("plan")
             if plan_body:

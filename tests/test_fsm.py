@@ -688,5 +688,107 @@ class TestTriagingSkipAheadPaths(unittest.TestCase):
         self.assertIsNone(t.min_confidence)
 
 
+class TestTriagingHandlerPairCheck(unittest.TestCase):
+    """handle_triage() must reject inconsistent RoutingDecision↔kind pairs."""
+
+    def _make_issue(self, number=999):
+        return {
+            "number": number,
+            "title": "Test issue",
+            "body": "some body",
+            "labels": [{"name": LABEL_TRIAGING}],
+        }
+
+    def _make_agent_result(self, verdict: dict):
+        import json
+        import subprocess
+        return subprocess.CompletedProcess(
+            args=["claude"], returncode=0,
+            stdout=json.dumps(verdict), stderr="",
+        )
+
+    def test_apply_with_code_kind_falls_through_to_refine(self):
+        """APPLY + kind:code + skip_confidence:HIGH → triaging_to_refining (not triaging_to_applying)."""
+        import json
+        import subprocess
+        from unittest import mock
+        import cai_lib.actions.triage as T
+
+        verdict = {
+            "routing_decision": "APPLY",
+            "routing_confidence": "HIGH",
+            "kind": "code",
+            "skip_confidence": "HIGH",
+            "reasoning": "looks like a maintenance job",
+        }
+        fake_result = subprocess.CompletedProcess(
+            args=["claude"], returncode=0,
+            stdout=json.dumps(verdict), stderr="",
+        )
+        transitions_called = []
+
+        def fake_apply_transition(issue_number, transition_name, **kwargs):
+            transitions_called.append(transition_name)
+            return True
+
+        labels_added = []
+
+        def fake_set_labels(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            labels_added.extend(add)
+            return True
+
+        with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
+             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
+             mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
+             mock.patch.object(T, "log_run"):
+            rc = T.handle_triage(self._make_issue())
+
+        self.assertEqual(rc, 0)
+        self.assertIn("triaging_to_refining", transitions_called)
+        self.assertNotIn("triaging_to_applying", transitions_called)
+
+    def test_plan_approve_with_maintenance_kind_falls_through_to_refine(self):
+        """PLAN_APPROVE + kind:maintenance + skip_confidence:HIGH → triaging_to_refining (not triaging_to_plan_approved)."""
+        import json
+        import subprocess
+        from unittest import mock
+        import cai_lib.actions.triage as T
+
+        verdict = {
+            "routing_decision": "PLAN_APPROVE",
+            "routing_confidence": "HIGH",
+            "kind": "maintenance",
+            "skip_confidence": "HIGH",
+            "reasoning": "looks like a code job",
+        }
+        fake_result = subprocess.CompletedProcess(
+            args=["claude"], returncode=0,
+            stdout=json.dumps(verdict), stderr="",
+        )
+        transitions_called = []
+
+        def fake_apply_transition(issue_number, transition_name, **kwargs):
+            transitions_called.append(transition_name)
+            return True
+
+        labels_added = []
+
+        def fake_set_labels(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            labels_added.extend(add)
+            return True
+
+        with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
+             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
+             mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
+             mock.patch.object(T, "log_run"):
+            rc = T.handle_triage(self._make_issue())
+
+        self.assertEqual(rc, 0)
+        self.assertIn("triaging_to_refining", transitions_called)
+        self.assertNotIn("triaging_to_plan_approved", transitions_called)
+
+
 if __name__ == "__main__":
     unittest.main()
