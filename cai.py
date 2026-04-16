@@ -2547,7 +2547,7 @@ def _run_step(name: str, handler, args) -> int:
         return 1
 
 
-_CYCLE_LOCK_PATH = "/tmp/cai-cycle.lock"
+_CYCLE_LOCK_PATH = f"/tmp/cai-cycle-{REPO.replace('/', '-')}.lock"
 
 
 def cmd_cycle(args) -> int:
@@ -2555,7 +2555,7 @@ def cmd_cycle(args) -> int:
 
     Delegates to :func:`_cmd_cycle_inner`, which reconciles labels,
     runs audit, and dispatches a single actionable issue/PR via the
-    FSM dispatcher. The flock on ``_CYCLE_LOCK_PATH`` ensures
+    FSM dispatcher. The flock on ``_CYCLE_LOCK_PATH`` (per-repo) ensures
     overlapping supercronic fires don't step on each other.
     """
     lock_fd = os.open(_CYCLE_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)

@@ -38,6 +38,7 @@ Usage::
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -46,7 +47,7 @@ from dataclasses import dataclass
 
 # Lane 1 target — the backend improves itself. When Lane 2 lands, this
 # will be parameterized per workspace.
-REPO = "damien-robotsix/robotsix-cai"
+REPO = os.environ.get("CAI_REPO", "damien-robotsix/robotsix-cai")
 
 # The set of categories declared in .claude/agents/cai-analyze.md. Any
 # finding whose category is outside this set is rejected before we touch
