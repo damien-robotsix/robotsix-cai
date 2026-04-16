@@ -25,6 +25,7 @@ declare -A DESCRIPTIONS=(
   ["LICENSE"]="MIT license"
   ["pyproject.toml"]="Python project configuration (ruff lint settings)"
   [".env.example"]="Template for required environment variables"
+  ["workspaces.json.example"]="Template for multi-workspace configuration with per-repo cycle schedules"
   [".gitignore"]="Git ignore rules"
   [".claude/settings.json"]="Claude Code harness configuration"
   [".claude/agents/cai-agent-audit.md"]="Agent: weekly audit of .claude/agents/*.md for best-practice violations and unused agents"
