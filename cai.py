@@ -2309,15 +2309,15 @@ def cmd_maintain(args) -> int:
                 "--label", LABEL_APPLYING,
                 "--state", "open",
                 "--json", "number,title,body,labels,createdAt",
-                "--limit", "1",
-                "--sort", "created",
-                "--order", "asc",
+                "--limit", "100",
             ]) or []
         except subprocess.CalledProcessError as e:
             print(f"[cai maintain] gh issue list failed:\n{e.stderr}",
                   file=sys.stderr)
             log_run("maintain", repo=REPO, exit=1)
             return 1
+        issues.sort(key=lambda i: i.get("createdAt", ""))
+        issues = issues[:1]
 
     if not issues:
         print("[cai maintain] no auto-improve:applying issues; nothing to do",
