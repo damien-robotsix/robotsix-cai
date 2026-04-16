@@ -299,13 +299,15 @@ def load_findings_json(path: str, valid_categories: set[str]) -> list[Finding]:
         {"findings": [{"title", "category", "key",
                        "confidence", "evidence", "remediation"}, ...]}
 
-    Validation rules mirror parse_findings:
+    Validation rules (intentionally stricter than parse_findings for structured
+    JSON input; parse_findings is lenient because it parses free-form markdown):
       * Malformed JSON or missing top-level ``findings`` list -> sys.exit(1).
       * Required fields (title, category, key) missing -> per-finding
         stderr error, that entry skipped (other entries keep going).
       * category outside ``valid_categories`` -> per-finding stderr error, skipped.
-      * confidence not in {"low","medium","high"} -> warn, default to
-        "unspecified" (matches parse_findings leniency).
+      * confidence not in {"low","medium","high"} -> warn and default to
+        "unspecified" (JSON is structured so we validate the field; markdown is
+        free-form so parse_findings accepts any confidence string as-is).
       * evidence / remediation missing -> default strings
         ("(no evidence provided)" / "(no remediation provided)").
     """
