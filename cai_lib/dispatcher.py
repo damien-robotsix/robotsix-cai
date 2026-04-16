@@ -74,6 +74,7 @@ def _build_issue_registry() -> dict[IssueState, IssueHandler]:
     from cai_lib.actions.explore   import handle_explore
     from cai_lib.actions.plan      import handle_plan, handle_plan_gate
     from cai_lib.actions.implement import handle_implement
+    from cai_lib.actions.maintain  import handle_maintain, handle_applied
     from cai_lib.actions.confirm   import handle_confirm
     from cai_lib.actions.pr_bounce import handle_pr_bounce
     from cai_lib.cmd_unblock       import handle_human_needed
@@ -88,6 +89,8 @@ def _build_issue_registry() -> dict[IssueState, IssueHandler]:
         IssueState.PLANNED:           handle_plan_gate,
         IssueState.PLAN_APPROVED:     handle_implement,
         IssueState.IN_PROGRESS:       handle_implement,   # resume
+        IssueState.APPLYING:          handle_maintain,
+        IssueState.APPLIED:           handle_applied,
         IssueState.PR:                handle_pr_bounce,
         IssueState.MERGED:            handle_confirm,
         # HUMAN_NEEDED is only picked up when the admin has applied

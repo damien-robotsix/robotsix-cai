@@ -32,6 +32,8 @@ class TestActionableStateSets(unittest.TestCase):
             IssueState.PLANNED,
             IssueState.PLAN_APPROVED,
             IssueState.IN_PROGRESS,
+            IssueState.APPLYING,
+            IssueState.APPLIED,
             IssueState.PR,
             IssueState.MERGED,
             # HUMAN_NEEDED is actionable via handle_human_needed — the

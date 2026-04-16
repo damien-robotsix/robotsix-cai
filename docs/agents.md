@@ -19,6 +19,8 @@ State transitions between these rows are rendered in [the lifecycle FSM diagram]
 |---|---|---|
 | `RAISED` | [`handle_triage`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/triage.py) | `cai-dup-check` (inline pre-check), then `cai-triage` |
 | `TRIAGING` | [`handle_triage`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/triage.py) (resume) | `cai-triage` |
+| `APPLYING` | [`handle_maintain`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/maintain.py) | `cai-maintain` |
+| `APPLIED` | [`handle_applied`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/maintain.py) | *(no subagent)* |
 | `REFINING` | [`handle_refine`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/refine.py) | `cai-refine` |
 | `NEEDS_EXPLORATION` | [`handle_explore`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/explore.py) | `cai-explore` |
 | `REFINED` | [`handle_plan`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/plan.py) | `cai-plan` ×2 (serial) + `cai-select` |
@@ -63,7 +65,7 @@ State transitions between these rows are rendered in [the lifecycle FSM diagram]
 | `cai-fix-ci` | Diagnose and fix failing GitHub Actions checks on open PRs | Read, Edit, Write, Grep, Glob, Agent | sonnet | PR state CI_FAILING | Worktree |
 | `cai-implement` | Autonomous code-editing subagent — makes the smallest targeted change for an issue | Read, Edit, Write, Grep, Glob, TodoWrite | sonnet | Issue states PLAN_APPROVED / IN_PROGRESS | Worktree |
 | `cai-git` | Lightweight subagent that executes git operations on behalf of other agents | Bash | haiku | Helper (spawned by other agents via Agent tool) | Worktree |
-| `cai-maintain` | Read the Ops block from a kind:maintenance issue, execute each declared operation via gh CLI, and emit a Confidence level | Bash, Read | sonnet | Issue kind:maintenance (on demand) | Worktree |
+| `cai-maintain` | Read the Ops block from a kind:maintenance issue, execute each declared operation via gh CLI, and emit a Confidence level | Bash, Read | sonnet | Issue state APPLYING | Worktree |
 | `cai-merge` | Assess whether a PR correctly implements its linked issue and emit a merge verdict; `docs/**` and `CODEBASE_INDEX.md` are automatically exempt from scope checks | Read | opus | PR state APPROVED | Inline-only |
 | `cai-memorize` | Post-solved memory curator — decides whether a solved issue settled a cross-cutting design decision worth persisting to the shared agent memory pool | Read, Write, Edit, Glob | sonnet | Inline, invoked by handle_confirm after solved | Inline-only |
 | `cai-plan` | Generate a detailed fix plan for an issue (first of two serial planners) | Read, Grep, Glob, Agent | sonnet | Issue states REFINED / PLANNING (serial ×2) | Worktree |
@@ -97,7 +99,6 @@ These agents run on a recurring schedule rather than being triggered by issue or
 | `cai-propose` | Weekly (cron) |
 | `cai-update-check` | Periodic / cron-scheduled |
 
-On-demand agents (not state-driven, not scheduled): `cai-maintain` is invoked when a `kind:maintenance` issue is present and ready for execution.
 
 ## See also
 
