@@ -52,6 +52,12 @@ Print a human-readable cost report from `/var/log/cai/cai-cost.jsonl`.
 | `--top INT` | optional | 10 | Number of most-expensive invocations to list |
 | `--by {category,agent,day}` | optional | category | Aggregation grouping |
 
+## external-scout
+
+Clone the repo and run `cai-external-scout` to scout for mature open-source libraries that could replace in-house plumbing. The agent walks the codebase, picks one category of in-house utility per run, searches the open-source ecosystem for mature alternatives, and emits a single adoption proposal (or `No findings.` if no candidate passes the fit check). Uses project-scope memory to avoid re-proposing the same category or library.
+
+No arguments.
+
 ## cycle
 
 One cycle tick: restart-recover stale locks → drain the actionable queue. The drain loops "pick oldest actionable issue/PR → run its state handler" until the queue is empty (or a loop guard / max-iter cap fires). A flock serializes overlapping runs. No explicit per-phase ordering — the FSM label is the source of truth and the dispatcher picks the handler for whichever state the oldest actionable item is in. Verify and audit run on their own crons (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`).
