@@ -36,6 +36,7 @@ declare -A DESCRIPTIONS=(
   [".claude/agents/cai-cost-optimize.md"]="Agent: weekly cost-reduction analysis"
   [".claude/agents/cai-dup-check.md"]="Agent: cheap haiku pre-check for duplicate / already-resolved issues"
   [".claude/agents/cai-explore.md"]="Agent: autonomous exploration and benchmarking"
+  [".claude/agents/cai-external-scout.md"]="Agent: weekly scout for open-source libraries that could replace in-house plumbing"
   [".claude/agents/cai-fix-ci.md"]="Agent: diagnose and fix failing CI checks on auto-improve PRs"
   [".claude/agents/cai-git.md"]="Agent: lightweight git operations subagent"
   [".claude/agents/cai-implement.md"]="Agent: autonomous code-editing subagent for code-editing tasks"
