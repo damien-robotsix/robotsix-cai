@@ -50,19 +50,25 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 | `auto-improve:solved` | Confirmed resolved |
 | `auto-improve:needs-exploration` | Needs autonomous exploration (explore handler) |
 | `auto-improve:planned` | Plan generated and stored in issue body; confidence gate pending |
+| `auto-improve:planning` | Plan generation in progress (transient) |
 | `auto-improve:plan-approved` | Plan approved (HIGH confidence auto-approval or admin resume); ready for implement subagent |
+| `auto-improve:human-needed` | Awaiting admin review and decision; admin applies `human:solved` to resume |
 | `auto-improve:applying` | Maintenance ops are being applied (transient; Step 3 agent drains this state) |
 | `auto-improve:applied` | Maintenance ops applied; awaiting verification |
 | `auto-improve:parent` | Parent issue; child sub-issues carry the work |
 | `audit` | Source tag indicating an audit-originated finding (combined with `auto-improve:raised` in unified FSM) |
 | `merge-blocked` | PR has a blocking review finding; will not auto-merge |
 | `needs-human-review` | Issue or PR requires human attention |
+| `human:solved` | Admin-applied signal to resume FSM for parked issues/PRs (unblocking) |
+| `kind:code` | Issue is a code fix (vs. kind:maintenance) |
+| `kind:maintenance` | Issue is a maintenance operation (requires `Ops:` block in body) |
 | `pr:reviewing-code` | PR is in code review (review-pr handler); a new SHA lands here on any push |
 | `pr:revision-pending` | Review-pr handler posted findings; revise handler will address them |
 | `pr:reviewing-docs` | Code review clean; docs review is next |
 | `pr:approved` | Docs review clean; merge handler runs the final confidence-gated merge from here |
 | `pr:rebasing` | Mergeable=CONFLICTING with main; rebase handler runs cai-rebase, posts an outcome comment, and always bounces back to `pr:reviewing-code` so the rebased SHA is re-reviewed |
 | `pr:ci-failing` | Checks are red; fix-ci handler is the action — returns to `pr:reviewing-code` after a push |
+| `pr:human-needed` | PR awaiting human decision; human applies `human:solved` to resume |
 
 ## The Cycle Command
 
