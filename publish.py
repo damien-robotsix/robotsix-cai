@@ -11,6 +11,10 @@ embedded in the issue body (`<!-- fingerprint: <key> -->`).
 Phase C.2 scope — this is the Lane 1 publish step. Lane 2 (workspace
 targets) is still deferred.
 
+Non-empty stdin that produces zero parsed ``### Finding:`` blocks exits 1
+with a stderr diagnostic (including the first ~500 chars of input); empty
+stdin still exits 0.
+
 No third-party Python dependencies — only stdlib plus the `gh` CLI.
 
 Usage::
@@ -522,8 +526,14 @@ def main() -> int:
 
     findings = parse_findings(text, valid_categories=valid_cats)
     if not findings:
-        print("[publish] no findings parsed; nothing to do")
-        return 0
+        snippet = text[:500].replace("\n", "↵")
+        print(
+            f"[publish] ERROR: non-empty input produced 0 findings — "
+            f"agent may have used prose instead of ### Finding: blocks.\n"
+            f"Input snippet: {snippet!r}",
+            file=sys.stderr,
+        )
+        return 1
 
     print(f"[publish] parsed {len(findings)} finding(s)")
     ensure_labels(namespace)
