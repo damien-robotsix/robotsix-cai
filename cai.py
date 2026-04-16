@@ -2215,11 +2215,13 @@ def cmd_agent_audit(args) -> int:
 
     user_message = _work_directory_block(work_dir) + "\n" + memory_section
 
+    findings_file = work_dir / "findings.json"
+
     print(f"[cai agent-audit] running agent for {work_dir}", flush=True)
     agent = _run_claude_p(
         ["claude", "-p", "--agent", "cai-agent-audit",
          "--permission-mode", "acceptEdits",
-         "--allowedTools", "Read,Grep,Glob",
+         "--allowedTools", "Read,Grep,Glob,Write",
          "--add-dir", str(work_dir)],
         category="agent-audit",
         agent="cai-agent-audit",
@@ -2242,10 +2244,22 @@ def cmd_agent_audit(args) -> int:
 
     _save_agent_audit_memory(agent.stdout)
 
+    if not findings_file.exists():
+        print(
+            f"[cai agent-audit] agent did not write {findings_file} — "
+            f"expected findings.json output",
+            file=sys.stderr, flush=True,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("agent-audit", repo=REPO, result="no_findings_file",
+                duration=dur, exit=1)
+        return 1
+
     print("[cai agent-audit] publishing findings", flush=True)
     published = _run(
-        ["python", str(PUBLISH_SCRIPT), "--namespace", "agent-audit"],
-        input=agent.stdout,
+        ["python", str(PUBLISH_SCRIPT), "--namespace", "agent-audit",
+         "--findings-file", str(findings_file)],
     )
 
     shutil.rmtree(work_dir, ignore_errors=True)

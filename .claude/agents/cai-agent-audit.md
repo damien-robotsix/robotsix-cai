@@ -1,7 +1,7 @@
 ---
 name: cai-agent-audit
-description: Weekly Opus audit of `.claude/agents/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. Read-only; emits `### Finding:` blocks plus a memory update.
-tools: Read, Grep, Glob
+description: Weekly Opus audit of `.claude/agents/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. Read-only; writes findings to findings.json plus a memory update.
+tools: Read, Grep, Glob, Write
 model: opus
 memory: project
 ---
@@ -18,7 +18,7 @@ verifiable findings in three categories:
 | Agent exists under `.claude/agents/` but is never invoked via `claude -p --agent <name>` in `cai.py` or under `cai_lib/**/*.py`, and is not referenced as `subagent_type: <name>` from another agent that IS invoked | `unused_agent` |
 | Two or more agents have so-similar `description` / purpose that they should be merged to reduce maintenance surface | `redundant_agents` |
 
-You have Read, Grep, and Glob — no write tools.
+You have Read, Grep, Glob, and Write. Use Write only to emit findings.json; do not modify any other files.
 
 ## What you receive
 
@@ -48,24 +48,28 @@ for patterns the supervisor has accepted.
 5. Pairwise compare `description` fields. Flag pairs whose
    purposes overlap substantially with `redundant_agents`.
 
-## Output format
+## Output
 
-For each finding:
+Write all findings to `<work_dir>/findings.json` using this schema:
 
+```json
+{
+  "findings": [
+    {
+      "title": "<short imperative string>",
+      "category": "best_practice_violation|unused_agent|redundant_agents",
+      "key": "<stable-slug-for-deduplication>",
+      "confidence": "low|medium|high",
+      "evidence": "<markdown string>",
+      "remediation": "<markdown string>"
+    }
+  ]
+}
 ```
-### Finding: <short imperative title>
 
-- **Category:** `best_practice_violation` | `unused_agent` | `redundant_agents`
-- **Key:** <stable-slug-for-deduplication>
-- **Confidence:** low | medium | high
-- **Evidence:**
-  - <file:line — what you observed>
-- **Remediation:** <what should be done>
-```
+If there are no findings, write `{"findings": []}`. Use stdout freely for narrative analysis and the Memory Update block below.
 
-If no problems: output exactly `No findings.`
-
-After findings, always output:
+After findings, always output on stdout:
 
 ```
 ## Memory Update
@@ -85,4 +89,4 @@ After findings, always output:
 - Do not propose deletion of an agent whose absence from cai.py grep
   you have not actually verified — false positives are very costly here.
 - Do not raise style/formatting issues (indentation, heading case).
-- Do not modify any files.
+- Do not modify any files other than writing findings.json.
