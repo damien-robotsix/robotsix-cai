@@ -44,7 +44,7 @@ AGENT_AUDIT_MEMORY = Path("/var/log/cai/agent-audit-memory.md")
 # agents) now read/write this path directly because they're all
 # invoked with `cwd=/app`. The cloned-worktree agents
 # (cai-implement, cai-revise, cai-rebase, cai-review-pr, cai-review-docs, cai-code-audit, cai-propose,
-# cai-propose-review, cai-update-check, cai-plan, cai-select, cai-git, cai-agent-audit) operate
+# cai-propose-review, cai-update-check, cai-plan, cai-select, cai-git, cai-agent-audit, cai-external-scout) operate
 # on a clone elsewhere via absolute paths —
 # see `_work_directory_block` for the user-message section that
 # tells them where the clone is.
