@@ -33,7 +33,7 @@ Terminal / parked states (`SOLVED`, `HUMAN_NEEDED`, `PR_HUMAN_NEEDED`, PR `MERGE
 
 Multi-step sequences (titled `[#N Step X/Y]`) are processed sequentially; Step N+1 is deferred if Step N is still open.
 
-Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised`. Low-confidence planner outcomes still park at `:human-needed`; the admin resolves the issue in comments and then applies the `human:solved` label, which `cai unblock` picks up to resume the FSM.
+Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai code-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised`. Low-confidence planner outcomes still park at `:human-needed`; the admin resolves the issue in comments and then applies the `human:solved` label, which the cycle automatically picks up via the `cai-unblock` handler to resume the FSM.
 
 ## Lifecycle Labels
 

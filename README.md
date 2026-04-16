@@ -58,7 +58,9 @@ resumes on the next tick. HIGH-confidence plans auto-promote to
 `:plan-approved`; lower-confidence plans divert to `:human-needed`
 for admin review with a comment explaining why the plan didn't reach
 HIGH confidence (e.g., unverified assumptions, ambiguous scope, missing
-edge cases). An admin comment resumes them via `cai unblock`.
+edge cases). An admin can resume them by applying the `human:solved` label — the
+cycle auto-unblocks issues/PRs marked this way by invoking the `cai-unblock`
+agent to classify the admin's comment into a resume target.
 
 A flock in `cmd_cycle` serializes overlapping runs. For manual or
 targeted invocation, `cai.py dispatch --issue N` and
@@ -78,7 +80,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
 | `cai.py check-workflows` | `0 */6 * * *` (every 6 hours) | GitHub Actions failure monitor — fetches recent failed workflow runs (last 24 h), filters out bot branches, and runs a Haiku agent to group related failures and identify root causes; findings are published as `check-workflows` namespace issues. |
 | `cai.py maintain` | _(manual/on-demand via cai.py cycle)_ | Maintenance operations driver. Reads the `Ops:` block from the oldest issue labelled `auto-improve:applying` (kind:maintenance), clones the repo, runs the cai-maintain subagent to execute each declared operation (label mutations, bulk-close, workflow edits), and transitions based on Confidence: HIGH → `:applied`, else → `:human-needed`. Called automatically by `cai.py cycle` when `:applying` issues are present. |
-| `cai.py verify` / `audit` / `unblock` | _(own cron schedules; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. |
+| `cai.py verify` / `audit` | _(own cron schedules; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. Human-needed unblocking is now automatic via the cycle (see [issue lifecycle](#issue-lifecycle) section). |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
@@ -346,7 +348,8 @@ trust builds.
 It is restricted to repo admins by `.github/workflows/admin-only-label.yml` — a non-admin who
 applies it gets the label removed and a comment explaining why. Issues labelled `auto-improve:raised`
 transition through the full planning pipeline: `refine` → `plan` → `auto-improve:plan-approved`
-(auto on HIGH confidence, else `:human-needed` until an admin comment resumes via `cai unblock`) → `implement`.
+(auto on HIGH confidence, else `:human-needed` until the admin applies the `human:solved` label,
+which triggers auto-unblock on the next cycle tick) → `implement`.
 On `refine`, the agent additionally decides whether to route the
 issue through `auto-improve:needs-exploration` first by emitting `NextStep: EXPLORE`.
 

@@ -5,7 +5,7 @@
 | Variable | Purpose | Default |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | API authentication for headless `claude` invocations inside the container | Required |
-| `CAI_ADMIN_LOGINS` | Comma-separated list of GitHub logins authorized to use the `human:solved` label to unblock stuck issues and PRs. Without this, the `human:solved` workflow is silently ignored and parked tasks remain unblocked. See `cai unblock` in the CLI reference for details. | _(optional; unblock workflow disabled if not set)_ |
+| `CAI_ADMIN_LOGINS` | Comma-separated list of GitHub logins authorized to use the `human:solved` label to auto-unblock stuck issues and PRs. When an admin applies this label, the next cycle tick invokes `cai-unblock` to resume the FSM. Without this, the `human:solved` workflow is silently ignored and parked tasks remain unblocked. | _(optional; auto-unblock workflow disabled if not set)_ |
 | `CAI_MERGE_CONFIDENCE_THRESHOLD` | Minimum confidence level for `cai merge` auto-merge (`high`, `medium`, `disabled`) | `high` |
 | `CAI_MERGE_MAX_DIFF_LEN` | Maximum character length for PR diffs passed to the merge agent; test files are prioritised within the budget so they remain visible even for large PRs | `40000` |
 
@@ -18,7 +18,7 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-`CAI_CYCLE_SCHEDULE` drives the unified dispatcher: each tick runs restart-recover → `dispatch_oldest_actionable()`, which picks the oldest open issue or PR whose lifecycle state has a handler and runs the matching handler in `cai_lib/actions/`. A flock serializes overlapping runs. The planner confidence gate is unchanged — HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker and a comment explaining why the plan didn't reach HIGH confidence (e.g., unverified assumptions, ambiguous scope). An admin comment resumes it via `cai unblock`. `cai dispatch --issue N` / `cai dispatch --pr N` remains callable manually or from GitHub Actions for targeted retries. Verify and audit run on their own independent cron schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`).
+`CAI_CYCLE_SCHEDULE` drives the unified dispatcher: each tick runs restart-recover → `dispatch_oldest_actionable()`, which picks the oldest open issue or PR whose lifecycle state has a handler and runs the matching handler in `cai_lib/actions/`. A flock serializes overlapping runs. The planner confidence gate is unchanged — HIGH auto-promotes to `:plan-approved`; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker and a comment explaining why the plan didn't reach HIGH confidence (e.g., unverified assumptions, ambiguous scope). An admin can resume it by applying the `human:solved` label, which triggers auto-unblock on the next cycle tick via the `cai-unblock` handler. `cai dispatch --issue N` / `cai dispatch --pr N` remains callable manually or from GitHub Actions for targeted retries. Verify and audit run on their own independent cron schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`).
 
 | Variable | Default | Description |
 |---|---|---|
