@@ -33,6 +33,7 @@ from cai_lib.config import (
     LABEL_REFINED,
     LABEL_HUMAN_NEEDED,
     LABEL_RAISED,
+    LOG_PATH,
 )
 from cai_lib.github import (
     _gh_json,
@@ -64,6 +65,12 @@ from cai_lib.fsm import (
 # ---------------------------------------------------------------------------
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+# Max consecutive `tests_failed` entries for the same issue before we
+# escalate to :human-needed instead of rolling back. Prevents the
+# implement loop from monopolising cycles on an unresolvable issue
+# (see issues #748 / #695).
+_MAX_TESTS_FAILED_RETRIES = 3
 
 
 def _slugify(text: str, max_len: int = 50) -> str:
@@ -264,6 +271,35 @@ def _find_existing_branch(issue_number: int) -> str | None:
         if ref.startswith(prefix):
             return ref[len(prefix):]
     return None
+
+
+def _count_consecutive_tests_failed(issue_number: int) -> int:
+    """Count trailing consecutive ``result=tests_failed`` log entries
+    for *issue_number* in LOG_PATH.
+
+    Walks the [implement] entries for this issue in reverse and
+    counts how many trailing entries have ``result=tests_failed``.
+    Returns 0 on any I/O failure (the guard is best-effort — we
+    must never block the implement pipeline on log read errors).
+    """
+    try:
+        if not LOG_PATH.exists():
+            return 0
+        lines = LOG_PATH.read_text().splitlines()
+    except OSError:
+        return 0
+    issue_tag = f"issue={issue_number}"
+    relevant = [
+        ln for ln in lines
+        if "[implement]" in ln and issue_tag in ln and "result=" in ln
+    ]
+    count = 0
+    for ln in reversed(relevant):
+        if "result=tests_failed" in ln:
+            count += 1
+        else:
+            break
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -647,14 +683,83 @@ def handle_implement(issue: dict) -> int:
             capture_output=True,
         )
         if test_result.returncode != 0:
+            failure_output = (
+                f"{test_result.stdout or ''}\n"
+                f"{test_result.stderr or ''}"
+            ).strip()
             print(
                 f"[cai implement] regression tests failed — not opening PR\n"
-                f"{test_result.stdout}\n{test_result.stderr}",
+                f"{failure_output}",
                 file=sys.stderr,
             )
-            rollback()
+            # Log the failure first so it is visible to the consecutive-failure
+            # counter immediately below.
             log_run("implement", repo=REPO, issue=issue_number,
                     result="tests_failed", exit=1)
+
+            consecutive = _count_consecutive_tests_failed(issue_number)
+            if consecutive >= _MAX_TESTS_FAILED_RETRIES:
+                # Escalate to :human-needed instead of looping. Comment first
+                # (matches the spike branch ordering), then transition labels
+                # with the same double-retry guard so a transient GitHub
+                # failure does not leave the issue stuck without a lifecycle
+                # label.
+                truncated = failure_output[:3000]
+                if len(failure_output) > 3000:
+                    truncated += "\n\n... (truncated)"
+                comment_body = (
+                    "## Implement subagent: repeated test failures\n\n"
+                    f"Regression tests failed {consecutive} consecutive times "
+                    f"for this issue. Escalating to human review to avoid "
+                    f"monopolising the implement loop.\n\n"
+                    "### Last test output\n\n"
+                    f"```\n{truncated}\n```\n\n"
+                    "---\n"
+                    "_Set by `cai implement` after "
+                    f"{_MAX_TESTS_FAILED_RETRIES} consecutive `tests_failed` "
+                    "log entries. Re-label to "
+                    f"`{LABEL_PLAN_APPROVED}` to retry once the underlying "
+                    "problem is resolved._"
+                )
+                print(
+                    f"[cai implement] {consecutive} consecutive tests_failed "
+                    f"for #{issue_number}; marking auto-improve:human-needed",
+                    flush=True,
+                )
+                _run(
+                    ["gh", "issue", "comment", str(issue_number),
+                     "--repo", REPO,
+                     "--body", comment_body],
+                    capture_output=True,
+                )
+                terminal_remove = [LABEL_IN_PROGRESS]
+                if not _set_labels(
+                    issue_number,
+                    add=[LABEL_HUMAN_NEEDED],
+                    remove=terminal_remove,
+                ):
+                    if not _set_labels(
+                        issue_number,
+                        add=[LABEL_HUMAN_NEEDED],
+                        remove=terminal_remove,
+                    ):
+                        print(
+                            f"[cai implement] WARNING: label transition to "
+                            f"auto-improve:human-needed failed twice for "
+                            f"#{issue_number} — issue may be stuck without "
+                            "a lifecycle label",
+                            file=sys.stderr, flush=True,
+                        )
+                        rollback()
+                        log_run("implement", repo=REPO, issue=issue_number,
+                                result="label_transition_failed", exit=1)
+                        return 1
+                locked = False
+                log_run("implement", repo=REPO, issue=issue_number,
+                        result="tests_failed_escalated", exit=0)
+                return 0
+
+            rollback()
             return 1
 
         # 8. Push.
