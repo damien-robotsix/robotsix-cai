@@ -19,7 +19,7 @@
 | `.claude/agents/cai-git.md` | Agent: lightweight git operations subagent |
 | `.claude/agents/cai-implement.md` | Agent: autonomous code-editing subagent for code-editing tasks |
 | `.claude/agents/cai-maintain.md` | TODO: add description |
-| `.claude/agents/cai-memorize.md` | TODO: add description |
+| `.claude/agents/cai-memorize.md` | Agent: post-solved memory curator for cross-cutting design decisions |
 | `.claude/agents/cai-merge.md` | Agent: assess PR correctness and emit merge verdict |
 | `.claude/agents/cai-plan.md` | Agent: generate detailed fix plan for an issue |
 | `.claude/agents/cai-propose-review.md` | Agent: review creative proposals for feasibility |
