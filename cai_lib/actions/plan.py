@@ -8,7 +8,7 @@ Two handlers:
   transitions to :class:`IssueState.PLANNED`.
 - :func:`handle_plan_gate` covers :class:`IssueState.PLANNED` and
   auto-advances the issue to ``PLAN_APPROVED`` via the confidence gate
-  (below-threshold diverts to ``:human-needed`` with a pending marker).
+  (below-threshold diverts to ``:human-needed`` for admin review).
 
 Derived from ``cmd_plan`` in ``cai.py`` — behaviour is preserved as
 closely as possible. The dispatcher is responsible for fetching the
@@ -44,8 +44,6 @@ from cai_lib.cmd_helpers import (
 from cai_lib.fsm import (
     apply_transition,
     apply_transition_with_confidence,
-    render_pending_marker,
-    strip_pending_marker,
     IssueState,
     get_issue_state,
 )
@@ -431,10 +429,6 @@ def handle_plan(issue: dict) -> int:
 
         # 5. Store plan in issue body (strip any old plan block first).
         current_body = _strip_stored_plan_block(issue.get("body", "") or "")
-        # Also strip any stale pending marker left from a prior run — the
-        # upcoming confidence gate (handle_plan_gate) will re-add one if
-        # it diverts.
-        current_body = strip_pending_marker(current_body)
         conf_name = plan_confidence.name if plan_confidence else "MISSING"
         plan_block = (
             "<!-- cai-plan-start -->\n"
@@ -508,8 +502,8 @@ def handle_plan_gate(issue: dict) -> int:
     ``_cai_plan_confidence`` by :func:`handle_plan` within the same
     process, or re-parsed from the issue body). HIGH-confidence plans
     auto-promote via ``planned_to_plan_approved``; anything below
-    diverts to :human-needed (`planned_to_human`) with a pending marker
-    so an admin can review.
+    diverts to :human-needed (`planned_to_human`) so an admin can
+    review.
     """
     from cai_lib.fsm import parse_confidence, parse_confidence_reason
 
@@ -554,31 +548,6 @@ def handle_plan_gate(issue: dict) -> int:
                 confidence=conf_name, diverted=int(diverted),
                 exit=1)
         return 1
-    if diverted:
-        # Append a pending marker so cai-unblock knows what we were
-        # trying to do when the admin comments. Re-read the body so the
-        # marker lands on the freshest content.
-        try:
-            fresh = _gh_json([
-                "issue", "view", str(issue_number),
-                "--repo", REPO,
-                "--json", "body",
-            ]) or {}
-            current_body = fresh.get("body", "") or ""
-        except Exception:  # pragma: no cover — defensive
-            current_body = issue.get("body", "") or ""
-        marker = render_pending_marker(
-            transition_name="planned_to_plan_approved",
-            from_state=IssueState.PLANNED,
-            intended_state=IssueState.PLAN_APPROVED,
-            confidence=plan_confidence,
-        )
-        marker_body = f"{current_body}\n\n{marker}\n"
-        _run(
-            ["gh", "issue", "edit", str(issue_number),
-             "--repo", REPO, "--body", marker_body],
-            capture_output=True,
-        )
 
     dur = f"{int(time.monotonic() - t0)}s"
     conf_name = plan_confidence.name if plan_confidence else "MISSING"

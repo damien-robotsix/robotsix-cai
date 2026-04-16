@@ -524,73 +524,6 @@ def find_transition(name: str, transitions: Sequence[Transition] = _ALL_TRANSITI
     raise KeyError(f"unknown transition: {name!r}")
 
 
-# ---------------------------------------------------------------------------
-# Pending-marker helpers
-#
-# When a transition diverts to HUMAN_NEEDED because confidence was too low (or
-# missing), we append a hidden marker to the issue body so the resume loop
-# knows what the agent was trying to do. The marker survives edits because we
-# key on the delimiter pair and replace in place.
-# ---------------------------------------------------------------------------
-
-_PENDING_MARKER_START = "<!-- cai-fsm-pending"
-_PENDING_MARKER_END   = "-->"
-_PENDING_MARKER_RE = re.compile(
-    r"<!--\s*cai-fsm-pending\s+(.*?)\s*-->",
-    re.DOTALL,
-)
-
-
-def render_pending_marker(
-    *,
-    transition_name: str,
-    from_state: IssueState | PRState,
-    intended_state: IssueState | PRState,
-    confidence: Optional[Confidence],
-) -> str:
-    """Serialize a pending-transition marker for an issue body."""
-    conf = confidence.name if confidence is not None else "MISSING"
-    from_name = from_state.name if hasattr(from_state, "name") else str(from_state)
-    intended_name = (
-        intended_state.name if hasattr(intended_state, "name") else str(intended_state)
-    )
-    return (
-        f"{_PENDING_MARKER_START} "
-        f"transition={transition_name} from={from_name} "
-        f"intended={intended_name} conf={conf} {_PENDING_MARKER_END}"
-    )
-
-
-def parse_pending_marker(body: str) -> Optional[dict]:
-    """Extract the pending-transition marker from an issue *body*.
-
-    Returns a dict with keys ``transition``, ``from``, ``intended``, ``conf``
-    (all strings), or ``None`` if no marker is present.
-    """
-    if not body:
-        return None
-    m = _PENDING_MARKER_RE.search(body)
-    if not m:
-        return None
-    fields: dict = {}
-    for token in m.group(1).split():
-        if "=" in token:
-            k, v = token.split("=", 1)
-            fields[k] = v
-    if "transition" not in fields:
-        return None
-    return fields
-
-
-def strip_pending_marker(body: str) -> str:
-    """Remove any pending-transition marker from *body* (and trailing blank lines)."""
-    if not body:
-        return body
-    new = _PENDING_MARKER_RE.sub("", body)
-    # Collapse the blank lines the marker may have left behind.
-    return re.sub(r"\n{3,}", "\n\n", new).rstrip() + ("\n" if body.endswith("\n") else "")
-
-
 def apply_transition(
     issue_number: int,
     transition_name: str,
@@ -664,8 +597,8 @@ def _render_human_divert_reason(
         lines.extend(["", extra.rstrip()])
     lines.extend([
         "",
-        "See the pending marker in the body for how the automation intends "
-        "to resume once an admin responds.",
+        "Apply the `human:solved` label after leaving a comment to signal "
+        "the divert is resolved and have the FSM resume.",
     ])
     return "\n".join(lines)
 
@@ -689,9 +622,8 @@ def apply_transition_with_confidence(
     - When *confidence* is missing or below ``transition.min_confidence``,
       the intended state change is refused and the issue is instead moved
       to ``transition.human_label_if_below`` (defaults to
-      :data:`LABEL_HUMAN_NEEDED`). The caller is responsible for appending
-      a pending marker to the issue body so the resume loop can pick up
-      where the automation stopped — see :func:`render_pending_marker`.
+      :data:`LABEL_HUMAN_NEEDED`). An admin resumes the FSM by leaving a
+      comment and applying ``human:solved`` — see :mod:`cai_lib.cmd_unblock`.
     - When confidence meets the threshold, delegates to
       :func:`apply_transition` and returns ``(ok, False)``.
 

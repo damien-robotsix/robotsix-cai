@@ -28,12 +28,17 @@ world you are in:
 
 After the header, three sections follow:
 
-1. **Pending transition marker** — what the automation was trying
-   to do when it paused (e.g. `transition=refining_to_refined
-   from=REFINING intended=REFINED conf=MEDIUM`).
-2. **Body** — the issue or PR text the admin is commenting on.
-3. **Admin comments** — only comments from admin logins are shown,
-   newest last.
+1. **Labels** — the FSM labels currently on the target. Use them to
+   infer what stage the automation reached before parking (e.g.
+   `auto-improve:human-needed` + a plan block in the body means the
+   plan gate diverted).
+2. **Body** — the issue or PR text, including any stored plan block
+   (`<!-- cai-plan-start -->…<!-- cai-plan-end -->`).
+3. **Comments** — the full comment thread, chronological. Comments
+   from admin logins are tagged `[admin]`. The admin applied
+   `human:solved` after leaving at least one `[admin]` comment — that
+   comment is your primary signal for the resume target; non-admin
+   comments are context (automation notes, review history, etc.).
 
 ## Issue resume targets (Kind: issue)
 
