@@ -34,6 +34,7 @@ Cron schedules are configurable via environment variables. Default values are se
 | `CAI_HEALTH_REPORT_SCHEDULE` | `0 7 * * 1` | Weekly (Monday 07:00 UTC) — pipeline health report |
 | `CAI_CHECK_WORKFLOWS_SCHEDULE` | `0 */6 * * *` | Every 6 hours — GitHub Actions workflow check |
 | `CAI_AGENT_AUDIT_SCHEDULE` | `0 6 * * 0` | Weekly (Sunday 06:00 UTC) — agent audit |
+| `CAI_WORKSPACES_CONFIG` | `/app/workspaces.json` | Path to a JSON file listing additional repositories to maintain (optional; see Multi-workspace section below) |
 
 Schedule values use standard cron format: `minute hour day month weekday`. To disable a scheduled agent, set its variable to an empty string or a comment value.
 
@@ -43,6 +44,41 @@ Schedule values use standard cron format: `minute hour day month weekday`. To di
 |---|---|---|
 | `CAI_TRANSCRIPT_WINDOW_DAYS` | `7` | Only parse session transcripts from the last N days |
 | `CAI_TRANSCRIPT_MAX_FILES` | `50` | Read at most N recent transcript files (0 = no limit) |
+
+## Multi-workspace Configuration
+
+By default, `robotsix-cai` maintains only the primary repository (Lane 1). To extend the container to manage additional repositories, create a `workspaces.json` file listing the repos to maintain:
+
+```json
+[
+  {
+    "repo": "owner/repo-name",
+    "cycle_schedule": "0 * * * *"
+  },
+  {
+    "repo": "owner/another-repo",
+    "cycle_schedule": "0 */6 * * *"
+  }
+]
+```
+
+**Field meanings:**
+
+- **`repo`** _(required)_ — GitHub repository identifier in `owner/repo` format
+- **`cycle_schedule`** _(optional)_ — cron schedule for this workspace's `cai.py cycle` runs (5-field format: `minute hour day month weekday`). If omitted, falls back to `CAI_CYCLE_SCHEDULE`. Each repo gets its own dispatcher cycle independent of the primary repository.
+
+**Configuration:**
+
+1. Create `workspaces.json` in your install directory (or elsewhere) with the repos you want to maintain
+2. Set `CAI_WORKSPACES_CONFIG` to the file's path in your `docker-compose.yml` (default: `/app/workspaces.json`)
+3. Restart the container: `docker compose up -d`
+
+The entrypoint will:
+- Parse the file and generate per-workspace cron lines appended to the generated crontab
+- Run an initial `cai.py cycle` for each workspace on startup (alongside the primary repo's startup cycle)
+- Schedule each workspace's cycle independently on its configured schedule
+
+See `workspaces.json.example` in the repository root for a complete example.
 
 ## Settings File
 
