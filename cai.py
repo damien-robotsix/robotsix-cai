@@ -156,18 +156,6 @@ Subcommands:
                             the issue based on Confidence: HIGH → `:applied`,
                             anything else → `:human-needed`.
 
-    python cai.py unblock   Scan open issues/PRs parked at
-                            `auto-improve:human-needed` (or
-                            `auto-improve:pr-human-needed`) that an admin
-                            has marked ready for resume by applying the
-                            `human:solved` label. For each such item, invokes
-                            the `cai-unblock` Haiku agent to classify the
-                            admin's comment, fires the matching state
-                            transition, strips the label, and returns the
-                            issue/PR to the FSM. Requires CAI_ADMIN_LOGINS
-                            to be set; without it, `human:solved` is silently
-                            ignored.
-
 The container runs `entrypoint.sh`, which executes `cai.py cycle` once
 synchronously at startup (driving the full issue-solving pipeline:
 verify → confirm → drain PRs → refine → plan → implement loop), then hands
@@ -263,7 +251,6 @@ from cai_lib.github import (  # noqa: E402
     close_issue_not_planned,
 )
 from cai_lib.watchdog import _rollback_stale_in_progress  # noqa: E402
-from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.actions.confirm import (  # noqa: E402
     _parse_verdicts,
     _update_parent_checklist_item,
@@ -3097,10 +3084,6 @@ def main() -> int:
     sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
     sub.add_parser("propose", help="Weekly creative improvement proposal")
     sub.add_parser("update-check", help="Check Claude Code releases for workspace improvements")
-    sub.add_parser(
-        "unblock",
-        help="Resume :human-needed issues when an admin has commented",
-    )
     sub.add_parser("cost-optimize", help="Weekly cost-reduction proposal or evaluation")
     sub.add_parser("check-workflows", help="Check GitHub Actions for recent workflow failures and raise findings")
     sub.add_parser("cycle", help="One cycle tick: verify, audit, dispatch one actionable issue/PR")
@@ -3162,7 +3145,6 @@ def main() -> int:
         "code-audit": cmd_code_audit,
         "propose": cmd_propose,
         "update-check": cmd_update_check,
-        "unblock": cmd_unblock,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
         "health-report": cmd_health_report,

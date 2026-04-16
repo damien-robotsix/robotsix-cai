@@ -1,9 +1,7 @@
-"""Tests for cai_lib.cmd_unblock — pure-logic helpers.
+"""Tests for cai_lib.actions.unblock — pure-logic helpers.
 
-The command path (`cmd_unblock`) invokes the `cai-unblock` Haiku
-agent via `claude -p` and is tested end-to-end in a live container.
 These tests cover the deterministic pieces that don't need claude:
-admin-comment filtering and agent-input formatting.
+admin-comment filtering, agent-input formatting, and dispatcher hooks.
 """
 import os
 import sys
@@ -16,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # cai_lib.config — by the time this test file loads, cai_lib.config
 # may already be imported with an empty set. Patch the frozenset in
 # place so is_admin_login sees our test logins.
-from cai_lib import cmd_unblock as U  # noqa: E402
+from cai_lib.actions import unblock as U  # noqa: E402
 from cai_lib import config as _config  # noqa: E402
 _config.ADMIN_LOGINS = frozenset({"alice", "bob"})
 
@@ -234,27 +232,6 @@ class TestHandleHumanNeeded(unittest.TestCase):
         with mock.patch.object(U, "_try_unblock_issue", return_value="agent_failed"):
             rc = U.handle_human_needed(issue)
         self.assertEqual(rc, 1)
-
-
-class TestListPrHumanNeededFiltersByLabel(unittest.TestCase):
-    """PR-side picker must require BOTH :pr-human-needed and human:solved."""
-
-    def test_queries_both_labels(self):
-        captured: list[list[str]] = []
-
-        def fake_gh(args):
-            captured.append(args)
-            return []
-
-        with mock.patch.object(U, "_gh_json", side_effect=fake_gh):
-            U._list_pr_human_needed_prs()
-
-        self.assertEqual(len(captured), 1)
-        args = captured[0]
-        label_flags = [args[i + 1] for i, a in enumerate(args) if a == "--label"]
-        self.assertIn("auto-improve:pr-human-needed", label_flags)
-        self.assertIn("human:solved", label_flags)
-        self.assertEqual(len(label_flags), 2)
 
 
 class TestTryUnblockPrSkips(unittest.TestCase):

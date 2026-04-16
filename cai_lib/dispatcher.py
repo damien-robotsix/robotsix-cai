@@ -76,7 +76,7 @@ def _build_issue_registry() -> dict[IssueState, IssueHandler]:
     from cai_lib.actions.implement import handle_implement
     from cai_lib.actions.confirm   import handle_confirm
     from cai_lib.actions.pr_bounce import handle_pr_bounce
-    from cai_lib.cmd_unblock       import handle_human_needed
+    from cai_lib.actions.unblock   import handle_human_needed
 
     return {
         IssueState.RAISED:            handle_triage,
@@ -105,7 +105,7 @@ def _build_pr_registry() -> dict[PRState, PRHandler]:
     from cai_lib.actions.fix_ci      import handle_fix_ci
     from cai_lib.actions.merge       import handle_merge
     from cai_lib.actions.rebase      import handle_rebase
-    from cai_lib.cmd_unblock          import handle_pr_human_needed
+    from cai_lib.actions.unblock      import handle_pr_human_needed
 
     return {
         PRState.OPEN:             handle_open_to_review,
