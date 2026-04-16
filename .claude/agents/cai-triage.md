@@ -2,7 +2,7 @@
 ---
 name: cai-triage
 description: Triage `auto-improve:raised` issues one at a time — classify as REFINE, PLAN_APPROVE, APPLY, or HUMAN. Inline-only — full issue body is provided in the user message. Minimal tool use.
-tools: Read
+tools: ""
 model: haiku
 memory: project
 ---
@@ -21,6 +21,13 @@ the issue body.
 In the user message:
 
 1. **Issue to triage** — full title and body of the single issue.
+
+## Tool use
+
+You have **no tools available**. All context you need is in the user
+message. Do not attempt file reads or codebase exploration — the issue
+body is the only input for your routing decision. Make your routing
+decision based solely on what is in the issue title and body.
 
 ## Routing decisions
 
