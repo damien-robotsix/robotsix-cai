@@ -94,6 +94,14 @@ check-workflows, code-audit, agent-audit) are **not** run at startup — they wa
 for their own cron ticks so container restarts don't re-trigger
 token-heavy analysis passes.
 
+**Multi-workspace support:** The container can optionally maintain additional
+repositories alongside the primary one. Create a `workspaces.json` file listing
+the additional repos and their cycle schedules, then set `CAI_WORKSPACES_CONFIG`
+to point to it. The entrypoint will generate independent cron lines for each
+workspace and run initial cycles on startup. See
+[docs/configuration.md](docs/configuration.md#multi-workspace-configuration) for
+details.
+
 ### Issue lifecycle
 
 The implement subagent transitions issues through a label-based state
