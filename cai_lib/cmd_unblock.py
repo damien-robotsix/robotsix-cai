@@ -36,15 +36,13 @@ from cai_lib.fsm import (
     apply_transition,
     apply_pr_transition,
     parse_confidence,
-    parse_pending_marker,
     parse_resume_target,
     resume_transition_for,
     resume_pr_transition_for,
-    strip_pending_marker,
 )
 from cai_lib.github import _gh_json, _set_pr_labels
 from cai_lib.logging_utils import log_run
-from cai_lib.subprocess_utils import _run, _run_claude_p
+from cai_lib.subprocess_utils import _run_claude_p
 
 
 def _list_human_needed_issues() -> list[dict]:
@@ -83,100 +81,65 @@ def _extract_admin_comments(issue: dict) -> list[dict]:
     return out
 
 
-def _build_unblock_message(
-    *,
-    kind: str,
-    issue: dict,
-    marker: Optional[dict],
-    admin_comments: list[dict],
-) -> str:
+def _build_unblock_message(*, kind: str, issue: dict) -> str:
     """Format the user message for the cai-unblock agent.
 
-    ``marker`` may be ``None`` — PRs are parked without a pending
-    marker written to their body (the ``approved_to_human`` path in
-    ``cai merge`` doesn't emit one), so the agent gets "(no marker)"
-    and relies solely on the admin comment plus PR body for context.
+    Includes the target's labels, body, and the full comment thread
+    (chronological, all authors) — the agent uses the admin's most recent
+    comment as the resume signal and the rest as context.
     """
-    if marker is None:
-        marker_line = "(no marker — target was parked without one)"
-    else:
-        marker_line = (
-            f"transition={marker.get('transition', '?')} "
-            f"from={marker.get('from', '?')} "
-            f"intended={marker.get('intended', '?')} "
-            f"conf={marker.get('conf', '?')}"
-        )
     body = issue.get("body") or "(no body)"
+    labels = [
+        (lb.get("name") if isinstance(lb, dict) else lb)
+        for lb in issue.get("labels", [])
+    ]
+    labels_line = ", ".join(labels) if labels else "(none)"
+
+    comments = issue.get("comments") or []
     comments_block = ""
-    for c in admin_comments:
+    for c in comments:
         author = (c.get("author") or {}).get("login") or "unknown"
         created = c.get("createdAt", "") or c.get("created_at", "")
+        marker = " [admin]" if is_admin_login(author) else ""
         text = c.get("body", "") or ""
-        comments_block += f"\n**{author}** ({created}):\n{text}\n"
+        comments_block += f"\n**{author}**{marker} ({created}):\n{text}\n"
+
     return (
         f"Kind: {kind}\n"
         f"\n"
-        f"## Pending transition marker\n"
-        f"{marker_line}\n"
+        f"## Labels\n"
+        f"{labels_line}\n"
         f"\n"
         f"## Body\n\n"
         f"### #{issue['number']} — {issue.get('title', '')}\n\n"
         f"{body}\n"
         f"\n"
-        f"## Admin comments\n"
-        f"{comments_block or '(no admin comments)'}\n"
+        f"## Comments\n"
+        f"{comments_block or '(no comments)'}\n"
     )
-
-
-def _clear_pending_marker_on_body(issue_number: int, current_body: str) -> bool:
-    """Strip the pending marker from *current_body* and push via gh."""
-    stripped = strip_pending_marker(current_body)
-    if stripped == current_body:
-        return True  # nothing to do
-    update = _run(
-        ["gh", "issue", "edit", str(issue_number),
-         "--repo", REPO, "--body", stripped],
-        capture_output=True,
-    )
-    if update.returncode != 0:
-        print(
-            f"[cai unblock] failed to strip marker on #{issue_number}:\n"
-            f"{update.stderr}",
-            file=sys.stderr,
-        )
-        return False
-    return True
 
 
 def _try_unblock_issue(issue: dict) -> Optional[str]:
     """Attempt to resume *issue* from :human-needed. Returns the result tag.
 
     Result tags (used for logging):
-      - ``"no_marker"``        — no pending marker in body, left parked
       - ``"no_admin_comment"`` — ``human:solved`` applied but no admin
-        comment yet — the classifier has nothing to read
+        comment yet — the classifier has nothing to anchor on
       - ``"low_confidence"``   — agent's Confidence < HIGH, left parked
       - ``"no_target"``        — agent emitted no valid ResumeTo target
-      - ``"resumed"``          — transition fired, marker + solved label cleared
+      - ``"resumed"``          — transition fired, solved label cleared
       - ``"agent_failed"``     — claude invocation returned non-zero
     """
     issue_number = issue["number"]
-    body = issue.get("body") or ""
-    marker = parse_pending_marker(body)
-    if not marker:
-        return "no_marker"
 
     admin_comments = _extract_admin_comments(issue)
     if not admin_comments:
         # Admin applied human:solved without leaving any comment. The
-        # classifier would have nothing to read, so leave the issue parked
-        # rather than guess. The label stays on so we retry once a comment
-        # lands.
+        # classifier would have nothing to anchor on, so leave the issue
+        # parked. The label stays on so we retry once a comment lands.
         return "no_admin_comment"
 
-    user_message = _build_unblock_message(
-        kind="issue", issue=issue, marker=marker, admin_comments=admin_comments,
-    )
+    user_message = _build_unblock_message(kind="issue", issue=issue)
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-unblock",
          "--dangerously-skip-permissions"],
@@ -231,7 +194,6 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
     if not ok:
         return "agent_failed"
 
-    _clear_pending_marker_on_body(issue_number, body)
     print(
         f"[cai unblock] #{issue_number} resumed via {transition.name} "
         f"→ {transition.to_state.name}",
@@ -293,28 +255,18 @@ def _list_pr_human_needed_prs() -> list[dict]:
 def _try_unblock_pr(pr: dict) -> Optional[str]:
     """Attempt to resume *pr* from :pr-human-needed. Returns the result tag.
 
-    Mirrors :func:`_try_unblock_issue` with two differences:
-
-    - PR bodies are not expected to carry a pending marker (the
-      ``approved_to_human`` path in ``cai merge`` doesn't write one),
-      so the absence of a marker is not a skip condition.
-    - Resume target → ``pr_human_to_<state>`` transition via
-      :func:`resume_pr_transition_for`, applied with
-      :func:`apply_pr_transition`.
-
-    Result tags mirror the issue side; ``no_marker`` cannot occur here.
+    Mirrors :func:`_try_unblock_issue`. Resume target maps to a
+    ``pr_human_to_<state>`` transition via
+    :func:`resume_pr_transition_for`, applied with
+    :func:`apply_pr_transition`.
     """
     pr_number = pr["number"]
-    body = pr.get("body") or ""
-    marker = parse_pending_marker(body)  # may be None — informational only
 
     admin_comments = _extract_admin_comments(pr)
     if not admin_comments:
         return "no_admin_comment"
 
-    user_message = _build_unblock_message(
-        kind="pr", issue=pr, marker=marker, admin_comments=admin_comments,
-    )
+    user_message = _build_unblock_message(kind="pr", issue=pr)
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-unblock",
          "--dangerously-skip-permissions"],

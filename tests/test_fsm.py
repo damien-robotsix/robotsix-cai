@@ -13,7 +13,6 @@ from cai_lib.fsm import (
     apply_transition, apply_transition_with_confidence, find_transition,
     parse_confidence, parse_confidence_reason, parse_resume_target,
     resume_transition_for, resume_pr_transition_for,
-    render_pending_marker, parse_pending_marker, strip_pending_marker,
 )
 from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED, LABEL_REFINING,
@@ -314,49 +313,6 @@ class TestApplyTransitionWithConfidence(unittest.TestCase):
         self.assertEqual(calls, [])
         # State mismatch aborts before the divert → no comment either.
         self.assertEqual(comments, [])
-
-
-class TestPendingMarker(unittest.TestCase):
-
-    def test_roundtrip_with_confidence(self):
-        marker = render_pending_marker(
-            transition_name="raise_to_refining",
-            from_state=IssueState.RAISED,
-            intended_state=IssueState.REFINED,
-            confidence=Confidence.MEDIUM,
-        )
-        parsed = parse_pending_marker(f"body text\n{marker}\nmore text")
-        self.assertEqual(parsed["transition"], "raise_to_refining")
-        self.assertEqual(parsed["from"], "RAISED")
-        self.assertEqual(parsed["intended"], "REFINED")
-        self.assertEqual(parsed["conf"], "MEDIUM")
-
-    def test_roundtrip_with_missing_confidence(self):
-        marker = render_pending_marker(
-            transition_name="raise_to_refining",
-            from_state=IssueState.RAISED,
-            intended_state=IssueState.REFINED,
-            confidence=None,
-        )
-        parsed = parse_pending_marker(marker)
-        self.assertEqual(parsed["conf"], "MISSING")
-
-    def test_parse_returns_none_when_absent(self):
-        self.assertIsNone(parse_pending_marker("a plain issue body"))
-        self.assertIsNone(parse_pending_marker(""))
-
-    def test_strip_removes_marker(self):
-        marker = render_pending_marker(
-            transition_name="raise_to_refining",
-            from_state=IssueState.RAISED,
-            intended_state=IssueState.REFINED,
-            confidence=Confidence.LOW,
-        )
-        body = f"leading text\n\n{marker}\n\ntrailing text\n"
-        stripped = strip_pending_marker(body)
-        self.assertNotIn("cai-fsm-pending", stripped)
-        self.assertIn("leading text", stripped)
-        self.assertIn("trailing text", stripped)
 
 
 class TestResumeFromHuman(unittest.TestCase):

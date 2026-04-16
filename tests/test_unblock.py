@@ -51,70 +51,58 @@ class TestExtractAdminComments(unittest.TestCase):
 class TestBuildUnblockMessage(unittest.TestCase):
 
     def _fixture(self):
+        return {
+            "number": 42,
+            "title": "widget broke",
+            "body": "original body text",
+            "labels": [
+                {"name": "auto-improve:human-needed"},
+                {"name": "human:solved"},
+            ],
+            "comments": [
+                {"author": {"login": "automation-bot"},
+                 "createdAt": "2026-04-14T10:00:00Z",
+                 "body": "automation context note"},
+                {"author": {"login": "alice"},
+                 "createdAt": "2026-04-14T12:00:00Z",
+                 "body": "please re-try as plan-approved"},
+            ],
+        }
+
+    def test_contains_required_sections(self):
+        issue = self._fixture()
+        msg = U._build_unblock_message(kind="issue", issue=issue)
+        self.assertIn("Kind: issue", msg)
+        self.assertIn("## Labels", msg)
+        self.assertIn("auto-improve:human-needed", msg)
+        self.assertIn("human:solved", msg)
+        self.assertIn("widget broke", msg)
+        self.assertIn("original body text", msg)
+        self.assertIn("alice", msg)
+        self.assertIn("[admin]", msg)
+        self.assertIn("please re-try as plan-approved", msg)
+        # Non-admin comments are included unfiltered for context.
+        self.assertIn("automation-bot", msg)
+        self.assertIn("automation context note", msg)
+
+    def test_no_comments_placeholder(self):
         issue = {
             "number": 42,
             "title": "widget broke",
             "body": "original body text",
+            "labels": [],
             "comments": [],
         }
-        marker = {
-            "transition": "raise_to_refining",
-            "from": "RAISED",
-            "intended": "REFINING",
-            "conf": "MEDIUM",
-        }
-        admin_comments = [
-            {"author": {"login": "alice"},
-             "createdAt": "2026-04-14T12:00:00Z",
-             "body": "please re-try as plan-approved"},
-        ]
-        return issue, marker, admin_comments
-
-    def test_contains_required_sections(self):
-        issue, marker, comments = self._fixture()
-        msg = U._build_unblock_message(
-            kind="issue", issue=issue, marker=marker, admin_comments=comments,
-        )
-        self.assertIn("Kind: issue", msg)
-        self.assertIn("Pending transition marker", msg)
-        self.assertIn("transition=raise_to_refining", msg)
-        self.assertIn("from=RAISED", msg)
-        self.assertIn("intended=REFINING", msg)
-        self.assertIn("conf=MEDIUM", msg)
-        self.assertIn("widget broke", msg)
-        self.assertIn("original body text", msg)
-        self.assertIn("alice", msg)
-        self.assertIn("please re-try as plan-approved", msg)
-
-    def test_no_admin_comments_placeholder(self):
-        issue, marker, _ = self._fixture()
-        msg = U._build_unblock_message(
-            kind="issue", issue=issue, marker=marker, admin_comments=[],
-        )
-        self.assertIn("(no admin comments)", msg)
+        msg = U._build_unblock_message(kind="issue", issue=issue)
+        self.assertIn("(no comments)", msg)
 
 
 class TestTryUnblockIssueSkips(unittest.TestCase):
-    """The no-op branches do not invoke claude."""
-
-    def test_no_marker(self):
-        issue = {"number": 1, "title": "t", "body": "no marker here",
-                 "labels": [], "comments": [
-                     {"author": {"login": "alice"}, "body": "go ahead"},
-                 ]}
-        with mock.patch.object(U, "_run_claude_p") as fake:
-            result = U._try_unblock_issue(issue)
-        self.assertEqual(result, "no_marker")
-        fake.assert_not_called()
+    """The no-op branch does not invoke claude."""
 
     def test_no_admin_comment(self):
-        body = (
-            "issue text\n\n"
-            "<!-- cai-fsm-pending transition=raise_to_refining "
-            "from=RAISED intended=REFINING conf=MEDIUM -->\n"
-        )
-        issue = {"number": 2, "title": "t", "body": body, "labels": [],
-                 "comments": [
+        issue = {"number": 2, "title": "t", "body": "issue text",
+                 "labels": [], "comments": [
                      {"author": {"login": "stranger"}, "body": "hi"},
                  ]}
         with mock.patch.object(U, "_run_claude_p") as fake:
@@ -154,15 +142,10 @@ class TestResumeStripsHumanSolvedLabel(unittest.TestCase):
     """A successful resume must remove human:solved so the signal is one-shot."""
 
     def test_apply_transition_receives_human_solved_in_extra_remove(self):
-        body = (
-            "issue text\n\n"
-            "<!-- cai-fsm-pending transition=refining_to_refined "
-            "from=REFINING intended=REFINED conf=MEDIUM -->\n"
-        )
         issue = {
             "number": 77,
             "title": "t",
-            "body": body,
+            "body": "issue text",
             "labels": [
                 {"name": "auto-improve:human-needed"},
                 {"name": "human:solved"},
@@ -189,8 +172,7 @@ class TestResumeStripsHumanSolvedLabel(unittest.TestCase):
             return True
 
         with mock.patch.object(U, "_run_claude_p", return_value=fake_agent), \
-             mock.patch.object(U, "apply_transition", side_effect=fake_apply), \
-             mock.patch.object(U, "_clear_pending_marker_on_body", return_value=True):
+             mock.patch.object(U, "apply_transition", side_effect=fake_apply):
             result = U._try_unblock_issue(issue)
 
         self.assertEqual(result, "resumed")
