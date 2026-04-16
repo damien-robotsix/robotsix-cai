@@ -52,10 +52,13 @@ Subcommands:
                             `:no-action` to closed issues lacking terminal
                             labels; then runs a Sonnet-driven semantic
                             check for duplicates, stuck loops, label
-                            corruption, etc. Findings are pre-screened for
-                            duplicates/resolved via cai-dup-check; survivors
-                            are published as `auto-improve:raised` + `audit`
-                            issues in the unified label scheme.
+                            corruption, and human-needed issues
+                            (pipeline jams, abandoned tasks, repeated
+                            diversions, missing reasons). Findings are
+                            pre-screened for duplicates/resolved via
+                            cai-dup-check; survivors are published as
+                            `auto-improve:raised` + `audit` issues in
+                            the unified label scheme.
 
     python cai.py audit-triage  Autonomously resolve `auto-improve:raised`
                             + `audit` findings without opening a PR. Calls
@@ -3309,7 +3312,7 @@ def main() -> int:
     dispatch_parser.add_argument("--pr", type=int, default=None, help="Dispatch a specific PR by number")
 
     sub.add_parser("verify", help="Update labels based on PR merge state")
-    sub.add_parser("audit", help="Run the queue/PR consistency audit")
+    sub.add_parser("audit", help="Run the queue/PR consistency audit (includes human-needed checks)")
     sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
     sub.add_parser("agent-audit", help="Weekly audit of .claude/agents/ for consistency and usage")
     sub.add_parser("propose", help="Weekly creative improvement proposal")
