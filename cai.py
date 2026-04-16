@@ -280,7 +280,7 @@ from cai_lib.github import (  # noqa: E402
     _gh_json, check_gh_auth, check_claude_auth, _transcript_dir_is_empty,
     _set_labels, _set_pr_labels, _issue_has_label, _build_issue_block,
     _build_implement_user_message, _fetch_linked_issue_block,
-    close_issue_not_planned, close_issue_completed,
+    close_issue_not_planned,
 )
 from cai_lib.watchdog import _rollback_stale_in_progress  # noqa: E402
 from cai_lib.cmd_helpers import _work_directory_block  # noqa: E402
@@ -2709,37 +2709,9 @@ def _cmd_cycle_inner(args) -> int:
         print(f"[cai cycle] recovered {len(rolled_back)} stale lock(s): {nums}",
               flush=True)
 
-    # Phase 1.5: deterministic drain — advance :applied issues to :solved
-    # without an agent (maintenance ops are already done; this is bookkeeping).
-    from cai_lib.fsm import apply_transition as _apply_transition
-    try:
-        applied_issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_APPLIED,
-            "--state", "open",
-            "--json", "number,labels",
-            "--limit", "100",
-        ]) or []
-    except Exception:
-        applied_issues = []
-    for _ai in applied_issues:
-        _ai_labels = [lbl["name"] for lbl in _ai.get("labels", [])]
-        _apply_transition(
-            _ai["number"], "applied_to_solved",
-            current_labels=_ai_labels,
-            log_prefix="cai cycle",
-        )
-        print(f"[cai cycle] advanced #{_ai['number']} :applied → :solved",
-              flush=True)
-        close_issue_completed(
-            _ai["number"],
-            "Maintenance ops applied and verified "
-            "(auto-improve:applied → :solved). Closing as completed.",
-            log_prefix="cai cycle",
-        )
-
     # Phase 2: dispatch a single actionable issue/PR via the FSM dispatcher.
+    # Note: :applied → :solved bookkeeping is handled by handle_applied in
+    # the dispatcher (IssueState.APPLIED), so no separate Phase 1.5 is needed.
     rc = _run_step("dispatch", lambda _a: dispatch_drain(), args)
     all_results["dispatch"] = rc
     if rc != 0:
