@@ -53,6 +53,7 @@
 | `cai_lib/actions/explore.py` | Handler for IssueState.NEEDS_EXPLORATION — runs cai-explore |
 | `cai_lib/actions/fix_ci.py` | Handler for PRState.CI_FAILING — runs cai-fix-ci |
 | `cai_lib/actions/implement.py` | Handler for IssueState.PLAN_APPROVED / IN_PROGRESS — runs cai-implement |
+| `cai_lib/actions/maintain.py` | TODO: add description |
 | `cai_lib/actions/merge.py` | Handler for PRState.APPROVED — final merge step |
 | `cai_lib/actions/open_pr.py` | Handler for PRState.OPEN — tags a fresh PR into :reviewing-code |
 | `cai_lib/actions/plan.py` | Handler for IssueState.REFINED / PLANNING / PLANNED — runs cai-plan + confidence gate |
