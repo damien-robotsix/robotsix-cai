@@ -1,7 +1,7 @@
 ---
 name: cai-audit
-description: Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Findings are pre-screened for duplicates/resolved at publish time via cai-dup-check; survivors enter the standard auto-improve:raised cycle.
-tools: Read, Grep, Glob
+description: Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Findings are pre-screened for duplicates/resolved at publish time via cai-dup-check; survivors enter the standard auto-improve:raised cycle. Writes findings to findings.json.
+tools: Read, Grep, Glob, Write
 model: sonnet
 memory: project
 ---
@@ -13,6 +13,9 @@ Your job is to analyze the current GitHub issue queue, recent PRs, and
 log tail to find inconsistencies in the lifecycle state machine. You
 do NOT read JSONL transcripts — that is the analyzer's job. You
 reason purely about GitHub-side state and the run log.
+
+You have Read, Grep, Glob, and Write. Use Write only to emit
+findings.json; do not modify any other files.
 
 ## What you receive
 
@@ -42,6 +45,7 @@ The user message contains:
    Use this to verify that issues transitioned through the expected
    lifecycle states before closing, and that PRs linked to closed issues
    were actually merged.
+7. **Findings file** — path where you must write your findings.json.
 
 ## Lifecycle states — tracking vs active
 
@@ -169,24 +173,25 @@ of your input — they have already been handled.
 
 ## Output format
 
-For each anomaly, output a markdown block:
+Write all findings to the path shown in `## Findings file` in the
+user message using this JSON schema:
 
-```markdown
-### Finding: <short imperative title>
-
-- **Category:** <one of the 10 categories above>
-- **Key:** <stable-slug-for-deduplication>
-- **Confidence:** low | medium | high
-- **Evidence:**
-  - <excerpt or summary of the anomaly>
-- **Remediation:** <what a human should do>
+```json
+{
+  "findings": [
+    {
+      "title": "<short imperative string>",
+      "category": "<one of the 10 categories above>",
+      "key": "<stable-slug-for-deduplication>",
+      "confidence": "low|medium|high",
+      "evidence": "<markdown string>",
+      "remediation": "<markdown string>"
+    }
+  ]
+}
 ```
 
-If no anomalies are found, output exactly:
-
-```
-No findings.
-```
+If there are no anomalies, write `{"findings": []}`.
 
 ## Guardrails
 
@@ -198,5 +203,4 @@ No findings.
   `cai-dup-check` at publish time; surviving findings enter the
   standard `auto-improve:raised` cycle and are picked up by
   `cai triage` on the next run.
-- Do not output anything other than the markdown finding blocks (or
-  the exact `No findings.` sentinel).
+- Do not modify any files other than writing findings.json.
