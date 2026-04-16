@@ -310,9 +310,9 @@ implement their linked issue. For each open `:pr-open` PR on an
    unaddressed comments, no conflicts, no failed CI, not already
    evaluated at the current SHA)
 2. Fetches the linked issue body, PR diff, and PR comments
-3. Pipes them through `claude -p --model claude-opus-4-6` with a
-   conservative merge-review prompt
-4. Parses the model's verdict: a confidence level (`high`, `medium`,
+3. Runs the `cai-merge` agent with forced tool-use via `--json-schema`
+   to obtain a structured verdict
+4. Parses the agent's JSON verdict: a confidence level (`high`, `medium`,
    or `low`) and an independent action (`merge`, `hold`, or `reject`)
 5. If the action is `merge` and confidence meets the threshold,
    merges via `gh pr merge --merge --delete-branch`
