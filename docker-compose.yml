@@ -46,6 +46,7 @@ services:
       CAI_HEALTH_REPORT_SCHEDULE: "0 7 * * 1" # weekly Monday 07:00 UTC (pipeline health report)
       CAI_COST_OPTIMIZE_SCHEDULE: "0 5 * * 0" # weekly Sunday 05:00 UTC (cost-reduction analysis)
       CAI_CHECK_WORKFLOWS_SCHEDULE: "0 */6 * * *" # every 6h (check for CI workflow failures)
+      CAI_AGENT_AUDIT_SCHEDULE: "0 6 * * 0"  # weekly Sunday 06:00 UTC (agent definition audit)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_MERGE_MAX_DIFF_LEN: "40000"       # max chars of PR diff passed to merge agent
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
