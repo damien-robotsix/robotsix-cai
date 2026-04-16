@@ -152,6 +152,16 @@ on the issue. If a human disagrees with the bot's assessment, they can
 re-open the issue (which transitions it to `:raised`) to restart the
 triage pipeline, allowing the triage agent to re-evaluate with new context.
 
+During implementation, the handler also runs regression tests (`tests/`) against
+the cloned working tree before pushing to avoid breaking changes. If regression
+tests fail, the issue is rolled back to `:plan-approved` and will be retried on
+the next cycle. However, if an issue fails regression tests **3 consecutive times**,
+it is escalated to `:human-needed` instead of being continuously retried. This
+prevents the implement loop from monopolizing cycles on unresolvable issues
+(e.g., when the plan contains a subtle bug that the agent cannot fix). A comment
+is posted to the issue explaining the escalation; you can relabel to
+`:plan-approved` to retry once the underlying problem is resolved.
+
 ### Filing issues with multi-step plans
 
 When filing an auto-improve issue, you can optionally include a

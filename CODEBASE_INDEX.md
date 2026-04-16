@@ -90,7 +90,7 @@
 | `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
-| `tests/test_implement_consecutive_failures.py` | TODO: add description |
+| `tests/test_implement_consecutive_failures.py` | Tests for consecutive test failure escalation logic — verifies the implement handler escalates to `:human-needed` after 3 consecutive regression test failures |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
 | `tests/test_maintain.py` | TODO: add description |
 | `tests/test_merge_diff.py` | TODO: add description |
