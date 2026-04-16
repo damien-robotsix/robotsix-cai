@@ -260,3 +260,32 @@ def close_issue_not_planned(
         )
         return False
     return True
+
+
+def close_issue_completed(
+    issue_number: int,
+    comment: str,
+    log_prefix: str = "cai",
+) -> bool:
+    """Close a GitHub issue as 'completed' with an audit comment.
+
+    Use for terminal SOLVED transitions where the work was actually done
+    (maintenance drain, human-resume to SOLVED). For dismissals/no-action
+    closes, use ``close_issue_not_planned`` instead.
+    """
+    result = subprocess.run(
+        ["gh", "issue", "close", str(issue_number),
+         "--repo", REPO,
+         "--reason", "completed",
+         "--comment", comment],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"[{log_prefix}] WARNING: gh issue close failed for "
+            f"#{issue_number}: {result.stderr.strip()}",
+            file=sys.stderr, flush=True,
+        )
+        return False
+    return True

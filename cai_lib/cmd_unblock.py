@@ -39,7 +39,7 @@ from cai_lib.fsm import (
     resume_transition_for,
     resume_pr_transition_for,
 )
-from cai_lib.github import _gh_json, _set_pr_labels
+from cai_lib.github import _gh_json, _set_pr_labels, close_issue_completed
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run_claude_p
 
@@ -245,6 +245,15 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
         f"→ {transition.to_state.name}",
         flush=True,
     )
+
+    if transition.name == "human_to_solved":
+        close_issue_completed(
+            issue_number,
+            f"Resumed to SOLVED per admin direction: {reasoning}. "
+            f"Closing as completed.",
+            log_prefix="cai unblock",
+        )
+
     return "resumed"
 
 
