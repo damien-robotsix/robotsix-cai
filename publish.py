@@ -613,6 +613,7 @@ def main() -> int:
     else:
         valid_cats = VALID_CATEGORIES
 
+    text = ""
     if args.findings_file:
         findings = load_findings_json(args.findings_file, valid_cats)
     else:
@@ -623,13 +624,20 @@ def main() -> int:
         findings = parse_findings(text, valid_categories=valid_cats)
 
     if not findings:
-        snippet = text[:500].replace("\n", "↵")
-        print(
-            f"[publish] ERROR: non-empty input produced 0 findings — "
-            f"agent may have used prose instead of ### Finding: blocks.\n"
-            f"Input snippet: {snippet!r}",
-            file=sys.stderr,
-        )
+        if text:
+            snippet = text[:500].replace("\n", "↵")
+            print(
+                f"[publish] ERROR: non-empty input produced 0 findings — "
+                f"agent may have used prose instead of ### Finding: blocks.\n"
+                f"Input snippet: {snippet!r}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "[publish] ERROR: findings file produced 0 valid findings — "
+                "all entries were rejected due to missing or invalid fields.",
+                file=sys.stderr,
+            )
         return 1
 
     print(f"[publish] parsed {len(findings)} finding(s)")
