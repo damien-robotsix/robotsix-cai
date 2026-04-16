@@ -2717,24 +2717,6 @@ def _cmd_cycle_inner(args) -> int:
     if rc != 0:
         had_failure = True
 
-    # Phase 3: maintenance apply — drain :applying issues via cmd_maintain.
-    try:
-        applying_issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_APPLYING,
-            "--state", "open",
-            "--json", "number",
-            "--limit", "1",
-        ]) or []
-    except Exception:
-        applying_issues = []
-    if applying_issues:
-        rc = _run_step("maintain", cmd_maintain, args)
-        all_results["maintain"] = rc
-        if rc != 0:
-            had_failure = True
-
     dur = f"{time.monotonic() - t0:.1f}s"
     summary = " ".join(f"{k}={v}" for k, v in all_results.items())
     print(f"\n[cai cycle] done in {dur} — {summary}", flush=True)
