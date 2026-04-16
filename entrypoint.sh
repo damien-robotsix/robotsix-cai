@@ -13,17 +13,17 @@
 #
 #    Orthogonal (independent) tasks — not part of the fix pipeline,
 #    so they keep their own schedules:
-#      - verify:         label-state reconciliation with GitHub
-#      - analyze:        parse own transcripts, raise findings as issues
-#      - audit:          periodic queue/PR consistency checks (includes human-needed)
-#      - code-audit:     periodic source code consistency checks
-#      - propose:        weekly creative improvement proposals
-#      - update-check:   periodic Claude Code release checks
-#      - health-report:  automated pipeline health report
-#      - cost-optimize:  weekly cost-reduction proposal or evaluation
-#      - check-workflows: monitor GitHub Actions for failures
-#      - agent-audit:    weekly audit of .claude/agents/ for consistency and usage
-#      - external-scout: weekly scout for open-source libraries that could replace in-house plumbing
+#      - verify:         label-state reconciliation with GitHub (hourly at :15)
+#      - analyze:        parse own transcripts, raise findings as issues (daily at midnight)
+#      - audit:          periodic queue/PR consistency checks (every 6 hours)
+#      - code-audit:     periodic source code consistency checks (weekly, Sundays 03:00)
+#      - propose:        weekly creative improvement proposals (Sundays 04:00)
+#      - update-check:   periodic Claude Code release checks (weekly, Mondays 04:00)
+#      - health-report:  automated pipeline health report (weekly, Mondays 07:00)
+#      - cost-optimize:  weekly cost-reduction proposal or evaluation (Sundays 05:00)
+#      - check-workflows: monitor GitHub Actions for failures (every 6 hours)
+#      - agent-audit:    weekly audit of .claude/agents/ for consistency and usage (Sundays 06:00)
+#      - external-scout: weekly scout for open-source libraries that could replace in-house plumbing (Mondays 06:00)
 #
 # Environment variables:
 #   CAI_WORKSPACES_CONFIG  Path to a JSON file listing additional repos to maintain

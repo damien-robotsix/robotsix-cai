@@ -132,7 +132,7 @@ Subcommands:
                             `auto-improve:raised` so they flow through
                             the refine → fix pipeline.
 
-    python cai.py update-check  Periodic Claude Code release check.
+    python cai.py update-check  Weekly Claude Code release check.
                             Clones the repo, fetches the latest Claude
                             Code releases from GitHub, and runs a Sonnet
                             agent that compares the current pinned
@@ -168,7 +168,7 @@ Subcommands:
                             Haiku agent to identify persistent failures.
                             Findings are published via publish.py with the
                             `check-workflows` namespace. Runs every 6 hours
-                            by default (CAI_CHECK_WORKFLOWS_SCHEDULE).
+                            by default (configurable via CAI_CHECK_WORKFLOWS_SCHEDULE).
 
     python cai.py unblock   Scan open issues/PRs parked at
                             `auto-improve:human-needed` (or
@@ -181,6 +181,23 @@ Subcommands:
                             issue/PR to the FSM. Requires CAI_ADMIN_LOGINS
                             to be set; without it, `human:solved` is silently
                             ignored.
+
+Default schedules (all configurable via environment variables):
+
+    Subcommand        Default cron       Frequency               Env var
+    ─────────────     ──────────────     ─────────────────────   ──────────────────────────
+    cycle             0 * * * *          Hourly at :00           CAI_CYCLE_SCHEDULE
+    verify            15 * * * *         Hourly at :15           CAI_VERIFY_SCHEDULE
+    analyze           0 0 * * *          Daily at midnight       CAI_ANALYZER_SCHEDULE
+    audit             0 */6 * * *        Every 6 hours           CAI_AUDIT_SCHEDULE
+    check-workflows   0 */6 * * *        Every 6 hours           CAI_CHECK_WORKFLOWS_SCHEDULE
+    code-audit        0 3 * * 0          Weekly, Sundays 03:00   CAI_CODE_AUDIT_SCHEDULE
+    propose           0 4 * * 0          Weekly, Sundays 04:00   CAI_PROPOSE_SCHEDULE
+    cost-optimize     0 5 * * 0          Weekly, Sundays 05:00   CAI_COST_OPTIMIZE_SCHEDULE
+    agent-audit       0 6 * * 0          Weekly, Sundays 06:00   CAI_AGENT_AUDIT_SCHEDULE
+    update-check      0 4 * * 1          Weekly, Mondays 04:00   CAI_UPDATE_CHECK_SCHEDULE
+    external-scout    0 6 * * 1          Weekly, Mondays 06:00   CAI_EXTERNAL_SCOUT_SCHEDULE
+    health-report     0 7 * * 1          Weekly, Mondays 07:00   CAI_HEALTH_REPORT_SCHEDULE
 
 The container runs `entrypoint.sh`, which executes `cai.py cycle` once
 synchronously at startup (driving the full issue-solving pipeline:
