@@ -13,6 +13,7 @@ Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `desc
 | `cai-confirm` | Verify each `auto-improve:merged` issue is actually resolved; close resolved issues in GitHub as "completed" | Read, Grep, Glob | sonnet | Read-only |
 | `cai-cost-optimize` | Weekly cost-reduction agent — analyzes spending trends, proposes one optimization | Read, Grep, Glob | sonnet | Read-only |
 | `cai-explore` | Autonomous exploration and benchmarking of `:needs-exploration` issues | Read, Grep, Glob, Bash, Agent, Write, Edit | opus | Clone |
+| `cai-external-scout` | Weekly scout for open-source libraries that could replace in-house plumbing; raises one adoption proposal per run | Read, Grep, Glob, WebSearch, WebFetch | opus | Worktree |
 | `cai-fix-ci` | Diagnose and fix failing GitHub Actions checks on open PRs | Read, Edit, Write, Grep, Glob, Agent | sonnet | Worktree |
 | `cai-implement` | Autonomous code-editing subagent — makes the smallest targeted change for an issue | Read, Edit, Write, Grep, Glob, TodoWrite | sonnet | Worktree |
 | `cai-git` | Lightweight subagent that executes git operations on behalf of other agents | Bash | haiku | Worktree |

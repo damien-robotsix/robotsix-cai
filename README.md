@@ -74,6 +74,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs a Sonnet agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the triage → (optionally skip to `:plan-approved` / `:applying`) → refine → plan → implement pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, deprecated flags, best practices) are published as `update-check` namespace issues |
+| `cai.py external-scout` | `0 6 * * 1` (weekly Monday 06:00 UTC) | Weekly scout for open-source libraries that could replace in-house plumbing. Clones the repo read-only, runs an Opus agent that walks the codebase, picks one category of in-house utility, searches the open-source ecosystem for mature alternatives, and emits a single adoption proposal (or `No findings.`). Findings are published as `external-scout` namespace issues. Uses project-scope memory to avoid re-proposing the same category or library. |
 | `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
 | `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
 | `cai.py check-workflows` | `0 */6 * * *` (every 6 hours) | GitHub Actions failure monitor — fetches recent failed workflow runs (last 24 h), filters out bot branches, and runs a Haiku agent to group related failures and identify root causes; findings are published as `check-workflows` namespace issues. |
@@ -85,11 +86,11 @@ targeted invocation, `cai.py dispatch --issue N` and
 On `docker compose up -d` the entrypoint templates the crontab from
 the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_ANALYZER_SCHEDULE`,
 `CAI_AUDIT_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`, `CAI_PROPOSE_SCHEDULE`,
-`CAI_UPDATE_CHECK_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`,
+`CAI_UPDATE_CHECK_SCHEDULE`, `CAI_EXTERNAL_SCOUT_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`,
 `CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`, `CAI_AGENT_AUDIT_SCHEDULE`, `CAI_VERIFY_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. Orthogonal tasks
-(analyze, audit, propose, update-check, health-report, cost-optimize,
+(analyze, audit, propose, update-check, external-scout, health-report, cost-optimize,
 check-workflows, code-audit, agent-audit) are **not** run at startup — they wait
 for their own cron ticks so container restarts don't re-trigger
 token-heavy analysis passes.

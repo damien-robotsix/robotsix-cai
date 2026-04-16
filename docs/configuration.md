@@ -30,6 +30,7 @@ Cron schedules are configurable via environment variables. Default values are se
 | `CAI_PROPOSE_SCHEDULE` | `0 4 * * 0` | Weekly (Sunday 04:00 UTC) — creative proposals |
 | `CAI_COST_OPTIMIZE_SCHEDULE` | `0 5 * * 0` | Weekly (Sunday 05:00 UTC) — cost-reduction analysis |
 | `CAI_UPDATE_CHECK_SCHEDULE` | `0 4 * * 1` | Weekly (Monday 04:00 UTC) — Claude Code release check |
+| `CAI_EXTERNAL_SCOUT_SCHEDULE` | `0 6 * * 1` | Weekly (Monday 06:00 UTC) — scout for open-source libraries to replace in-house plumbing |
 | `CAI_HEALTH_REPORT_SCHEDULE` | `0 7 * * 1` | Weekly (Monday 07:00 UTC) — pipeline health report |
 | `CAI_CHECK_WORKFLOWS_SCHEDULE` | `0 */6 * * *` | Every 6 hours — GitHub Actions workflow check |
 | `CAI_AGENT_AUDIT_SCHEDULE` | `0 6 * * 0` | Weekly (Sunday 06:00 UTC) — agent audit |
