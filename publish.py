@@ -78,9 +78,10 @@ CHECK_WORKFLOWS_CATEGORIES = {
     "workflow_config_error",
 }
 
-# Labels we ensure exist before creating issues. The first two are the
-# state labels; the rest are the category labels. Idempotent — `gh label
-# create` returns non-zero if the label already exists, which we ignore.
+# Labels we ensure exist before creating issues. These include FSM/lifecycle
+# state labels (auto-improve:*), PR state labels (pr:*), and kind labels (kind:*).
+# Category information is now stored in the issue body, not as labels. Idempotent —
+# `gh label create` returns non-zero if the label already exists, which we ignore.
 LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
