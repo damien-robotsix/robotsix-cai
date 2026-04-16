@@ -2489,6 +2489,7 @@ def cmd_maintain(args) -> int:
     from cai_lib.fsm import (
         apply_transition_with_confidence,
         parse_confidence,
+        parse_confidence_reason,
     )
 
     print("[cai maintain] starting maintenance apply step", flush=True)
@@ -2589,6 +2590,7 @@ def cmd_maintain(args) -> int:
 
     # 4. Parse confidence and apply FSM transition.
     confidence = parse_confidence(result.stdout)
+    confidence_reason = parse_confidence_reason(result.stdout)
     issue_labels = [lbl["name"] for lbl in issue.get("labels", [])]
     ok, diverted = apply_transition_with_confidence(
         issue_number,
@@ -2596,6 +2598,7 @@ def cmd_maintain(args) -> int:
         confidence,
         current_labels=issue_labels,
         log_prefix="cai maintain",
+        reason_extra=confidence_reason or "",
     )
 
     dur = f"{int(time.monotonic() - t0)}s"
