@@ -77,6 +77,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
 | `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
 | `cai.py check-workflows` | `0 */6 * * *` (every 6 hours) | GitHub Actions failure monitor — fetches recent failed workflow runs (last 24 h), filters out bot branches, and runs a Haiku agent to group related failures and identify root causes; findings are published as `check-workflows` namespace issues. |
+| `cai.py agent-audit` | `0 6 * * 0` (weekly Sunday 06:00 UTC) | Weekly audit of `.claude/agents/*.md` for Claude Code best-practice violations, unused agents (not invoked via `--agent` anywhere), and near-duplicate agents; runs on Opus and publishes findings as `agent-audit` namespace issues. |
 | `cai.py maintain` | _(manual/on-demand via cai.py cycle)_ | Maintenance operations driver. Reads the `Ops:` block from the oldest issue labelled `auto-improve:applying` (kind:maintenance), clones the repo, runs the cai-maintain subagent to execute each declared operation (label mutations, bulk-close, workflow edits), and transitions based on Confidence: HIGH → `:applied`, else → `:human-needed`. Called automatically by `cai.py cycle` when `:applying` issues are present. |
 | `cai.py verify` / `audit` / `unblock` | _(own cron schedules; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
@@ -85,11 +86,11 @@ On `docker compose up -d` the entrypoint templates the crontab from
 the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_ANALYZER_SCHEDULE`,
 `CAI_AUDIT_SCHEDULE`, `CAI_CODE_AUDIT_SCHEDULE`, `CAI_PROPOSE_SCHEDULE`,
 `CAI_UPDATE_CHECK_SCHEDULE`, `CAI_HEALTH_REPORT_SCHEDULE`,
-`CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`, `CAI_VERIFY_SCHEDULE`),
+`CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`, `CAI_AGENT_AUDIT_SCHEDULE`, `CAI_VERIFY_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. Orthogonal tasks
 (analyze, audit, propose, update-check, health-report, cost-optimize,
-check-workflows, code-audit) are **not** run at startup — they wait
+check-workflows, code-audit, agent-audit) are **not** run at startup — they wait
 for their own cron ticks so container restarts don't re-trigger
 token-heavy analysis passes.
 
@@ -571,7 +572,7 @@ The container uses three Docker named volumes:
   Per-agent durable memory. Each declarative subagent has
   `memory: project` in its frontmatter, which Claude Code stores at
   `.claude/agent-memory/<agent-name>/MEMORY.md`. The /app agents
-  (analyze, audit, confirm, merge) read/write this
+  (analyze, audit, agent-audit, confirm, merge) read/write this
   volume directly. The cloned-worktree agents (fix, revise,
   review-pr, review-docs, code-audit, propose, propose-review, update-check,
   plan, select, git) also access their
@@ -628,7 +629,7 @@ docker run --rm -v cai_home:/data alpine ls -R /data
 
 A **run log** is written to `/var/log/cai/cai.log` inside the container
 (persisted in the `cai_logs` named volume). Each `init`, `analyze`,
-`implement`, `review-pr`, `review-docs`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, `merge`, and `health-report` invocation appends one key=value line so you can
+`implement`, `review-pr`, `review-docs`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, `merge`, `agent-audit`, and `health-report` invocation appends one key=value line so you can
 watch cycle activity:
 
 ```bash

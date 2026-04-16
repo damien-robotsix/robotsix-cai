@@ -32,6 +32,7 @@ Cron schedules are configurable via environment variables. Default values are se
 | `CAI_UPDATE_CHECK_SCHEDULE` | `0 4 * * 1` | Weekly (Monday 04:00 UTC) — Claude Code release check |
 | `CAI_HEALTH_REPORT_SCHEDULE` | `0 7 * * 1` | Weekly (Monday 07:00 UTC) — pipeline health report |
 | `CAI_CHECK_WORKFLOWS_SCHEDULE` | `0 */6 * * *` | Every 6 hours — GitHub Actions workflow check |
+| `CAI_AGENT_AUDIT_SCHEDULE` | `0 6 * * 0` | Weekly (Sunday 06:00 UTC) — agent audit |
 
 Schedule values use standard cron format: `minute hour day month weekday`. To disable a scheduled agent, set its variable to an empty string or a comment value.
 
