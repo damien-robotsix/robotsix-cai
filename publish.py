@@ -2,30 +2,42 @@
 """
 Publish analyzer findings as GitHub issues via the `gh` CLI.
 
-Reads the analyzer's stdout from this script's own stdin, parses
-`### Finding:` markdown blocks produced by `.claude/agents/cai-analyze.md`,
-and creates one issue per finding in the `damien-robotsix/robotsix-cai`
-repository. Existing findings are deduped by a fingerprint HTML comment
-embedded in the issue body (`<!-- fingerprint: <key> -->`).
+Reads findings from either stdin (markdown) or a JSON file (via --findings-file),
+parses `### Finding:` markdown blocks (when reading from stdin), and creates one
+issue per finding in the `damien-robotsix/robotsix-cai` repository. Existing
+findings are deduped by a fingerprint HTML comment embedded in the issue body
+(`<!-- fingerprint: <key> -->`).
 
 Phase C.2 scope — this is the Lane 1 publish step. Lane 2 (workspace
 targets) is still deferred.
 
-Non-empty stdin that produces zero parsed ``### Finding:`` blocks exits 1
-with a stderr diagnostic (including the first ~500 chars of input); empty
-stdin still exits 0.
+When reading from stdin: non-empty stdin that produces zero parsed ``### Finding:``
+blocks exits 1 with a stderr diagnostic (including the first ~500 chars of input);
+empty stdin still exits 0.
+
+When reading from a JSON file (--findings-file): malformed JSON or missing findings
+list exits 1. Entries with missing/invalid fields are logged to stderr and skipped;
+other entries proceed. Zero valid findings exits 1.
 
 No third-party Python dependencies — only stdlib plus the `gh` CLI.
 
 Usage::
 
+    # Read from stdin (markdown format):
     cat analyzer-output.md | python publish.py
+
+    # Or read from a JSON file:
+    python publish.py --findings-file findings.json
+
+    # With custom namespace:
+    python publish.py --findings-file findings.json --namespace code-audit
 
     # Or from cai.py, piped directly:
     # subprocess.run(["python", "/app/publish.py"], input=analyzer_stdout, ...)
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -291,6 +303,95 @@ def parse_findings(text: str, valid_categories: set[str] | None = None) -> list[
     return findings
 
 
+def load_findings_json(path: str, valid_categories: set[str]) -> list[Finding]:
+    """Load and validate a JSON findings file.
+
+    Schema:
+        {"findings": [{"title", "category", "key",
+                       "confidence", "evidence", "remediation"}, ...]}
+
+    Validation rules (intentionally stricter than parse_findings for structured
+    JSON input; parse_findings is lenient because it parses free-form markdown):
+      * Malformed JSON or missing top-level ``findings`` list -> sys.exit(1).
+      * Required fields (title, category, key) missing -> per-finding
+        stderr error, that entry skipped (other entries keep going).
+      * category outside ``valid_categories`` -> per-finding stderr error, skipped.
+      * confidence not in {"low","medium","high"} -> warn and default to
+        "unspecified" (JSON is structured so we validate the field; markdown is
+        free-form so parse_findings accepts any confidence string as-is).
+      * evidence / remediation missing -> default strings
+        ("(no evidence provided)" / "(no remediation provided)").
+    """
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[publish] ERROR: could not load findings file {path!r}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
+        print(
+            f"[publish] ERROR: {path!r} must be a JSON object with a top-level "
+            f'"findings" list',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    findings: list[Finding] = []
+    for idx, entry in enumerate(data["findings"]):
+        if not isinstance(entry, dict):
+            print(f"[publish] findings[{idx}]: not a dict — skipped", file=sys.stderr)
+            continue
+
+        skip = False
+        for field in ("title", "category", "key"):
+            if not entry.get(field):
+                print(
+                    f"[publish] findings[{idx}]: missing required field {field!r} — skipped",
+                    file=sys.stderr,
+                )
+                skip = True
+                break
+        if skip:
+            continue
+
+        title = entry["title"]
+        category = entry["category"]
+        key = entry["key"]
+
+        if category not in valid_categories:
+            print(
+                f"[publish] findings[{idx}]: invalid category {category!r} — skipped",
+                file=sys.stderr,
+            )
+            continue
+
+        confidence = entry.get("confidence", "")
+        if confidence not in {"low", "medium", "high"}:
+            print(
+                f"[publish] findings[{idx}]: confidence {confidence!r} not in "
+                f"{{low,medium,high}} — defaulting to 'unspecified'",
+                file=sys.stderr,
+            )
+            confidence = "unspecified"
+
+        evidence = entry.get("evidence") or "(no evidence provided)"
+        remediation = entry.get("remediation") or "(no remediation provided)"
+
+        findings.append(
+            Finding(
+                title=title,
+                category=category,
+                key=key,
+                confidence=confidence,
+                evidence=evidence,
+                remediation=remediation,
+            )
+        )
+
+    return findings
+
+
 def _extract_field(block: str, name: str) -> str:
     """Pull a single-line `- **Name:** value` field out of a block.
 
@@ -502,6 +603,12 @@ def main() -> int:
         choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit", "external-scout"],
         help="Label namespace to use (default: auto-improve)",
     )
+    parser.add_argument(
+        "--findings-file",
+        default=None,
+        help="Path to a JSON file with {\"findings\": [...]}; "
+             "when provided, replaces stdin/markdown parsing.",
+    )
     args = parser.parse_args()
     namespace = args.namespace
     if namespace == "audit":
@@ -519,20 +626,31 @@ def main() -> int:
     else:
         valid_cats = VALID_CATEGORIES
 
-    text = sys.stdin.read()
-    if not text.strip():
-        print("[publish] empty input; nothing to do")
-        return 0
+    text = ""
+    if args.findings_file:
+        findings = load_findings_json(args.findings_file, valid_cats)
+    else:
+        text = sys.stdin.read()
+        if not text.strip():
+            print("[publish] empty input; nothing to do")
+            return 0
+        findings = parse_findings(text, valid_categories=valid_cats)
 
-    findings = parse_findings(text, valid_categories=valid_cats)
     if not findings:
-        snippet = text[:500].replace("\n", "↵")
-        print(
-            f"[publish] ERROR: non-empty input produced 0 findings — "
-            f"agent may have used prose instead of ### Finding: blocks.\n"
-            f"Input snippet: {snippet!r}",
-            file=sys.stderr,
-        )
+        if text:
+            snippet = text[:500].replace("\n", "↵")
+            print(
+                f"[publish] ERROR: non-empty input produced 0 findings — "
+                f"agent may have used prose instead of ### Finding: blocks.\n"
+                f"Input snippet: {snippet!r}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "[publish] ERROR: findings file produced 0 valid findings — "
+                "all entries were rejected due to missing or invalid fields.",
+                file=sys.stderr,
+            )
         return 1
 
     print(f"[publish] parsed {len(findings)} finding(s)")
