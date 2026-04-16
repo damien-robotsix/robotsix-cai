@@ -50,7 +50,7 @@ State transitions between these rows are rendered in [the lifecycle FSM diagram]
 | Agent | Description | Tools | Model | Lifecycle trigger | Mode |
 |---|---|---|---|---|---|
 | `cai-analyze` | Analyze parsed transcript signals and raise auto-improve findings | Read, Grep, Glob, Skill | sonnet | Scheduled (cron) | Read-only |
-| `cai-agent-audit` | Weekly audit of `.claude/agents/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes | Read, Grep, Glob | opus | Scheduled (weekly, cron) | Read-only |
+| `cai-agent-audit` | Weekly audit of `.claude/agents/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes; writes findings to findings.json | Read, Grep, Glob, Write | opus | Scheduled (weekly, cron) | Read-only |
 | `cai-audit` | Audit issue queue and PRs for lifecycle state-machine inconsistencies | Read, Grep, Glob | sonnet | Scheduled (cron) | Read-only |
 | `cai-check-workflows` | Analyze recent GitHub Actions workflow failures and emit structured findings for new, unreported failures | Read, Grep, Glob | haiku | Scheduled (cron) | Read-only |
 | `cai-comment-filter` | Classify PR comments as resolved or unresolved, replacing the commit-timestamp watermark in the revise handler | None | haiku | Inline, invoked by handle_revise (REVISION_PENDING) | Inline-only |
