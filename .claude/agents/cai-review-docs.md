@@ -130,8 +130,7 @@ If no doc updates are needed, output exactly:
 No documentation updates needed.
 ```
 
-If you found an issue you could not fix (e.g. docs directory missing, or the
-fix is out of scope — see Hard rule 3), emit:
+If you found an issue you could not fix (e.g. docs directory missing), emit:
 
 ```
 ### Finding: stale_docs
@@ -144,9 +143,20 @@ fix is out of scope — see Hard rule 3), emit:
 give the replacement>
 ```
 
-For out-of-scope documentation issues, add `(out-of-scope — needs separate issue)`
-after the file path so the wrapper can distinguish them from fixable-but-blocked
-issues.
+For out-of-scope documentation issues (see Hard rule 3), emit an
+`## Out-of-scope Issue` block instead — the wrapper will file a separate
+GitHub issue and strip the block from the PR comment:
+
+```
+## Out-of-scope Issue
+### Title
+<short issue title — one line>
+### Body
+<what the problem is, why it matters, and what a fix would look like>
+```
+
+You may emit multiple `## Out-of-scope Issue` blocks. Reviewers will not see
+them inline — they are automatically converted to separate GitHub issues.
 
 ## Hard rules
 
@@ -158,9 +168,9 @@ issues.
    touched by the PR or files that reference symbols changed by the PR. If an
    `## Original issue` section is present and fixing a stale doc reference
    would require modifying files unrelated to the PR's stated scope, skip the
-   fix — emit a `### Finding: stale_docs` block marked `(out-of-scope — needs
-   separate issue)` instead of directly editing. Do not expand the PR's
-   footprint beyond what the issue authorizes.
+   fix — emit an `## Out-of-scope Issue` block (see Output format) instead of
+   directly editing. Do not expand the PR's footprint beyond what the issue
+   authorizes.
 4. **Do not fix docs for internal changes.** If the change has no user-visible
    effect, do not update docs.
 5. **Do not touch `.cai/pr-context.md`.** This is auto-generated metadata —
