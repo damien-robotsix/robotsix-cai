@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+"""
+Deterministic Claude Code session-transcript signal extractor.
+
+Lifted from claude-auto-tune-hub (scripts/parse-claude-transcript.py)
+with minor adaptations for the robotsix-cai context. Pure stdlib —
+no external dependencies, no network, no LLM calls.
+
+Claude Code saves session transcripts as JSONL files under::
+
+    ~/.claude/projects/<encoded-path>/<session-id>.jsonl
+
+Each line is a JSON object representing one turn (user, assistant, or
+tool result). This script walks one or more such files and emits a
+structured JSON summary of tool-call activity: total counts, top tools,
+failed tools, repeated consecutive runs, token usage, and a short
+sequence preview.
+
+The reasoning over this summary is the job of the Claude analyzer that
+calls this script (see .claude/agents/cai-analyze.md).
+
+Usage::
+
+    python parse.py /home/cai/.claude/projects/-app/
+    python parse.py <transcript-file.jsonl>
+    cat *.jsonl | python parse.py
+"""
+
+import json
+import os
+import pathlib
+import sys
+import time
+from collections import Counter
+
+
+# Cap on how many items of each list we include in the output. Counts
+# are always exact; samples are truncated so the downstream prompt stays
+# small.
+TOP_N = 20
+SEQUENCE_PREVIEW_LEN = 100
+
+
+def _extract_error_text(block: dict) -> str:
+    """Extract the text content from a tool_result error block."""
+    content = block.get("content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(item.get("text", ""))
+        return " ".join(parts)
+    return ""
+
+
+# Patterns that indicate network / auth / infrastructure errors — not
+# controllable by prompt guidance or CLAUDE.md rules.
+_NETWORK_AUTH_PATTERNS = [
+    "could not read username",
+    "could not read password",
+    "authentication failed",
+    "bad credentials",
+    "http 401",
+    "http 403",
+    "tls handshake timeout",
+    "connection reset by peer",
+    "connection refused",
+    "connection timed out",
+    "no such host",
+    "network is unreachable",
+    "dns lookup failed",
+    "certificate",
+    "ssl",
+    "econnrefused",
+    "econnreset",
+    "etimedout",
+    "fetch first",
+    "failed to push some refs",
+    "remote: invalid username or password",
+]
+
+
+def _categorize_error(error_text: str) -> str:
+    """Classify an error as 'network_auth' or 'controllable'."""
+    lower = error_text.lower()
+    for pattern in _NETWORK_AUTH_PATTERNS:
+        if pattern in lower:
+            return "network_auth"
+    return "controllable"
+
+
+def extract_tool_calls(lines: list[str]) -> dict:
+    """Walk JSONL lines and return a structured activity summary."""
+    tool_counter: Counter = Counter()
+    error_tools: list[str] = []
+    error_categories: list[str] = []
+    error_details: list[dict] = []
+    _last_assistant_text: str = ""
+    tool_sequences: list[str] = []
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_cache_creation_tokens = 0
+    total_cache_read_tokens = 0
+
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+
+        # Claude Code JSONL wraps messages:
+        #   {"type": "assistant", "message": {...}}
+        # Fall back to top-level role/content for older formats.
+        msg = entry.get("message", entry)
+        role = msg.get("role", entry.get("type", ""))
+        content = msg.get("content", [])
+
+        if isinstance(content, str):
+            content = [{"type": "text", "text": content}]
+
+        usage = msg.get("usage") or entry.get("usage", {})
+        if usage:
+            total_input_tokens += usage.get("input_tokens", 0)
+            total_input_tokens += usage.get("cache_creation_input_tokens", 0)
+            total_input_tokens += usage.get("cache_read_input_tokens", 0)
+            total_cache_creation_tokens += usage.get("cache_creation_input_tokens", 0)
+            total_cache_read_tokens += usage.get("cache_read_input_tokens", 0)
+            total_output_tokens += usage.get("output_tokens", 0)
+
+        if role == "assistant":
+            for block in content if isinstance(content, list) else []:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    _last_assistant_text = block.get("text", "")
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    name = block.get("name", "unknown")
+                    tool_counter[name] += 1
+                    tool_sequences.append(name)
+
+        elif role in ("tool", "user"):
+            # Tool results are delivered as either role="tool" (older)
+            # or role="user" with tool_result blocks (current). Detect
+            # errors either way.
+            for block in content if isinstance(content, list) else []:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    if block.get("is_error") and tool_sequences:
+                        error_tools.append(tool_sequences[-1])
+                        error_text = _extract_error_text(block)
+                        category = _categorize_error(error_text)
+                        error_categories.append(category)
+                        if len(error_details) < TOP_N:
+                            detail: dict = {"tool": tool_sequences[-1], "error_text": error_text[:200]}
+                            if _last_assistant_text:
+                                detail["reasoning_context"] = _last_assistant_text[:150]
+                            error_details.append(detail)
+
+    # Repeated consecutive-run detection: runs of 3+ identical calls in
+    # a row are a strong signal that a loop could be replaced by a
+    # single deterministic script.
+    repeated: list[dict] = []
+    i = 0
+    while i < len(tool_sequences):
+        j = i
+        while j < len(tool_sequences) and tool_sequences[j] == tool_sequences[i]:
+            j += 1
+        run_len = j - i
+        if run_len >= 3:
+            repeated.append({"tool": tool_sequences[i], "run_length": run_len, "start_index": i})
+        i = j
+
+    error_counter = Counter(error_tools)
+    category_counter = Counter(error_categories)
+
+    preview = tool_sequences[:SEQUENCE_PREVIEW_LEN]
+    sequence_preview = " -> ".join(preview)
+    if len(tool_sequences) > SEQUENCE_PREVIEW_LEN:
+        sequence_preview += f" ... (+{len(tool_sequences) - SEQUENCE_PREVIEW_LEN} more)"
+
+    total_errors = len(error_tools)
+    controllable_errors = category_counter.get("controllable", 0)
+    network_auth_errors = category_counter.get("network_auth", 0)
+
+    return {
+        "tool_call_count": sum(tool_counter.values()),
+        "top_tools": [t for t, _ in tool_counter.most_common(5)],
+        "tool_counts": dict(tool_counter.most_common(TOP_N)),
+        "error_tools": dict(error_counter.most_common(TOP_N)),
+        "error_categories": {
+            "total": total_errors,
+            "controllable": controllable_errors,
+            "network_auth": network_auth_errors,
+        },
+        "error_details": error_details,
+        "repeated_sequences": repeated[:TOP_N],
+        "token_usage": {
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "cache_creation_tokens": total_cache_creation_tokens,
+            "cache_read_tokens": total_cache_read_tokens,
+        },
+        "tool_sequence_preview": sequence_preview,
+    }
+
+
+def _get_cutoff_time() -> float:
+    """Return the mtime cutoff as a Unix timestamp, or 0 to disable."""
+    raw = os.environ.get("CAI_TRANSCRIPT_WINDOW_DAYS", "7")
+    try:
+        window_days = int(raw)
+    except ValueError:
+        window_days = 7
+    if window_days <= 0:
+        return 0.0
+    return time.time() - (window_days * 86400)
+
+
+def _get_max_files() -> int:
+    """Return the maximum number of transcript files to read, or 0 to disable."""
+    raw = os.environ.get("CAI_TRANSCRIPT_MAX_FILES", "50")
+    try:
+        max_files = int(raw)
+    except ValueError:
+        max_files = 50
+    if max_files < 0:
+        max_files = 50
+    return max_files
+
+
+def collect_jsonl_lines(source: str) -> tuple[list[str], int]:
+    """Collect all JSONL lines from a file, directory, or stdin sentinel.
+
+    Returns (lines, file_count) where file_count is the number of session
+    files actually read (after applying time and count windows).
+    """
+    p = pathlib.Path(source)
+    cutoff = _get_cutoff_time()
+    max_files = _get_max_files()
+    if p.is_dir():
+        candidates = []
+        for jf in p.rglob("*.jsonl"):
+            st = jf.stat()
+            if cutoff and st.st_mtime < cutoff:
+                continue
+            candidates.append((st.st_mtime, jf))
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        if max_files:
+            candidates = candidates[:max_files]
+        lines: list[str] = []
+        for _mtime, jf in candidates:
+            lines.extend(jf.read_text(errors="replace").splitlines())
+        return lines, len(candidates)
+    if p.is_file():
+        if cutoff and p.stat().st_mtime < cutoff:
+            return [], 0
+        return p.read_text(errors="replace").splitlines(), 1
+    return [], 0
+
+
+def main() -> None:
+    session_count = 0
+    if len(sys.argv) > 1:
+        all_lines: list[str] = []
+        for arg in sys.argv[1:]:
+            lines, count = collect_jsonl_lines(arg)
+            all_lines.extend(lines)
+            session_count += count
+    else:
+        all_lines = sys.stdin.read().splitlines()
+
+    if not any(line.strip() for line in all_lines):
+        print(json.dumps({
+            "session_count": session_count,
+            "tool_call_count": 0,
+            "top_tools": [],
+            "tool_counts": {},
+            "error_tools": {},
+            "error_categories": {"total": 0, "controllable": 0, "network_auth": 0},
+            "error_details": [],
+            "repeated_sequences": [],
+            "token_usage": {"input_tokens": 0, "output_tokens": 0, "cache_creation_tokens": 0, "cache_read_tokens": 0},
+            "tool_sequence_preview": "",
+            "note": "empty transcript",
+        }))
+        return
+
+    result = extract_tool_calls(all_lines)
+    result["session_count"] = session_count
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

@@ -230,7 +230,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from publish import (  # noqa: E402
+from cai_lib.publish import (  # noqa: E402
     ensure_all_labels, AUDIT_CATEGORIES,
     create_issue, issue_exists, ensure_labels,
 )
