@@ -1,4 +1,3 @@
-<!-- Forced tool-use: submit_triage_verdict. See #686 Step 2. -->
 ---
 name: cai-triage
 description: Triage `auto-improve:raised` issues one at a time — classify as REFINE, PLAN_APPROVE, APPLY, or HUMAN. Inline-only — full issue body is provided in the user message. Minimal tool use.
