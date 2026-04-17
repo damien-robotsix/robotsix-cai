@@ -9,7 +9,6 @@ decomposition path that labels the parent ``:parent``).
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 import time
 
@@ -20,11 +19,12 @@ from cai_lib.config import (
     LABEL_PARENT,
 )
 from cai_lib.fsm import apply_transition
-from cai_lib.github import _gh_json, _set_labels, _build_issue_block
+from cai_lib.github import _set_labels, _build_issue_block
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import _strip_stored_plan_block
 from cai_lib.cmd_implement import _parse_decomposition
+from cai_lib.issues import create_issue, link_sub_issue, list_sub_issues
 
 
 _REFINE_NEXT_STEP_RE = re.compile(
@@ -52,24 +52,12 @@ def _find_sub_issue(parent_number: int, step: int) -> "int | None":
     """Return the issue number of an existing sub-issue for *parent_number*
     / *step* (open or closed), or None if none exists.
 
-    Matches sub-issues via the HTML-comment markers embedded in their
-    body by ``_create_sub_issues``. Used to make refine idempotent.
+    Uses GitHub's native sub-issues API and matches by step number
+    in the title.
     """
-    search_query = (
-        f'"<!-- parent: #{parent_number} -->" '
-        f'"<!-- step: {step} -->" in:body'
-    )
-    try:
-        issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--search", search_query,
-            "--state", "all",
-            "--json", "number",
-            "--limit", "5",
-        ]) or []
-    except subprocess.CalledProcessError:
-        return None
+    subs = list_sub_issues(parent_number)
+    pattern = re.compile(rf"\[#{parent_number}\s+Step\s+{step}/\d+\]")
+    issues = [s for s in subs if pattern.search(s.get("title", ""))]
     if not issues:
         return None
     # Return the lowest (earliest-created) matching number for stability.
@@ -84,9 +72,8 @@ def _create_sub_issues(
     Each sub-issue gets:
     - A title formatted as `[#{parent_number} Step {step}/{total}] {title}`
       (e.g. `[#123 Step 1/3] Add schema migration`)
-    - HTML-comment markers for parent and step number,
-      enabling the ordering gate in ``_select_fix_target``
     - A body with a back-reference to the parent issue
+    - A native sub-issue link to the parent via the GitHub sub-issues API
 
     Returns list of created issue numbers (may be shorter than *steps*
     if some creations fail).
@@ -109,95 +96,34 @@ def _create_sub_issues(
             created.append(existing)
             continue
         body = (
-            f"<!-- parent: #{parent_number} -->\n"
-            f"<!-- step: {s['step']} -->\n\n"
             f"{s['body']}\n\n"
             f"---\n"
             f"_Sub-issue of #{parent_number} ({parent_title}). "
             f"Step {s['step']} of {total}._\n"
         )
         title = f"[#{parent_number} Step {s['step']}/{total}] {s['title']}"
-        labels = ",".join(["auto-improve", LABEL_RAISED])
-        result = _run(
-            [
-                "gh", "issue", "create",
-                "--repo", REPO,
-                "--title", title,
-                "--body", body,
-                "--label", labels,
-            ],
-            capture_output=True,
-        )
-        if result.returncode == 0:
-            url = result.stdout.strip()
-            # Extract issue number from URL (last path segment).
-            try:
-                num = int(url.rstrip("/").rsplit("/", 1)[-1])
-            except (ValueError, IndexError):
-                num = 0
-            if num:
-                created.append(num)
-            print(f"[cai refine] created sub-issue: {url}", flush=True)
+        labels = ["auto-improve", LABEL_RAISED]
+        data = create_issue(title, body, labels)
+        if data and data.get("number"):
+            num = data["number"]
+            created.append(num)
+            print(f"[cai refine] created sub-issue: {data.get('html_url', f'#{num}')}", flush=True)
+            child_id = data.get("id")
+            if child_id:
+                link_sub_issue(parent_number, child_id)
+            else:
+                print(
+                    f"[cai refine] warning: created #{num} but no 'id' "
+                    f"in response; sub-issue link skipped",
+                    file=sys.stderr,
+                )
         else:
             print(
                 f"[cai refine] failed to create sub-issue "
-                f"'Step {s['step']}': {result.stderr}",
+                f"'Step {s['step']}'",
                 file=sys.stderr,
             )
     return created
-
-
-def _update_parent_checklist(
-    parent_number: int,
-    sub_issue_numbers: list[int],
-    steps: list[dict],
-) -> bool:
-    """Append a ``## Sub-issues`` checklist to the parent issue body.
-
-    Returns True on success.
-    """
-    try:
-        parent = _gh_json([
-            "issue", "view", str(parent_number),
-            "--repo", REPO,
-            "--json", "body",
-        ])
-    except subprocess.CalledProcessError:
-        return False
-
-    original_body = (parent or {}).get("body") or ""
-
-    # Strip any pre-existing ``## Sub-issues`` section(s) so re-running
-    # refine on the same parent (e.g. after rollback from :no-action)
-    # replaces the checklist rather than appending a duplicate.
-    stripped_body = re.sub(
-        r"\n*## Sub-issues\n.*?(?=\n## |\Z)",
-        "",
-        original_body,
-        flags=re.DOTALL,
-    ).rstrip()
-
-    # Build checklist lines.
-    checklist_lines = []
-    for s, num in zip(steps, sub_issue_numbers):
-        checklist_lines.append(f"- [ ] #{num} — Step {s['step']}: {s['title']}")
-    checklist = "\n".join(checklist_lines)
-
-    new_body = f"{stripped_body}\n\n## Sub-issues\n\n{checklist}\n"
-
-    result = _run(
-        ["gh", "issue", "edit", str(parent_number),
-         "--repo", REPO, "--body", new_body],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        print(
-            f"[cai refine] failed to update parent #{parent_number} checklist: "
-            f"{result.stderr}",
-            file=sys.stderr,
-        )
-        return False
-    return True
 
 
 def handle_refine(issue: dict) -> int:
@@ -275,8 +201,6 @@ def handle_refine(issue: dict) -> int:
                 flush=True,
             )
             sub_nums = _create_sub_issues(steps, issue_number, title)
-            if sub_nums:
-                _update_parent_checklist(issue_number, sub_nums, steps)
             _set_labels(
                 issue_number,
                 add=[LABEL_PARENT],
