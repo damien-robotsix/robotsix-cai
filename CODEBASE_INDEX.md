@@ -71,6 +71,9 @@
 | `cai_lib/dispatcher.py` | FSM dispatcher — routes issues/PRs to the handler registered for their state |
 | `cai_lib/dup_check.py` | Pre-triage duplicate / already-resolved check (calls cai-dup-check haiku subagent) |
 | `cai_lib/fsm.py` | FSM data structures + transition application helpers (Confidence enum, apply_transition, divert-to-human, pending markers) |
+| `cai_lib/fsm_confidence.py` | TODO: add description |
+| `cai_lib/fsm_states.py` | TODO: add description |
+| `cai_lib/fsm_transitions.py` | TODO: add description |
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/issues.py` | TODO: add description |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
