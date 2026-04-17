@@ -1,6 +1,6 @@
 ---
 name: cai-comment-filter
-description: Inline-only haiku agent that classifies PR comments as resolved or unresolved. Replaces the commit-timestamp watermark in the revise handler. Returns a JSON object listing which comment indices are genuinely unresolved.
+description: INTERNAL — Inline-only haiku agent that classifies PR comments as resolved or unresolved. Replaces the commit-timestamp watermark in the revise handler. Returns a JSON object listing which comment indices are genuinely unresolved.
 tools: ""
 model: haiku
 ---

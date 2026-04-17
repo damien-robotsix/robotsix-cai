@@ -1,6 +1,6 @@
 ---
 name: cai-confirm
-description: Verify whether each `auto-improve:merged` issue has actually been resolved by checking the merged PR's diff against the issue's remediation and the recent parsed transcript signals against the issue's evidence. Produces exactly one verdict per issue — no new findings, no remediations.
+description: INTERNAL — Verify whether each `auto-improve:merged` issue has actually been resolved by checking the merged PR's diff against the issue's remediation and the recent parsed transcript signals against the issue's evidence. Produces exactly one verdict per issue — no new findings, no remediations.
 tools: Read, Grep, Glob
 model: sonnet
 memory: project
