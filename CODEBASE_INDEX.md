@@ -80,8 +80,8 @@
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/issues.py` | TODO: add description |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
-| `cai_lib/parse.py` | TODO: add description |
-| `cai_lib/publish.py` | TODO: add description |
+| `cai_lib/parse.py` | Deterministic signal extractor from Claude Code JSONL transcripts |
+| `cai_lib/publish.py` | GitHub issue publisher with fingerprint dedup |
 | `cai_lib/subprocess_utils.py` | Subprocess helpers extracted from cai.py |
 | `cai_lib/watchdog.py` | Stale-lock watchdog that rolls back orphaned :in-progress / :revising labels |
 | `docker-compose.yml` | Multi-service orchestration with named volumes |
@@ -94,8 +94,8 @@
 | `docs/index.md` | Documentation site landing page |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
 | `install.sh` | Interactive installer for end-users |
-| `parse.py` | Deterministic signal extractor from Claude Code JSONL transcripts |
-| `publish.py` | GitHub issue publisher with fingerprint dedup |
+| `parse.py` | Wrapper shim — real implementation in cai_lib/parse.py |
+| `publish.py` | Wrapper shim — real implementation in cai_lib/publish.py |
 | `pyproject.toml` | Python project configuration (ruff lint settings) |
 | `scripts/generate-fsm-docs.py` | Generator script for docs/fsm.md (renders cai_lib.fsm transitions as Mermaid) |
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
@@ -108,10 +108,10 @@
 | `tests/test_maintain.py` | Tests for cai_lib.actions.maintain — handle_maintain confidence routing and FSM transitions |
 | `tests/test_merge_diff.py` | TODO: add description |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
-| `tests/test_parse.py` | Tests for parse.py signal extraction |
+| `tests/test_parse.py` | Tests for cai_lib.parse signal extraction |
 | `tests/test_plan.py` | TODO: add description |
 | `tests/test_pr_bounce.py` | TODO: add description |
-| `tests/test_publish.py` | Tests for publish.py issue publishing |
+| `tests/test_publish.py` | Tests for cai_lib.publish issue publishing |
 | `tests/test_revise_filter.py` | TODO: add description |
 | `tests/test_rollback.py` | Tests for rollback functionality |
 | `tests/test_subprocess_utils.py` | TODO: add description |
