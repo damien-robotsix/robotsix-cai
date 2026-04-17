@@ -84,7 +84,7 @@ stale `:merged` issues are flagged with `needs-human-review`.)
 | Analyzer producing findings but no fix PRs landing in the same window | `loop_stuck` |
 | Multiple rules in `.claude/agents/cai-implement.md` that contradict each other | `prompt_contradiction` |
 | Tracking-only issue (no state label) older than 30 days with no human activity | `forgotten_backlog` |
-| A single `claude -p` invocation in the cost summary whose `cost` is >3× the mean cost of its category, OR a category whose `total cost (share)` exceeds 50% of the window total | `cost_outlier` |
+| A single `claude -p` invocation in the cost summary whose `cost` is >3× the mean cost of its category, OR a category whose `total cost (share)` exceeds 50% of the window total. **Model-tier discount:** if the top-N table shows an invocation ran on a more expensive model tier (e.g. opus vs sonnet) than the majority of calls in its category, the 3× spike is expected — set confidence to `low` and note the tier change rather than flagging a defect | `cost_outlier` |
 | Closed issue whose labels don't include a terminal state (`auto-improve:merged`, `auto-improve:no-action`, or `auto-improve:solved`) — may indicate manual close without proper resolution | `workflow_anomaly` |
 | Merged PR whose linked `auto-improve` issue is still open (check recent PRs for matching branch/title against open issues) | `workflow_anomaly` |
 | Closed-unmerged PR whose linked issue is not rolled back to `:refined` | `workflow_anomaly` |
@@ -197,7 +197,7 @@ agent can turn it into a concrete fix.
 | `topic_duplicate` | Two open issues about the same underlying pattern |
 | `silent_failure` | Step exited 0 but log shows it did not succeed |
 | `forgotten_backlog` | Tracking-only issue (no state label) older than 30 days with no human activity |
-| `cost_outlier` | A `claude -p` invocation (or category aggregate) in the cost summary that dominates token spend disproportionately to its functional value |
+| `cost_outlier` | A `claude -p` invocation (or category aggregate) in the cost summary that dominates token spend disproportionately to its functional value (discount spikes caused by a recent model-tier promotion — check the `model` column) |
 | `workflow_anomaly` | Issue or PR whose lifecycle transitions don't match expected workflow (e.g., closed without terminal label, merged PR with open issue) |
 | `fix_loop_efficiency` | A fix category where the loop is structurally struggling — success rate below 40% over the last 90 days (with ≥3 outcomes), suggesting a prompt, scope, or tooling problem rather than a one-off failure |
 | `human_needed_pipeline_jam` | Many issues diverting to human-needed from the same agent/transition in a short window — systemic bug, not a one-off |

@@ -50,7 +50,7 @@ Subcommands:
                             issues; recovers `:pr-open` issues with closed
                             PRs; cleans up orphaned branches; applies
                             `:no-action` to closed issues lacking terminal
-                            labels; then runs a Sonnet-driven semantic
+                            labels; then runs an Opus-driven semantic
                             check for duplicates, stuck loops, label
                             corruption, and human-needed issues
                             (pipeline jams, abandoned tasks, repeated

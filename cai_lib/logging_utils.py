@@ -176,6 +176,15 @@ def _row_ts(row: dict) -> float:
         return 0.0
 
 
+def _primary_model(row: dict) -> str:
+    """Return the model name with the most output tokens, or ''."""
+    models = row.get("models")
+    if not models or not isinstance(models, dict):
+        return ""
+    best = max(models.items(), key=lambda kv: kv[1].get("output_tokens", 0))
+    return best[0] if best else ""
+
+
 def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
     """Build a markdown cost summary for the cai-audit user message.
 
@@ -224,7 +233,7 @@ def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
         cost = float(r.get("cost_usd") or 0.0)
         top_lines.append(
             f"| {r.get('ts', '')} | {r.get('category', '')} | "
-            f"{r.get('agent', '')} | ${cost:.4f} | "
+            f"{r.get('agent', '')} | {_primary_model(r)} | ${cost:.4f} | "
             f"{r.get('num_turns', '')} | "
             f"{(r.get('input_tokens') or 0) + (r.get('output_tokens') or 0)} |"
         )
@@ -238,8 +247,8 @@ def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
         + "\n".join(cat_lines)
         + "\n\n"
         f"### Top {len(top_lines)} most expensive individual invocations\n\n"
-        "| ts | category | agent | cost | turns | tokens |\n"
-        "|---|---|---|---|---|---|\n"
+        "| ts | category | agent | model | cost | turns | tokens |\n"
+        "|---|---|---|---|---|---|---|\n"
         + "\n".join(top_lines)
         + "\n"
     )
