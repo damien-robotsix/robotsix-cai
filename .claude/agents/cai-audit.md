@@ -2,7 +2,7 @@
 name: cai-audit
 description: Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Findings are pre-screened for duplicates/resolved at publish time via cai-dup-check; survivors enter the standard auto-improve:raised cycle. Writes findings to findings.json.
 tools: Read, Grep, Glob, Write
-model: sonnet
+model: opus
 memory: project
 ---
 

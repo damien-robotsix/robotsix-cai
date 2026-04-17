@@ -2,7 +2,7 @@
 name: cai-analyze
 description: Analyze parsed signals from the cai container's own Claude Code session transcripts and raise auto-improve findings for code, prompt, or workflow issues; writes findings to findings.json.
 tools: Read, Grep, Glob, Skill, Write
-model: sonnet
+model: opus
 memory: project
 ---
 
