@@ -297,6 +297,7 @@ from cai_lib.watchdog import _rollback_stale_in_progress  # noqa: E402
 from cai_lib.cmd_helpers import _work_directory_block  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.dispatcher import dispatch_drain  # noqa: E402
+from cai_lib.issues import all_sub_issues_closed  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -941,18 +942,14 @@ def cmd_verify(args) -> int:
             "--repo", REPO,
             "--label", LABEL_PARENT,
             "--state", "open",
-            "--json", "number,body",
+            "--json", "number",
             "--limit", "50",
         ]) or []
     except subprocess.CalledProcessError:
         parent_issues = []
 
     for parent in parent_issues:
-        body = parent.get("body") or ""
-        sub_nums = re.findall(r"- \[[ x]\] #(\d+)", body)
-        if not sub_nums:
-            continue
-        if all(_issue_is_closed(int(sn)) for sn in sub_nums):
+        if all_sub_issues_closed(parent["number"]) is True:
             _run(
                 ["gh", "issue", "close", str(parent["number"]),
                  "--repo", REPO,

@@ -19,7 +19,7 @@ from cai_lib.config import (
     LABEL_PARENT,
 )
 from cai_lib.fsm import apply_transition
-from cai_lib.github import _set_labels, _build_issue_block
+from cai_lib.github import _gh_json, _set_labels, _build_issue_block
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import _strip_stored_plan_block
@@ -103,20 +103,19 @@ def _create_sub_issues(
         )
         title = f"[#{parent_number} Step {s['step']}/{total}] {s['title']}"
         labels = ["auto-improve", LABEL_RAISED]
-        data = create_issue(title, body, labels)
-        if data and data.get("number"):
-            num = data["number"]
-            created.append(num)
-            print(f"[cai refine] created sub-issue: {data.get('html_url', f'#{num}')}", flush=True)
-            child_id = data.get("id")
-            if child_id:
-                link_sub_issue(parent_number, child_id)
-            else:
-                print(
-                    f"[cai refine] warning: created #{num} but no 'id' "
-                    f"in response; sub-issue link skipped",
-                    file=sys.stderr,
-                )
+        # Use create_issue() (REST API) instead of gh issue create so we
+        # get back the internal `id` needed for link_sub_issue().
+        meta = create_issue(title, body, labels)
+        if meta:
+            num = meta.get("number", 0)
+            url = meta.get("html_url", "")
+            if num:
+                created.append(num)
+                # Establish native GitHub sub-issue relationship so
+                # all_sub_issues_closed() in the verify sweep can detect
+                # parent completion without falling back to checklist regex.
+                link_sub_issue(parent_number, meta["id"])
+            print(f"[cai refine] created sub-issue: {url}", flush=True)
         else:
             print(
                 f"[cai refine] failed to create sub-issue "
