@@ -70,7 +70,10 @@
 | `cai_lib/config.py` | Shared constants and path definitions |
 | `cai_lib/dispatcher.py` | FSM dispatcher — routes issues/PRs to the handler registered for their state |
 | `cai_lib/dup_check.py` | Pre-triage duplicate / already-resolved check (calls cai-dup-check haiku subagent) |
-| `cai_lib/fsm.py` | FSM data structures + transition application helpers (Confidence enum, apply_transition, divert-to-human, pending markers) |
+| `cai_lib/fsm.py` | FSM re-exporter — states, transitions, confidence parsing (implementation split into fsm_states, fsm_transitions, fsm_confidence) |
+| `cai_lib/fsm_confidence.py` | FSM confidence parsing — Confidence enum and helpers for extracting confidence signals from agent output |
+| `cai_lib/fsm_states.py` | FSM state enums — IssueState and PRState that represent the auto-improve pipeline states |
+| `cai_lib/fsm_transitions.py` | FSM transition data and logic — Transition dataclass, transition lists (ISSUE_TRANSITIONS, PR_TRANSITIONS), and apply/query functions |
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/issues.py` | TODO: add description |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
