@@ -8,21 +8,18 @@ native sub-issue relationships (link, list, check completion).  Low-level
 Note — staged migration:
     This module is the **infrastructure layer** for migrating from the
     convention-based parent/child tracking system (HTML-comment markers,
-    manual checklists) to GitHub's native sub-issues API. Migration is
-    occurring across multiple follow-up issues:
+    manual checklists) to GitHub's native sub-issues API.
 
-    * ``cai_lib/actions/refine.py`` — replace ``gh issue create`` + HTML
-      comments + ``_update_parent_checklist()`` with :func:`create_issue`
-      and :func:`link_sub_issue`.
-    * ``cai_lib/actions/confirm.py`` — ✓ replaced ``<!-- parent: #N -->``
-      regex lookup with title parsing (via :func:`_parse_sub_issue_step` from
-      dispatcher); still needs to use :func:`list_sub_issues` to verify
-      closure via native API instead of manual checklist parsing.
-    * ``cai.py`` — replace the checklist-based completion check
-      (~line 940–971) with :func:`all_sub_issues_closed`.
+    Migration status:
 
-    The helper functions below are still awaiting integration into the above
-    callers.
+    * ``cai_lib/actions/refine.py`` — **done** (#811): switched to
+      :func:`create_issue` and :func:`link_sub_issue` so native sub-issue
+      relationships are established at creation time.
+    * ``cai_lib/actions/confirm.py`` — **done** (#812): title-based
+      sub-issue lookup and native closure verification via
+      :func:`list_sub_issues`.
+    * ``cai.py`` — **done** (#813): verify sweep uses
+      :func:`all_sub_issues_closed` instead of checklist regex.
 """
 
 import json
