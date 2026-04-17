@@ -43,6 +43,12 @@ these six categories:
 | `missing_co_change` | The PR changes one side of a paired change (e.g., adds a subcommand but doesn't register it, adds an env var but doesn't document it in code-level config) |
 | `issue_drift` | The PR diff does not address a stated requirement from the original issue, or introduces behavior the issue explicitly excludes |
 
+**Scope of findings:** When an `## Original issue` section is present, check
+whether a finding's fix would require modifying files or components **not
+listed in the issue's stated scope**. If so, route it to an `## Out-of-scope
+Issue` block (see Output format) rather than a `### Finding:` block — do not
+request inline fixes for work the PR was never authorized to do.
+
 **Documentation is out of scope.** A separate `cai-review-docs` agent
 owns all documentation concerns — README, `docs/**`, code docstrings,
 inline comments, help text strings, and prose references to renamed
@@ -137,11 +143,13 @@ GitHub issue will be created automatically instead.
    inline comment, or help-text findings. `cai-review-docs` handles
    all of that. If a finding you're about to emit only concerns
    `.md` files or prose inside code, drop it.
-8. **Use `## Out-of-scope Issue` for pre-existing problems.** If a
-   finding is real but clearly predates or exceeds the scope of this
-   PR, emit an `## Out-of-scope Issue` block (see Output format)
-   rather than a `### Finding:` block. Do not block the PR on work
-   that belongs in a separate issue.
+8. **Use `## Out-of-scope Issue` for work beyond this PR's mandate.**
+   If a finding is real but (a) predates this PR, (b) affects
+   files/components outside the original issue's stated scope, or
+   (c) would expand the PR's footprint beyond what the issue
+   authorizes, emit an `## Out-of-scope Issue` block (see Output
+   format) rather than a `### Finding:` block. Do not block the PR
+   on work that belongs in a separate issue.
 9. **Do not use Bash.** You have `Read`, `Grep`, and `Glob` — use
    them exclusively. Bash is not available and all Bash calls will be
    rejected by the sandbox.
