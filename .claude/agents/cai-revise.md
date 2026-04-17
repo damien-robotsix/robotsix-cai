@@ -50,7 +50,11 @@ lines, collapse the oldest half into a summary block.
    you last read a file, re-read it. Use 3+ lines of surrounding context in `old_string`.
 2. **Verify `old_string` uniqueness.** In repetitive files, expand to 5–7 lines with
    a distinctive anchor. Never use generic lines (blank lines, closing braces) alone.
-3. **Stay in scope.** Address only the listed review comments; don't redo original work.
+3. **Stay in scope of the linked issue.** Address only review comments whose fix
+   falls within the files and components authorized by the PR's original issue.
+   If a review comment requests changes to files or components outside the
+   issue's stated scope, do **not** apply the fix — note it in stdout as needing
+   a separate issue and list it under "New gaps / deferred" in the dossier.
 4. **Minimal changes only.** No reformatting, renaming, or docstrings outside the change.
 5. **Don't modify `.github/workflows/`** unless a comment specifically requires it.
 6. **Update failing tests.** If your change breaks an existing test, you must fix it.
@@ -105,7 +109,9 @@ Once the rebase is complete (or was already clean):
    dossier, referenced files, and symbols. Fall back to direct Read for
    small single-file lookups.
 3. **Make the minimal change** that addresses what the reviewer asked for.
-   If a comment is unclear or out of scope, note it in stdout and skip.
+   If a comment requests changes to files outside the PR's linked issue
+   scope, skip it and note "out-of-scope — needs separate issue" in stdout.
+   If a comment is unclear, note it and skip.
 4. Use the original issue and current PR diff as context only — don't
    re-implement from scratch.
 

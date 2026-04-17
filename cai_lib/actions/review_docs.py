@@ -10,6 +10,7 @@ final ``approved_to_merged`` step is owned by
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import (
     _git, _gh_user_identity, _work_directory_block,
     _setup_agent_edit_staging, _apply_agent_edit_staging,
+    _parse_oob_issues, _create_oob_issues,
 )
 from cai_lib.logging_utils import log_run
 
@@ -193,6 +195,20 @@ def handle_review_docs(pr: dict) -> int:
             return agent.returncode
 
         agent_output = (agent.stdout or "").strip()
+
+        # Parse and create any out-of-scope issues emitted by the agent,
+        # then strip them from agent_output so they don't appear in the
+        # PR comment.
+        oob_issues = _parse_oob_issues(agent_output)
+        if oob_issues:
+            _create_oob_issues(oob_issues, pr_number, "cai review-docs")
+            agent_output = re.sub(
+                r"^## Out-of-scope Issue\s*\n.*?(?=^## Out-of-scope Issue|\Z)",
+                "",
+                agent_output,
+                flags=re.MULTILINE | re.DOTALL,
+            ).strip()
+
         applied = _apply_agent_edit_staging(work_dir)
         if applied:
             print(
