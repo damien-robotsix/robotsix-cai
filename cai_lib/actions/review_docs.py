@@ -193,7 +193,13 @@ def handle_review_docs(pr: dict) -> int:
             return agent.returncode
 
         agent_output = (agent.stdout or "").strip()
-        _apply_agent_edit_staging(work_dir)
+        applied = _apply_agent_edit_staging(work_dir)
+        if applied:
+            print(
+                f"[cai review-docs] applied {applied} staged "
+                f".claude/agents/*.md update(s)",
+                flush=True,
+            )
 
         # Did the agent make any doc changes?
         status_result = _git(work_dir, "status", "--porcelain", check=False)
