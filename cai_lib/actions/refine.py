@@ -17,6 +17,8 @@ from cai_lib.config import (
     LABEL_RAISED,
     LABEL_REFINING,
     LABEL_PARENT,
+    LABEL_DEPTH_PREFIX,
+    MAX_DECOMPOSITION_DEPTH,
 )
 from cai_lib.fsm import apply_transition
 from cai_lib.github import _gh_json, _set_labels, _build_issue_block
@@ -48,6 +50,21 @@ def _parse_refine_next_step(text: str) -> "str | None":
     return m.group(1).upper()
 
 
+def _issue_depth(issue: dict) -> int:
+    """Return the decomposition depth of *issue* from its ``depth:N`` label.
+
+    Returns 0 if no ``depth:`` label is present (top-level issue).
+    """
+    for label in issue.get("labels", []):
+        name = label if isinstance(label, str) else label.get("name", "")
+        if name.startswith(LABEL_DEPTH_PREFIX):
+            try:
+                return int(name[len(LABEL_DEPTH_PREFIX):])
+            except ValueError:
+                pass
+    return 0
+
+
 def _find_sub_issue(parent_number: int, step: int) -> "int | None":
     """Return the issue number of an existing sub-issue for *parent_number*
     / *step* (open or closed), or None if none exists.
@@ -66,6 +83,7 @@ def _find_sub_issue(parent_number: int, step: int) -> "int | None":
 
 def _create_sub_issues(
     steps: list[dict], parent_number: int, parent_title: str,
+    depth: int = 0,
 ) -> list[int]:
     """Create GitHub sub-issues for a multi-step decomposition.
 
@@ -102,7 +120,7 @@ def _create_sub_issues(
             f"Step {s['step']} of {total}._\n"
         )
         title = f"[#{parent_number} Step {s['step']}/{total}] {s['title']}"
-        labels = ["auto-improve", LABEL_RAISED]
+        labels = ["auto-improve", LABEL_RAISED, f"{LABEL_DEPTH_PREFIX}{depth}"]
         # Use create_issue() (REST API) instead of gh issue create so we
         # get back the internal `id` needed for link_sub_issue().
         meta = create_issue(title, body, labels)
@@ -149,6 +167,14 @@ def handle_refine(issue: dict) -> int:
     # the agent may rewrite the body to incorporate exploration findings
     # and re-decide NextStep.
     user_message = _build_issue_block(issue)
+    current_depth = _issue_depth(issue)
+    if current_depth >= MAX_DECOMPOSITION_DEPTH:
+        user_message += (
+            f"\n\nIMPORTANT: This issue is at decomposition depth {current_depth} "
+            f"(max {MAX_DECOMPOSITION_DEPTH}). Do NOT produce a "
+            f"`## Multi-Step Decomposition` section. Refine this issue as a single "
+            f"unit of work."
+        )
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-refine",
          "--dangerously-skip-permissions"],
@@ -199,7 +225,7 @@ def handle_refine(issue: dict) -> int:
                 f"{len(steps)} steps",
                 flush=True,
             )
-            sub_nums = _create_sub_issues(steps, issue_number, title)
+            sub_nums = _create_sub_issues(steps, issue_number, title, depth=current_depth + 1)
             _set_labels(
                 issue_number,
                 add=[LABEL_PARENT],

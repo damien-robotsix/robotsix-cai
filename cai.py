@@ -948,20 +948,35 @@ def cmd_verify(args) -> int:
     except subprocess.CalledProcessError:
         parent_issues = []
 
-    for parent in parent_issues:
-        if all_sub_issues_closed(parent["number"]) is True:
-            _run(
-                ["gh", "issue", "close", str(parent["number"]),
-                 "--repo", REPO,
-                 "--comment",
-                 "All sub-issues completed. Closing parent."],
-                capture_output=True,
-            )
-            print(
-                f"[cai verify] parent #{parent['number']}: "
-                f"all sub-issues done — closed",
-                flush=True,
-            )
+    for _pass in range(2):
+        for parent in parent_issues:
+            if all_sub_issues_closed(parent["number"]) is True:
+                _run(
+                    ["gh", "issue", "close", str(parent["number"]),
+                     "--repo", REPO,
+                     "--comment",
+                     "All sub-issues completed. Closing parent."],
+                    capture_output=True,
+                )
+                print(
+                    f"[cai verify] parent #{parent['number']}: "
+                    f"all sub-issues done — closed",
+                    flush=True,
+                )
+        # Re-fetch before second pass: parents closed in pass 1
+        # should not be re-attempted.
+        if _pass == 0:
+            try:
+                parent_issues = _gh_json([
+                    "issue", "list",
+                    "--repo", REPO,
+                    "--label", LABEL_PARENT,
+                    "--state", "open",
+                    "--json", "number",
+                    "--limit", "50",
+                ]) or []
+            except subprocess.CalledProcessError:
+                parent_issues = []
 
     print(f"[cai verify] done ({transitioned} transitioned)", flush=True)
     log_run("verify", repo=REPO, checked=len(issues), transitioned=transitioned, exit=0)
