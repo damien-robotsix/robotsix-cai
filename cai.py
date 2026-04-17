@@ -48,10 +48,10 @@ Subcommands:
                             and `:applying` (>2h) locks; unsticks stale
                             `:no-action` issues; flags stale `:merged`
                             issues; recovers `:pr-open` issues with closed
-                            PRs; cleans up orphaned branches; applies
-                            `:no-action` to closed issues lacking terminal
-                            labels; then runs an Opus-driven semantic
-                            check for duplicates, stuck loops, label
+                            PRs; cleans up orphaned branches; retroactively
+                            closes closed issues lacking terminal labels
+                            (as 'not planned'); then runs an Opus-driven
+                            semantic check for duplicates, stuck loops, label
                             corruption, and human-needed issues
                             (pipeline jams, abandoned tasks, repeated
                             diversions, missing reasons). Findings are

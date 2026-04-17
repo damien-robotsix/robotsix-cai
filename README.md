@@ -70,7 +70,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — removes deprecated cai-managed labels from open issues, then keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
 | `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
-| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, flags duplicates, stuck loops, label corruption, and human-needed issues (pipeline jams, abandoned issues, repeated diversions, missing divert reasons) as `auto-improve:raised` + `audit` findings (Opus) |
+| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, migrates open `:no-action` issues (deprecated label) to closed-as-not-planned, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, retroactively closes closed issues lacking terminal labels (as 'not planned'), then flags duplicates, stuck loops, label corruption, and human-needed issues (pipeline jams, abandoned issues, repeated diversions, missing divert reasons) as `auto-improve:raised` + `audit` findings (Opus) |
 | `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs an Opus agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
 | `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the triage → (optionally skip to `:plan-approved` / `:applying`) → refine → plan → implement pipeline |
 | `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, feature adoptions, deprecated flags, best practices) are published as `update-check` namespace issues |
@@ -221,8 +221,8 @@ Audit categories: `stale_lifecycle`, `lock_corruption`, `loop_stuck`,
 `cost_outlier`, `workflow_anomaly`, `fix_loop_efficiency`.
 
 There are five exceptions to "report-only": stale lock rollback, stale `:merged`
-flagging, orphaned-branch cleanup, `:pr-open` recovery, and silent dismissal
-detection. Three lock types are rolled back: `:in-progress` issues after
+flagging, orphaned-branch cleanup, `:pr-open` recovery, and retroactive terminal
+label enforcement. Three lock types are rolled back: `:in-progress` issues after
 6 hours with no recent fix activity, `:revising` issues after 1 hour with no
 recent revise activity, and `:applying` issues after 2 hours with no recent
 maintain activity — `:in-progress` and `:revising` are rolled back to
@@ -236,8 +236,8 @@ are rolled back to `:refined` to restart the refinement and planning cycle
 before a human can re-approve them for the implement subagent. Finally, closed
 `auto-improve` issues that lack a terminal label (`auto-improve:merged`,
 `auto-improve:solved`) and were not closed with `--reason "not planned"` are
-flagged for potential manual re-opening, since they may have been closed
-without proper dismissal processing.
+automatically re-closed with `--reason "not planned"` to satisfy the terminal
+state requirement.
 
 ### Comment-driven PR iteration
 
