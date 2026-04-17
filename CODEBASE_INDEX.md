@@ -65,6 +65,9 @@
 | `cai_lib/actions/revise.py` | Handler for PRState.REVISION_PENDING — runs cai-revise |
 | `cai_lib/actions/triage.py` | Handler for IssueState.RAISED / TRIAGING — runs cai-triage |
 | `cai_lib/cmd_helpers.py` | Cross-command helpers shared between cai.py and cai_lib/actions/* |
+| `cai_lib/cmd_helpers_git.py` | Git and worktree helpers for cai action wrappers |
+| `cai_lib/cmd_helpers_github.py` | GitHub API helpers for cai action wrappers |
+| `cai_lib/cmd_helpers_issues.py` | Issue-lifecycle helpers for cai action wrappers |
 | `cai_lib/cmd_implement.py` | Helpers for the implement-subagent pipeline |
 | `cai_lib/cmd_unblock.py` | Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock) |
 | `cai_lib/config.py` | Shared constants and path definitions |
