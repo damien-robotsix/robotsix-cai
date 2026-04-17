@@ -80,6 +80,8 @@
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/issues.py` | TODO: add description |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
+| `cai_lib/parse.py` | Deterministic signal extractor from Claude Code JSONL transcripts |
+| `cai_lib/publish.py` | GitHub issue publisher with fingerprint dedup |
 | `cai_lib/subprocess_utils.py` | Subprocess helpers extracted from cai.py |
 | `cai_lib/watchdog.py` | Stale-lock watchdog that rolls back orphaned :in-progress / :revising labels |
 | `docker-compose.yml` | Multi-service orchestration with named volumes |
@@ -92,8 +94,8 @@
 | `docs/index.md` | Documentation site landing page |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
 | `install.sh` | Interactive installer for end-users |
-| `parse.py` | Deterministic signal extractor from Claude Code JSONL transcripts |
-| `publish.py` | GitHub issue publisher with fingerprint dedup |
+| `parse.py` | Wrapper shim — real implementation in cai_lib/parse.py |
+| `publish.py` | Wrapper shim — real implementation in cai_lib/publish.py |
 | `pyproject.toml` | Python project configuration (ruff lint settings) |
 | `scripts/generate-fsm-docs.py` | Generator script for docs/fsm.md (renders cai_lib.fsm transitions as Mermaid) |
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |

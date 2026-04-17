@@ -4,11 +4,11 @@ import sys
 import os
 import unittest
 
-# Ensure the repo root is on the import path so `import parse` works
+# Ensure the repo root is on the import path so `import cai_lib` works
 # regardless of how the test runner is invoked.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from parse import extract_tool_calls
+from cai_lib.parse import extract_tool_calls
 
 
 def _jl(*entries):
