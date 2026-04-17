@@ -296,7 +296,6 @@ from cai_lib.github import (  # noqa: E402
 from cai_lib.watchdog import _rollback_stale_in_progress  # noqa: E402
 from cai_lib.cmd_helpers import _work_directory_block  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
-from cai_lib.actions.confirm import _parse_verdicts  # noqa: E402
 from cai_lib.dispatcher import dispatch_drain  # noqa: E402
 
 
