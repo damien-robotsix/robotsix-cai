@@ -4,6 +4,23 @@ Provides a clean API for creating issues via the REST API and managing
 native sub-issue relationships (link, list, check completion).  Low-level
 ``gh`` invocation is delegated to the shared helpers in ``github.py`` and
 ``subprocess_utils.py``.
+
+Note — staged migration:
+    This module is the **infrastructure layer** for migrating from the
+    convention-based parent/child tracking system (HTML-comment markers,
+    manual checklists) to GitHub's native sub-issues API.  No callers have
+    been updated yet; that is intentionally deferred to follow-up issues:
+
+    * ``cai_lib/actions/refine.py`` — replace ``gh issue create`` + HTML
+      comments + ``_update_parent_checklist()`` with :func:`create_issue`
+      and :func:`link_sub_issue`.
+    * ``cai_lib/actions/confirm.py`` — remove ``_update_parent_checklist_item``
+      and replace ``<!-- parent: #N -->`` regex lookup with title parsing.
+    * ``cai.py`` — replace the checklist-based completion check
+      (~line 940–971) with :func:`all_sub_issues_closed`.
+
+    Until those follow-up issues land, the existing convention-based code
+    paths remain active and the functions below are unused.
 """
 
 import json
