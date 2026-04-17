@@ -80,6 +80,8 @@
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
 | `cai_lib/issues.py` | TODO: add description |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
+| `cai_lib/parse.py` | TODO: add description |
+| `cai_lib/publish.py` | TODO: add description |
 | `cai_lib/subprocess_utils.py` | Subprocess helpers extracted from cai.py |
 | `cai_lib/watchdog.py` | Stale-lock watchdog that rolls back orphaned :in-progress / :revising labels |
 | `docker-compose.yml` | Multi-service orchestration with named volumes |
