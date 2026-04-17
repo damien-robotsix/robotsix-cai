@@ -130,7 +130,8 @@ If no doc updates are needed, output exactly:
 No documentation updates needed.
 ```
 
-If you found an issue you could not fix (e.g. docs directory missing), emit:
+If you found an issue you could not fix (e.g. docs directory missing, or the
+fix is out of scope — see Hard rule 3), emit:
 
 ```
 ### Finding: stale_docs
@@ -143,22 +144,33 @@ If you found an issue you could not fix (e.g. docs directory missing), emit:
 give the replacement>
 ```
 
+For out-of-scope documentation issues, add `(out-of-scope — needs separate issue)`
+after the file path so the wrapper can distinguish them from fixable-but-blocked
+issues.
+
 ## Hard rules
 
 1. **Fix real documentation gaps, not style issues.** Only fix cases where the
    docs describe behavior that no longer matches the code after this PR.
 2. **Be specific and minimal.** Edit only the stale sentence or section — do
    not rewrite surrounding content.
-3. **Do not fix docs for internal changes.** If the change has no user-visible
+3. **Stay in scope of the linked issue.** Only fix documentation in files
+   touched by the PR or files that reference symbols changed by the PR. If an
+   `## Original issue` section is present and fixing a stale doc reference
+   would require modifying files unrelated to the PR's stated scope, skip the
+   fix — emit a `### Finding: stale_docs` block marked `(out-of-scope — needs
+   separate issue)` instead of directly editing. Do not expand the PR's
+   footprint beyond what the issue authorizes.
+4. **Do not fix docs for internal changes.** If the change has no user-visible
    effect, do not update docs.
-4. **Do not touch `.cai/pr-context.md`.** This is auto-generated metadata —
+5. **Do not touch `.cai/pr-context.md`.** This is auto-generated metadata —
    skip it entirely.
-5. **Keep fixes short.** Update only the specific stale content, preserving
+6. **Keep fixes short.** Update only the specific stale content, preserving
    all other text.
-6. **Do not use Bash.** You have `Read`, `Grep`, `Glob`, `Edit`, and `Write` —
+7. **Do not use Bash.** You have `Read`, `Grep`, `Glob`, `Edit`, and `Write` —
    use them exclusively. Bash is not available and all Bash calls will be
    rejected by the sandbox.
-7. **Use the staging directory for `.claude/agents/*.md` edits.** These files
+8. **Use the staging directory for `.claude/agents/*.md` edits.** These files
    are flagged as sensitive and direct Edit/Write calls against them will be
    blocked. If you find stale documentation inside an agent definition file,
    write the corrected FULL file to the staging directory described in the
