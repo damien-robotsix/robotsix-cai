@@ -158,6 +158,13 @@ give the replacement>
 6. **Do not use Bash.** You have `Read`, `Grep`, `Glob`, `Edit`, and `Write` —
    use them exclusively. Bash is not available and all Bash calls will be
    rejected by the sandbox.
+7. **Use the staging directory for `.claude/agents/*.md` edits.** These files
+   are flagged as sensitive and direct Edit/Write calls against them will be
+   blocked. If you find stale documentation inside an agent definition file,
+   write the corrected FULL file to the staging directory described in the
+   "Updating `.claude/agents/*.md`" section of the work-directory block above.
+   The wrapper will copy it back automatically. Emit a `### Fixed: stale_docs`
+   block as usual after staging the fix.
 
 ## Agent-specific efficiency guidance
 
