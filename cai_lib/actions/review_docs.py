@@ -21,7 +21,10 @@ from cai_lib.config import REPO
 from cai_lib.fsm import apply_pr_transition, get_pr_state, PRState
 from cai_lib.github import _gh_json, _fetch_linked_issue_block
 from cai_lib.subprocess_utils import _run, _run_claude_p
-from cai_lib.cmd_helpers import _git, _gh_user_identity, _work_directory_block
+from cai_lib.cmd_helpers import (
+    _git, _gh_user_identity, _work_directory_block,
+    _setup_agent_edit_staging, _apply_agent_edit_staging,
+)
 from cai_lib.logging_utils import log_run
 
 
@@ -131,6 +134,7 @@ def handle_review_docs(pr: dict) -> int:
         name, email = _gh_user_identity()
         _git(work_dir, "config", "user.name", name)
         _git(work_dir, "config", "user.email", email)
+        _setup_agent_edit_staging(work_dir)
 
         # --stat summary serves as the file-level map for the agent;
         # the full diff is intentionally omitted (token sink).
@@ -189,6 +193,7 @@ def handle_review_docs(pr: dict) -> int:
             return agent.returncode
 
         agent_output = (agent.stdout or "").strip()
+        _apply_agent_edit_staging(work_dir)
 
         # Did the agent make any doc changes?
         status_result = _git(work_dir, "status", "--porcelain", check=False)
