@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 
+from cai_lib.dispatcher import _parse_sub_issue_step
 from cai_lib.config import (
     LABEL_MERGED,
     LABEL_PR_NEEDS_HUMAN,
@@ -63,37 +64,6 @@ def _parse_verdicts(text: str) -> list[tuple[int, str, str]]:
         if status in ("solved", "unsolved", "inconclusive"):
             verdicts.append((issue_num, status, reasoning))
     return verdicts
-
-
-def _update_parent_checklist_item(
-    parent_number: int, sub_issue_number: int, *, checked: bool,
-) -> bool:
-    """Toggle a single checkbox in the parent's ``## Sub-issues`` checklist.
-
-    Returns True on success.
-    """
-    try:
-        parent = _gh_json([
-            "issue", "view", str(parent_number),
-            "--repo", REPO,
-            "--json", "body",
-        ])
-    except subprocess.CalledProcessError:
-        return False
-
-    body = (parent or {}).get("body") or ""
-    old = f"- [ ] #{sub_issue_number}" if checked else f"- [x] #{sub_issue_number}"
-    new = f"- [x] #{sub_issue_number}" if checked else f"- [ ] #{sub_issue_number}"
-    if old not in body:
-        return False  # nothing to update
-
-    new_body = body.replace(old, new, 1)
-    result = _run(
-        ["gh", "issue", "edit", str(parent_number),
-         "--repo", REPO, "--body", new_body],
-        capture_output=True,
-    )
-    return result.returncode == 0
 
 
 def handle_confirm(issue: dict) -> int:
@@ -278,12 +248,15 @@ def handle_confirm(issue: dict) -> int:
                 print(f"[cai confirm] cai-memorize invocation error: {e}",
                       flush=True)
             print(f"[cai confirm] #{issue_num}: solved — closed", flush=True)
-            # Update parent checklist if this is a sub-issue.
-            sub_body = mi.get("body") or ""
-            parent_match = re.search(r"<!-- parent: #(\d+) -->", sub_body)
-            if parent_match:
-                _update_parent_checklist_item(
-                    int(parent_match.group(1)), issue_num, checked=True,
+            # Log parent if this is a sub-issue (native sub-issues API tracks
+            # completion automatically; no manual checklist update needed).
+            parsed_title = _parse_sub_issue_step(mi.get("title") or "")
+            if parsed_title is not None:
+                parent_number, _step = parsed_title
+                print(
+                    f"[cai confirm] #{issue_num} is sub-issue of "
+                    f"#{parent_number}; native sub-issues panel updated",
+                    flush=True,
                 )
             solved += 1
         elif status == "unsolved":
