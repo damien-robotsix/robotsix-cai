@@ -1,6 +1,6 @@
 ---
 name: cai-dup-check
-description: Check whether an issue is a duplicate of another open issue or has already been resolved by a recent commit/PR. Inline-only — all context (target issue, other open issues, recent commits/PRs) is provided in the user message. Minimal tool use.
+description: INTERNAL — Check whether an issue is a duplicate of another open issue or has already been resolved by a recent commit/PR. Inline-only — all context (target issue, other open issues, recent commits/PRs) is provided in the user message. Minimal tool use.
 tools: Read
 model: haiku
 ---

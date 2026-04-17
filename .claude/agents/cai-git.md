@@ -1,6 +1,6 @@
 ---
 name: cai-git
-description: Lightweight haiku subagent that executes git operations on behalf of other subagents. Accepts a work directory and a set of git commands to run. Never modifies code — only runs git commands.
+description: INTERNAL — Lightweight haiku subagent that executes git operations on behalf of other subagents. Accepts a work directory and a set of git commands to run. Never modifies code — only runs git commands.
 tools: Bash
 model: haiku
 ---

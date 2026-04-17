@@ -1,6 +1,6 @@
 ---
 name: cai-select
-description: Evaluate multiple fix plans for an auto-improve issue and select the best one. Inline-only — all plans arrive in the user message. Minimal tool use.
+description: INTERNAL — Evaluate multiple fix plans for an auto-improve issue and select the best one. Inline-only — all plans arrive in the user message. Minimal tool use.
 tools: Read
 model: opus
 ---

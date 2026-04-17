@@ -1,6 +1,6 @@
 ---
 name: cai-memorize
-description: Post-solved memory curator. Reads a solved issue + its merged PR diff and decides whether a cross-cutting design decision is worth persisting to .claude/agent-memory/shared/. Writes rarely; emits NO_MEMORY when nothing qualifies.
+description: INTERNAL — Post-solved memory curator. Reads a solved issue + its merged PR diff and decides whether a cross-cutting design decision is worth persisting to .claude/agent-memory/shared/. Writes rarely; emits NO_MEMORY when nothing qualifies.
 tools: Read, Write, Edit, Glob
 model: sonnet
 ---
