@@ -27,9 +27,10 @@ from pathlib import Path
 from cai_lib.cmd_helpers import (
     _git,
     _work_directory_block,
+    _parse_oob_issues,
+    _create_oob_issues,
 )
 from cai_lib.config import (
-    LABEL_RAISED,
     REPO,
     REVIEW_PR_PATTERN_LOG,
 )
@@ -51,81 +52,6 @@ from cai_lib.subprocess_utils import _run, _run_claude_p
 
 _REVIEW_COMMENT_HEADING_FINDINGS = "## cai pre-merge review"
 _REVIEW_COMMENT_HEADING_CLEAN = "## cai pre-merge review (clean)"
-
-
-# ---------------------------------------------------------------------------
-# Handler-local helpers (moved from cai.py — only cmd_review_pr used them).
-# ---------------------------------------------------------------------------
-
-
-def _parse_oob_issues(agent_output: str) -> list[dict]:
-    """Extract out-of-scope issue blocks from cai-review-pr agent output.
-
-    The agent can emit blocks like:
-
-        ## Out-of-scope Issue
-        ### Title
-        <title text>
-        ### Body
-        <body text>
-
-    Returns a list of dicts with 'title' and 'body' keys.
-    """
-    issues: list[dict] = []
-    parts = re.split(r"^## Out-of-scope Issue\s*$", agent_output, flags=re.MULTILINE)
-    for part in parts[1:]:  # skip everything before the first marker
-        title = ""
-        body = ""
-        title_match = re.search(
-            r"^### Title\s*\n(.*?)(?=^### |\Z)",
-            part,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        body_match = re.search(
-            r"^### Body\s*\n(.*?)(?=^## |\Z)",
-            part,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        if title_match:
-            title = title_match.group(1).strip()
-        if body_match:
-            body = body_match.group(1).strip()
-        if title:
-            issues.append({"title": title, "body": body})
-    return issues
-
-
-def _create_oob_issues(issues: list[dict], pr_number: int) -> int:
-    """Create GitHub issues for out-of-scope findings from cai-review-pr. Returns count created."""
-    created = 0
-    for s in issues:
-        issue_body = (
-            f"{s['body']}\n\n"
-            f"---\n"
-            f"_Raised by `cai review-pr` while reviewing PR #{pr_number}._\n"
-        )
-        labels = ",".join(["auto-improve", LABEL_RAISED])
-        result = _run(
-            [
-                "gh", "issue", "create",
-                "--repo", REPO,
-                "--title", s["title"],
-                "--body", issue_body,
-                "--label", labels,
-            ],
-            capture_output=True,
-        )
-        if result.returncode == 0:
-            url = result.stdout.strip()
-            print(f"[cai review-pr] created out-of-scope issue: {url}", flush=True)
-            created += 1
-        else:
-            print(
-                f"[cai review-pr] failed to create out-of-scope issue "
-                f"'{s['title']}': {result.stderr}",
-                file=sys.stderr,
-            )
-    return created
 
 
 def _log_review_pr_findings(pr_number: int, head_sha: str, agent_output: str) -> None:
@@ -339,7 +265,7 @@ def handle_review_pr(pr: dict) -> int:
         # PR comment.
         oob_issues = _parse_oob_issues(agent_output)
         if oob_issues:
-            _create_oob_issues(oob_issues, pr_number)
+            _create_oob_issues(oob_issues, pr_number, "cai review-pr")
             agent_output = re.sub(
                 r"^## Out-of-scope Issue\s*\n.*?(?=^## Out-of-scope Issue|\Z)",
                 "",

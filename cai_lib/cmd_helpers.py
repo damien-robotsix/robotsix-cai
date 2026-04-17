@@ -12,6 +12,7 @@ from pathlib import Path
 from cai_lib.config import (
     REPO,
     LABEL_PR_OPEN,
+    LABEL_RAISED,
     LABEL_REVISING,
     LABEL_MERGE_BLOCKED,
     LABEL_PR_NEEDS_HUMAN,
@@ -53,6 +54,84 @@ _BOT_COMMENT_MARKERS = (
 # without a circular dependency on cai.py.
 _NO_ADDITIONAL_CHANGES_MARKER = "## Revise subagent: no additional changes"
 _REBASE_FAILED_MARKER = "## Revise subagent: rebase resolution failed"
+
+
+def _parse_oob_issues(agent_output: str) -> list[dict]:
+    """Extract out-of-scope issue blocks from a review agent's output.
+
+    The agent can emit blocks like:
+
+        ## Out-of-scope Issue
+        ### Title
+        <title text>
+        ### Body
+        <body text>
+
+    Returns a list of dicts with 'title' and 'body' keys.
+    """
+    issues: list[dict] = []
+    parts = re.split(r"^## Out-of-scope Issue\s*$", agent_output, flags=re.MULTILINE)
+    for part in parts[1:]:  # skip everything before the first marker
+        title = ""
+        body = ""
+        title_match = re.search(
+            r"^### Title\s*\n(.*?)(?=^### |\Z)",
+            part,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        body_match = re.search(
+            r"^### Body\s*\n(.*?)(?=^## |\Z)",
+            part,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        if title_match:
+            title = title_match.group(1).strip()
+        if body_match:
+            body = body_match.group(1).strip()
+        if title:
+            issues.append({"title": title, "body": body})
+    return issues
+
+
+def _create_oob_issues(
+    issues: list[dict], pr_number: int, caller_label: str
+) -> int:
+    """Create GitHub issues for out-of-scope findings from a review agent.
+
+    *caller_label* is used in log messages and the issue attribution footer
+    (e.g. ``"cai review-pr"`` or ``"cai review-docs"``).
+
+    Returns the count of successfully created issues.
+    """
+    created = 0
+    for s in issues:
+        issue_body = (
+            f"{s['body']}\n\n"
+            f"---\n"
+            f"_Raised by `{caller_label}` while reviewing PR #{pr_number}._\n"
+        )
+        labels = ",".join(["auto-improve", LABEL_RAISED])
+        result = _run(
+            [
+                "gh", "issue", "create",
+                "--repo", REPO,
+                "--title", s["title"],
+                "--body", issue_body,
+                "--label", labels,
+            ],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            print(f"[{caller_label}] created out-of-scope issue: {url}", flush=True)
+            created += 1
+        else:
+            print(
+                f"[{caller_label}] failed to create out-of-scope issue "
+                f"'{s['title']}': {result.stderr}",
+                file=sys.stderr,
+            )
+    return created
 
 
 def _gh_user_identity() -> tuple[str, str]:
