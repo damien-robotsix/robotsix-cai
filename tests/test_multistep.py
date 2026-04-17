@@ -124,5 +124,70 @@ class TestParseDecomposition(unittest.TestCase):
         self.assertEqual(steps[1]["title"], "Another title")
 
 
+from unittest.mock import patch, MagicMock
+from cai_lib.actions.refine import _issue_depth, _create_sub_issues, handle_refine
+
+
+class TestIssueDepth(unittest.TestCase):
+    def test_no_depth_label_returns_zero(self):
+        issue = {"labels": [{"name": "auto-improve"}, {"name": "auto-improve:raised"}]}
+        self.assertEqual(_issue_depth(issue), 0)
+
+    def test_depth_label_returns_n(self):
+        issue = {"labels": [{"name": "auto-improve"}, {"name": "depth:1"}]}
+        self.assertEqual(_issue_depth(issue), 1)
+
+    def test_depth_two(self):
+        issue = {"labels": [{"name": "depth:2"}, {"name": "auto-improve:raised"}]}
+        self.assertEqual(_issue_depth(issue), 2)
+
+    def test_empty_labels(self):
+        issue = {"labels": []}
+        self.assertEqual(_issue_depth(issue), 0)
+
+    def test_no_labels_key(self):
+        issue = {}
+        self.assertEqual(_issue_depth(issue), 0)
+
+    def test_malformed_depth_label_ignored(self):
+        issue = {"labels": [{"name": "depth:abc"}]}
+        self.assertEqual(_issue_depth(issue), 0)
+
+
+class TestCreateSubIssuesDepth(unittest.TestCase):
+    @patch("cai_lib.actions.refine.link_sub_issue")
+    @patch("cai_lib.actions.refine.create_issue")
+    @patch("cai_lib.actions.refine._find_sub_issue", return_value=None)
+    def test_depth_label_applied(self, mock_find, mock_create, mock_link):
+        mock_create.return_value = {"number": 42, "id": 999, "html_url": "http://x"}
+        steps = [{"step": 1, "title": "T", "body": "B"}]
+        _create_sub_issues(steps, 10, "Parent", depth=1)
+        labels = mock_create.call_args[0][2]
+        self.assertIn("depth:1", labels)
+
+
+class TestDepthGate(unittest.TestCase):
+    @patch("cai_lib.actions.refine._run_claude_p")
+    @patch("cai_lib.actions.refine.apply_transition")
+    @patch("cai_lib.actions.refine._build_issue_block", return_value="issue text")
+    def test_max_depth_injects_no_decompose(self, mock_build, mock_transition, mock_claude):
+        """At max depth, user_message should instruct agent not to decompose."""
+        mock_claude.return_value = MagicMock(
+            returncode=0, stdout="## Refined Issue\nContent", stderr=""
+        )
+        with patch("cai_lib.actions.refine._run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+            with patch("cai_lib.actions.refine.MAX_DECOMPOSITION_DEPTH", 2):
+                issue = {
+                    "number": 5, "title": "Test",
+                    "labels": [{"name": "depth:2"}],
+                    "body": "test body",
+                }
+                handle_refine(issue)
+        call_kwargs = mock_claude.call_args
+        input_msg = call_kwargs.kwargs.get("input") or call_kwargs[1].get("input", "")
+        self.assertIn("Do NOT produce", input_msg)
+
+
 if __name__ == "__main__":
     unittest.main()
