@@ -418,12 +418,12 @@ def handle_fix_ci(pr: dict) -> int:
         if agent.stdout:
             print(agent.stdout, flush=True)
 
-        # 10b. Apply any staged .claude/agents/*.md updates.
+        # 10b. Apply any staged .claude/agents/**/*.md updates.
         applied = _apply_agent_edit_staging(work_dir)
         if applied:
             print(
                 f"[cai fix-ci] applied {applied} staged "
-                f".claude/agents/*.md update(s)",
+                f".claude/agents/**/*.md update(s)",
                 flush=True,
             )
 
