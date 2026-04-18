@@ -228,24 +228,23 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
 
     if staging.exists() and staging.is_dir():
         target_dir = work_dir / ".claude" / "agents"
-        for staged_file in sorted(staging.iterdir()):
-            if not staged_file.is_file():
-                continue
-
-            target = target_dir / staged_file.name
+        for staged_file in sorted(staging.rglob("*.md")):
+            rel = staged_file.relative_to(staging)
+            target = target_dir / rel
             if not target.exists():
                 print(
                     f"[cai] agent edit staging: creating new agent file "
-                    f".claude/agents/{staged_file.name}",
+                    f".claude/agents/{rel}",
                     flush=True,
                 )
 
             try:
+                target.parent.mkdir(parents=True, exist_ok=True)
                 content = staged_file.read_text()
                 target.write_text(content)
                 print(
                     f"[cai] applied staged agent file: "
-                    f".claude/agents/{staged_file.name} "
+                    f".claude/agents/{rel} "
                     f"({len(content)} bytes)",
                     flush=True,
                 )
@@ -253,7 +252,7 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
             except OSError as exc:
                 print(
                     f"[cai] agent edit staging: failed to apply "
-                    f"{staged_file.name}: {exc}",
+                    f"{rel}: {exc}",
                     file=sys.stderr,
                 )
                 continue
