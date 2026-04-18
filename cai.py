@@ -1963,15 +1963,11 @@ def cmd_update_check(args) -> int:
 
     findings_file = work_dir / "findings.json"
 
-    # 2. Read current pinned version from Dockerfile.
-    try:
-        dockerfile = (work_dir / "Dockerfile").read_text()
-        version_match = re.search(
-            r"ARG\s+CLAUDE_CODE_VERSION=(\S+)", dockerfile
-        )
-        current_version = version_match.group(1) if version_match else "unknown"
-    except OSError:
-        current_version = "unknown"
+    # 2. Detect current installed version of claude-code.
+    ver_result = _run(
+        ["claude", "--version"], capture_output=True,
+    )
+    current_version = ver_result.stdout.strip() if ver_result.returncode == 0 else "unknown"
 
     # 3. Fetch latest releases from GitHub API.
     releases_result = _run(
