@@ -1,6 +1,7 @@
 # cai wrapper ephemeral directories (must never be committed)
 .cai-staging/
 .cai/
+.claude/agent-memory/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

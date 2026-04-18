@@ -44,6 +44,30 @@
 
 set -euo pipefail
 
+# Runtime UID/GID remap. When docker-compose.yml sets `user: "0:0"` and
+# passes HOST_UID/HOST_GID, we enter here as root, remap the in-container
+# cai user to match the host user so bind-mounts and named volumes have
+# matching ownership, then drop privileges and re-exec this script as
+# cai. Running directly as cai (no compose override) makes this branch
+# a no-op and the rest of the script runs unchanged.
+if [ "$(id -u)" -eq 0 ]; then
+  TARGET_UID="${HOST_UID:-1000}"
+  TARGET_GID="${HOST_GID:-1000}"
+  CURRENT_UID="$(id -u cai)"
+  CURRENT_GID="$(id -g cai)"
+  if [ "$CURRENT_UID" != "$TARGET_UID" ] || [ "$CURRENT_GID" != "$TARGET_GID" ]; then
+    echo "[entrypoint] remapping cai: ${CURRENT_UID}:${CURRENT_GID} -> ${TARGET_UID}:${TARGET_GID}"
+    groupmod -g "$TARGET_GID" -o cai
+    usermod  -u "$TARGET_UID" -o -g "$TARGET_GID" cai
+    # Chown only entries not already at the target UID/GID; full -R chown
+    # would rewalk the entire home volume on every container start.
+    find /home/cai /var/log/cai /app \
+      \( -not -uid "$TARGET_UID" -o -not -gid "$TARGET_GID" \) \
+      -exec chown -h "$TARGET_UID:$TARGET_GID" {} + 2>/dev/null || true
+  fi
+  exec runuser -u cai -- "$0" "$@"
+fi
+
 CAI_CYCLE_SCHEDULE="${CAI_CYCLE_SCHEDULE:-0 * * * *}"
 CAI_VERIFY_SCHEDULE="${CAI_VERIFY_SCHEDULE:-15 * * * *}"
 CAI_ANALYZER_SCHEDULE="${CAI_ANALYZER_SCHEDULE:-0 0 * * *}"

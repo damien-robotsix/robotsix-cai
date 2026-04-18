@@ -67,6 +67,16 @@ if [[ -e docker-compose.yml ]]; then
   echo
 fi
 
+# Capture the host user's UID/GID. The generated compose passes these
+# to the container (HOST_UID/HOST_GID env + user: "0:0"), and entrypoint.sh
+# remaps the in-container 'cai' user to match before dropping privileges.
+# This keeps bind-mounts and named volumes owned by the host user without
+# needing a local image build or any host-side permission setup.
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+echo "[i] Host UID/GID detected: ${HOST_UID}:${HOST_GID} (entrypoint will remap at startup)"
+echo
+
 echo "How should the container authenticate to Claude?"
 echo
 echo "  1) Open the claude REPL inside the container — it auto-prompts"
@@ -325,8 +335,17 @@ case "$AUTH_CHOICE" in
 services:
   cai:
     image: robotsix/cai:${IMAGE_TAG}
+    # Start as root so entrypoint.sh can remap the in-container cai user
+    # to match HOST_UID/HOST_GID, then drop privileges. Filled in by
+    # install.sh from \$(id -u)/\$(id -g).
+    user: "0:0"
     restart: unless-stopped
     environment:
+      # Host user UID/GID used by entrypoint.sh to remap the cai user
+      # at startup so bind-mounts and named volumes are owned by the
+      # host user. Captured by install.sh from the installer's shell.
+      HOST_UID: "${HOST_UID}"
+      HOST_GID: "${HOST_GID}"
       # Crontab expressions for the scheduled tasks (any valid
       # 5-field cron line — see https://crontab.guru/).
       #
@@ -399,10 +418,19 @@ YAML
 services:
   cai:
     image: robotsix/cai:${IMAGE_TAG}
+    # Start as root so entrypoint.sh can remap the in-container cai user
+    # to match HOST_UID/HOST_GID, then drop privileges. Filled in by
+    # install.sh from \$(id -u)/\$(id -g).
+    user: "0:0"
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      # Host user UID/GID used by entrypoint.sh to remap the cai user
+      # at startup so bind-mounts and named volumes are owned by the
+      # host user. Captured by install.sh from the installer's shell.
+      HOST_UID: "${HOST_UID}"
+      HOST_GID: "${HOST_GID}"
       # Crontab expressions for the scheduled tasks (any valid
       # 5-field cron line — see https://crontab.guru/).
       #
