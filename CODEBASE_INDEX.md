@@ -86,6 +86,7 @@
 | `cai_lib/parse.py` | Deterministic signal extractor from Claude Code JSONL transcripts |
 | `cai_lib/publish.py` | GitHub issue publisher with fingerprint dedup |
 | `cai_lib/subprocess_utils.py` | Subprocess helpers extracted from cai.py |
+| `cai_lib/transcript_sync.py` | Cross-host transcript sync — push/pull session jsonls to a central SSH server |
 | `cai_lib/watchdog.py` | Stale-lock watchdog that rolls back orphaned :in-progress / :revising labels |
 | `docker-compose.yml` | Multi-service orchestration with named volumes |
 | `docs/_config.yml` | Jekyll configuration for GitHub Pages docs |
@@ -102,6 +103,7 @@
 | `pyproject.toml` | Python project configuration (ruff lint settings) |
 | `scripts/generate-fsm-docs.py` | Generator script for docs/fsm.md (renders cai_lib.fsm transitions as Mermaid) |
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
+| `scripts/server-cleanup.sh` | Server-side age/size cleanup for the transcript-sync store (runs on the OVH box, not in the container) |
 | `tests/__init__.py` | Test package init |
 | `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
 | `tests/test_dup_check.py` | TODO: add description |
@@ -118,5 +120,6 @@
 | `tests/test_revise_filter.py` | TODO: add description |
 | `tests/test_rollback.py` | Tests for rollback functionality |
 | `tests/test_subprocess_utils.py` | TODO: add description |
+| `tests/test_transcript_sync.py` | Tests for cai_lib.transcript_sync — no-op path, parse_source fallback, repo slug |
 | `tests/test_unblock.py` | Tests for cai_lib.cmd_unblock — admin-comment filtering and agent input formatting |
 | `workspaces.json.example` | Template for multi-workspace configuration with per-repo cycle schedules |

@@ -26,8 +26,8 @@ from cai_lib.config import (
     LABEL_SOLVED,
     PARSE_SCRIPT,
     REPO,
-    TRANSCRIPT_DIR,
 )
+from cai_lib import transcript_sync
 from cai_lib.cmd_helpers import _fetch_previous_fix_attempts
 from cai_lib.fsm import apply_transition
 from cai_lib.github import _gh_json, _set_labels, close_issue_completed
@@ -81,8 +81,13 @@ def handle_confirm(issue: dict) -> int:
     print(f"[cai confirm] found {len(merged_issues)} merged issue(s)", flush=True)
 
     # 2. Run parse.py against the transcript dir (global window settings).
+    # When cross-host sync is enabled, refresh the aggregate mirror first
+    # so the confirm check considers signals from every machine, not just
+    # this one. No-op when sync is disabled.
+    transcript_sync.pull()
+    parse_dir = transcript_sync.parse_source()
     parsed = _run(
-        ["python", str(PARSE_SCRIPT), str(TRANSCRIPT_DIR)],
+        ["python", str(PARSE_SCRIPT), str(parse_dir)],
         capture_output=True,
     )
     if parsed.returncode != 0:

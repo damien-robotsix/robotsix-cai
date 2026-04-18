@@ -37,6 +37,8 @@ RUN apt-get update \
         wget \
         gnupg \
         git \
+        rsync \
+        openssh-client \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg \
         https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -105,7 +107,8 @@ RUN wget -nv -O /usr/local/bin/supercronic \
 # created on first run inside the volume.
 RUN groupadd --system --gid 1000 cai \
     && useradd --system --gid cai --uid 1000 --create-home --shell /bin/bash cai \
-    && mkdir -p /var/log/cai /home/cai/.config/gh /home/cai/.claude/projects \
+    && mkdir -p /var/log/cai /home/cai/.config/gh /home/cai/.claude/projects /home/cai/.ssh \
+    && chmod 700 /home/cai/.ssh \
     && chown -R cai:cai /var/log/cai /home/cai
 
 # `/app` is populated by cloning the repo at build time instead of

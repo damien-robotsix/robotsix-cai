@@ -7,6 +7,14 @@ from pathlib import Path
 REPO: str = os.environ.get("CAI_REPO", "damien-robotsix/robotsix-cai")
 SMOKE_PROMPT = "Say hello in one short sentence."
 
+
+def _repo_slug(repo: str) -> str:
+    """Turn ``owner/repo`` into a filesystem-safe slug for server paths."""
+    return repo.replace("/", "_")
+
+
+REPO_SLUG: str = _repo_slug(REPO)
+
 # Root of claude-code's per-cwd transcript dirs. claude-code writes
 # `~/.claude/projects/<sanitized-cwd>/<session-id>.jsonl` for every
 # session, so this directory contains one subdir per cwd:
@@ -19,6 +27,62 @@ SMOKE_PROMPT = "Say hello in one short sentence."
 # Path is /home/cai/... because the container runs as the non-root
 # `cai` user (uid 1000) — see Dockerfile.
 TRANSCRIPT_DIR = Path("/home/cai/.claude/projects")
+
+# When cross-host transcript sync is enabled (CAI_TRANSCRIPT_SYNC_URL set),
+# the analyzer/confirm handlers read from this aggregate mirror — populated
+# by `cai transcript-sync` via rsync — instead of the local-only
+# TRANSCRIPT_DIR. The mirror holds one subdir per machine-id:
+#
+#   /home/cai/.claude/projects-aggregate/<machine-id>/<encoded-cwd>/<session>.jsonl
+#
+# `parse.py` walks .jsonl files recursively, so the extra level of
+# nesting is transparent to it.
+TRANSCRIPT_AGGREGATE_DIR = Path("/home/cai/.claude/projects-aggregate")
+
+# Cross-host transcript-sync configuration. The feature is a no-op when
+# ``CAI_TRANSCRIPT_SYNC_URL`` is unset, so existing single-host
+# deployments behave exactly as before. See cai_lib.transcript_sync and
+# docs/configuration.md for the full design.
+TRANSCRIPT_SYNC_URL: str = os.environ.get("CAI_TRANSCRIPT_SYNC_URL", "").strip()
+TRANSCRIPT_SYNC_SSH_KEY = Path(
+    os.environ.get("CAI_TRANSCRIPT_SYNC_SSH_KEY", "/home/cai/.ssh/cai_transcript_key")
+)
+# Bind-mounted from the host's /etc/machine-id — see docker-compose.yml.
+# Container's own /etc/machine-id is the container ID and rotates on every
+# `docker compose up`, so it's unusable as a stable bucket key.
+_HOST_MACHINE_ID_PATH = Path("/etc/host-machine-id")
+
+
+def _resolve_machine_id() -> str:
+    """Resolve the stable per-host identifier used for server bucket paths.
+
+    Resolution order:
+      1. ``CAI_MACHINE_ID`` env var (human-readable override — e.g. ``laptop``).
+      2. First 12 chars of the host's ``/etc/machine-id`` (bind-mounted at
+         ``/etc/host-machine-id`` by docker-compose.yml).
+      3. Empty string — callers must treat this as "sync disabled for this
+         container" and surface a clear error. We do NOT fall back to the
+         container's own hostname: it's usually a random container ID that
+         rotates on every restart and would silently create a new server
+         bucket on every reboot.
+    """
+    explicit = os.environ.get("CAI_MACHINE_ID", "").strip()
+    if explicit:
+        return explicit
+    try:
+        host_mid = _HOST_MACHINE_ID_PATH.read_text().strip()
+    except (FileNotFoundError, PermissionError):
+        return ""
+    return host_mid[:12] if host_mid else ""
+
+
+MACHINE_ID: str = _resolve_machine_id()
+
+
+def transcript_sync_enabled() -> bool:
+    """True when transcript-sync is configured. Missing MACHINE_ID disables it."""
+    return bool(TRANSCRIPT_SYNC_URL) and bool(MACHINE_ID)
+
 
 # Files baked into the image alongside cai.py.
 PARSE_SCRIPT = Path("/app/parse.py")

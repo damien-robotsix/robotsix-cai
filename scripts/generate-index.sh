@@ -98,6 +98,8 @@ declare -A DESCRIPTIONS=(
   ["cai_lib/parse.py"]="Deterministic signal extractor from Claude Code JSONL transcripts"
   ["cai_lib/publish.py"]="GitHub issue publisher with fingerprint dedup"
   ["cai_lib/subprocess_utils.py"]="Subprocess helpers extracted from cai.py"
+  ["cai_lib/transcript_sync.py"]="Cross-host transcript sync — push/pull session jsonls to a central SSH server"
+  ["scripts/server-cleanup.sh"]="Server-side age/size cleanup for the transcript-sync store (runs on the OVH box, not in the container)"
   ["docs/_config.yml"]="Jekyll configuration for GitHub Pages docs"
   ["docs/agents.md"]="Documentation: agent definitions and pipeline phase mapping"
   ["docs/architecture.md"]="Documentation: pipeline overview and system architecture"
@@ -117,6 +119,7 @@ declare -A DESCRIPTIONS=(
   ["tests/test_parse.py"]="Tests for parse.py signal extraction"
   ["tests/test_publish.py"]="Tests for publish.py issue publishing"
   ["tests/test_rollback.py"]="Tests for rollback functionality"
+  ["tests/test_transcript_sync.py"]="Tests for cai_lib.transcript_sync — no-op path, parse_source fallback, repo slug"
 )
 
 # ---------------------------------------------------------------------------
@@ -133,7 +136,11 @@ declare -A DESCRIPTIONS=(
 |------|---------|
 HEADER
 
-  git -C "$REPO_ROOT" ls-files | grep -v '^\.cai/' | sort | while IFS= read -r f; do
+  # Force C locale so ordering is deterministic across machines — GNU
+  # sort's default is locale-aware (e.g. underscores collate differently
+  # under fr_FR than under C), which otherwise causes churn when contributors
+  # regenerate the index on their own machines.
+  git -C "$REPO_ROOT" ls-files | grep -v '^\.cai/' | LC_ALL=C sort | while IFS= read -r f; do
     desc="${DESCRIPTIONS[$f]:-TODO: add description}"
     printf '| `%s` | %s |\n' "$f" "$desc"
   done

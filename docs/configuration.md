@@ -45,6 +45,100 @@ Schedule values use standard cron format: `minute hour day month weekday`. To di
 | `CAI_TRANSCRIPT_WINDOW_DAYS` | `7` | Only parse session transcripts from the last N days |
 | `CAI_TRANSCRIPT_MAX_FILES` | `50` | Read at most N recent transcript files (0 = no limit) |
 
+## Cross-host Transcript Sync
+
+When you run cai for the same repository on multiple machines, each
+container only sees the sessions that happened on its own host.
+`cai analyze` and `cai confirm` then only reason about a local slice of
+activity, missing signals from the rest of the fleet.
+
+The transcript-sync feature addresses this by pushing each host's
+transcripts to a central SSH server you own (any cheap VPS works — OVH,
+Hetzner, a home lab box) and pulling the union back before
+analyze/confirm run.
+
+### Enabling
+
+The easiest path is to re-run `install.sh` and answer **yes** to the
+"Enable transcript sync?" prompt. The installer:
+
+1. Prompts for the SSH destination (e.g. `cai@vps.example.com:/srv/cai-transcripts`).
+2. Generates a dedicated `cai_transcript_key` (ed25519) in the install directory.
+3. Prints the public key for you to add to the remote user's
+   `~/.ssh/authorized_keys`.
+4. Wires the key + `/etc/machine-id` bind mounts + sync env vars into
+   the generated `docker-compose.yml`.
+
+### Two transports: SSH vs local path
+
+`CAI_TRANSCRIPT_SYNC_URL` supports two URL shapes and picks the transport
+from the shape:
+
+- **SSH** — `<user>@<host>:<absolute-path>` (contains `:`). The
+  container rsyncs over SSH with the key at
+  `CAI_TRANSCRIPT_SYNC_SSH_KEY`. Use this from any machine that is NOT
+  hosting the transcript store itself.
+
+- **Local path** — an absolute filesystem path with no `:` (e.g.
+  `/srv/cai-transcripts`). The container rsyncs directly against a
+  bind-mount of that path. Use this on the host that is ALSO the
+  central store, so its own pushes/pulls don't SSH-loopback
+  unnecessarily. The path must be bind-mounted into the container
+  (the installer does this automatically when you pick local mode)
+  and writable by UID 1000.
+
+Both modes share the same server layout and same machine-id logic —
+the only difference is whether the container takes the SSH path or the
+loopback path.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `CAI_TRANSCRIPT_SYNC_URL` | _(unset → disabled)_ | Transport + destination. SSH form: `<user>@<host>:<absolute-path>`. Local form: plain absolute path with no colon. Feature is a no-op when unset. |
+| `CAI_TRANSCRIPT_SYNC_SSH_KEY` | `/home/cai/.ssh/cai_transcript_key` | Path inside the container to the private key used for rsync-over-SSH. Ignored in local-path mode. |
+| `CAI_TRANSCRIPT_SYNC_SCHEDULE` | `*/15 * * * *` | Cron expression for the push+pull job. Only appended to the crontab when `CAI_TRANSCRIPT_SYNC_URL` is set. |
+| `CAI_MACHINE_ID` | _(from `/etc/machine-id`)_ | Stable per-host identifier used as the server bucket name. Defaults to the first 12 chars of the host's `/etc/machine-id` (bind-mounted into the container at `/etc/host-machine-id`). Set explicitly for human-readable bucket names (e.g. `laptop`, `ovh-box`). |
+
+### Server layout
+
+```
+<CAI_TRANSCRIPT_SYNC_URL>/
+  <repo-slug>/                 # e.g. damien-robotsix_robotsix-cai
+    <machine-id>/              # from CAI_MACHINE_ID or /etc/machine-id
+      <encoded-cwd>/
+        <session-id>.jsonl
+```
+
+Each host pushes into its own `<machine-id>` bucket with
+`rsync --delete`, so a machine's bucket always mirrors its current
+7-day window. Analyzers pull the full `<repo-slug>` subtree — i.e. the
+union of every machine's window — into
+`/home/cai/.claude/projects-aggregate/` before parsing.
+
+### Server-side cleanup
+
+Age and size caps are enforced by `scripts/server-cleanup.sh` — copy it
+to the server and add a cron entry:
+
+```
+30 3 * * * CAI_SERVER_MAX_AGE_DAYS=30 CAI_SERVER_MAX_SIZE_MB=2000 \
+  /srv/cai-transcripts-cleanup.sh >> /var/log/cai-cleanup.log 2>&1
+```
+
+The script is self-contained, has a `--dry-run` mode via
+`CAI_SERVER_DRY_RUN=1`, and documents all env vars at the top.
+
+### Manual one-off sync
+
+```
+docker compose exec cai python /app/cai.py transcript-sync
+```
+
+Runs push + pull immediately, then exits. Useful right after you enable
+the feature to populate the aggregate mirror without waiting for the
+first cron tick.
+
 ## Multi-workspace Configuration
 
 By default, `robotsix-cai` maintains only the primary repository (Lane 1). To extend the container to manage additional repositories, create a `workspaces.json` file listing the repos to maintain:
@@ -97,6 +191,9 @@ Agent-level overrides live in `.claude/agents/<name>.md` YAML frontmatter (`tool
 | Path | Purpose |
 |---|---|
 | `/home/cai/.claude/projects` | Transcript directory — Claude Code writes `.jsonl` session files here |
+| `/home/cai/.claude/projects-aggregate` | Cross-host aggregate mirror (populated by `cai transcript-sync`; only present when `CAI_TRANSCRIPT_SYNC_URL` is set) |
+| `/home/cai/.ssh/cai_transcript_key` | Private key used for transcript-sync SSH (bind-mounted read-only) |
+| `/etc/host-machine-id` | Host's `/etc/machine-id` bind-mounted read-only to give transcript-sync a stable per-host bucket key |
 | `/app/.claude/agent-memory` | Per-agent persistent memory files (checked into git) |
 | `/var/log/cai/cai.log` | Structured run log (JSON lines, one entry per `cai` invocation) |
 | `/var/log/cai/cai-cost.jsonl` | Per-invocation cost log (input/output tokens + USD) |

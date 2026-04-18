@@ -56,6 +56,8 @@ CAI_COST_OPTIMIZE_SCHEDULE="${CAI_COST_OPTIMIZE_SCHEDULE:-0 5 * * 0}"
 CAI_CHECK_WORKFLOWS_SCHEDULE="${CAI_CHECK_WORKFLOWS_SCHEDULE:-0 */6 * * *}"
 CAI_AGENT_AUDIT_SCHEDULE="${CAI_AGENT_AUDIT_SCHEDULE:-0 6 * * 0}"
 CAI_EXTERNAL_SCOUT_SCHEDULE="${CAI_EXTERNAL_SCOUT_SCHEDULE:-0 6 * * 1}"
+CAI_TRANSCRIPT_SYNC_SCHEDULE="${CAI_TRANSCRIPT_SYNC_SCHEDULE:-*/15 * * * *}"
+CAI_TRANSCRIPT_SYNC_URL="${CAI_TRANSCRIPT_SYNC_URL:-}"
 CAI_WORKSPACES_CONFIG="${CAI_WORKSPACES_CONFIG:-/app/workspaces.json}"
 
 CRONTAB_PATH=/tmp/crontab
@@ -77,6 +79,13 @@ $CAI_CHECK_WORKFLOWS_SCHEDULE python /app/cai.py check-workflows
 $CAI_AGENT_AUDIT_SCHEDULE python /app/cai.py agent-audit
 $CAI_EXTERNAL_SCOUT_SCHEDULE python /app/cai.py external-scout
 CRONTAB
+
+# Append the transcript-sync cron line only when sync is actually
+# configured. The cmd_transcript_sync handler no-ops when disabled, but
+# running it every 15 min for no reason would clutter docker logs.
+if [ -n "$CAI_TRANSCRIPT_SYNC_URL" ]; then
+  echo "$CAI_TRANSCRIPT_SYNC_SCHEDULE python /app/cai.py transcript-sync" >> "$CRONTAB_PATH"
+fi
 
 # Append per-workspace cycle lines from the workspaces config file.
 if [ -s "$CAI_WORKSPACES_CONFIG" ]; then

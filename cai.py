@@ -270,6 +270,7 @@ from cai_lib.cmd_agents import (  # noqa: E402
     cmd_agent_audit, cmd_update_check, cmd_cost_optimize, cmd_external_scout,
 )
 from cai_lib.cmd_cycle import cmd_cycle, cmd_dispatch  # noqa: E402
+from cai_lib.transcript_sync import cmd_transcript_sync  # noqa: E402
 
 
 
@@ -303,6 +304,10 @@ def main() -> int:
     sub.add_parser("cost-optimize", help="Weekly cost-reduction proposal or evaluation")
     sub.add_parser("check-workflows", help="Check GitHub Actions for recent workflow failures and raise findings")
     sub.add_parser("cycle", help="One cycle tick: verify, audit, dispatch one actionable issue/PR")
+    sub.add_parser(
+        "transcript-sync",
+        help="Push local transcripts to the central server and pull the aggregate mirror back (no-op when CAI_TRANSCRIPT_SYNC_URL unset)",
+    )
     sub.add_parser("test", help="Run the project test suite")
 
     cost_parser = sub.add_parser(
@@ -333,15 +338,20 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    auth_rc = check_gh_auth()
-    if auth_rc != 0:
-        return auth_rc
+    # transcript-sync only shells out to rsync/ssh; it never touches GitHub
+    # or Claude. Skipping the auth checks lets sync run independently of
+    # pipeline-credential state (e.g. when gh auth hasn't been configured
+    # yet on a fresh install that wants to start shipping transcripts).
+    if args.command != "transcript-sync":
+        auth_rc = check_gh_auth()
+        if auth_rc != 0:
+            return auth_rc
 
-    auth_rc = check_claude_auth()
-    if auth_rc != 0:
-        return auth_rc
+        auth_rc = check_claude_auth()
+        if auth_rc != 0:
+            return auth_rc
 
-    ensure_all_labels()
+        ensure_all_labels()
 
     handlers = {
         "init": cmd_init,
@@ -360,6 +370,7 @@ def main() -> int:
         "health-report": cmd_health_report,
         "cost-optimize": cmd_cost_optimize,
         "check-workflows": cmd_check_workflows,
+        "transcript-sync": cmd_transcript_sync,
         "test": cmd_test,
     }
     return handlers[args.command](args)
