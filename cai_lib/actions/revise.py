@@ -876,7 +876,7 @@ def handle_revise(pr: dict) -> int:
             if agent.stdout:
                 print(agent.stdout, flush=True)
 
-            # 6b. Apply any `.claude/agents/*.md` updates the agent
+            # 6b. Apply any `.claude/agents/**/*.md` updates the agent
             #     staged at `<work_dir>/.cai-staging/agents/`. We
             #     apply UNCONDITIONALLY (even on agent non-zero
             #     exit) because cai-revise's return code is
@@ -890,7 +890,7 @@ def handle_revise(pr: dict) -> int:
             if applied:
                 print(
                     f"[cai revise] applied {applied} staged "
-                    f".claude/agents/*.md update(s)",
+                    f".claude/agents/**/*.md update(s)",
                     flush=True,
                 )
 

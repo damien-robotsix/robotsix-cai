@@ -558,12 +558,12 @@ def handle_implement(issue: dict) -> int:
             n = _create_suggested_issues(suggested, issue_number)
             print(f"[cai implement] created {n}/{len(suggested)} suggested issue(s)", flush=True)
 
-        # 5c. Apply any `.claude/agents/*.md` updates the agent staged.
+        # 5c. Apply any `.claude/agents/**/*.md` updates the agent staged.
         applied = _apply_agent_edit_staging(work_dir)
         if applied:
             print(
                 f"[cai implement] applied {applied} staged "
-                f".claude/agents/*.md update(s)",
+                f".claude/agents/**/*.md update(s)",
                 flush=True,
             )
 
