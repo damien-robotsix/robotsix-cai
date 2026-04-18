@@ -241,6 +241,7 @@ from cai_lib.config import (  # noqa: E402
 
 from cai_lib.logging_utils import (  # noqa: E402
     log_cost,  # noqa: F401
+    log_run,
     _get_issue_category, _log_outcome, _load_outcome_counts,
     _load_outcome_stats, _load_cost_log, _row_ts, _build_cost_summary,
 )
@@ -255,7 +256,7 @@ from cai_lib.subprocess_utils import _run, _run_claude_p  # noqa: E402
 
 from cai_lib.github import (  # noqa: E402
     check_gh_auth, check_claude_auth,
-    _set_pr_labels, _issue_has_label, _build_issue_block,
+    _gh_json, _set_pr_labels, _issue_has_label, _build_issue_block,
     _build_implement_user_message, _fetch_linked_issue_block,
     close_issue_not_planned, _recover_stale_pr_open,
 )
@@ -264,10 +265,6 @@ from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.cmd_misc import (  # noqa: E402
     cmd_init, cmd_verify, cmd_test,
     cmd_cost_report, cmd_health_report, cmd_check_workflows,
-)
-from cai_lib.cmd_agents import (  # noqa: E402
-    cmd_analyze, cmd_audit, cmd_propose, cmd_code_audit,
-    cmd_agent_audit, cmd_update_check, cmd_cost_optimize, cmd_external_scout,
 )
 from cai_lib.cmd_cycle import cmd_cycle, cmd_dispatch  # noqa: E402
 from cai_lib.transcript_sync import cmd_transcript_sync  # noqa: E402

@@ -78,6 +78,12 @@ def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
             rationale = body[:600]
             rationale_author = author
             break
+        # Detect whether this issue was already closed by any cai agent
+        # (either _retroactive_no_action_sweep or _migrate_no_action_labels).
+        has_retroactive_close = any(
+            "Closing as **not planned**" in (c.get("body") or "")
+            for c in comments
+        )
         result.append({
             "number": issue["number"],
             "title": issue["title"],
@@ -85,6 +91,7 @@ def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
             "closedAt": issue.get("closedAt", ""),
             "rationale": rationale,
             "rationale_author": rationale_author,
+            "has_retroactive_close": has_retroactive_close,
         })
     return result
 
@@ -611,17 +618,9 @@ def _retroactive_no_action_sweep() -> list[dict]:
         labels = set(ci.get("labels", []))
         if labels & terminal_labels:
             continue  # already has a terminal label
-        # Check if already closed as "not planned".
-        try:
-            detail = _gh_json([
-                "issue", "view", str(ci["number"]),
-                "--repo", REPO,
-                "--json", "stateReason",
-            ])
-            if (detail or {}).get("stateReason") == "NOT_PLANNED":
-                continue
-        except subprocess.CalledProcessError:
-            pass  # proceed with re-close attempt
+        # Skip if already retroactively closed (marker comment detected).
+        if ci.get("has_retroactive_close"):
+            continue
         ok = close_issue_not_planned(
             ci["number"],
             "Retroactively closing as **not planned** — issue was closed "
