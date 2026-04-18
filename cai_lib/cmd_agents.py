@@ -30,6 +30,7 @@ from cai_lib.subprocess_utils import _run, _run_claude_p
 
 from cai_lib.github import (
     _gh_json, _set_labels, close_issue_not_planned, _recover_stale_pr_open,
+    _close_orphaned_prs,
 )
 from cai_lib.watchdog import _rollback_stale_in_progress
 from cai_lib.cmd_helpers import _work_directory_block
@@ -679,6 +680,16 @@ def cmd_audit(args) -> int:
     # Step 1f: Retroactively close auto-improve issues closed without terminal labels.
     retroactive_no_action = _retroactive_no_action_sweep()
 
+    # Step 1g: Close open PRs whose linked issue is already closed —
+    # must run after 1f so newly-no-actioned issues are visible as CLOSED.
+    closed_orphans = _close_orphaned_prs(log_prefix="cai audit")
+    if closed_orphans:
+        print(
+            f"[cai audit] closed {len(closed_orphans)} orphaned PR(s) "
+            "(linked issue was closed)",
+            flush=True,
+        )
+
     # Step 2: Gather GitHub state for the claude-driven semantic checks.
 
     # 2a. Open auto-improve issues (full detail).
@@ -812,6 +823,11 @@ def cmd_audit(args) -> int:
         for ra in retroactive_no_action:
             deterministic_section += f"- #{ra['number']}: {ra['title']}\n"
         deterministic_section += "\n"
+    if closed_orphans:
+        deterministic_section += "## Orphaned PRs closed (linked issue closed) this run\n\n"
+        for co in closed_orphans:
+            deterministic_section += f"- PR #{co['pr']} (issue #{co['issue']})\n"
+        deterministic_section += "\n"
     # Cost summary so the audit agent can flag cost outliers — same
     # window as the run-log tail (last 7 days, top 10 invocations).
     cost_section = _build_cost_summary(days=7, top_n=10)
@@ -875,6 +891,7 @@ def cmd_audit(args) -> int:
                 branches_cleaned=len(deleted_orphaned),
                 merged_flagged=len(flagged_merged),
                 retroactive_no_action=len(retroactive_no_action),
+                orphaned_prs_closed=len(closed_orphans),
                 exit=audit.returncode)
         return audit.returncode
 
@@ -892,6 +909,7 @@ def cmd_audit(args) -> int:
                 branches_cleaned=len(deleted_orphaned),
                 merged_flagged=len(flagged_merged),
                 retroactive_no_action=len(retroactive_no_action),
+                orphaned_prs_closed=len(closed_orphans),
                 result="no_findings_file", duration=dur, exit=1)
         return 1
 
@@ -907,6 +925,7 @@ def cmd_audit(args) -> int:
             branches_cleaned=len(deleted_orphaned),
             merged_flagged=len(flagged_merged),
             retroactive_no_action=len(retroactive_no_action),
+            orphaned_prs_closed=len(closed_orphans),
             duration=dur, exit=published.returncode)
     return published.returncode
 
