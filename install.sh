@@ -179,11 +179,11 @@ case "$ENABLE_SYNC" in
       2)
         echo
         echo "Enter the absolute path on this host where transcripts live."
-        echo "Must be an existing directory. It will be bind-mounted"
-        echo "into the container at the same path."
-        echo "Example: /srv/cai-transcripts"
+        echo "Created if missing. Bind-mounted into the container at the"
+        echo "same path. The default lives under the install directory so"
+        echo "no root / chown is needed."
         echo
-        prompt SYNC_PATH "Local path"
+        prompt SYNC_PATH "Local path" "${INSTALL_DIR}/transcripts"
         if [[ -z "$SYNC_PATH" ]]; then
           echo "ERROR: local path cannot be empty."
           exit 1
