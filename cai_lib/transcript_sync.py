@@ -146,8 +146,9 @@ def _run_rsync(args: list[str], *, label: str) -> int:
 def _ensure_local_bucket() -> None:
     """In local mode, create this host's bucket directory if missing.
 
-    SSH mode relies on sshd+rsync auto-creating remote paths; local mode
-    hits the filesystem directly, so we make sure the target exists.
+    SSH mode uses rsync's ``--mkpath`` to auto-create remote intermediate
+    directories; local mode hits the filesystem directly, so we make sure
+    the target exists.
     """
     if not _is_local_url(config.TRANSCRIPT_SYNC_URL):
         return
@@ -174,6 +175,10 @@ def push() -> int:
         [
             "-az",
             "--delete",
+            # --mkpath creates missing intermediate dirs on the receiver
+            # (e.g. the per-repo and per-host bucket). Without it the
+            # first push to a fresh server fails with ENOENT.
+            "--mkpath",
             *_transport_args(),
             # Trailing slashes: rsync copies the *contents* of TRANSCRIPT_DIR
             # into the server bucket, not the directory itself.
