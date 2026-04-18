@@ -51,6 +51,17 @@ services:
       CAI_MERGE_MAX_DIFF_LEN: "200000"      # max chars of PR diff passed to merge agent
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
       CAI_TRANSCRIPT_MAX_FILES: "50"        # read at most N recent transcript files (0 = no limit)
+      # Cross-host transcript sync. Leave CAI_TRANSCRIPT_SYNC_URL empty to
+      # disable (default). When set, the analyzer and confirm step pull a
+      # merged view of every machine's transcripts before running, so the
+      # self-improvement signal reflects activity across the fleet, not
+      # just this container. See docs/configuration.md for server setup.
+      CAI_TRANSCRIPT_SYNC_URL: ""          # e.g. cai@ovh.example.com:/srv/cai-transcripts
+      CAI_TRANSCRIPT_SYNC_SCHEDULE: "*/15 * * * *"  # every 15 min — push + pull
+      # CAI_MACHINE_ID overrides the auto-detected host id. Leave unset
+      # to read /etc/machine-id (bind-mounted below). Useful for
+      # human-readable bucket names: CAI_MACHINE_ID: "laptop".
+      # CAI_MACHINE_ID: ""
     volumes:
       # Persistent state for the cai user — Claude OAuth credentials,
       # session transcripts, gh config, claude-code's runtime
@@ -78,6 +89,14 @@ services:
       # For API-key auth, set ANTHROPIC_API_KEY in .env instead — the
       # volume can stay empty and claude-code will use the env var.
       - cai_home:/home/cai
+      # Stable per-host identifier for cross-host transcript sync.
+      # `/etc/machine-id` is a 32-char systemd-generated ID unique to
+      # each Linux host; bind-mounting it lets the container derive a
+      # stable bucket key without a per-host env var. Read-only.
+      # (The container's own /etc/machine-id is the container ID and
+      # rotates on every `docker compose up`, which would create a new
+      # server bucket on every restart — so we use the host's instead.)
+      - /etc/machine-id:/etc/host-machine-id:ro
       # Persistent per-agent memory (`.claude/agent-memory/<name>/`).
       # Each declarative subagent has `memory: project` in its
       # frontmatter, which Claude Code stores under

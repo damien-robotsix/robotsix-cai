@@ -33,6 +33,7 @@ from cai_lib.github import (
 )
 from cai_lib.watchdog import _rollback_stale_in_progress
 from cai_lib.cmd_helpers import _work_directory_block
+from cai_lib import transcript_sync
 
 
 # ---------------------------------------------------------------------------
@@ -234,9 +235,17 @@ def cmd_analyze(args) -> int:
     print("[cai analyze] running self-analyzer", flush=True)
     t0 = time.monotonic()
 
-    if not TRANSCRIPT_DIR.exists():
+    # When cross-host transcript sync is enabled, pull every machine's
+    # bucket into the local aggregate mirror before parsing — this way
+    # the analyzer sees tool-call activity from all machines that share
+    # this repo, not only the host this container runs on. No-op when
+    # sync is disabled.
+    transcript_sync.pull()
+    parse_dir = transcript_sync.parse_source()
+
+    if not parse_dir.exists():
         print(
-            f"[cai analyze] no transcript dir at {TRANSCRIPT_DIR}; nothing to analyze",
+            f"[cai analyze] no transcript dir at {parse_dir}; nothing to analyze",
             flush=True,
         )
         log_run("analyze", repo=REPO, sessions=0, tool_calls=0,
@@ -244,7 +253,7 @@ def cmd_analyze(args) -> int:
         return 0
 
     parsed = _run(
-        ["python", str(PARSE_SCRIPT), str(TRANSCRIPT_DIR)],
+        ["python", str(PARSE_SCRIPT), str(parse_dir)],
         capture_output=True,
     )
     if parsed.returncode != 0:
