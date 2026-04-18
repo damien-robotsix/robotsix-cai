@@ -693,6 +693,10 @@ def cmd_audit(args) -> int:
 
     # Step 1g: Close open PRs whose linked issue is already closed —
     # must run after 1f so newly-no-actioned issues are visible as CLOSED.
+    # Note: scenario 6 from issue #869 (PRs with a terminal label like
+    # auto-improve:approved but still OPEN) needs no separate sweep —
+    # if cmd_merge fails after labelling, the dispatcher picks the PR
+    # up on the next cycle and retries handle_merge.
     closed_orphans = _close_orphaned_prs(log_prefix="cai audit")
     if closed_orphans:
         print(
