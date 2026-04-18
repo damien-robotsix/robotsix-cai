@@ -106,7 +106,25 @@ wrapper pre-creates is the workaround for both cases:
      `<work_dir>/` after you exit, then deletes the staging
      directory.
 
-Rules (apply to agents, plugins, and CLAUDE.md files):
+**For deleting agent files** (`.claude/agents/*.md` removals and
+migrations):
+
+  1. **Write** an empty (or any-content) `.md` tombstone file to
+     `<work_dir>/.cai-staging/agents-delete/<same-relative-path>.md`.
+     For example, to delete `.claude/agents/cai-triage.md`, write to
+     `.cai-staging/agents-delete/cai-triage.md`. To delete
+     `.claude/agents/lifecycle/cai-triage.md`, write to
+     `.cai-staging/agents-delete/lifecycle/cai-triage.md`.
+  2. The wrapper walks `.cai-staging/agents-delete/` with
+     `rglob("*.md")` after you exit and deletes each matching file
+     at `.claude/agents/<relative-path>.md`. Tombstone contents are
+     ignored — only the relative path matters. Missing targets are
+     silently skipped (stale tombstones are safe). Non-`.md` files
+     in the tombstone tree are ignored.
+  3. Do NOT try `Bash("rm ...")` on `.claude/agents/...` — it is
+     blocked by the same sensitive-file protection.
+
+Rules (apply to agents, plugins, CLAUDE.md files, and agent deletions):
 
   - Staged files are copied unconditionally — new definitions
     are created if no target exists yet.
@@ -136,3 +154,8 @@ Example of updating root CLAUDE.md:
 
   - GOOD: `Write("<work_dir>/.cai-staging/claudemd/CLAUDE.md", "<full content>")`
   - BAD:  `Write("<work_dir>/CLAUDE.md", ...)`  (blocked)
+
+Example of deleting an agent file:
+
+  - GOOD: `Write("<work_dir>/.cai-staging/agents-delete/cai-triage.md", "")`
+  - BAD:  `Bash("rm <work_dir>/.claude/agents/cai-triage.md")`  (blocked)

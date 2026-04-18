@@ -51,6 +51,7 @@ def _read_shared_memory() -> str:
 # Paths of the staging directories inside a cloned worktree, relative
 # to the clone root.
 AGENT_EDIT_STAGING_REL = Path(".cai-staging") / "agents"
+AGENT_DELETE_STAGING_REL = Path(".cai-staging") / "agents-delete"
 PLUGIN_STAGING_REL = Path(".cai-staging") / "plugins"
 CLAUDEMD_STAGING_REL = Path(".cai-staging") / "claudemd"
 
@@ -90,6 +91,7 @@ def _work_directory_block(work_dir: Path) -> str:
     """
     staging_rel = AGENT_EDIT_STAGING_REL.as_posix()
     staging_abs = (work_dir / AGENT_EDIT_STAGING_REL).as_posix()
+    delete_staging_abs = (work_dir / AGENT_DELETE_STAGING_REL).as_posix()
     claudemd_abs = (work_dir / CLAUDEMD_STAGING_REL).as_posix()
     return (
         "## Work directory\n\n"
@@ -152,6 +154,26 @@ def _work_directory_block(work_dir: Path) -> str:
         f"  - BAD:  `Edit(\"{work_dir}/.claude/agents/lifecycle/cai-triage.md\", "
         "...)`  (blocked by claude-code)\n"
         "\n"
+        "## Deleting `.claude/agents/*.md` files (self-modification)\n\n"
+        "The same `-p` protection blocks `Bash(\"rm ...\")` on any "
+        f"`{work_dir}/.claude/agents/...` path. To request deletion of "
+        "one or more agent files (e.g. when migrating a flat agent "
+        "into a subfolder layout), drop a **tombstone file** at:\n\n"
+        f"    {delete_staging_abs}/<same-relative-path>.md\n\n"
+        "The wrapper walks that directory with `rglob(\"*.md\")` after "
+        "your session exits, and for each tombstone found deletes the "
+        "matching file at `.claude/agents/<relative-path>.md`. The "
+        "tombstone's contents are ignored — only the relative path "
+        "matters; an empty string is fine. Missing targets are silently "
+        "skipped (stale tombstones are safe). Non-`.md` files in the "
+        "tombstone tree are ignored.\n\n"
+        "Example — delete a flat agent after migrating it to a subfolder:\n"
+        f"  1. `Write(\"{staging_abs}/lifecycle/cai-triage.md\", "
+        "\"<full new content>\")`  (write new subfolder copy)\n"
+        f"  2. `Write(\"{delete_staging_abs}/cai-triage.md\", \"\")`  "
+        "(tombstone the old flat copy)\n\n"
+        "Do NOT try `Bash(\"rm ...\")` on `.claude/agents/` — it is "
+        "blocked by the same sensitive-file protection.\n\n"
         "## Updating `CLAUDE.md` files (self-modification)\n\n"
         "Claude-code's headless `-p` mode also hardcodes a write block "
         "on `CLAUDE.md` files (project-level context files). Edit/Write "
@@ -193,6 +215,8 @@ def _setup_agent_edit_staging(work_dir: Path) -> Path:
     """
     staging = work_dir / AGENT_EDIT_STAGING_REL
     staging.mkdir(parents=True, exist_ok=True)
+    delete_staging = work_dir / AGENT_DELETE_STAGING_REL
+    delete_staging.mkdir(parents=True, exist_ok=True)
     plugin_staging = work_dir / PLUGIN_STAGING_REL
     plugin_staging.mkdir(parents=True, exist_ok=True)
     claudemd_staging = work_dir / CLAUDEMD_STAGING_REL
@@ -310,6 +334,42 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
                 # Preserve .cai-staging so staged files are not
                 # silently lost when the copy fails.
                 return applied
+
+    # Apply any agent-file deletions requested via tombstone markers at
+    # .cai-staging/agents-delete/<relative-path>.md. A file's presence in
+    # that tree signals "delete the matching path under .claude/agents/".
+    # Contents are ignored — only the relative path matters. Non-.md
+    # files are skipped. Path traversal is structurally impossible:
+    # rglob() only yields descendants of the staging root.
+    delete_staging = work_dir / AGENT_DELETE_STAGING_REL
+    if delete_staging.exists() and delete_staging.is_dir():
+        agents_dir = work_dir / ".claude" / "agents"
+        for tombstone in sorted(delete_staging.rglob("*.md")):
+            rel = tombstone.relative_to(delete_staging)
+            target = agents_dir / rel
+            try:
+                if target.is_file():
+                    target.unlink()
+                    print(
+                        f"[cai] applied staged agent deletion: "
+                        f".claude/agents/{rel}",
+                        flush=True,
+                    )
+                    applied += 1
+                else:
+                    print(
+                        f"[cai] agent edit staging: tombstone for "
+                        f".claude/agents/{rel} has no target file "
+                        f"(already absent; skipping)",
+                        flush=True,
+                    )
+            except OSError as exc:
+                print(
+                    f"[cai] agent edit staging: failed to delete "
+                    f".claude/agents/{rel}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
 
     # Clean up the entire .cai-staging tree (one level above the
     # agents/ subdir) so nothing leaks into the PR.
