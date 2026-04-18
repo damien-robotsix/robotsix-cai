@@ -128,27 +128,28 @@ def _work_directory_block(work_dir: Path) -> str:
         f"    {staging_abs}\n\n"
         "To update an `.claude/agents/<name>.md` file, use the "
         "Write tool to write the COMPLETE new file content "
-        "(frontmatter + body) to "
-        f"`{staging_abs}/<name>.md`. After your session exits "
-        "successfully the wrapper copies every file it finds in "
-        f"`{staging_rel}/` back over the corresponding "
-        "`.claude/agents/<same-name>.md` in the clone, then deletes "
-        "the staging directory so it never lands in the PR.\n\n"
+        "(frontmatter + body) to the corresponding path under "
+        f"`{staging_abs}/`. After your session exits "
+        "successfully the wrapper recursively walks every file it finds "
+        f"in `{staging_rel}/`, preserving subdirectory paths, and copies "
+        "each one to the matching `.claude/agents/<relative-path>.md` in "
+        "the clone, then deletes the staging directory so it never lands "
+        "in the PR.\n\n"
         "Rules:\n"
         "  - Staged files are copied unconditionally — new agent "
         "definitions are created if no target exists yet.\n"
         "  - Write the FULL file, not a diff or patch. The wrapper "
         "does an unconditional full-file overwrite.\n"
-        "  - Use the same basename as the target "
-        f"(e.g. `{staging_abs}/cai-implement.md` → "
-        f"`{work_dir}/.claude/agents/cai-implement.md`).\n"
+        "  - Preserve the relative path from the staging root "
+        f"(e.g. `{staging_abs}/lifecycle/cai-triage.md` → "
+        f"`{work_dir}/.claude/agents/lifecycle/cai-triage.md`).\n"
         "  - Do NOT attempt `Edit` or `Write` on the protected "
         f"`{work_dir}/.claude/agents/...` path — it will always "
         "fail. Go through the staging dir.\n\n"
         "Example:\n"
-        f"  - GOOD: `Write(\"{staging_abs}/cai-implement.md\", "
+        f"  - GOOD: `Write(\"{staging_abs}/lifecycle/cai-triage.md\", "
         "\"<full new file content>\")`\n"
-        f"  - BAD:  `Edit(\"{work_dir}/.claude/agents/cai-implement.md\", "
+        f"  - BAD:  `Edit(\"{work_dir}/.claude/agents/lifecycle/cai-triage.md\", "
         "...)`  (blocked by claude-code)\n"
         "\n"
         "## Updating `CLAUDE.md` files (self-modification)\n\n"
@@ -208,13 +209,15 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
     Security boundaries:
 
       1. Each staged agent file is copied to `<work_dir>/.claude/agents/`
-         using the same basename. If no target exists a new file is
-         created; if one exists it is overwritten.
+         preserving its subdirectory path relative to the staging root.
+         If no target exists a new file is created; if one exists it is
+         overwritten. Parent directories are created as needed.
       2. Staged plugin trees are merged into `<work_dir>/.claude/plugins/`
          using shutil.copytree with dirs_exist_ok=True.
       3. The staging dir lives entirely inside `work_dir` so escapes
-         via `..` are not possible (the wrapper iterates one
-         directory level via `iterdir()` and copies whole files).
+         via `..` are not possible (the wrapper recursively walks the
+         staging directory via `rglob("*.md")` and copies whole files
+         preserving subdirectory paths).
       4. The staging dir is removed before commit if all staging
          operations succeeded. If plugin staging fails, the staging
          dir is preserved for inspection and the function returns

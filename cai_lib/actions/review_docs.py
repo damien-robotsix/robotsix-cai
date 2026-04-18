@@ -213,7 +213,7 @@ def handle_review_docs(pr: dict) -> int:
         if applied:
             print(
                 f"[cai review-docs] applied {applied} staged "
-                f".claude/agents/*.md update(s)",
+                f".claude/agents/**/*.md update(s)",
                 flush=True,
             )
 
