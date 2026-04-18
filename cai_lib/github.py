@@ -6,7 +6,12 @@ import re
 import subprocess
 import sys
 
-from cai_lib.config import REPO, TRANSCRIPT_DIR
+from cai_lib.config import (
+    REPO, TRANSCRIPT_DIR,
+    LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGE_BLOCKED,
+    LABEL_REVISING, LABEL_RAISED, LABEL_REFINED,
+)
+from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run
 
 
@@ -260,6 +265,92 @@ def close_issue_not_planned(
         )
         return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# PR-linked-issue helpers (shared by cmd_verify and cmd_audit)
+# ---------------------------------------------------------------------------
+
+def _find_linked_pr(issue_number: int):
+    """Search PRs whose body references this issue. Returns the most recent."""
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "all",
+            "--search", f'"Refs {REPO}#{issue_number}" in:body',
+            "--json", "number,state,mergedAt,headRefName,createdAt",
+            "--limit", "20",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai verify] gh pr list (issue #{issue_number}) failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        return None
+    if not prs:
+        return None
+    # Most recently created first.
+    prs.sort(key=lambda p: p["createdAt"], reverse=True)
+    return prs[0]
+
+
+def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> list[dict]:
+    """Transition :pr-open issues whose linked PR was closed (unmerged) back to :refined.
+
+    Also recovers issues with no linked PR at all (dangling :pr-open).
+    Returns the list of issues that were successfully recovered.
+    """
+    recovered: list[dict] = []
+    subcmd = log_prefix.split()[-1]
+    for issue in issues:
+        if LABEL_IN_PROGRESS in {lbl["name"] for lbl in issue.get("labels", [])}:
+            continue
+        pr = _find_linked_pr(issue["number"])
+        issue_labels = {lbl["name"] for lbl in issue.get("labels", [])}
+        remove_labels = [LABEL_PR_OPEN, LABEL_MERGE_BLOCKED, LABEL_REVISING]
+        if pr is None:
+            if _set_labels(issue["number"], add=[LABEL_RAISED], remove=remove_labels, log_prefix=log_prefix):
+                comment = (
+                    "## Auto-improve: rolling back to :raised\n\n"
+                    "No linked PR found for this `:pr-open` issue. "
+                    "Resetting to `:raised` so the refine subagent can re-structure it "
+                    "and the implement subagent can then attempt a fresh fix.\n\n"
+                    f"---\n_Rolled back automatically by `{log_prefix}`._"
+                )
+                _run(["gh", "issue", "comment", str(issue["number"]),
+                      "--repo", REPO, "--body", comment], capture_output=True)
+                log_run(subcmd, repo=REPO, issue=issue["number"],
+                        pr=0, result="rollback_no_pr", exit=0)
+                print(
+                    f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
+                    f"(no linked PR found)",
+                    flush=True,
+                )
+                recovered.append(issue)
+            continue
+        state = (pr.get("state") or "").upper()
+        if state == "CLOSED":
+            if _set_labels(issue["number"], add=[LABEL_REFINED], remove=remove_labels, log_prefix=log_prefix):
+                comment = (
+                    "## Auto-improve: rolling back to :refined\n\n"
+                    f"Linked PR #{pr['number']} was closed without merging. "
+                    "Resetting this issue to `:refined` so it can flow through "
+                    "the refinement and planning cycle again before a human "
+                    "can re-approve it for the implement subagent.\n\n"
+                    f"---\n_Rolled back automatically by `{log_prefix}`._"
+                )
+                _run(["gh", "issue", "comment", str(issue["number"]),
+                      "--repo", REPO, "--body", comment], capture_output=True)
+                log_run(subcmd, repo=REPO, issue=issue["number"],
+                        pr=pr["number"], result="rollback_closed_pr", exit=0)
+                print(
+                    f"[{log_prefix}] recovered stale :pr-open on #{issue['number']} "
+                    f"(PR #{pr['number']} closed unmerged)",
+                    flush=True,
+                )
+                recovered.append(issue)
+    return recovered
 
 
 def close_issue_completed(

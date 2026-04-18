@@ -69,6 +69,7 @@
 | `cai_lib/cmd_helpers_github.py` | GitHub API helpers for cai action wrappers |
 | `cai_lib/cmd_helpers_issues.py` | Issue-lifecycle helpers for cai action wrappers |
 | `cai_lib/cmd_implement.py` | Helpers for the implement-subagent pipeline |
+| `cai_lib/cmd_misc.py` | CLI subcommands extracted from cai.py: init, verify, cost-report, health-report, check-workflows, test |
 | `cai_lib/cmd_unblock.py` | Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock) |
 | `cai_lib/config.py` | Shared constants and path definitions |
 | `cai_lib/dispatcher.py` | FSM dispatcher — routes issues/PRs to the handler registered for their state |

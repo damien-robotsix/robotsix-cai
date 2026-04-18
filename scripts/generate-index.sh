@@ -78,6 +78,7 @@ declare -A DESCRIPTIONS=(
   ["cai_lib/actions/maintain.py"]="Handler for IssueState.APPLYING / APPLIED — runs cai-maintain and handles maintenance ops application"
   ["cai_lib/actions/triage.py"]="Handler for IssueState.RAISED / TRIAGING — runs cai-triage"
   ["cai_lib/cmd_implement.py"]="Helpers for the implement-subagent pipeline"
+  ["cai_lib/cmd_misc.py"]="CLI subcommands extracted from cai.py: init, verify, cost-report, health-report, check-workflows, test"
   ["cai_lib/cmd_helpers.py"]="Cross-command helpers shared between cai.py and cai_lib/actions/*"
   ["cai_lib/cmd_helpers_git.py"]="Git and worktree helpers for cai action wrappers"
   ["cai_lib/cmd_helpers_github.py"]="GitHub API helpers for cai action wrappers"
