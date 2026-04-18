@@ -121,11 +121,11 @@ Rules (apply to agents, plugins, and CLAUDE.md files):
 
 Example of updating an agent file:
 
-  - GOOD (flat): `Read("<work_dir>/.claude/agents/cai-implement.md")` then
-    `Write("<work_dir>/.cai-staging/agents/cai-implement.md", "<full new content>")`
-  - GOOD (nested): `Read("<work_dir>/.claude/agents/lifecycle/cai-triage.md")` then
+  - GOOD (implementation): `Read("<work_dir>/.claude/agents/implementation/cai-implement.md")` then
+    `Write("<work_dir>/.cai-staging/agents/implementation/cai-implement.md", "<full new content>")`
+  - GOOD (lifecycle): `Read("<work_dir>/.claude/agents/lifecycle/cai-triage.md")` then
     `Write("<work_dir>/.cai-staging/agents/lifecycle/cai-triage.md", "<full new content>")`
-  - BAD:  `Edit("<work_dir>/.claude/agents/cai-implement.md", old, new)`  (blocked)
+  - BAD:  `Edit("<work_dir>/.claude/agents/implementation/cai-implement.md", old, new)`  (blocked)
 
 Example of creating a plugin skill:
 
