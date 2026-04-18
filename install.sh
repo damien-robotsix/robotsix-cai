@@ -162,73 +162,147 @@ TRANSCRIPT_SYNC_VOLUMES=""
 case "$ENABLE_SYNC" in
   y|Y|yes|Yes|YES)
     echo
-    echo "Enter the SSH destination for the shared transcript store."
-    echo "Format: <user>@<host>:<absolute-path>"
-    echo "Example: cai@ovh.example.com:/srv/cai-transcripts"
+    echo "Pick the transport for the transcript store:"
     echo
-    prompt SYNC_URL "Sync URL"
-    if [[ -z "$SYNC_URL" ]]; then
-      echo "ERROR: sync URL cannot be empty when sync is enabled."
-      exit 1
-    fi
+    echo "  1) SSH — transcripts live on a remote server you own."
+    echo "     This host rsyncs to it via SSH. Use this for laptops"
+    echo "     and any host that isn't the one holding the store."
+    echo
+    echo "  2) Local — transcripts live on this host's filesystem,"
+    echo "     bind-mounted into the container. Use this on the"
+    echo "     host that IS the central store (e.g. the VPS itself),"
+    echo "     so its own pushes/pulls avoid a pointless SSH loopback."
+    echo
+    prompt SYNC_MODE "Transport [1/2]" "1"
 
-    # Generate a dedicated ed25519 keypair just for transcript sync.
-    # Kept separate from any user's personal keys so it can be rotated
-    # or revoked without collateral damage.
-    SYNC_KEY_PATH="${INSTALL_DIR}/cai_transcript_key"
-    if [[ -f "$SYNC_KEY_PATH" ]]; then
-      echo
-      echo "[i] Reusing existing key at $SYNC_KEY_PATH"
-    else
-      echo
-      echo "Generating a dedicated ed25519 keypair at $SYNC_KEY_PATH ..."
-      ssh-keygen -t ed25519 -N '' -f "$SYNC_KEY_PATH" \
-        -C "cai-transcript-sync@$(hostname)" >/dev/null
-      echo "[OK] Key generated."
-    fi
+    case "$SYNC_MODE" in
+      2)
+        echo
+        echo "Enter the absolute path on this host where transcripts live."
+        echo "Must be an existing directory. It will be bind-mounted"
+        echo "into the container at the same path."
+        echo "Example: /srv/cai-transcripts"
+        echo
+        prompt SYNC_PATH "Local path"
+        if [[ -z "$SYNC_PATH" ]]; then
+          echo "ERROR: local path cannot be empty."
+          exit 1
+        fi
+        if [[ "$SYNC_PATH" != /* ]]; then
+          echo "ERROR: local path must be absolute (starts with /)."
+          exit 1
+        fi
+        if [[ ! -d "$SYNC_PATH" ]]; then
+          echo "[i] $SYNC_PATH does not exist yet; creating it."
+          mkdir -p "$SYNC_PATH"
+        fi
+        # For the cai container (UID 1000) to write here, the dir must
+        # be writable by that UID. If the host user isn't UID 1000,
+        # document the chown the user needs to run.
+        if [[ "$(stat -c %u "$SYNC_PATH")" != "1000" ]]; then
+          echo
+          echo "[!] $SYNC_PATH is not owned by UID 1000 (the cai user in the container)."
+          echo "    The container will likely hit 'permission denied' on push."
+          echo "    Fix with: sudo chown -R 1000:1000 $SYNC_PATH"
+          echo
+          prompt _OWN_CONTINUE "Press Enter when ready (or Ctrl-C to abort)" ""
+        fi
 
-    # Mount permissions matter: the cai user inside the container runs
-    # as UID 1000. If the host user isn't UID 1000, the bind-mount will
-    # show up owned by a different UID and ssh will refuse to use it.
-    # We chmod the file 600 (ssh's required perms) and rely on the
-    # common case (host's first user = UID 1000 = matches cai).
-    chmod 600 "$SYNC_KEY_PATH"
-    chmod 644 "${SYNC_KEY_PATH}.pub"
-
-    echo
-    echo "==========================================================="
-    echo "ACTION REQUIRED — install the public key on the sync server"
-    echo "==========================================================="
-    echo
-    echo "Copy the following public key into the remote user's"
-    echo "~/.ssh/authorized_keys on the sync server:"
-    echo
-    cat "${SYNC_KEY_PATH}.pub"
-    echo
-    echo "One-liner from this host (if you have password SSH access):"
-    SYNC_USER_HOST="${SYNC_URL%:*}"
-    echo "    ssh-copy-id -i ${SYNC_KEY_PATH}.pub ${SYNC_USER_HOST}"
-    echo
-    echo "Also create the transcript root on the server, e.g.:"
-    SYNC_REMOTE_PATH="${SYNC_URL#*:}"
-    echo "    ssh ${SYNC_USER_HOST} 'mkdir -p ${SYNC_REMOTE_PATH} && chmod 700 ${SYNC_REMOTE_PATH}'"
-    echo
-    echo "For automatic age/size cleanup, copy scripts/server-cleanup.sh"
-    echo "to the server and wire it into its cron (see the script header"
-    echo "for env vars and an example cron line)."
-    echo
-    prompt _SYNC_CONTINUE "Press Enter once the public key is installed" ""
-
-    TRANSCRIPT_SYNC_ENV=$(cat <<EOF
+        SYNC_URL="$SYNC_PATH"
+        TRANSCRIPT_SYNC_ENV=$(cat <<EOF
       CAI_TRANSCRIPT_SYNC_URL: "${SYNC_URL}"
       CAI_TRANSCRIPT_SYNC_SCHEDULE: "*/15 * * * *"
 EOF
 )
-    TRANSCRIPT_SYNC_VOLUMES=$(cat <<'EOF'
+        # In local mode we bind-mount the host path at the same path
+        # inside the container so the user sees consistent paths in
+        # logs and docker exec sessions.
+        TRANSCRIPT_SYNC_VOLUMES=$(cat <<EOF
+      - ${SYNC_PATH}:${SYNC_PATH}
+      - /etc/machine-id:/etc/host-machine-id:ro
+EOF
+)
+        echo
+        echo "[OK] Local-path transport configured (${SYNC_PATH})."
+        echo "    No SSH key needed. Remote hosts should still SSH-push to"
+        echo "    this server's $SYNC_PATH — see docs/configuration.md."
+        echo
+        ;;
+      *)
+        echo
+        echo "Enter the SSH destination for the shared transcript store."
+        echo "Format: <user>@<host>:<absolute-path>"
+        echo "Example: cai@ovh.example.com:/srv/cai-transcripts"
+        echo
+        prompt SYNC_URL "Sync URL"
+        if [[ -z "$SYNC_URL" ]]; then
+          echo "ERROR: sync URL cannot be empty when sync is enabled."
+          exit 1
+        fi
+        if [[ "$SYNC_URL" != *:* ]]; then
+          echo "ERROR: SSH URL must contain ':' (user@host:/path). Did you mean local mode?"
+          exit 1
+        fi
+
+        # Generate a dedicated ed25519 keypair just for transcript sync.
+        # Kept separate from any user's personal keys so it can be rotated
+        # or revoked without collateral damage.
+        SYNC_KEY_PATH="${INSTALL_DIR}/cai_transcript_key"
+        if [[ -f "$SYNC_KEY_PATH" ]]; then
+          echo
+          echo "[i] Reusing existing key at $SYNC_KEY_PATH"
+        else
+          echo
+          echo "Generating a dedicated ed25519 keypair at $SYNC_KEY_PATH ..."
+          ssh-keygen -t ed25519 -N '' -f "$SYNC_KEY_PATH" \
+            -C "cai-transcript-sync@$(hostname)" >/dev/null
+          echo "[OK] Key generated."
+        fi
+
+        # Mount permissions matter: the cai user inside the container runs
+        # as UID 1000. If the host user isn't UID 1000, the bind-mount will
+        # show up owned by a different UID and ssh will refuse to use it.
+        # We chmod the file 600 (ssh's required perms) and rely on the
+        # common case (host's first user = UID 1000 = matches cai).
+        chmod 600 "$SYNC_KEY_PATH"
+        chmod 644 "${SYNC_KEY_PATH}.pub"
+
+        echo
+        echo "==========================================================="
+        echo "ACTION REQUIRED — install the public key on the sync server"
+        echo "==========================================================="
+        echo
+        echo "Copy the following public key into the remote user's"
+        echo "~/.ssh/authorized_keys on the sync server:"
+        echo
+        cat "${SYNC_KEY_PATH}.pub"
+        echo
+        echo "One-liner from this host (if you have password SSH access):"
+        SYNC_USER_HOST="${SYNC_URL%:*}"
+        echo "    ssh-copy-id -i ${SYNC_KEY_PATH}.pub ${SYNC_USER_HOST}"
+        echo
+        echo "Also create the transcript root on the server, e.g.:"
+        SYNC_REMOTE_PATH="${SYNC_URL#*:}"
+        echo "    ssh ${SYNC_USER_HOST} 'mkdir -p ${SYNC_REMOTE_PATH} && chmod 700 ${SYNC_REMOTE_PATH}'"
+        echo
+        echo "For automatic age/size cleanup, copy scripts/server-cleanup.sh"
+        echo "to the server and wire it into its cron (see the script header"
+        echo "for env vars and an example cron line)."
+        echo
+        prompt _SYNC_CONTINUE "Press Enter once the public key is installed" ""
+
+        TRANSCRIPT_SYNC_ENV=$(cat <<EOF
+      CAI_TRANSCRIPT_SYNC_URL: "${SYNC_URL}"
+      CAI_TRANSCRIPT_SYNC_SCHEDULE: "*/15 * * * *"
+EOF
+)
+        TRANSCRIPT_SYNC_VOLUMES=$(cat <<'EOF'
       - ./cai_transcript_key:/home/cai/.ssh/cai_transcript_key:ro
       - /etc/machine-id:/etc/host-machine-id:ro
 EOF
 )
+        ;;
+    esac
     ;;
   *)
     ;;

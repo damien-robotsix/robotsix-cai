@@ -69,12 +69,34 @@ The easiest path is to re-run `install.sh` and answer **yes** to the
 4. Wires the key + `/etc/machine-id` bind mounts + sync env vars into
    the generated `docker-compose.yml`.
 
+### Two transports: SSH vs local path
+
+`CAI_TRANSCRIPT_SYNC_URL` supports two URL shapes and picks the transport
+from the shape:
+
+- **SSH** — `<user>@<host>:<absolute-path>` (contains `:`). The
+  container rsyncs over SSH with the key at
+  `CAI_TRANSCRIPT_SYNC_SSH_KEY`. Use this from any machine that is NOT
+  hosting the transcript store itself.
+
+- **Local path** — an absolute filesystem path with no `:` (e.g.
+  `/srv/cai-transcripts`). The container rsyncs directly against a
+  bind-mount of that path. Use this on the host that is ALSO the
+  central store, so its own pushes/pulls don't SSH-loopback
+  unnecessarily. The path must be bind-mounted into the container
+  (the installer does this automatically when you pick local mode)
+  and writable by UID 1000.
+
+Both modes share the same server layout and same machine-id logic —
+the only difference is whether the container takes the SSH path or the
+loopback path.
+
 ### Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `CAI_TRANSCRIPT_SYNC_URL` | _(unset → disabled)_ | SSH destination: `<user>@<host>:<absolute-path>`. Feature is a no-op when unset. |
-| `CAI_TRANSCRIPT_SYNC_SSH_KEY` | `/home/cai/.ssh/cai_transcript_key` | Path inside the container to the private key used for rsync. Expected to be bind-mounted read-only from the host. |
+| `CAI_TRANSCRIPT_SYNC_URL` | _(unset → disabled)_ | Transport + destination. SSH form: `<user>@<host>:<absolute-path>`. Local form: plain absolute path with no colon. Feature is a no-op when unset. |
+| `CAI_TRANSCRIPT_SYNC_SSH_KEY` | `/home/cai/.ssh/cai_transcript_key` | Path inside the container to the private key used for rsync-over-SSH. Ignored in local-path mode. |
 | `CAI_TRANSCRIPT_SYNC_SCHEDULE` | `*/15 * * * *` | Cron expression for the push+pull job. Only appended to the crontab when `CAI_TRANSCRIPT_SYNC_URL` is set. |
 | `CAI_MACHINE_ID` | _(from `/etc/machine-id`)_ | Stable per-host identifier used as the server bucket name. Defaults to the first 12 chars of the host's `/etc/machine-id` (bind-mounted into the container at `/etc/host-machine-id`). Set explicitly for human-readable bucket names (e.g. `laptop`, `ovh-box`). |
 

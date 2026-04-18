@@ -33,15 +33,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from cai_lib.config import (
-    MACHINE_ID,
-    REPO_SLUG,
-    TRANSCRIPT_AGGREGATE_DIR,
-    TRANSCRIPT_DIR,
-    TRANSCRIPT_SYNC_SSH_KEY,
-    TRANSCRIPT_SYNC_URL,
-    transcript_sync_enabled,
-)
+# Access config attributes lazily (``config.TRANSCRIPT_SYNC_URL`` etc.)
+# rather than importing them by value. Tests can then patch individual
+# attributes on the config module without having to reload this module,
+# and runtime behaviour picks up changes to the environment exposed via
+# config without any reload dance at all.
+from cai_lib import config
 
 
 _SSH_OPTIONS = [
@@ -55,20 +52,45 @@ _SSH_OPTIONS = [
 ]
 
 
+def _is_local_url(url: str) -> bool:
+    """True when the sync URL is a plain filesystem path, not SSH.
+
+    Local mode is used when the cai container runs on the same host as
+    the transcript store (e.g. a VPS that both hosts cai and acts as the
+    central store for other laptops that push over SSH). The path is
+    expected to be bind-mounted into the container; rsync then runs
+    directly against the filesystem with no SSH transport at all.
+
+    Heuristic: an SSH URL always contains ``:`` (``user@host:/path``),
+    a local path never does.
+    """
+    return ":" not in url
+
+
 def _ssh_command() -> str:
     """Build the ``-e`` argument for rsync — ``ssh -i <key> <opts>``."""
-    parts = ["ssh", "-i", str(TRANSCRIPT_SYNC_SSH_KEY), *_SSH_OPTIONS]
+    parts = ["ssh", "-i", str(config.TRANSCRIPT_SYNC_SSH_KEY), *_SSH_OPTIONS]
     return " ".join(parts)
 
 
 def _server_bucket() -> str:
     """Return ``<url>/<repo-slug>/<machine-id>`` — this host's push target."""
-    return f"{TRANSCRIPT_SYNC_URL.rstrip('/')}/{REPO_SLUG}/{MACHINE_ID}"
+    return (
+        f"{config.TRANSCRIPT_SYNC_URL.rstrip('/')}/"
+        f"{config.REPO_SLUG}/{config.MACHINE_ID}"
+    )
 
 
 def _server_slug() -> str:
     """Return ``<url>/<repo-slug>`` — the pull source (every machine's bucket)."""
-    return f"{TRANSCRIPT_SYNC_URL.rstrip('/')}/{REPO_SLUG}"
+    return f"{config.TRANSCRIPT_SYNC_URL.rstrip('/')}/{config.REPO_SLUG}"
+
+
+def _transport_args() -> list[str]:
+    """rsync transport flags. Empty for local mode; ``-e ssh …`` for SSH."""
+    if _is_local_url(config.TRANSCRIPT_SYNC_URL):
+        return []
+    return ["-e", _ssh_command()]
 
 
 def _ensure_rsync() -> bool:
@@ -81,6 +103,20 @@ def _ensure_rsync() -> bool:
         )
         return False
     return True
+
+
+def _local_has_transcripts() -> bool:
+    """True when there is at least one .jsonl under ``TRANSCRIPT_DIR``.
+
+    Guards ``push()`` against wiping the server bucket on a fresh install:
+    the container's TRANSCRIPT_DIR exists (pre-created in the image) but
+    is empty until the first claude session runs. An `rsync --delete`
+    of an empty source would drop every file from this machine's bucket
+    on the server.
+    """
+    if not config.TRANSCRIPT_DIR.exists():
+        return False
+    return any(config.TRANSCRIPT_DIR.rglob("*.jsonl"))
 
 
 def _run_rsync(args: list[str], *, label: str) -> int:
@@ -107,28 +143,41 @@ def _run_rsync(args: list[str], *, label: str) -> int:
     return result.returncode
 
 
+def _ensure_local_bucket() -> None:
+    """In local mode, create this host's bucket directory if missing.
+
+    SSH mode relies on sshd+rsync auto-creating remote paths; local mode
+    hits the filesystem directly, so we make sure the target exists.
+    """
+    if not _is_local_url(config.TRANSCRIPT_SYNC_URL):
+        return
+    Path(_server_bucket()).mkdir(parents=True, exist_ok=True)
+
+
 def push() -> int:
     """Push the local transcript tree into this host's server bucket.
 
-    No-op (returns 0) when the feature is disabled or the local dir is
-    missing. Uses ``--delete`` so the server bucket mirrors the local
-    window — per-machine history beyond the local window is NOT preserved
-    (server-side cleanup enforces age/size instead).
+    No-op (returns 0) when the feature is disabled or the local dir has
+    no .jsonl files yet — pushing an empty tree with ``--delete`` would
+    wipe this machine's server bucket on a fresh install. Uses
+    ``--delete`` once there's content so the bucket mirrors the local
+    window; server-side cleanup enforces age/size across machines.
     """
-    if not transcript_sync_enabled():
+    if not config.transcript_sync_enabled():
         return 0
-    if not TRANSCRIPT_DIR.exists():
+    if not _local_has_transcripts():
         return 0
     if not _ensure_rsync():
         return 0
+    _ensure_local_bucket()
     return _run_rsync(
         [
             "-az",
             "--delete",
-            "-e", _ssh_command(),
+            *_transport_args(),
             # Trailing slashes: rsync copies the *contents* of TRANSCRIPT_DIR
             # into the server bucket, not the directory itself.
-            f"{TRANSCRIPT_DIR}/",
+            f"{config.TRANSCRIPT_DIR}/",
             f"{_server_bucket()}/",
         ],
         label="push",
@@ -142,17 +191,23 @@ def pull() -> int:
     missing. Does NOT use ``--delete`` so a transient server outage can't
     empty the local mirror mid-run.
     """
-    if not transcript_sync_enabled():
+    if not config.transcript_sync_enabled():
         return 0
     if not _ensure_rsync():
         return 0
-    TRANSCRIPT_AGGREGATE_DIR.mkdir(parents=True, exist_ok=True)
+    config.TRANSCRIPT_AGGREGATE_DIR.mkdir(parents=True, exist_ok=True)
+    if _is_local_url(config.TRANSCRIPT_SYNC_URL):
+        # In local mode the source may not exist yet (no machine has
+        # pushed). rsync would emit "No such file or directory" and
+        # return non-zero — harmless but noisy. Skip gracefully.
+        if not Path(_server_slug()).exists():
+            return 0
     return _run_rsync(
         [
             "-az",
-            "-e", _ssh_command(),
+            *_transport_args(),
             f"{_server_slug()}/",
-            f"{TRANSCRIPT_AGGREGATE_DIR}/",
+            f"{config.TRANSCRIPT_AGGREGATE_DIR}/",
         ],
         label="pull",
     )
@@ -160,7 +215,7 @@ def pull() -> int:
 
 def sync() -> int:
     """Push then pull. Returns 0 iff both succeed; otherwise the first failure."""
-    if not transcript_sync_enabled():
+    if not config.transcript_sync_enabled():
         print(
             "[transcript-sync] disabled (CAI_TRANSCRIPT_SYNC_URL or "
             "CAI_MACHINE_ID unset) — nothing to do",
@@ -173,6 +228,11 @@ def sync() -> int:
     return pull()
 
 
+def transcript_sync_enabled() -> bool:
+    """Backwards-compat shim — prefer ``config.transcript_sync_enabled()``."""
+    return config.transcript_sync_enabled()
+
+
 def parse_source() -> Path:
     """Return the directory parse.py should walk.
 
@@ -180,9 +240,11 @@ def parse_source() -> Path:
     Otherwise fall back to the local-only directory so deployments without
     sync configured keep behaving as before.
     """
-    if transcript_sync_enabled() and any(TRANSCRIPT_AGGREGATE_DIR.rglob("*.jsonl")):
-        return TRANSCRIPT_AGGREGATE_DIR
-    return TRANSCRIPT_DIR
+    if config.transcript_sync_enabled() and any(
+        config.TRANSCRIPT_AGGREGATE_DIR.rglob("*.jsonl")
+    ):
+        return config.TRANSCRIPT_AGGREGATE_DIR
+    return config.TRANSCRIPT_DIR
 
 
 def cmd_transcript_sync(args) -> int:  # noqa: ARG001 - args required by dispatcher
