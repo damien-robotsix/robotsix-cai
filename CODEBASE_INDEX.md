@@ -10,35 +10,6 @@
 | `.claude/agents/audit/cai-audit.md` | TODO: add description |
 | `.claude/agents/audit/cai-code-audit.md` | TODO: add description |
 | `.claude/agents/audit/cai-confirm.md` | TODO: add description |
-| `.claude/agents/cai-agent-audit.md` | Agent: weekly audit of .claude/agents/*.md for best-practice violations and unused agents |
-| `.claude/agents/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
-| `.claude/agents/cai-audit.md` | Agent: audit issue queue and lifecycle state machine |
-| `.claude/agents/cai-check-workflows.md` | Agent: analyze recent GitHub Actions workflow failures and emit structured findings |
-| `.claude/agents/cai-code-audit.md` | Agent: read-only source tree audit for inconsistencies and dead code |
-| `.claude/agents/cai-comment-filter.md` | TODO: add description |
-| `.claude/agents/cai-confirm.md` | Agent: verify merged PRs actually resolved their issues |
-| `.claude/agents/cai-cost-optimize.md` | Agent: weekly cost-reduction analysis |
-| `.claude/agents/cai-dup-check.md` | Agent: cheap haiku pre-check for duplicate / already-resolved issues |
-| `.claude/agents/cai-explore.md` | Agent: autonomous exploration and benchmarking |
-| `.claude/agents/cai-external-scout.md` | Agent: weekly scout for open-source libraries that could replace in-house plumbing |
-| `.claude/agents/cai-fix-ci.md` | Agent: diagnose and fix failing CI checks on auto-improve PRs |
-| `.claude/agents/cai-git.md` | Agent: lightweight git operations subagent |
-| `.claude/agents/cai-implement.md` | Agent: autonomous code-editing subagent for code-editing tasks |
-| `.claude/agents/cai-maintain.md` | Agent: apply approved maintenance ops — runs IaC/config changes and reports Confidence |
-| `.claude/agents/cai-memorize.md` | Agent: post-solved memory curator for cross-cutting design decisions |
-| `.claude/agents/cai-merge.md` | Agent: assess PR correctness and emit merge verdict |
-| `.claude/agents/cai-plan.md` | Agent: generate detailed fix plan for an issue |
-| `.claude/agents/cai-propose-review.md` | Agent: review creative proposals for feasibility |
-| `.claude/agents/cai-propose.md` | Agent: weekly creative improvement proposals |
-| `.claude/agents/cai-rebase.md` | Agent: rebase-only conflict resolution |
-| `.claude/agents/cai-refine.md` | Agent: rewrite human-filed issues into structured plans |
-| `.claude/agents/cai-review-docs.md` | Agent: pre-merge documentation review |
-| `.claude/agents/cai-review-pr.md` | Agent: pre-merge ripple-effect review |
-| `.claude/agents/cai-revise.md` | Agent: handle review comments on auto-improve PRs |
-| `.claude/agents/cai-select.md` | Agent: evaluate and select best fix plan |
-| `.claude/agents/cai-triage.md` | Agent: triage `auto-improve:raised` issues one at a time — classify as REFINE, PLAN_APPROVE, APPLY, or HUMAN. Inline-only — full issue body is provided in the user message. No tool use needed. |
-| `.claude/agents/cai-unblock.md` | Agent: classify admin comments on :human-needed issues into FSM resume targets |
-| `.claude/agents/cai-update-check.md` | Agent: check for new Claude Code releases |
 | `.claude/agents/implementation/cai-fix-ci.md` | TODO: add description |
 | `.claude/agents/implementation/cai-implement.md` | TODO: add description |
 | `.claude/agents/implementation/cai-plan.md` | TODO: add description |
