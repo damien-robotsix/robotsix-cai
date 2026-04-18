@@ -217,12 +217,13 @@ case "$ENABLE_SYNC" in
           echo "       Pick a path under a directory you can write to."
           exit 1
         fi
-        echo "[i] Ensuring $SYNC_PATH exists and is owned by UID 1000 (via docker)..."
+        echo "[i] Ensuring $SYNC_PATH exists and is owned by UID ${HOST_UID}:${HOST_GID} (via docker)..."
         if ! docker run --rm --user 0 \
              -v "${SYNC_PARENT}:/mnt" \
              -e TARGET="/mnt/${SYNC_BASE}" \
+             -e OWNER="${HOST_UID}:${HOST_GID}" \
              alpine:3 \
-             sh -c 'mkdir -p "$TARGET" && chown 1000:1000 "$TARGET"'; then
+             sh -c 'mkdir -p "$TARGET" && chown "$OWNER" "$TARGET"'; then
           echo "ERROR: failed to create/chown $SYNC_PATH via docker."
           exit 1
         fi
