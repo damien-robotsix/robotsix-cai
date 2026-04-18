@@ -5,6 +5,11 @@
 
 | File | Purpose |
 |------|---------|
+| `.claude/agents/audit/cai-agent-audit.md` | TODO: add description |
+| `.claude/agents/audit/cai-analyze.md` | TODO: add description |
+| `.claude/agents/audit/cai-audit.md` | TODO: add description |
+| `.claude/agents/audit/cai-code-audit.md` | TODO: add description |
+| `.claude/agents/audit/cai-confirm.md` | TODO: add description |
 | `.claude/agents/cai-agent-audit.md` | Agent: weekly audit of .claude/agents/*.md for best-practice violations and unused agents |
 | `.claude/agents/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
 | `.claude/agents/cai-audit.md` | Agent: audit issue queue and lifecycle state machine |
@@ -34,6 +39,30 @@
 | `.claude/agents/cai-triage.md` | Agent: triage `auto-improve:raised` issues one at a time — classify as REFINE, PLAN_APPROVE, APPLY, or HUMAN. Inline-only — full issue body is provided in the user message. No tool use needed. |
 | `.claude/agents/cai-unblock.md` | Agent: classify admin comments on :human-needed issues into FSM resume targets |
 | `.claude/agents/cai-update-check.md` | Agent: check for new Claude Code releases |
+| `.claude/agents/implementation/cai-fix-ci.md` | TODO: add description |
+| `.claude/agents/implementation/cai-implement.md` | TODO: add description |
+| `.claude/agents/implementation/cai-plan.md` | TODO: add description |
+| `.claude/agents/implementation/cai-rebase.md` | TODO: add description |
+| `.claude/agents/implementation/cai-revise.md` | TODO: add description |
+| `.claude/agents/implementation/cai-select.md` | TODO: add description |
+| `.claude/agents/lifecycle/cai-dup-check.md` | TODO: add description |
+| `.claude/agents/lifecycle/cai-explore.md` | TODO: add description |
+| `.claude/agents/lifecycle/cai-propose-review.md` | TODO: add description |
+| `.claude/agents/lifecycle/cai-propose.md` | TODO: add description |
+| `.claude/agents/lifecycle/cai-refine.md` | TODO: add description |
+| `.claude/agents/lifecycle/cai-triage.md` | TODO: add description |
+| `.claude/agents/lifecycle/cai-unblock.md` | TODO: add description |
+| `.claude/agents/ops/cai-check-workflows.md` | TODO: add description |
+| `.claude/agents/ops/cai-maintain.md` | TODO: add description |
+| `.claude/agents/ops/cai-update-check.md` | TODO: add description |
+| `.claude/agents/review/cai-comment-filter.md` | TODO: add description |
+| `.claude/agents/review/cai-merge.md` | TODO: add description |
+| `.claude/agents/review/cai-review-docs.md` | TODO: add description |
+| `.claude/agents/review/cai-review-pr.md` | TODO: add description |
+| `.claude/agents/utility/cai-cost-optimize.md` | TODO: add description |
+| `.claude/agents/utility/cai-external-scout.md` | TODO: add description |
+| `.claude/agents/utility/cai-git.md` | TODO: add description |
+| `.claude/agents/utility/cai-memorize.md` | TODO: add description |
 | `.claude/settings.json` | Claude Code harness configuration |
 | `.env.example` | Template for required environment variables |
 | `.github/workflows/admin-only-label.yml` | CI: restrict auto-improve:requested label to admins |
