@@ -315,9 +315,10 @@ def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
             rationale = body[:600]
             rationale_author = author
             break
-        # Detect whether this issue was already retroactively closed.
+        # Detect whether this issue was already closed by any cai agent
+        # (either _retroactive_no_action_sweep or _migrate_no_action_labels).
         has_retroactive_close = any(
-            "Retroactively closing as **not planned**" in (c.get("body") or "")
+            "Closing as **not planned**" in (c.get("body") or "")
             for c in comments
         )
         result.append({
