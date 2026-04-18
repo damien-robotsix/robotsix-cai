@@ -512,9 +512,17 @@ fi
 # cai_transcripts) that no longer match the current
 # (cai_home + cai_agent_memory) layout. Stale volumes can also have
 # wrong-ownership files left over from when the container ran as
-# root. Easier to wipe and start fresh than to migrate.
+# root or as a different HOST_UID. Easier to wipe and start fresh
+# than to migrate.
+#
+# `docker compose down --volumes --remove-orphans` first to stop any
+# running cai / watchtower containers from a prior install — without
+# this, the `docker volume rm` below silently fails with "volume in
+# use" and the subsequent `docker compose run --user cai` commands
+# hit a stale, already-chowned /home/cai they can't write to.
 echo
-echo "Wiping any existing cai volumes for a clean install..."
+echo "Stopping any running cai containers and wiping volumes for a clean install..."
+docker compose down --volumes --remove-orphans 2>/dev/null || true
 for vol in cai_home cai_agent_memory cai_logs cai_claude cai_gh_config cai_transcripts; do
   if docker volume inspect "$vol" >/dev/null 2>&1; then
     if docker volume rm "$vol" >/dev/null 2>&1; then
