@@ -371,6 +371,94 @@ def _recover_stale_pr_open(issues: list[dict], *, log_prefix: str = "cai") -> li
     return recovered
 
 
+def _close_orphaned_prs(*, log_prefix: str = "cai") -> list[dict]:
+    """Close open auto-improve PRs whose linked issue has been closed.
+
+    If the linked issue is CLOSED, the revise handler silently skips
+    the PR, and the merge handler cannot land it if it has conflicts,
+    so the PR sits open forever accumulating conflict with main. This
+    recovery step closes such orphaned PRs and strips the stale
+    ``:pr-open`` / ``:revising`` labels from the closed issue so the
+    state machine converges.
+
+    Shared by ``cai audit`` (periodic sweep) and ``cai revise``
+    (per-PR sweep). Returns the list of closed entries as
+    ``[{"pr": int, "issue": int}, …]`` so callers can surface counts.
+    """
+    subcmd = log_prefix.split()[-1]
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--limit", "100",
+            "--json", "number,headRefName",
+        ])
+    except subprocess.CalledProcessError:
+        return []
+
+    closed_rows: list[dict] = []
+    for pr in prs or []:
+        branch = pr.get("headRefName", "")
+        m = re.match(r"auto-improve/(\d+)-", branch)
+        if not m:
+            continue
+        issue_number = int(m.group(1))
+        pr_number = pr["number"]
+
+        try:
+            issue = _gh_json([
+                "issue", "view", str(issue_number),
+                "--repo", REPO,
+                "--json", "state",
+            ])
+        except subprocess.CalledProcessError:
+            continue
+        if not issue or issue.get("state", "").upper() != "CLOSED":
+            continue
+
+        print(
+            f"[{log_prefix}] PR #{pr_number}: linked issue #{issue_number} "
+            f"is CLOSED; closing orphaned PR",
+            flush=True,
+        )
+
+        comment = (
+            "## Orphaned PR: closing automatically\n\n"
+            f"Linked issue #{issue_number} is closed, so this PR has "
+            "no tracking issue to drive it forward. Closing "
+            "automatically to prevent it from blocking the auto-improve "
+            "loop (revise skips PRs whose issue is closed; merge cannot "
+            "land it if it conflicts with `main`).\n\n"
+            "---\n"
+            f"_Closed automatically by `{log_prefix}` orphan recovery. "
+            "Reopen the issue if you want the implement subagent to retry._"
+        )
+        close_res = _run(
+            ["gh", "pr", "close", str(pr_number),
+             "--repo", REPO, "--delete-branch", "--comment", comment],
+            capture_output=True,
+        )
+        if close_res.returncode != 0:
+            print(
+                f"[{log_prefix}] PR #{pr_number}: gh pr close failed:\n"
+                f"{close_res.stderr}",
+                file=sys.stderr,
+            )
+            continue
+
+        _set_labels(
+            issue_number,
+            remove=[LABEL_PR_OPEN, LABEL_REVISING],
+            log_prefix=log_prefix,
+        )
+        log_run(subcmd, repo=REPO, pr=pr_number, issue=issue_number,
+                result="closed_orphaned_pr", exit=0)
+        closed_rows.append({"pr": pr_number, "issue": issue_number})
+
+    return closed_rows
+
+
 def close_issue_completed(
     issue_number: int,
     comment: str,
