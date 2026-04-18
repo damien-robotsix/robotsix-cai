@@ -7,6 +7,47 @@ import sys
 from pathlib import Path
 
 
+def _read_shared_memory() -> str:
+    """Read all shared agent memory files and return them as a formatted
+    block suitable for inclusion in the user message.
+
+    Returns an empty string if the shared memory directory does not exist
+    or contains no files.
+    """
+    shared_dir = Path("/app/.claude/agent-memory/shared")
+    if not shared_dir.is_dir():
+        return ""
+    parts: list[str] = []
+    # Read the index file first (if it exists), then all other .md files
+    index = shared_dir / "MEMORY.md"
+    files: list[Path] = []
+    if index.is_file():
+        files.append(index)
+    for f in sorted(shared_dir.iterdir()):
+        if f.is_file() and f.suffix == ".md" and f.name != "MEMORY.md":
+            files.append(f)
+    if not files:
+        return ""
+    for f in files:
+        try:
+            content = f.read_text()
+        except OSError:
+            continue
+        parts.append(f"### `{f.name}`\n\n{content}")
+    if not parts:
+        return ""
+    return (
+        "\n\n## Shared agent memory (pre-loaded)\n\n"
+        "The following shared memory entries have been pre-loaded from "
+        "`.claude/agent-memory/shared/`. **Do NOT attempt to read these "
+        "files from disk** — they are already included below. If your "
+        "agent instructions say to read `.claude/agent-memory/shared/MEMORY.md`, "
+        "refer to this section instead.\n\n"
+        + "\n\n---\n\n".join(parts)
+        + "\n"
+    )
+
+
 # Paths of the staging directories inside a cloned worktree, relative
 # to the clone root.
 AGENT_EDIT_STAGING_REL = Path(".cai-staging") / "agents"
@@ -139,7 +180,7 @@ def _work_directory_block(work_dir: Path) -> str:
         "\"<full new file content>\")`\n"
         f"  - BAD:  `Edit(\"{work_dir}/CLAUDE.md\", ...)`  "
         "(blocked by claude-code)\n"
-    )
+    ) + _read_shared_memory()
 
 
 def _setup_agent_edit_staging(work_dir: Path) -> Path:

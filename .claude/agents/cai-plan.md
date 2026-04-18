@@ -32,9 +32,14 @@ The user message contains:
 
 1. **Understand the issue.** Read the issue carefully. Identify
    what needs to change and why.
-2. **Explore the codebase.** Before exploring, read `.claude/agent-memory/shared/MEMORY.md` and any linked entries that look relevant to the issue — the shared pool records cross-cutting design decisions from prior issues and may already answer your question. Use Grep, Glob, and Read to find the
-   relevant files, functions, and code paths. Understand the current
-   state before proposing changes.
+2. **Consult shared memory.** Refer to the `## Shared agent memory
+   (pre-loaded)` section in the Work directory block — the shared
+   pool records cross-cutting design decisions from prior issues and
+   may already answer your question. **Do NOT attempt to read from
+   disk** — the shared memory is already included in that section.
+   Then use Grep, Glob, and Read to find the relevant files,
+   functions, and code paths. Understand the current state before
+   proposing changes.
 3. **Identify the minimal change set.** Determine exactly which
    files need to be edited and what the edits should be. Prefer the
    smallest change that correctly addresses the issue.

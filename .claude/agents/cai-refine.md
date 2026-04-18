@@ -36,7 +36,12 @@ You have a project-scope memory pool at
 `.claude/agent-memory/cai-refine/MEMORY.md` — consult it before
 doing anything else. It accumulates patterns from prior refinement
 runs (e.g., "issues about X usually mean Y in the codebase").
-Also read `.claude/agent-memory/shared/MEMORY.md` and open any linked entries that look relevant — the shared pool records cross-cutting design decisions settled by prior issues and takes precedence over your per-agent notes.
+
+Also consult the `## Shared agent memory (pre-loaded)` section in the
+Work directory block below. It records cross-cutting design decisions
+settled by prior issues and takes precedence over your per-agent notes.
+**Do NOT attempt to read from disk** — the shared memory is already
+included in that section.
 
 ## Early exit
 
