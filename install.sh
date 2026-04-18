@@ -192,20 +192,28 @@ case "$ENABLE_SYNC" in
           echo "ERROR: local path must be absolute (starts with /)."
           exit 1
         fi
-        if [[ ! -d "$SYNC_PATH" ]]; then
-          echo "[i] $SYNC_PATH does not exist yet; creating it."
-          mkdir -p "$SYNC_PATH"
+        # The cai container runs as UID 1000, so the bind-mount target
+        # must be owned by that UID. A plain host-side mkdir would
+        # create it as whichever UID ran the installer, and a host
+        # user that isn't 1000 then has to sudo chown before the
+        # container can write. Sidestep that by letting docker itself
+        # (which runs the helper as root) do mkdir + chown for us —
+        # no sudo on the host.
+        SYNC_PARENT="$(dirname "$SYNC_PATH")"
+        SYNC_BASE="$(basename "$SYNC_PATH")"
+        if [[ ! -d "$SYNC_PARENT" ]] && ! mkdir -p "$SYNC_PARENT" 2>/dev/null; then
+          echo "ERROR: cannot create parent directory $SYNC_PARENT."
+          echo "       Pick a path under a directory you can write to."
+          exit 1
         fi
-        # For the cai container (UID 1000) to write here, the dir must
-        # be writable by that UID. If the host user isn't UID 1000,
-        # document the chown the user needs to run.
-        if [[ "$(stat -c %u "$SYNC_PATH")" != "1000" ]]; then
-          echo
-          echo "[!] $SYNC_PATH is not owned by UID 1000 (the cai user in the container)."
-          echo "    The container will likely hit 'permission denied' on push."
-          echo "    Fix with: sudo chown -R 1000:1000 $SYNC_PATH"
-          echo
-          prompt _OWN_CONTINUE "Press Enter when ready (or Ctrl-C to abort)" ""
+        echo "[i] Ensuring $SYNC_PATH exists and is owned by UID 1000 (via docker)..."
+        if ! docker run --rm --user 0 \
+             -v "${SYNC_PARENT}:/mnt" \
+             -e TARGET="/mnt/${SYNC_BASE}" \
+             alpine:3 \
+             sh -c 'mkdir -p "$TARGET" && chown 1000:1000 "$TARGET"'; then
+          echo "ERROR: failed to create/chown $SYNC_PATH via docker."
+          exit 1
         fi
 
         SYNC_URL="$SYNC_PATH"
