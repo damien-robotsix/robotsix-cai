@@ -584,13 +584,54 @@ if [[ "$TTY" == "/dev/tty" ]]; then
     echo
     echo "Press Enter when you're ready..."
     read -r _ < /dev/tty || true
-    if ! docker compose run --rm -it cai claude < /dev/tty; then
+    if ! docker compose run --rm -it cai claude --dangerously-skip-permissions < /dev/tty; then
       # The REPL may exit non-zero (Ctrl-C, Ctrl-D, etc.); don't
       # treat that as an error — it auto-prompts on next start.
       :
     fi
     echo
   fi
+
+  # Offer to create a shell alias so the user can type `cai` from
+  # anywhere to open an interactive claude session inside the container.
+  echo
+  echo "Would you like to add a 'cai' shell alias?"
+  echo
+  echo "This adds an alias to your shell rc file so you can run:"
+  echo "    cai                    # interactive claude session"
+  echo "    cai -p 'fix the bug'  # one-shot prompt"
+  echo
+  prompt CREATE_ALIAS "Add alias? [y/N]" "n"
+
+  case "$CREATE_ALIAS" in
+    y|Y|yes|Yes|YES)
+      CAI_ALIAS="alias cai='docker compose -f ${INSTALL_DIR}/docker-compose.yml exec cai claude --dangerously-skip-permissions'"
+
+      # Detect the user's shell and pick the right rc file.
+      USER_SHELL="$(basename "${SHELL:-/bin/bash}")"
+      case "$USER_SHELL" in
+        zsh)  RC_FILE="${HOME}/.zshrc" ;;
+        *)    RC_FILE="${HOME}/.bashrc" ;;
+      esac
+
+      prompt RC_CHOICE "Shell rc file" "$RC_FILE"
+
+      if grep -qF 'alias cai=' "$RC_CHOICE" 2>/dev/null; then
+        # Replace existing alias line.
+        sed -i "s|^alias cai=.*|${CAI_ALIAS}|" "$RC_CHOICE"
+        echo "[OK] Updated existing cai alias in $RC_CHOICE"
+      else
+        printf '\n# robotsix-cai — interactive claude session\n%s\n' "$CAI_ALIAS" >> "$RC_CHOICE"
+        echo "[OK] Added cai alias to $RC_CHOICE"
+      fi
+      echo "     Run 'source $RC_CHOICE' or open a new terminal to use it."
+      ;;
+    *)
+      echo
+      echo "Skipped. You can always add it manually later:"
+      echo "  alias cai='docker compose -f ${INSTALL_DIR}/docker-compose.yml exec cai claude --dangerously-skip-permissions'"
+      ;;
+  esac
 
   echo
   echo "Next steps:"
@@ -611,7 +652,7 @@ else
   echo "      docker compose run --rm cai git config --global user.name 'Your Name'"
   echo "      docker compose run --rm cai git config --global user.email 'you@example.com'"
   if [[ "$AUTH_CHOICE" == "1" ]]; then
-    echo "      docker compose run --rm -it cai claude    # then complete the OAuth prompt"
+    echo "      docker compose run --rm -it cai claude --dangerously-skip-permissions    # then complete the OAuth prompt"
   fi
   echo "      docker compose up -d"
 fi
