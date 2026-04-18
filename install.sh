@@ -636,14 +636,20 @@ alias cai-exec='${DC} exec cai'
 ALIASES
 )
 
-      # Remove any previous alias block, then append the new one.
+      # Check whether the exact alias block already exists in the rc file.
       if grep -qF '# robotsix-cai aliases' "$RC_CHOICE" 2>/dev/null; then
-        sed -i '/^# robotsix-cai aliases/,/^alias cai-exec=/d' "$RC_CHOICE"
-        echo "[OK] Replaced existing cai aliases in $RC_CHOICE"
+        EXISTING="$(sed -n '/^# robotsix-cai aliases/,/^alias cai-exec=/p' "$RC_CHOICE")"
+        if [[ "$EXISTING" == "$ALIAS_BLOCK" ]]; then
+          echo "[OK] cai aliases already up-to-date in $RC_CHOICE — no changes made."
+        else
+          sed -i '/^# robotsix-cai aliases/,/^alias cai-exec=/d' "$RC_CHOICE"
+          printf '\n%s\n' "$ALIAS_BLOCK" >> "$RC_CHOICE"
+          echo "[OK] Replaced existing cai aliases in $RC_CHOICE"
+        fi
       else
+        printf '\n%s\n' "$ALIAS_BLOCK" >> "$RC_CHOICE"
         echo "[OK] Added cai aliases to $RC_CHOICE"
       fi
-      printf '\n%s\n' "$ALIAS_BLOCK" >> "$RC_CHOICE"
       echo "     Run 'source $RC_CHOICE' or open a new terminal to use them."
       ;;
     *)
