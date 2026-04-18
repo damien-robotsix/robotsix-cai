@@ -105,6 +105,7 @@
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
 | `scripts/server-cleanup.sh` | Server-side age/size cleanup for the transcript-sync store (runs on the OVH box, not in the container) |
 | `tests/__init__.py` | Test package init |
+| `tests/test_agent_staging.py` | TODO: add description |
 | `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
