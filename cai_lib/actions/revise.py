@@ -28,7 +28,7 @@ from cai_lib.fsm import (
     apply_pr_transition,
     get_pr_state,
 )
-from cai_lib.github import _gh_json, _set_labels, _close_orphaned_prs
+from cai_lib.github import _gh_json, _set_labels
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run, log_run as _log_run_alias  # noqa: F401
 from cai_lib.cmd_helpers import (
@@ -391,15 +391,9 @@ def handle_revise(pr: dict) -> int:
     """
     print("[cai revise] checking for PRs with unaddressed comments", flush=True)
 
-    # Close PRs whose linked issue was closed — otherwise they sit
-    # open forever (revise skips them, merge can't land conflicts).
-    orphaned = len(_close_orphaned_prs(log_prefix="cai revise"))
-    if orphaned:
-        print(
-            f"[cai revise] closed {orphaned} orphaned PR(s) "
-            "(linked issue was closed)",
-            flush=True,
-        )
+    # Orphaned-PR sweep is now owned by `cmd_audit` (Step 1g) so
+    # PRs parked at any non-revision state (e.g. :pr-human-needed)
+    # are also covered. See issue #869.
 
     # Recover any PRs the rebase resolver has given up on, so they
     # don't sit stuck forever. Refs #144.
