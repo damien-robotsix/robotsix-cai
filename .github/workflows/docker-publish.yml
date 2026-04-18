@@ -49,3 +49,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            CAI_GIT_URL=${{ github.server_url }}/${{ github.repository }}.git
+            CAI_GIT_REF=${{ github.sha }}
