@@ -246,14 +246,32 @@ def close_issue_not_planned(
 ) -> bool:
     """Close a GitHub issue as 'not planned' with a marker comment.
 
-    Returns True on success, False on failure (logs the error).
-    This replaces the retired auto-improve:no-action label.
+    Posts the marker via `gh issue comment` first, then closes with
+    `--reason "not planned"`. The two calls are split because
+    `gh issue close --comment X` silently drops the comment when the
+    issue is already closed — splitting guarantees the audit-trail
+    marker is persisted regardless of the issue's initial state.
+
+    Returns True when the close call succeeds (posting the comment
+    is best-effort and only logs a warning on failure).
     """
+    comment_result = subprocess.run(
+        ["gh", "issue", "comment", str(issue_number),
+         "--repo", REPO,
+         "--body", comment],
+        capture_output=True,
+        text=True,
+    )
+    if comment_result.returncode != 0:
+        print(
+            f"[{log_prefix}] WARNING: gh issue comment failed for "
+            f"#{issue_number}: {comment_result.stderr.strip()}",
+            file=sys.stderr, flush=True,
+        )
     result = subprocess.run(
         ["gh", "issue", "close", str(issue_number),
          "--repo", REPO,
-         "--reason", "not planned",
-         "--comment", comment],
+         "--reason", "not planned"],
         capture_output=True,
         text=True,
     )
