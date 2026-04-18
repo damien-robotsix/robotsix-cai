@@ -59,6 +59,7 @@ echo "Install directory: $INSTALL_DIR"
 echo "Image:             robotsix/cai:$IMAGE_TAG"
 echo
 
+mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 if [[ -e docker-compose.yml ]]; then
@@ -523,6 +524,30 @@ if [[ "$TTY" == "/dev/tty" ]]; then
   echo
   echo "[OK] gh is authenticated. Credentials persisted in cai_home."
 
+  # Configure git identity inside the container so commits are
+  # attributed correctly. Default to the GitHub user's name and
+  # email (from `gh api user`), let the user override.
+  echo
+  echo "Configuring git identity inside the container."
+  echo
+  GH_USER_NAME="$(docker compose run --rm cai gh api user --jq .name 2>/dev/null || true)"
+  GH_USER_EMAIL="$(docker compose run --rm cai gh api user --jq .email 2>/dev/null || true)"
+  prompt GIT_USER_NAME "Git user name" "${GH_USER_NAME:-}"
+  prompt GIT_USER_EMAIL "Git user email" "${GH_USER_EMAIL:-}"
+  if [[ -n "$GIT_USER_NAME" ]]; then
+    docker compose run --rm cai git config --global user.name "$GIT_USER_NAME"
+  fi
+  if [[ -n "$GIT_USER_EMAIL" ]]; then
+    docker compose run --rm cai git config --global user.email "$GIT_USER_EMAIL"
+  fi
+  if [[ -n "$GIT_USER_NAME" || -n "$GIT_USER_EMAIL" ]]; then
+    echo "[OK] Git identity configured (persisted in cai_home)."
+  else
+    echo "[!] No git identity set. Configure it later with:"
+    echo "      docker compose exec cai git config --global user.name 'Your Name'"
+    echo "      docker compose exec cai git config --global user.email 'you@example.com'"
+  fi
+
   # Same pattern for claude — only relevant in OAuth mode (AUTH_CHOICE=1).
   # API-key mode (AUTH_CHOICE=2) uses ANTHROPIC_API_KEY from .env, no
   # interactive login needed.
@@ -583,6 +608,8 @@ else
   echo "    Finish authentication yourself before the first run:"
   echo "      cd $INSTALL_DIR"
   echo "      docker compose run --rm cai gh auth login --git-protocol https"
+  echo "      docker compose run --rm cai git config --global user.name 'Your Name'"
+  echo "      docker compose run --rm cai git config --global user.email 'you@example.com'"
   if [[ "$AUTH_CHOICE" == "1" ]]; then
     echo "      docker compose run --rm -it cai claude    # then complete the OAuth prompt"
   fi
