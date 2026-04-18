@@ -56,7 +56,7 @@ def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
             "--label", "auto-improve",
             "--state", "closed",
             "--json",
-            "number,title,labels,closedAt,comments",
+            "number,title,labels,closedAt,stateReason,comments",
             "--limit", str(limit),
         ]) or []
     except subprocess.CalledProcessError:
@@ -78,17 +78,28 @@ def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
             rationale = body[:600]
             rationale_author = author
             break
-        # Detect whether this issue was already closed by any cai agent
-        # (either _retroactive_no_action_sweep or _migrate_no_action_labels).
-        has_retroactive_close = any(
-            "closing as **not planned**" in (c.get("body") or "").lower()
-            for c in comments
+        # Detect whether this issue already has the NOT_PLANNED terminal
+        # state. We rely on GitHub's native stateReason rather than a
+        # marker-comment substring because `gh issue close --comment ...`
+        # silently drops the comment when the issue is already closed —
+        # so the sweep's own marker is not guaranteed to be persisted on
+        # the issue. The comment-marker check is kept as a backup for
+        # issues closed by historical paths that used `gh issue comment`
+        # separately.
+        state_reason = (issue.get("stateReason") or "").upper()
+        has_retroactive_close = (
+            state_reason == "NOT_PLANNED"
+            or any(
+                "closing as **not planned**" in (c.get("body") or "").lower()
+                for c in comments
+            )
         )
         result.append({
             "number": issue["number"],
             "title": issue["title"],
             "labels": [lbl["name"] for lbl in issue.get("labels", [])],
             "closedAt": issue.get("closedAt", ""),
+            "stateReason": state_reason,
             "rationale": rationale,
             "rationale_author": rationale_author,
             "has_retroactive_close": has_retroactive_close,

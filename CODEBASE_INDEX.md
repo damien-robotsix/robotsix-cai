@@ -118,6 +118,7 @@
 | `tests/test_plan.py` | TODO: add description |
 | `tests/test_pr_bounce.py` | TODO: add description |
 | `tests/test_publish.py` | Tests for publish.py issue publishing |
+| `tests/test_retroactive_sweep.py` | TODO: add description |
 | `tests/test_revise_filter.py` | TODO: add description |
 | `tests/test_rollback.py` | Tests for rollback functionality |
 | `tests/test_subprocess_utils.py` | TODO: add description |
