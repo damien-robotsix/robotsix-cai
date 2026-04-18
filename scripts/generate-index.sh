@@ -77,7 +77,6 @@ declare -A DESCRIPTIONS=(
   ["cai_lib/actions/revise.py"]="Handler for PRState.REVISION_PENDING — runs cai-revise"
   ["cai_lib/actions/maintain.py"]="Handler for IssueState.APPLYING / APPLIED — runs cai-maintain and handles maintenance ops application"
   ["cai_lib/actions/triage.py"]="Handler for IssueState.RAISED / TRIAGING — runs cai-triage"
-  ["cai_lib/cmd_agents.py"]="CLI subcommands extracted from cai.py: analyze, audit, propose, code-audit, agent-audit, update-check, cost-optimize, external-scout"
   ["cai_lib/cmd_implement.py"]="Helpers for the implement-subagent pipeline"
   ["cai_lib/cmd_misc.py"]="CLI subcommands extracted from cai.py: init, verify, cost-report, health-report, check-workflows, test"
   ["cai_lib/cmd_helpers.py"]="Cross-command helpers shared between cai.py and cai_lib/actions/*"
