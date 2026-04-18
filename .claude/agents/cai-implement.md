@@ -118,7 +118,12 @@ anything else.** It records durable judgements from earlier runs:
 approaches that kept getting rejected by the merge handler, classes of
 issue that are wrongly-raised (always exit with zero diff), and
 patterns the supervisor has explicitly accepted.
-Also read `.claude/agent-memory/shared/MEMORY.md`; it records cross-cutting design decisions persisted after other issues were solved and its entries override your per-agent notes when they conflict.
+
+Also consult the `## Shared agent memory (pre-loaded)` section in the
+Work directory block below. It records cross-cutting design decisions
+persisted after other issues were solved and its entries override your
+per-agent notes when they conflict. **Do NOT attempt to read from
+disk** — the shared memory is already included in that section.
 
 If the issue you're working on overlaps with something in your
 memory — e.g., the issue is asking you to do something your memory
