@@ -13,10 +13,6 @@ FROM python:3.12-slim
 # gh "opens" the URL by just printing it — same information, no noise.
 ENV BROWSER=echo
 
-# Pin the claude-code version so the self-improvement loop is reproducible.
-# Bumping this should be a deliberate, reviewed change.
-ARG CLAUDE_CODE_VERSION=2.1.101
-
 # Pin supercronic (the in-container cron supervisor; Phase D onward).
 # SHA256 is computed once against v0.2.44's linux-amd64 binary; bumping
 # the version requires computing a new hash.
@@ -48,7 +44,7 @@ RUN apt-get update \
     && apt-get update \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+    && npm install -g "@anthropic-ai/claude-code@latest" \
     && claude --version \
     && gh --version
 
