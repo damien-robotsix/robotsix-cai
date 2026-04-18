@@ -69,16 +69,16 @@ wrapper pre-creates is the workaround for both cases:
 **For agent definition files** (`.claude/agents/*.md`):
 
   1. **Read** the current agent file at its clone-side path to
-     see the existing content: `Read("<work_dir>/.claude/agents/<basename>.md")`.
+     see the existing content: `Read("<work_dir>/.claude/agents/<relative-path>.md")`.
      (Read is allowed; only Edit/Write on that path is blocked.)
   2. **Write** the FULL new file content (YAML frontmatter +
      body, exactly what you want the final file to look like)
-     to `<work_dir>/.cai-staging/agents/<same-basename>.md`
-     using the Write tool.
-  3. The wrapper copies `.cai-staging/agents/*.md` over
-     `.claude/agents/*.md` (matching by basename) after you exit
-     successfully, then deletes the staging directory so it
-     doesn't land in the PR.
+     to `<work_dir>/.cai-staging/agents/<same-relative-path>.md`
+     using the Write tool. Preserve any subdirectory structure.
+  3. The wrapper recursively walks `.cai-staging/agents/`, preserves
+     subdirectory paths, and copies each file to the matching path in
+     `.claude/agents/` after you exit successfully, then deletes the
+     staging directory so it doesn't land in the PR.
 
 **For plugin files** (`.claude/plugins/<plugin-path>`):
 
@@ -121,8 +121,10 @@ Rules (apply to agents, plugins, and CLAUDE.md files):
 
 Example of updating an agent file:
 
-  - GOOD: `Read("<work_dir>/.claude/agents/cai-implement.md")` then
+  - GOOD (flat): `Read("<work_dir>/.claude/agents/cai-implement.md")` then
     `Write("<work_dir>/.cai-staging/agents/cai-implement.md", "<full new content>")`
+  - GOOD (nested): `Read("<work_dir>/.claude/agents/lifecycle/cai-triage.md")` then
+    `Write("<work_dir>/.cai-staging/agents/lifecycle/cai-triage.md", "<full new content>")`
   - BAD:  `Edit("<work_dir>/.claude/agents/cai-implement.md", old, new)`  (blocked)
 
 Example of creating a plugin skill:
