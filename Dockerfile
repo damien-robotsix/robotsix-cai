@@ -26,7 +26,9 @@ ARG SUPERCRONIC_SHA256=6feff7d5eba16a89cf229b7eb644cfae2f03a32c62ca320f176546593
 # Install Node.js (Bookworm slim ships Node 18, which satisfies claude-code's
 # >=18 requirement) plus npm, then install claude-code globally. Also
 # installs the `gh` CLI from GitHub's official apt repository — the analyzer
-# uses it to create issues from its findings (Phase C.2 onward).
+# uses it to create issues from its findings (Phase C.2 onward). `git` is
+# required because `/app` is a live clone (see the git clone step below),
+# not a COPY of the build context.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         nodejs \
@@ -34,6 +36,7 @@ RUN apt-get update \
         ca-certificates \
         wget \
         gnupg \
+        git \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg \
         https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -105,18 +108,34 @@ RUN groupadd --system --gid 1000 cai \
     && mkdir -p /var/log/cai /home/cai/.config/gh /home/cai/.claude/projects \
     && chown -R cai:cai /var/log/cai /home/cai
 
-WORKDIR /app
-COPY --chown=cai:cai cai.py /app/cai.py
-COPY --chown=cai:cai cai_lib/ /app/cai_lib/
-COPY --chown=cai:cai parse.py /app/parse.py
-COPY --chown=cai:cai publish.py /app/publish.py
-COPY --chown=cai:cai .claude /app/.claude
-COPY --chown=cai:cai entrypoint.sh /app/entrypoint.sh
-COPY --chown=cai:cai tests /app/tests
-RUN chmod +x /app/entrypoint.sh \
-    && mkdir -p /app/.claude/agent-memory/shared \
-    && chown -R cai:cai /app
+# `/app` is populated by cloning the repo at build time instead of
+# copying the build context. This gives the image a real `.git` directory
+# so interactive `docker exec <container> claude` sessions can use git,
+# inspect diffs, and commit/push feature branches — matching the
+# "develop in the container from a clean source" workflow.
+#
+# CAI_GIT_REF defaults to `main` so local `docker compose build` picks
+# up the current tip of main. CI (docker-publish.yml) passes the exact
+# commit SHA that triggered the workflow, so published images pin
+# deterministically.
+ARG CAI_GIT_URL=https://github.com/damien-robotsix/robotsix-cai.git
+ARG CAI_GIT_REF=main
+
+RUN mkdir -p /app && chown cai:cai /app
 
 USER cai
+WORKDIR /app
+
+# Cache-bust the clone layer when the upstream ref moves. Docker's ADD
+# with a URL uses the response ETag as cache key, so when `main` advances
+# (or CAI_GIT_REF points at a fresh commit) the subsequent `git clone`
+# layer is rebuilt. For pinned SHAs the JSON is stable and the cache
+# behaves normally.
+ADD "https://api.github.com/repos/damien-robotsix/robotsix-cai/commits/${CAI_GIT_REF}" /tmp/cai-git-ref.json
+
+RUN git clone "${CAI_GIT_URL}" /app \
+    && git -C /app checkout "${CAI_GIT_REF}" \
+    && chmod +x /app/entrypoint.sh \
+    && mkdir -p /app/.claude/agent-memory/shared
 
 CMD ["/app/entrypoint.sh"]
