@@ -81,7 +81,7 @@ def _fetch_closed_auto_improve_issues(limit: int = 50) -> list[dict]:
         # Detect whether this issue was already closed by any cai agent
         # (either _retroactive_no_action_sweep or _migrate_no_action_labels).
         has_retroactive_close = any(
-            "Closing as **not planned**" in (c.get("body") or "")
+            "closing as **not planned**" in (c.get("body") or "").lower()
             for c in comments
         )
         result.append({
