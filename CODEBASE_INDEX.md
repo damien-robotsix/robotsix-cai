@@ -65,7 +65,7 @@
 | `cai_lib/actions/revise.py` | Handler for PRState.REVISION_PENDING — runs cai-revise |
 | `cai_lib/actions/triage.py` | Handler for IssueState.RAISED / TRIAGING — runs cai-triage |
 | `cai_lib/cmd_agents.py` | CLI subcommands extracted from cai.py: analyze, audit, propose, code-audit, agent-audit, update-check, cost-optimize, external-scout |
-| `cai_lib/cmd_cycle.py` | TODO: add description |
+| `cai_lib/cmd_cycle.py` | Cycle and dispatch entry-points — `cmd_cycle` (one cycle tick with flock serialization), `cmd_dispatch` (direct FSM dispatch for specific issues/PRs) |
 | `cai_lib/cmd_helpers.py` | Cross-command helpers shared between cai.py and cai_lib/actions/* |
 | `cai_lib/cmd_helpers_git.py` | Git and worktree helpers for cai action wrappers |
 | `cai_lib/cmd_helpers_github.py` | GitHub API helpers for cai action wrappers |
