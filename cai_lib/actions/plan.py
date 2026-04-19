@@ -117,9 +117,6 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
     Runs with `cwd=/app` and `--add-dir <work_dir>` so the agent
     reads its definition from the canonical location while
     operating on the clone via absolute paths (#342).
-
-    Each invocation is capped at $1.00 via --max-budget-usd to
-    prevent runaway exploration sessions (typical run ~$0.60).
     """
     user_message = (
         _work_directory_block(work_dir)
@@ -139,7 +136,6 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-plan",
          "--dangerously-skip-permissions",
-         "--max-budget-usd", "1.00",
          "--add-dir", str(work_dir)],
         category="plan.plan",
         agent="cai-plan",
