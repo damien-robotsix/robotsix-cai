@@ -136,7 +136,7 @@ tracked source file whose status in the stat summary is `A` (added),
 Files with status `M` (edited in place, no rename/delete) do NOT
 require a module-index update.
 
-### Coverage check (inline, no script)
+### Coverage check
 
 After applying your edits, re-walk every added or renamed tracked file
 in the PR and confirm at least one module's `globs` matches it
@@ -149,9 +149,9 @@ still uncovered:
   block naming the file and asking for human classification — do not
   guess.
 
-There is **no script** for this check. Do not invoke
-`scripts/check-modules-coverage.py` or any similar file — no such
-file exists and none should be created.
+`scripts/check-modules-coverage.py` exists and can be used for
+verification when you have Bash available, but the inline mental check
+above is sufficient for routine PR review — no Bash is required.
 
 ### How to stage these edits
 
