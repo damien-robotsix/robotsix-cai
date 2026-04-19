@@ -108,8 +108,11 @@ def _select_plan_target(issue_number: int | None = None):
     return min(candidates, key=lambda c: c.get("createdAt", ""))
 
 
-def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_history_block: str = "", first_plan: str = "") -> str:
-    """Run a single cai-plan agent and return its stdout.
+def _run_plan_agent(
+    issue: dict, plan_index: int, work_dir: Path,
+    attempt_history_block: str = "", first_plan: str = "",
+) -> tuple[str, bool]:
+    """Run a single cai-plan agent and return ``(stdout, success)``.
 
     Called serially (2×) by _run_plan_select_pipeline — the second call
     receives the first plan to produce an alternative approach.
@@ -117,6 +120,10 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
     Runs with `cwd=/app` and `--add-dir <work_dir>` so the agent
     reads its definition from the canonical location while
     operating on the clone via absolute paths (#342).
+
+    Retries once on non-zero exit before giving up.  Returns a
+    ``(text, True)`` tuple on success or ``(placeholder, False)``
+    after all attempts are exhausted.
     """
     user_message = (
         _work_directory_block(work_dir)
@@ -133,26 +140,62 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
             "propose a meaningfully different solution.\n\n"
             f"{first_plan}\n"
         )
-    result = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-plan",
-         "--dangerously-skip-permissions",
-         "--add-dir", str(work_dir)],
-        category="plan.plan",
-        agent="cai-plan",
-        input=user_message,
-        cwd="/app",
-    )
-    if result.returncode != 0:
-        stderr_preview = (result.stderr or "")[:400].rstrip()
+    MAX_ATTEMPTS = 2  # 1 initial + 1 retry on non-zero exit
+    last_returncode = 0
+    last_stderr = ""
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        result = _run_claude_p(
+            ["claude", "-p", "--agent", "cai-plan",
+             "--dangerously-skip-permissions",
+             "--add-dir", str(work_dir)],
+            category="plan.plan",
+            agent="cai-plan",
+            input=user_message,
+            cwd="/app",
+        )
+        if result.returncode == 0:
+            return (result.stdout or "", True)
+        last_returncode = result.returncode
+        last_stderr = result.stderr or ""
+        stderr_preview = last_stderr[:400].rstrip()
         print(
-            f"[cai plan] plan agent {plan_index} failed for "
-            f"#{issue['number']} (exit {result.returncode})"
+            f"[cai plan] plan agent {plan_index} attempt {attempt}/"
+            f"{MAX_ATTEMPTS} failed for #{issue['number']} "
+            f"(exit {result.returncode})"
             + (f":\n{stderr_preview}" if stderr_preview else ""),
             file=sys.stderr,
             flush=True,
         )
-        return f"(Plan {plan_index} failed: exit {result.returncode})"
-    return result.stdout or ""
+    # All attempts exhausted — return a placeholder plus failure flag so
+    # the pipeline can detect both-failed-twice and fall back.
+    return (
+        f"(Plan {plan_index} failed: exit {last_returncode} "
+        f"after {MAX_ATTEMPTS} attempts)",
+        False,
+    )
+
+
+def _extract_refined_plan(issue_body: str) -> str | None:
+    """Return the ``## Refined Issue`` block from *issue_body* or None.
+
+    Used as a fallback source of a plan when both cai-plan invocations
+    fail repeatedly. Strips any pre-existing stored plan block first so
+    a stale cai-plan block does not mask the refine block.
+    """
+    body = _strip_stored_plan_block(issue_body or "")
+    marker = "## Refined Issue"
+    start = body.find(marker)
+    if start == -1:
+        return None
+    # The refine handler appends a `---` separator before the quoted
+    # original issue text (cai_lib/actions/refine.py:270-275). Trim
+    # there if present so we don't include the quoted original body.
+    remainder = body[start:]
+    sep_idx = remainder.find("\n---\n")
+    if sep_idx != -1:
+        remainder = remainder[:sep_idx]
+    remainder = remainder.strip()
+    return remainder or None
 
 
 _SELECT_JSON_SCHEMA = {
@@ -294,17 +337,57 @@ def _run_plan_select_pipeline(
     """
     issue_number = issue["number"]
 
-    # Step 1: Run Plan 1.
+    # Step 1: Run Plan 1 (with a single retry on non-zero exit).
     print(f"[cai plan] running plan agent 1/2 for #{issue_number}", flush=True)
-    plan1 = _run_plan_agent(issue, 1, work_dir, attempt_history_block)
-    print(f"[cai plan] plan 1: {len(plan1)} chars", flush=True)
+    plan1_text, plan1_ok = _run_plan_agent(issue, 1, work_dir, attempt_history_block)
+    print(
+        f"[cai plan] plan 1: {len(plan1_text)} chars "
+        f"(ok={plan1_ok})",
+        flush=True,
+    )
 
-    # Step 2: Run Plan 2 with knowledge of Plan 1, asking for an alternative.
+    # Step 2: Run Plan 2 with knowledge of Plan 1 when available.
     print(f"[cai plan] running plan agent 2/2 for #{issue_number}", flush=True)
-    plan2 = _run_plan_agent(issue, 2, work_dir, attempt_history_block, first_plan=plan1)
-    print(f"[cai plan] plan 2: {len(plan2)} chars", flush=True)
+    plan2_first = plan1_text if plan1_ok else ""
+    plan2_text, plan2_ok = _run_plan_agent(
+        issue, 2, work_dir, attempt_history_block, first_plan=plan2_first,
+    )
+    print(
+        f"[cai plan] plan 2: {len(plan2_text)} chars "
+        f"(ok={plan2_ok})",
+        flush=True,
+    )
 
-    plans = [plan1, plan2]
+    # Step 2b: If both planners failed all attempts, fall back to the
+    # refinement-embedded plan with LOW confidence instead of handing
+    # cai-select two failure placeholders (which forces a :human-needed
+    # divert even when the refined plan is high-quality — see issue #879).
+    if not plan1_ok and not plan2_ok:
+        refined_plan = _extract_refined_plan(issue.get("body", "") or "")
+        if refined_plan:
+            from cai_lib.fsm import Confidence
+            reason = (
+                "Both cai-plan invocations failed on all retry attempts; "
+                "falling back to the cai-refine-embedded plan. "
+                "The fix agent should treat the plan as best-effort."
+            )
+            print(
+                f"[cai plan] both planners failed for #{issue_number} — "
+                f"using refinement-embedded plan ({len(refined_plan)} chars) "
+                "with LOW confidence",
+                flush=True,
+            )
+            return refined_plan + "\n", Confidence.LOW, reason
+        # No refined block found (shouldn't happen for :refined issues, but
+        # defensively fall through to the existing select path so we retain
+        # the old failure behaviour rather than returning None-with-plan).
+        print(
+            f"[cai plan] both planners failed and no ## Refined Issue "
+            f"block found in body for #{issue_number}; proceeding to select",
+            flush=True,
+        )
+
+    plans = [plan1_text, plan2_text]
 
     # Step 3: Run the select agent to pick the best plan.
     print(f"[cai plan] running select agent for #{issue_number}", flush=True)
