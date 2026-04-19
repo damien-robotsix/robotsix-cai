@@ -49,7 +49,6 @@ The user message contains:
 ## Hard rules
 
 1. **Read-only.** Do not modify any files — only read and plan.
-2. **$1.00 budget cap.** Each cai-plan invocation is limited to $1.00 via `--max-budget-usd` to prevent runaway exploration sessions. If the agent approaches or exhausts this budget, it will exit, and the fix pipeline will handle the failure gracefully.
 
 ## Agent-specific efficiency guidance
 
