@@ -596,60 +596,147 @@ class TestDispatchDrain(unittest.TestCase):
         self.assertEqual(di_calls, [10, 20])
 
 
-class TestSubIssueStepOrderingGate(unittest.TestCase):
-    """Sub-issues like ``[#P Step N/T]`` must wait until the step N-1
-    sub-issue has been closed (typically by its PR merging and confirm
-    closing it)."""
+class TestSubIssueOrderingGate(unittest.TestCase):
+    """Sub-issues linked under an ``auto-improve:parent`` issue must wait
+    until the immediately prior sibling (in the native sub-issues list
+    order) has been closed — typically by its PR merging and confirm
+    closing it."""
 
-    def _pick(self, issues):
+    def _pick(self, issues, sub_issues_by_parent):
         def fake_gh_json(cmd):
-            if "issue" in cmd and "list" in cmd:
+            # `_build_ordering_gate` lists parents first.
+            if "issue" in cmd and "list" in cmd and "--label" in cmd:
+                label_idx = cmd.index("--label") + 1
+                if cmd[label_idx] == "auto-improve:parent":
+                    return [{"number": p} for p in sub_issues_by_parent]
                 return issues
             if "pr" in cmd and "list" in cmd:
                 return []
             raise AssertionError(f"unexpected _gh_json call: {cmd}")
 
-        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json):
+        def fake_list_sub_issues(parent_num):
+            return sub_issues_by_parent.get(parent_num, [])
+
+        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
+             patch.object(dispatcher, "list_sub_issues",
+                          side_effect=fake_list_sub_issues):
             return dispatcher._pick_oldest_actionable_target()
 
-    def test_later_step_skipped_while_prior_step_open(self):
+    def test_later_sibling_skipped_while_prior_sibling_open(self):
         issues = [
             {"number": 50, "createdAt": "2024-01-01T00:00:00Z",
-             "title": "[#621 Step 4/6] Previous step",
+             "title": "Previous step",
              "labels": [{"name": "auto-improve:in-progress"}]},
             {"number": 51, "createdAt": "2024-01-02T00:00:00Z",
-             "title": "[#621 Step 5/6] Migrate check-workflows",
+             "title": "Later step",
              "labels": [{"name": "auto-improve:refined"}]},
         ]
-        target = self._pick(issues)
+        sub_issues_by_parent = {
+            621: [
+                {"number": 50, "state": "open"},
+                {"number": 51, "state": "open"},
+            ],
+        }
+        target = self._pick(issues, sub_issues_by_parent)
         self.assertEqual(target, ("issue", 50))
 
-    def test_later_step_picked_when_prior_step_closed(self):
-        # Step 4 absent from the open list → it was closed → step 5 is allowed.
+    def test_later_sibling_picked_when_prior_sibling_closed(self):
         issues = [
             {"number": 51, "createdAt": "2024-01-02T00:00:00Z",
-             "title": "[#621 Step 5/6] Migrate check-workflows",
+             "title": "Later step",
              "labels": [{"name": "auto-improve:refined"}]},
         ]
-        target = self._pick(issues)
+        sub_issues_by_parent = {
+            621: [
+                {"number": 50, "state": "closed"},
+                {"number": 51, "state": "open"},
+            ],
+        }
+        target = self._pick(issues, sub_issues_by_parent)
         self.assertEqual(target, ("issue", 51))
 
-    def test_step_one_never_gated(self):
+    def test_first_sibling_never_gated(self):
         issues = [
             {"number": 51, "createdAt": "2024-01-02T00:00:00Z",
-             "title": "[#621 Step 1/6] First step",
+             "title": "First step",
              "labels": [{"name": "auto-improve:refined"}]},
         ]
-        target = self._pick(issues)
+        sub_issues_by_parent = {
+            621: [
+                {"number": 51, "state": "open"},
+            ],
+        }
+        target = self._pick(issues, sub_issues_by_parent)
         self.assertEqual(target, ("issue", 51))
 
-    def test_parse_sub_issue_step(self):
-        self.assertEqual(
-            dispatcher._parse_sub_issue_step("[#123 Step 2/5] Do a thing"),
-            (123, 2),
-        )
-        self.assertIsNone(dispatcher._parse_sub_issue_step("Just a normal title"))
-        self.assertIsNone(dispatcher._parse_sub_issue_step(""))
+    def test_issue_with_no_parent_is_not_gated(self):
+        issues = [
+            {"number": 77, "createdAt": "2024-01-02T00:00:00Z",
+             "title": "Standalone issue",
+             "labels": [{"name": "auto-improve:refined"}]},
+        ]
+        target = self._pick(issues, sub_issues_by_parent={})
+        self.assertEqual(target, ("issue", 77))
+
+    def test_gate_skips_to_any_prior_still_open(self):
+        # Step 2 closed, step 1 and step 3 open: step 3 is still gated by
+        # step 2's position (immediately prior). But since step 2 is closed,
+        # step 3 is blocked by step 1 transitively because step 1 is still
+        # the last-open sibling before step 3 in link order.
+        issues = [
+            {"number": 10, "createdAt": "2024-01-01T00:00:00Z",
+             "title": "Step 1",
+             "labels": [{"name": "auto-improve:refined"}]},
+            {"number": 30, "createdAt": "2024-01-03T00:00:00Z",
+             "title": "Step 3",
+             "labels": [{"name": "auto-improve:refined"}]},
+        ]
+        sub_issues_by_parent = {
+            621: [
+                {"number": 10, "state": "open"},
+                {"number": 20, "state": "closed"},
+                {"number": 30, "state": "open"},
+            ],
+        }
+        target = self._pick(issues, sub_issues_by_parent)
+        self.assertEqual(target, ("issue", 10))
+
+
+class TestBuildOrderingGate(unittest.TestCase):
+    def test_gate_maps_each_child_to_last_open_prior_sibling(self):
+        parents = [{"number": 900}]
+        subs = {
+            900: [
+                {"number": 10, "state": "open"},
+                {"number": 20, "state": "closed"},
+                {"number": 30, "state": "open"},
+                {"number": 40, "state": "open"},
+            ],
+        }
+
+        def fake_gh_json(cmd):
+            if "issue" in cmd and "list" in cmd:
+                return parents
+            raise AssertionError(f"unexpected _gh_json call: {cmd}")
+
+        def fake_list_sub_issues(parent_num):
+            return subs.get(parent_num, [])
+
+        with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
+             patch.object(dispatcher, "list_sub_issues",
+                          side_effect=fake_list_sub_issues):
+            gate = dispatcher._build_ordering_gate()
+
+        # #10 is first — no prior sibling → not in gate.
+        self.assertNotIn(10, gate)
+        # #20 is preceded by #10 (open) → blocked by #10.
+        self.assertEqual(gate[20], (900, 10))
+        # #30 is preceded by #10 (open) and #20 (closed) →
+        # still blocked by #10 (last open prior).
+        self.assertEqual(gate[30], (900, 10))
+        # #40 is preceded by #10 (open), #20 (closed), #30 (open) →
+        # blocked by #30 (the most recent still-open prior).
+        self.assertEqual(gate[40], (900, 30))
 
 
 if __name__ == "__main__":

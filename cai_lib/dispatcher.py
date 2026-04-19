@@ -21,31 +21,59 @@ without creating an import cycle.
 """
 from __future__ import annotations
 
-import re
 import subprocess
 import sys
 from typing import Callable, Optional
 
-# Matches sub-issue titles produced by cai_lib.actions.refine:
-# ``[#123 Step 2/5] Do the thing``. Group 1 = parent number, group 2 = step.
-_SUB_ISSUE_TITLE_RE = re.compile(r"^\[#(\d+)\s+Step\s+(\d+)/\d+\]")
-
-
-def _parse_sub_issue_step(title: str) -> Optional[tuple[int, int]]:
-    """Return ``(parent_number, step)`` when *title* is a sub-issue title, else None."""
-    if not title:
-        return None
-    m = _SUB_ISSUE_TITLE_RE.match(title)
-    if not m:
-        return None
-    return int(m.group(1)), int(m.group(2))
-
-from cai_lib.config import LABEL_HUMAN_SOLVED, REPO
+from cai_lib.config import LABEL_HUMAN_SOLVED, LABEL_PARENT, REPO
 from cai_lib.fsm import (
     IssueState, PRState,
     get_issue_state, get_pr_state,
 )
 from cai_lib.github import _gh_json
+from cai_lib.issues import list_sub_issues
+
+
+def _build_ordering_gate() -> dict[int, tuple[int, int]]:
+    """Return a map ``child_number -> (parent_number, prior_open_sibling)``
+    for every sub-issue whose position in its parent's ordered sub-issues
+    list is preceded by a still-open sibling.
+
+    Sub-issues absent from the map are either step 1 under their parent,
+    have no still-open prior sibling, or have no parent at all — i.e. not
+    gated. The dispatcher uses this map to skip dispatching a sub-issue
+    until the immediately prior one closes, reproducing the previous
+    title-regex gate semantics without relying on title formatting.
+    """
+    try:
+        parents = _gh_json([
+            "issue", "list",
+            "--repo", REPO,
+            "--label", LABEL_PARENT,
+            "--state", "all",
+            "--json", "number",
+            "--limit", "200",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(f"[cai dispatch] gh issue list (parents) failed:\n{e.stderr}",
+              file=sys.stderr)
+        return {}
+
+    gate: dict[int, tuple[int, int]] = {}
+    for parent in parents:
+        parent_num = parent.get("number")
+        if parent_num is None:
+            continue
+        last_open_sibling: Optional[int] = None
+        for sub in list_sub_issues(parent_num):
+            child_num = sub.get("number")
+            if child_num is None:
+                continue
+            if last_open_sibling is not None:
+                gate[child_num] = (parent_num, last_open_sibling)
+            if sub.get("state") == "open":
+                last_open_sibling = child_num
+    return gate
 
 
 # ---------------------------------------------------------------------------
@@ -300,23 +328,20 @@ def _pick_oldest_actionable_target(
             "--repo", REPO,
             "--label", "auto-improve",
             "--state", "open",
-            "--json", "number,createdAt,labels,title",
+            "--json", "number,createdAt,labels",
             "--limit", "200",
         ]) or []
     except subprocess.CalledProcessError as e:
         print(f"[cai dispatch] gh issue list failed:\n{e.stderr}", file=sys.stderr)
         issues = []
 
-    # Build the set of (parent, step) pairs whose sub-issue is still open.
-    # A sub-issue at step N > 1 is gated on (parent, N-1) being absent from
-    # this set — i.e. the prior step has already been closed (its PR merged
-    # and confirm ran, or a human closed it). See the "ordering gate"
+    # Build the ordering gate from GitHub's native sub-issues API: for
+    # each parent issue (label ``auto-improve:parent``), fetch its
+    # ordered sub-issues and record, for every child, the immediately
+    # prior sibling that is still open. A child present in ``gate`` is
+    # blocked until that prior sibling closes. See the "ordering gate"
     # referenced in cai_lib/actions/refine.py::_create_sub_issues.
-    open_sub_steps: set[tuple[int, int]] = set()
-    for issue in issues:
-        parsed = _parse_sub_issue_step(issue.get("title", ""))
-        if parsed is not None:
-            open_sub_steps.add(parsed)
+    gate = _build_ordering_gate()
 
     try:
         prs = _gh_json([
@@ -339,17 +364,16 @@ def _pick_oldest_actionable_target(
         if state is not None and state in issue_states:
             if ("issue", issue["number"]) in skip:
                 continue
-            parsed = _parse_sub_issue_step(issue.get("title", ""))
-            if parsed is not None:
-                parent, step = parsed
-                if step > 1 and (parent, step - 1) in open_sub_steps:
-                    print(
-                        f"[cai dispatch] issue #{issue['number']} is "
-                        f"[#{parent} Step {step}/...]; prior step still open — "
-                        f"skipping until previous step is merged",
-                        flush=True,
-                    )
-                    continue
+            blocker = gate.get(issue["number"])
+            if blocker is not None:
+                parent, prior = blocker
+                print(
+                    f"[cai dispatch] issue #{issue['number']}: prior "
+                    f"sibling #{prior} under parent #{parent} still open — "
+                    f"skipping until previous sub-issue is closed",
+                    flush=True,
+                )
+                continue
             # HUMAN_NEEDED is actionable only when the admin has signalled
             # ready-to-resume via ``human:solved``. Other parked issues
             # stay out of the queue so we don't spin on them each tick.
