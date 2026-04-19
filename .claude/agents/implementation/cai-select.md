@@ -34,6 +34,20 @@ Assess each plan on these criteria, in order of importance:
 4. **Specificity:** Is the plan concrete enough for a fix agent to
    follow without guessing? Does it name exact files, functions,
    and changes?
+5. **Verbatim Edit/Write content:** Every plan step that calls for
+   an `Edit` or `Write` MUST include the exact final text the fix
+   agent will emit — the full file body (for `Write`) or both
+   `old_string` and `new_string` literals (for `Edit`). Prose
+   summaries such as "rewritten docstring keeping only the
+   surviving paragraphs", "update the config block to use the new
+   schema", or "remove the outdated paragraphs" count as **missing
+   content** — they force the fix agent to improvise and are the
+   single largest driver of MEDIUM-confidence plans that get parked
+   at the `planned_to_plan_approved` gate. **Cap any such plan's
+   confidence at MEDIUM.** If the best available plan suffers from
+   this, emit MEDIUM and cite the specific offending step(s) in
+   `confidence_reason`; if both candidate plans suffer from it,
+   emit LOW and flag the critical missing text in `note`.
 
 ## Output format
 
