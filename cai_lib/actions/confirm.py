@@ -18,7 +18,6 @@ import subprocess
 import sys
 import time
 
-from cai_lib.dispatcher import _parse_sub_issue_step
 from cai_lib.config import (
     LABEL_MERGED,
     LABEL_PR_NEEDS_HUMAN,
@@ -253,16 +252,6 @@ def handle_confirm(issue: dict) -> int:
                 print(f"[cai confirm] cai-memorize invocation error: {e}",
                       flush=True)
             print(f"[cai confirm] #{issue_num}: solved — closed", flush=True)
-            # Log parent if this is a sub-issue (native sub-issues API tracks
-            # completion automatically; no manual checklist update needed).
-            parsed_title = _parse_sub_issue_step(mi.get("title") or "")
-            if parsed_title is not None:
-                parent_number, _step = parsed_title
-                print(
-                    f"[cai confirm] #{issue_num} is sub-issue of "
-                    f"#{parent_number}; native sub-issues panel updated",
-                    flush=True,
-                )
             solved += 1
         elif status == "unsolved":
             cat = _get_issue_category(mi)
