@@ -94,6 +94,7 @@
 | `docs/_config.yml` | Jekyll configuration for GitHub Pages docs |
 | `docs/agents.md` | Documentation: agent definitions and pipeline phase mapping |
 | `docs/architecture.md` | Documentation: pipeline overview and system architecture |
+| `docs/cai-staging.md` | TODO: add description |
 | `docs/cli.md` | Documentation: CLI reference for all cai.py subcommands |
 | `docs/configuration.md` | Documentation: environment variables and configuration |
 | `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
