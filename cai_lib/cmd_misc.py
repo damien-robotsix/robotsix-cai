@@ -36,6 +36,11 @@ _ALL_MANAGED_ISSUE_LABELS: frozenset[str] = frozenset({
     LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
     LABEL_TRIAGING, LABEL_MERGE_BLOCKED,
     LABEL_HUMAN_SOLVED, LABEL_KIND_CODE, LABEL_KIND_MAINTENANCE,
+    # Opus one-shot marker set by `cai rescue` when it escalates a
+    # stuck issue to Opus-backed implement. Must survive the hourly
+    # sweep so the next rescue pass can detect the one-shot has
+    # already been burned and refuse a second escalation (#944).
+    LABEL_OPUS_ATTEMPTED,
     "auto-improve", "audit", "check-workflows", "check-workflows:raised",
 })
 
