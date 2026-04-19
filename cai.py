@@ -220,11 +220,15 @@ The container runs `entrypoint.sh`, which executes `cai.py cycle` once
 synchronously at startup (driving the full issue-solving pipeline:
 verify → confirm → drain PRs → refine → plan → implement loop), then hands
 off to supercronic. Each cron tick is a fresh process. The pipeline is
-driven by a single `CAI_CYCLE_SCHEDULE` cron line; a flock in
-`cmd_cycle` serializes overlapping runs so issues are processed one
-at a time. Orthogonal tasks (analyze, audit, propose, update-check,
-health-report, cost-optimize, check-workflows, code-audit, agent-audit,
-external-scout) keep their own schedules and are not run at startup.
+driven by a single `CAI_CYCLE_SCHEDULE` cron line; cross-instance
+serialization is handled GitHub-side via an `auto-improve:locked`
+ownership lock (label + a `<!-- cai-lock owner=... -->` claim comment,
+acquired at every dispatch entry) so two cai instances — on the same
+host or across hosts — cannot advance the same issue/PR concurrently.
+A stale-lock watchdog expires the lock after 1h. Orthogonal tasks
+(analyze, audit, propose, update-check, health-report, cost-optimize,
+check-workflows, code-audit, agent-audit, external-scout) keep their
+own schedules and are not run at startup.
 
 The gh auth check is done once per subcommand invocation. We want a
 clear error message in docker logs if credentials ever disappear from

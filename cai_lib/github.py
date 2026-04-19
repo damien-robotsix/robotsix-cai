@@ -5,11 +5,15 @@ import os
 import re
 import subprocess
 import sys
+import time
+
+from datetime import datetime, timezone
 
 from cai_lib.config import (
     REPO, TRANSCRIPT_DIR,
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGE_BLOCKED,
     LABEL_REVISING, LABEL_RAISED, LABEL_REFINED,
+    LABEL_LOCKED, INSTANCE_ID, CAI_LOCK_COMMENT_RE,
 )
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run
@@ -457,6 +461,214 @@ def _close_orphaned_prs(*, log_prefix: str = "cai") -> list[dict]:
         closed_rows.append({"pr": pr_number, "issue": issue_number})
 
     return closed_rows
+
+
+# ---------------------------------------------------------------------------
+# Cross-instance ownership lock — auto-improve:locked
+# ---------------------------------------------------------------------------
+#
+# Problem: nothing prevents two cai containers (different hosts, or two
+# containers on the same host) from picking up the same issue/PR in the
+# same tick. Local flock is per-container, FSM label transitions are
+# non-atomic gh edits. Solution: a first-writer-wins remote lock keyed
+# on the LABEL_LOCKED label plus a ``<!-- cai-lock owner=... -->`` claim
+# comment, with the oldest claim comment as the arbiter.
+#
+# _HELD_LOCKS is a refcount map (NOT a set) because the drain driver
+# wraps the whole drive in a lock, then dispatch_issue/dispatch_pr also
+# wrap their own dispatch — when the inner wrapper releases, the outer
+# drive must still hold. Refcount lets the inner acquire/release pair
+# bump and decrement without touching GitHub.
+_HELD_LOCKS: dict[tuple[str, int], int] = {}
+
+# Stabilization-poll constants. After posting our claim comment we poll
+# the comment list until two consecutive fetches return the same ordered
+# set of cai-lock comments, mitigating GitHub's read-after-write replica
+# lag (seen as both instances thinking they are the oldest claim).
+_LOCK_STABILIZE_TIMEOUT_S = 3.0
+_LOCK_STABILIZE_INTERVAL_S = 0.5
+
+
+def _delete_issue_comment(comment_id: int, *, log_prefix: str = "cai lock") -> bool:
+    """Best-effort delete of an issue/PR comment via the REST API.
+
+    GitHub uses a single ``/repos/{owner}/{repo}/issues/comments/{id}``
+    endpoint for both issue comments and the issue-level comments on
+    PRs (the ``cai-lock`` claims are always posted there). Failures are
+    logged but swallowed — the watchdog finishes any cleanup the
+    release path could not.
+    """
+    result = _run(
+        ["gh", "api", "-X", "DELETE",
+         f"/repos/{REPO}/issues/comments/{comment_id}"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"[{log_prefix}] failed to delete comment {comment_id}: "
+            f"{result.stderr.strip()}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _list_lock_comments(number: int) -> list[dict]:
+    """Return ``cai-lock`` claim comments on issue/PR ``number``, ordered oldest-first.
+
+    Uses the issues comments endpoint (works for both issues and PRs —
+    the issue-level comments on a PR live there). Sort key is
+    ``(created_at, id)`` so a same-millisecond tie still has a
+    deterministic winner via the monotonic comment id.
+    """
+    try:
+        comments = _gh_json([
+            "api", f"/repos/{REPO}/issues/{number}/comments",
+            "--paginate",
+        ]) or []
+    except subprocess.CalledProcessError:
+        return []
+    out: list[dict] = []
+    for c in comments:
+        body = c.get("body", "") or ""
+        m = CAI_LOCK_COMMENT_RE.search(body)
+        if not m:
+            continue
+        out.append({
+            "id": c.get("id"),
+            "owner": m.group("owner"),
+            "created_at": c.get("created_at", ""),
+        })
+    out.sort(key=lambda c: (c.get("created_at", ""), c.get("id", 0)))
+    return out
+
+
+def _acquire_remote_lock(kind: str, number: int) -> bool:
+    """Attempt to acquire the cross-instance lock on issue/PR ``number``.
+
+    Returns True when this process now owns the lock, False when another
+    instance won the race (the caller must yield without dispatching).
+    Re-entry is idempotent: a second call from the same process bumps a
+    refcount and returns True without any GitHub round-trip.
+
+    Protocol:
+      1. Add LABEL_LOCKED via the appropriate label helper.
+      2. Post a ``<!-- cai-lock owner=INSTANCE_ID acquired=... -->``
+         claim comment.
+      3. Poll the lock-comment list until two consecutive snapshots
+         agree (or the timeout elapses), to dampen GitHub
+         read-after-write replica lag.
+      4. The owner of the oldest comment wins; losers strip
+         LABEL_LOCKED and delete their losing claim comment.
+    """
+    key = (kind, number)
+    if key in _HELD_LOCKS:
+        _HELD_LOCKS[key] += 1
+        return True
+
+    if kind == "issue":
+        labelled = _set_labels(number, add=[LABEL_LOCKED], log_prefix="cai lock")
+    else:
+        labelled = _set_pr_labels(number, add=[LABEL_LOCKED], log_prefix="cai lock")
+    if not labelled:
+        return False
+
+    acquired = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = f"<!-- cai-lock owner={INSTANCE_ID} acquired={acquired} -->"
+    posted = (_post_issue_comment if kind == "issue" else _post_pr_comment)(
+        number, body, log_prefix="cai lock"
+    )
+    if not posted:
+        # Couldn't post — strip the label so we don't strand the target
+        # behind a label nobody can release without watchdog help.
+        if kind == "issue":
+            _set_labels(number, remove=[LABEL_LOCKED], log_prefix="cai lock")
+        else:
+            _set_pr_labels(number, remove=[LABEL_LOCKED], log_prefix="cai lock")
+        return False
+
+    locks = _stabilize_lock_comments(number)
+
+    if not locks:
+        # Replica still lagging or list endpoint failed entirely. Treat
+        # as "did not acquire" rather than risk two instances both thinking
+        # they own the target — and clean up so the watchdog isn't needed.
+        if kind == "issue":
+            _set_labels(number, remove=[LABEL_LOCKED], log_prefix="cai lock")
+        else:
+            _set_pr_labels(number, remove=[LABEL_LOCKED], log_prefix="cai lock")
+        return False
+
+    winner = locks[0]["owner"]
+    if winner == INSTANCE_ID:
+        _HELD_LOCKS[key] = 1
+        print(f"[cai lock] acquired {kind} #{number}", flush=True)
+        return True
+
+    # Lost the race. Delete only our own claim comment; do NOT remove
+    # LABEL_LOCKED — the winner's comment is still the oldest and the
+    # label belongs to them. The winner removes the label on release;
+    # the watchdog removes it after _STALE_LOCKED_HOURS if the winner
+    # crashes.
+    for entry in locks:
+        if entry.get("owner") == INSTANCE_ID and entry.get("id") is not None:
+            _delete_issue_comment(int(entry["id"]))
+    print(
+        f"[cai lock] lost {kind} #{number} to {winner}",
+        flush=True,
+    )
+    return False
+
+
+def _stabilize_lock_comments(number: int) -> list[dict]:
+    """Poll the cai-lock comment list until two consecutive snapshots agree.
+
+    Closes GitHub's read-after-write replica-lag window between posting
+    a claim and reading the ordered set of claims. Returns the last
+    snapshot when the timeout elapses without convergence.
+    """
+    deadline = time.monotonic() + _LOCK_STABILIZE_TIMEOUT_S
+    prev: list[dict] = _list_lock_comments(number)
+    while time.monotonic() < deadline:
+        time.sleep(_LOCK_STABILIZE_INTERVAL_S)
+        curr = _list_lock_comments(number)
+        # Compare ordered (id, owner) tuples — created_at can drift if
+        # GitHub rewrites timestamps server-side, but ids are stable.
+        prev_key = [(c.get("id"), c.get("owner")) for c in prev]
+        curr_key = [(c.get("id"), c.get("owner")) for c in curr]
+        if prev_key == curr_key and curr:
+            return curr
+        prev = curr
+    return prev
+
+
+def _release_remote_lock(kind: str, number: int) -> bool:
+    """Release a previously-acquired ownership lock. Idempotent.
+
+    Decrements the refcount; only performs GitHub cleanup (delete claim
+    comment + remove label) when the count reaches zero, which lets the
+    drain-level outer acquire keep the lock while inner dispatch_*
+    wrappers acquire/release around their own work.
+    """
+    key = (kind, number)
+    if key not in _HELD_LOCKS:
+        return True
+    _HELD_LOCKS[key] -= 1
+    if _HELD_LOCKS[key] > 0:
+        return True
+
+    locks = _list_lock_comments(number)
+    for entry in locks:
+        if entry.get("owner") == INSTANCE_ID and entry.get("id") is not None:
+            _delete_issue_comment(int(entry["id"]))
+
+    if kind == "issue":
+        _set_labels(number, remove=[LABEL_LOCKED], log_prefix="cai lock")
+    else:
+        _set_pr_labels(number, remove=[LABEL_LOCKED], log_prefix="cai lock")
+
+    del _HELD_LOCKS[key]
+    return True
 
 
 def close_issue_completed(

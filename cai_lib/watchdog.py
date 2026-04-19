@@ -19,13 +19,16 @@ from cai_lib.config import (
     LABEL_IN_PROGRESS,
     LABEL_REVISING,
     LABEL_APPLYING,
+    LABEL_LOCKED,
     LABEL_RAISED,
     LABEL_REFINED,
+    CAI_LOCK_COMMENT_RE,
     _STALE_IN_PROGRESS_HOURS,
     _STALE_REVISING_HOURS,
     _STALE_APPLYING_HOURS,
+    _STALE_LOCKED_HOURS,
 )
-from cai_lib.github import _gh_json, _set_labels
+from cai_lib.github import _gh_json, _set_labels, _delete_issue_comment
 from cai_lib.logging_utils import log_run
 
 
@@ -39,7 +42,7 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
     Returns the list of issues that were rolled back.
     """
     all_issues = []
-    for lock_label in (LABEL_IN_PROGRESS, LABEL_REVISING, LABEL_APPLYING):
+    for lock_label in (LABEL_IN_PROGRESS, LABEL_REVISING, LABEL_APPLYING, LABEL_LOCKED):
         try:
             issues = _gh_json([
                 "issue", "list",
@@ -100,6 +103,8 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
             ttl_hours = _STALE_REVISING_HOURS
         elif lock_label == LABEL_APPLYING:
             ttl_hours = _STALE_APPLYING_HOURS
+        elif lock_label == LABEL_LOCKED:
+            ttl_hours = _STALE_LOCKED_HOURS
         else:
             ttl_hours = _STALE_IN_PROGRESS_HOURS
         threshold = 0 if immediate else ttl_hours * 3600
@@ -128,6 +133,31 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
                     remove=[LABEL_APPLYING],
                     log_prefix="cai audit",
                 )
+            elif lock_label == LABEL_LOCKED:
+                # Ownership lock: orthogonal to FSM state — only strip the
+                # :locked label and delete any cai-lock claim comments.
+                # The FSM state label (:in-progress, :revising, …) stays
+                # untouched so the regular per-state TTL still applies.
+                ok = _set_labels(
+                    issue_num,
+                    remove=[LABEL_LOCKED],
+                    log_prefix="cai audit",
+                )
+                if ok:
+                    try:
+                        comments = _gh_json([
+                            "api", f"/repos/{REPO}/issues/{issue_num}/comments",
+                            "--paginate",
+                        ]) or []
+                    except subprocess.CalledProcessError:
+                        comments = []
+                    for c in comments:
+                        body = c.get("body", "") or ""
+                        if CAI_LOCK_COMMENT_RE.search(body):
+                            cid = c.get("id")
+                            if cid is not None:
+                                _delete_issue_comment(int(cid),
+                                                      log_prefix="cai audit")
             else:
                 # In-progress lock: roll back to :refined.
                 # Audit-originated issues carry an "audit" source tag so they
