@@ -125,6 +125,7 @@
 | `tests/test_plan.py` | TODO: add description |
 | `tests/test_pr_bounce.py` | TODO: add description |
 | `tests/test_publish.py` | Tests for publish.py issue publishing |
+| `tests/test_rescue_opus.py` | Tests for cai_lib.cmd_rescue — Opus-escalation verdict plumbing, schema, and one-shot label guard |
 | `tests/test_retroactive_sweep.py` | TODO: add description |
 | `tests/test_revise_filter.py` | TODO: add description |
 | `tests/test_rollback.py` | Tests for rollback functionality |

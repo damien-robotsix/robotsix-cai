@@ -32,9 +32,16 @@ from cai_lib.config import (
     LABEL_PR_OPEN,
     LABEL_REFINED,
     LABEL_HUMAN_NEEDED,
+    LABEL_OPUS_ATTEMPTED,
     LABEL_RAISED,
     LOG_PATH,
 )
+
+# Model ID passed to ``claude -p --model`` when the Opus-escalation
+# label is present on the issue. Kept in one place so the next Opus
+# release only needs to touch this constant (and the matching pin in
+# claude-code's declarative agent files).
+_OPUS_MODEL_ID = "claude-opus-4-7"
 from cai_lib.github import (
     _gh_json,
     _set_labels,
@@ -528,11 +535,21 @@ def handle_implement(issue: dict) -> int:
                 + "---\n\n"
                 + _build_implement_user_message(issue, attempt_history_block)
             )
+        opus_escalation = LABEL_OPUS_ATTEMPTED in label_names
+        claude_cmd = ["claude", "-p", "--agent", "cai-implement"]
+        if opus_escalation:
+            claude_cmd += ["--model", _OPUS_MODEL_ID]
+            print(
+                f"[cai implement] #{issue_number} carries "
+                f"{LABEL_OPUS_ATTEMPTED}; invoking cai-implement with "
+                f"--model {_OPUS_MODEL_ID}",
+                flush=True,
+            )
+        claude_cmd += ["--dangerously-skip-permissions",
+                       "--add-dir", str(work_dir)]
         print(f"[cai implement] running cai-implement subagent for {work_dir}", flush=True)
         agent = _run_claude_p(
-            ["claude", "-p", "--agent", "cai-implement",
-             "--dangerously-skip-permissions",
-             "--add-dir", str(work_dir)],
+            claude_cmd,
             category="implement",
             agent="cai-implement",
             input=user_message,

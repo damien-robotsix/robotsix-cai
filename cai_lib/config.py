@@ -143,6 +143,12 @@ LABEL_PR_HUMAN_NEEDED = "auto-improve:pr-human-needed" # PRState.PR_HUMAN_NEEDED
 # divert. Replaces the previous "any admin comment triggers resume" model,
 # which fired on incidental questions and ambiguous replies.
 LABEL_HUMAN_SOLVED = "human:solved"
+# Single-use marker that `cai rescue` sets when it escalates a stuck
+# issue to an Opus-backed re-run of the implement phase. Signals the
+# downstream `cai-implement` handler to pass `--model claude-opus-4-7`,
+# and prevents a second escalation on the same issue if the Opus run
+# also parks at :human-needed.
+LABEL_OPUS_ATTEMPTED = "auto-improve:opus-attempted"
 LABEL_TRIAGING         = "auto-improve:triaging"
 LABEL_KIND_CODE        = "kind:code"
 LABEL_KIND_MAINTENANCE = "kind:maintenance"
