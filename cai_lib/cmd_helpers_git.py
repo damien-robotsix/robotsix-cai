@@ -251,30 +251,51 @@ def _setup_agent_edit_staging(work_dir: Path) -> Path:
 
 
 def _apply_agent_edit_staging(work_dir: Path) -> int:
-    """Copy any files staged at `<work_dir>/.cai-staging/agents/`
-    back to `<work_dir>/.claude/agents/`, copy any plugin tree staged
-    at `<work_dir>/.cai-staging/plugins/` to `<work_dir>/.claude/plugins/`,
-    then remove the staging directory so it doesn't land in the PR.
+    """Apply all pending changes from the `.cai-staging/` tree and clean up.
+
+    Operations performed (in order):
+
+      1. **Agent files** — copy `.cai-staging/agents/*.md` to
+         `.claude/agents/`, preserving subdirectory paths.  New files are
+         created; existing ones are overwritten.
+      2. **Plugin tree** — merge `.cai-staging/plugins/` into
+         `.claude/plugins/` using shutil.copytree with dirs_exist_ok=True.
+      3. **CLAUDE.md files** — copy every file literally named ``CLAUDE.md``
+         found under `.cai-staging/claudemd/` to the matching path under
+         `<work_dir>/`.
+      4. **Agent deletions** — treat every `.md` file under
+         `.cai-staging/agents-delete/` as a tombstone: delete the matching
+         file under `.claude/agents/`.  Missing targets are silently skipped.
+      5. **Arbitrary file deletions** — treat every file under
+         `.cai-staging/files-delete/` as a tombstone: delete the matching
+         file at `<work_dir>/<relative-path>`.  Three safety guards are
+         enforced before deletion (see below).
+      6. **Cleanup** — remove the entire `.cai-staging/` tree so it does
+         not land in the PR.
 
     Security boundaries:
 
-      1. Each staged agent file is copied to `<work_dir>/.claude/agents/`
-         preserving its subdirectory path relative to the staging root.
-         If no target exists a new file is created; if one exists it is
-         overwritten. Parent directories are created as needed.
-      2. Staged plugin trees are merged into `<work_dir>/.claude/plugins/`
-         using shutil.copytree with dirs_exist_ok=True.
-      3. The staging dir lives entirely inside `work_dir` so escapes
-         via `..` are not possible (the wrapper recursively walks the
-         staging directory via `rglob("*.md")` and copies whole files
-         preserving subdirectory paths).
-      4. The staging dir is removed before commit if all staging
-         operations succeeded. If plugin staging fails, the staging
-         dir is preserved for inspection and the function returns
-         early so staged content is not silently lost.
+      Agent / plugin / CLAUDE.md staging:
+        - Staging dirs live entirely inside `work_dir`, so path traversal
+          via ``..`` segments is structurally impossible (rglob only yields
+          descendants of the staging root).
+        - If plugin staging fails the function returns early and preserves
+          `.cai-staging/` for inspection so staged content is not silently
+          lost.
 
-    Returns the count of files successfully applied. If the staging
-    dir doesn't exist or is empty, returns 0 with no side effects.
+      files-delete tombstones (guard 1–3 applied in order):
+        1. **Path escape** — the resolved absolute target must remain inside
+           `work_dir.resolve()`.  Defends against tombstones that contain
+           symlinks pointing outside the clone.
+        2. **Protected prefixes** — tombstones whose relative path starts
+           with ``.git/`` or ``.cai-staging/`` (or equals those names) are
+           refused with a stderr warning.
+        3. **Tracked-tree membership** — `git ls-files --error-unmatch` must
+           succeed for the target path; untracked files are skipped with a
+           stderr warning.
+
+    Returns the count of files/operations successfully applied. If the
+    staging dir doesn't exist or is empty, returns 0 with no side effects.
     """
     staging = work_dir / AGENT_EDIT_STAGING_REL
     applied = 0
