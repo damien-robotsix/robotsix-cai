@@ -124,6 +124,27 @@ migrations):
   3. Do NOT try `Bash("rm ...")` on `.claude/agents/...` — it is
      blocked by the same sensitive-file protection.
 
+**For deleting arbitrary repo files** (anywhere under `<work_dir>/`
+other than `.git/` and `.cai-staging/`):
+
+  1. **Write** an empty (or any-content) tombstone file to
+     `<work_dir>/.cai-staging/files-delete/<same-relative-path>`.
+     For example, to delete `cai_lib/cmd_agents.py`, write to
+     `.cai-staging/files-delete/cai_lib/cmd_agents.py`. To delete
+     `tests/test_retroactive_sweep.py`, write to
+     `.cai-staging/files-delete/tests/test_retroactive_sweep.py`.
+  2. The wrapper walks `.cai-staging/files-delete/` with
+     `rglob("*")` after you exit and deletes each matching file at
+     `<work_dir>/<relative-path>`. Tombstone contents are
+     ignored — only the relative path matters. Targets must be
+     tracked by git; untracked targets, paths under `.git/` or
+     `.cai-staging/`, and symlink-escape attempts are refused with
+     a stderr warning. Missing targets are silently skipped.
+  3. Use this when you need to delete a file and do NOT have Bash
+     (e.g. `cai-implement`). Do NOT stub the file with
+     `raise ImportError(...)` as a workaround — leave the tree
+     clean.
+
 Rules (apply to agents, plugins, CLAUDE.md files, and agent deletions):
 
   - Staged files are copied unconditionally — new definitions
@@ -159,3 +180,8 @@ Example of deleting an agent file:
 
   - GOOD: `Write("<work_dir>/.cai-staging/agents-delete/cai-triage.md", "")`
   - BAD:  `Bash("rm <work_dir>/.claude/agents/cai-triage.md")`  (blocked)
+
+Example of deleting an arbitrary repo file:
+
+  - GOOD: `Write("<work_dir>/.cai-staging/files-delete/cai_lib/cmd_agents.py", "")`
+  - BAD:  Stubbing the file with `raise ImportError(...)` as a workaround
