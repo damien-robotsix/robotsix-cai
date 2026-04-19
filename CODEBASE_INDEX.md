@@ -74,6 +74,7 @@
 | `cai_lib/audit/__init__.py` | Package init for cai_lib.audit sub-package |
 | `cai_lib/audit/cost.py` | TODO: add description |
 | `cai_lib/audit/modules.py` | YAML loader + coverage validator for docs/modules.yaml — parses module registry and checks file coverage |
+| `cai_lib/audit/runner.py` | TODO: add description |
 | `cai_lib/cmd_agents.py` | Agent-launch cmd_* functions: analyze, audit, propose, code-audit, agent-audit, update-check, cost-optimize, external-scout |
 | `cai_lib/cmd_cycle.py` | TODO: add description |
 | `cai_lib/cmd_helpers.py` | Cross-command helpers shared between cai.py and cai_lib/actions/* |
