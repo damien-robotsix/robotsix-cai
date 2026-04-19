@@ -60,6 +60,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 | `merge-blocked` | PR has a blocking review finding; will not auto-merge |
 | `needs-human-review` | Issue or PR requires human attention |
 | `human:solved` | Admin-applied signal to resume FSM for parked issues/PRs (unblocking) |
+| `blocked-on:<N>` | Suppresses dispatch and rescue on this issue/PR while issue `#<N>` is open. Multiple blockers may be declared by applying the label once per blocker. The label is a hint, not a state change — it never clears itself. (Self-blocking cycles result in both issues staying skipped; no cycle detection is performed.) |
 | `kind:code` | Issue is a code fix (vs. kind:maintenance) |
 | `kind:maintenance` | Issue is a maintenance operation (requires `Ops:` block in body) |
 | `pr:reviewing-code` | PR is in code review (review-pr handler); a new SHA lands here on any push |
@@ -75,7 +76,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 `cai cycle` is one tick of the dispatcher loop. The implementation has three phases:
 
 1. **Restart recovery** — roll back `:in-progress`, `:revising`, and `:applying` locks past their stale-timeout.
-2. **Drain** — call `dispatch_drain()`, which loops `pick oldest actionable → dispatch handler` until the queue is empty (no more issues/PRs in any handler-backed state). Each `(kind, number)` target is dispatched at most once per drain pass — after dispatch (success or failure) it's added to a per-drain skip set so the picker moves on. A `max_iter=50` cap is the hard upper bound. The cron interval is the wall-clock rate limit and the flock prevents overlapping ticks.
+2. **Drain** — call `dispatch_drain()`, which loops `pick oldest actionable → dispatch handler` until the queue is empty (no more issues/PRs in any handler-backed state). Each `(kind, number)` target is dispatched at most once per drain pass — after dispatch (success or failure) it's added to a per-drain skip set so the picker moves on. A `max_iter=50` cap is the hard upper bound. The cron interval is the wall-clock rate limit and the flock prevents overlapping ticks. Candidates carrying a `blocked-on:<N>` label are short-circuited by the picker when issue `#<N>` is still open — they are silently skipped until the blocker closes, at which point the label stops suppressing them (the label is never auto-removed).
 3. **Maintenance apply** — if any `:applying` issues remain (transient state during maintenance operations), call `cai maintain` to drain them by executing the declared operations and transitioning to `:applied` or `:human-needed` based on Confidence.
 
 A flock serializes overlapping runs so two cron ticks cannot dispatch the same item concurrently.

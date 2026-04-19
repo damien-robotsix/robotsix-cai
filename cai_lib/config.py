@@ -171,6 +171,14 @@ LABEL_HUMAN_SOLVED = "human:solved"
 # and prevents a second escalation on the same issue if the Opus run
 # also parks at :human-needed.
 LABEL_OPUS_ATTEMPTED = "auto-improve:opus-attempted"
+# Dependency-suppression label. Applied as `blocked-on:<N>` where
+# <N> is the issue number of another open GitHub issue. The
+# dispatcher's target picker and `cai rescue` both skip any
+# issue/PR carrying this label while the referenced blocker
+# remains open, so the implement handler's in-session prerequisite
+# gate never has to re-divert. Multiple blockers may be declared
+# by applying the label once per blocker.
+LABEL_BLOCKED_ON_PREFIX = "blocked-on:"
 LABEL_TRIAGING         = "auto-improve:triaging"
 LABEL_KIND_CODE        = "kind:code"
 LABEL_KIND_MAINTENANCE = "kind:maintenance"
@@ -205,6 +213,8 @@ LABEL_LOCKED = "auto-improve:locked"
 CAI_LOCK_COMMENT_RE = re.compile(
     r"<!--\s*cai-lock\s+owner=(?P<owner>\S+)\s+acquired=(?P<acquired>\S+)\s*-->"
 )
+
+BLOCKED_ON_LABEL_RE = re.compile(r"^blocked-on:(\d+)$")
 
 
 # ---------------------------------------------------------------------------

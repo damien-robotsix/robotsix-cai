@@ -34,6 +34,8 @@ from cai_lib.github import (
     _gh_json,
     _acquire_remote_lock,
     _release_remote_lock,
+    blocking_issue_numbers,
+    open_blockers,
 )
 from cai_lib.issues import list_sub_issues
 
@@ -424,6 +426,7 @@ def _pick_oldest_actionable_target(
         prs = []
 
     candidates: list[tuple[str, str, int]] = []
+    blocker_cache: dict[int, bool] = {}
 
     for issue in issues:
         label_names = [lb["name"] for lb in issue.get("labels", [])]
@@ -447,6 +450,18 @@ def _pick_oldest_actionable_target(
             if (state == IssueState.HUMAN_NEEDED
                     and LABEL_HUMAN_SOLVED not in label_names):
                 continue
+            blockers = blocking_issue_numbers(issue.get("labels", []))
+            if blockers:
+                open_set = open_blockers(blockers, cache=blocker_cache)
+                if open_set:
+                    print(
+                        f"[cai dispatch] issue #{issue['number']}: blocked on "
+                        f"open #{sorted(open_set)[0]} "
+                        f"({len(open_set)}/{len(blockers)} blocker(s) still open) "
+                        f"— skipping",
+                        flush=True,
+                    )
+                    continue
             candidates.append((issue.get("createdAt", ""), "issue", issue["number"]))
 
     for pr in prs:
@@ -463,6 +478,18 @@ def _pick_oldest_actionable_target(
                     for lb in pr.get("labels", [])
                 ]
                 if LABEL_HUMAN_SOLVED not in pr_label_names:
+                    continue
+            blockers = blocking_issue_numbers(pr.get("labels", []))
+            if blockers:
+                open_set = open_blockers(blockers, cache=blocker_cache)
+                if open_set:
+                    print(
+                        f"[cai dispatch] PR #{pr['number']}: blocked on "
+                        f"open #{sorted(open_set)[0]} "
+                        f"({len(open_set)}/{len(blockers)} blocker(s) still open) "
+                        f"— skipping",
+                        flush=True,
+                    )
                     continue
             candidates.append((pr.get("createdAt", ""), "pr", pr["number"]))
 
