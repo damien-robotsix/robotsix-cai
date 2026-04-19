@@ -26,28 +26,50 @@ import sys
 import time
 from typing import Optional
 
+from cai_lib.cmd_helpers_issues import _extract_stored_plan
+
 from cai_lib.config import (
     REPO,
     LABEL_HUMAN_NEEDED,
     LABEL_HUMAN_SOLVED,
+    LABEL_OPUS_ATTEMPTED,
 )
 from cai_lib.fsm import (
     Confidence,
     apply_transition,
     resume_transition_for,
 )
-from cai_lib.github import _gh_json, _post_issue_comment, close_issue_completed
+from cai_lib.github import (
+    _gh_json,
+    _post_issue_comment,
+    _set_labels,
+    close_issue_completed,
+)
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run_claude_p
 
 
 # JSON schema for the cai-rescue verdict (forced via --json-schema).
+#
+# The ``ATTEMPT_OPUS_IMPLEMENT`` verdict is a one-shot escalation path
+# for parks where a stored plan exists but the Sonnet-backed
+# cai-implement run gave up (spike marker, repeated test failures, no
+# diff). The rescue driver applies ``LABEL_OPUS_ATTEMPTED`` and fires
+# ``human_to_plan_approved`` so the next dispatcher tick re-runs
+# implement on the same plan — this time with ``--model
+# claude-opus-4-7`` (see :mod:`cai_lib.actions.implement`). The label
+# also gates re-escalation: a second park on the same issue will not
+# emit ATTEMPT_OPUS_IMPLEMENT again.
 _RESCUE_JSON_SCHEMA = {
     "type": "object",
     "properties": {
         "verdict": {
             "type": "string",
-            "enum": ["AUTONOMOUSLY_RESOLVABLE", "TRULY_HUMAN_NEEDED"],
+            "enum": [
+                "AUTONOMOUSLY_RESOLVABLE",
+                "ATTEMPT_OPUS_IMPLEMENT",
+                "TRULY_HUMAN_NEEDED",
+            ],
         },
         "confidence": {
             "type": "string",
@@ -161,6 +183,101 @@ def _post_rescue_comment(
         f"_Reasoning:_ {reasoning}\n"
     )
     return _post_issue_comment(issue_number, body, log_prefix="cai rescue")
+
+
+def _post_opus_escalation_comment(
+    issue_number: int, *, reasoning: str,
+) -> bool:
+    """Post the audit comment for an Opus-escalation rescue.
+
+    Distinct wording from ``_post_rescue_comment`` because this path
+    both resumes AND swaps models — operators reading the audit trail
+    should see the escalation called out explicitly.
+    """
+    body = (
+        f"**🛟 Autonomous rescue — Opus escalation**\n\n"
+        f"`cai rescue` resumed this issue from `:human-needed` "
+        f"→ `PLAN_APPROVED` and marked it `{LABEL_OPUS_ATTEMPTED}` so "
+        f"the next `cai implement` run uses Opus instead of Sonnet.\n\n"
+        f"_Reasoning:_ {reasoning}\n\n"
+        f"_This is a one-shot escalation — if the Opus run also parks "
+        f"at `:human-needed`, rescue will not re-escalate._\n"
+    )
+    return _post_issue_comment(issue_number, body, log_prefix="cai rescue")
+
+
+def _issue_has_opus_attempted(issue: dict) -> bool:
+    """Return True if *issue* already carries ``LABEL_OPUS_ATTEMPTED``."""
+    for lb in issue.get("labels", []) or []:
+        name = lb.get("name") if isinstance(lb, dict) else lb
+        if name == LABEL_OPUS_ATTEMPTED:
+            return True
+    return False
+
+
+def _schedule_opus_attempt(
+    issue: dict, *, reasoning: str,
+) -> Optional[str]:
+    """Stamp ``LABEL_OPUS_ATTEMPTED`` and fire ``human_to_plan_approved``.
+
+    Returns the result tag for run-log counters:
+      - ``"opus_already_attempted"`` — label already present; leaving parked.
+      - ``"opus_no_plan"``           — no stored plan to re-run; leaving parked.
+      - ``"opus_attempt_scheduled"`` — label + transition applied.
+      - ``"agent_failed"``           — label or transition call failed.
+    """
+    issue_number = issue["number"]
+
+    if _issue_has_opus_attempted(issue):
+        print(
+            f"[cai rescue] #{issue_number} already carries "
+            f"{LABEL_OPUS_ATTEMPTED}; refusing second escalation",
+            flush=True,
+        )
+        return "opus_already_attempted"
+
+    if _extract_stored_plan(issue.get("body") or "") is None:
+        print(
+            f"[cai rescue] #{issue_number} has no stored plan; "
+            f"cannot escalate to Opus-implement",
+            file=sys.stderr, flush=True,
+        )
+        return "opus_no_plan"
+
+    # Audit comment first — surviving the transition error gives an
+    # operator something to anchor on if the FSM call later fails.
+    _post_opus_escalation_comment(issue_number, reasoning=reasoning)
+
+    if not _set_labels(
+        issue_number,
+        add=[LABEL_OPUS_ATTEMPTED],
+        log_prefix="cai rescue",
+    ):
+        print(
+            f"[cai rescue] #{issue_number} failed to apply "
+            f"{LABEL_OPUS_ATTEMPTED}; aborting escalation",
+            file=sys.stderr, flush=True,
+        )
+        return "agent_failed"
+
+    current_labels = [
+        (lb.get("name") if isinstance(lb, dict) else lb)
+        for lb in issue.get("labels", []) or []
+    ]
+    ok = apply_transition(
+        issue_number, "human_to_plan_approved",
+        current_labels=current_labels,
+        log_prefix="cai rescue",
+    )
+    if not ok:
+        return "agent_failed"
+
+    print(
+        f"[cai rescue] #{issue_number} Opus escalation scheduled "
+        f"(→ PLAN_APPROVED, {LABEL_OPUS_ATTEMPTED})",
+        flush=True,
+    )
+    return "opus_attempt_scheduled"
 
 
 def _stage_prevention_finding(
@@ -308,6 +425,17 @@ def _try_rescue_issue(
             source_issue=issue_number,
             prev_text=prev_text,
         )
+
+    if verdict == "ATTEMPT_OPUS_IMPLEMENT":
+        if confidence != Confidence.HIGH:
+            print(
+                f"[cai rescue] #{issue_number} ATTEMPT_OPUS_IMPLEMENT at "
+                f"{confidence.name if confidence else 'MISSING'} confidence; "
+                f"refusing escalation",
+                flush=True,
+            )
+            return "low_confidence"
+        return _schedule_opus_attempt(issue, reasoning=reasoning)
 
     if verdict != "AUTONOMOUSLY_RESOLVABLE":
         return "truly_human_needed"

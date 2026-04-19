@@ -117,6 +117,7 @@ declare -A DESCRIPTIONS=(
   ["tests/test_dispatcher.py"]="Tests for the FSM dispatcher and state→handler registries"
   ["tests/test_fsm.py"]="Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers"
   ["tests/test_unblock.py"]="Tests for cai_lib.cmd_unblock — admin-comment filtering and agent input formatting"
+  ["tests/test_rescue_opus.py"]="Tests for cai_lib.cmd_rescue — Opus-escalation verdict plumbing, schema, and one-shot label guard"
   ["tests/test_lint.py"]="Lint check: ruff must report zero violations"
   ["tests/test_multistep.py"]="Tests for multi-step plan support"
   ["tests/test_parse.py"]="Tests for parse.py signal extraction"
