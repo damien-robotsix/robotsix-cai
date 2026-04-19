@@ -64,12 +64,21 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
         return {}
 
     gate: dict[int, tuple[int, int]] = {}
+    # Memoize list_sub_issues calls to avoid duplicate API requests when
+    # the tree is deep or shared.
+    subtree_cache: dict[int, list[dict]] = {}
+
+    def _cached_sub_issues(num: int) -> list[dict]:
+        if num not in subtree_cache:
+            subtree_cache[num] = list_sub_issues(num)
+        return subtree_cache[num]
+
     for parent in parents:
         parent_num = parent.get("number")
         if parent_num is None:
             continue
         last_open_sibling: Optional[int] = None
-        for sub in list_sub_issues(parent_num):
+        for sub in _cached_sub_issues(parent_num):
             child_num = sub.get("number")
             if child_num is None:
                 continue
@@ -77,6 +86,39 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
                 gate[child_num] = (parent_num, last_open_sibling)
             if sub.get("state") == "open":
                 last_open_sibling = child_num
+
+    # Second pass: propagate gates from nested parents down to their
+    # descendants.  When a sub-issue P is itself a parent (carries
+    # LABEL_PARENT) and P is gated (gate[P] is set), then every
+    # descendant of P that is not already locally gated should inherit
+    # P's blocker so the picker skips them too.
+    parent_nums = {p["number"] for p in parents if p.get("number") is not None}
+    _propagate_visited: set[int] = set()
+
+    def _propagate(p: int, inherited: tuple[int, int]) -> None:
+        """Walk descendants of ``p`` and assign ``inherited`` to any that
+        are not yet gated.  Always recurse into nested-parent children so
+        that arbitrarily deep subtrees are covered.  A visited guard
+        prevents re-entering the same node if the tree branches."""
+        if p in _propagate_visited:
+            return
+        _propagate_visited.add(p)
+        for sub in _cached_sub_issues(p):
+            child_num = sub.get("number")
+            if child_num is None:
+                continue
+            if child_num not in gate:
+                gate[child_num] = inherited
+            # Recurse into nested parents regardless of their own gate
+            # status — their children may still be ungated and need the
+            # ancestor's inherited blocker.
+            if child_num in parent_nums:
+                _propagate(child_num, inherited)
+
+    for p_num, blocker in list(gate.items()):
+        if p_num in parent_nums:
+            _propagate(p_num, blocker)
+
     return gate
 
 
