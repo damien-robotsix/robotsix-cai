@@ -46,7 +46,14 @@ and label transitions — so you only need to focus on the code.
    optional — because the regression gate in `cmd_implement` will
    otherwise block the PR indefinitely.
 5. **Do not delete or substantially rewrite existing files** unless
-   the issue is explicitly about deletion or rewrite.
+   the issue is explicitly about deletion or rewrite. When the issue
+   **does** ask for file deletion, use the `.cai-staging/files-delete/`
+   tombstone mechanism — write a tombstone file (any content) to
+   `<work_dir>/.cai-staging/files-delete/<same-relative-path>` and the
+   wrapper will delete the target after you exit. See the
+   "## Deleting arbitrary repo files" section in `CLAUDE.md` for full
+   details and safety guardrails. Do NOT attempt `Bash("rm ...")` — it
+   is blocked by the same sensitive-file protection.
 6. **Stay inside the repo.** Don't modify files outside the working
    directory. Don't modify `.github/workflows/` files unless the
    issue is specifically about them — if in doubt, exit without
