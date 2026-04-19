@@ -183,20 +183,19 @@ Subcommands:
                             ignored.
 
     python cai.py rescue    Autonomous counterpart to `unblock`. Scans
-                            `auto-improve:human-needed` issues that have
+                            `auto-improve:human-needed` issues and
+                            `auto-improve:pr-human-needed` PRs that have
                             NOT yet received the `human:solved` label and
-                            asks the Opus `cai-rescue` agent whether each
+                            asks the `cai-rescue` agent whether each
                             divert can be resumed without human input. On
                             a HIGH-confidence `AUTONOMOUSLY_RESOLVABLE`
                             verdict, fires the matching state transition
                             and posts an audit comment; otherwise leaves
-                            the issue parked. Optionally collects
+                            the target parked. Optionally collects
                             `prevention_finding` text from the agent and
                             publishes the survivors as
                             `auto-improve:raised` issues so recurring
                             divert patterns get fixed at the source.
-                            Issues-only in the first cut; PR-side rescues
-                            are deferred.
 
 Default schedules (all configurable via environment variables):
 

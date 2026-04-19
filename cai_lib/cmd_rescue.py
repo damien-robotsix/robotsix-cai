@@ -1,21 +1,19 @@
-"""cai_lib.cmd_rescue — autonomous rescue pass for parked issues.
+"""cai_lib.cmd_rescue — autonomous rescue pass for parked issues and PRs.
 
 Counterpart to :mod:`cai_lib.cmd_unblock`. Where ``cmd_unblock`` only acts
 when an admin has explicitly applied the ``human:solved`` label,
-``cmd_rescue`` runs autonomously: it scans
-``auto-improve:human-needed`` issues that DO NOT yet carry
-``human:solved``, asks the Opus :file:`cai-rescue` agent whether each
-divert can be resumed without human input, and on a HIGH-confidence
+``cmd_rescue`` runs autonomously: it scans ``auto-improve:human-needed``
+issues and ``auto-improve:pr-human-needed`` PRs that DO NOT yet carry
+``human:solved``, asks the :file:`cai-rescue` agent whether each divert
+can be resumed without human input, and on a HIGH-confidence
 ``AUTONOMOUSLY_RESOLVABLE`` verdict fires the matching
-``human_to_<state>`` transition. Issues the agent classifies as
-``TRULY_HUMAN_NEEDED`` are left parked.
+``human_to_<state>`` / ``pr_human_to_<state>`` transition. Targets the
+agent classifies as ``TRULY_HUMAN_NEEDED`` are left parked.
 
 The pass also collects optional ``prevention_finding`` text from the
 agent and publishes the survivors as ``auto-improve:raised`` issues via
 :mod:`publish`, so that recurring divert patterns can be fixed at the
 source.
-
-Scope: this first cut handles ISSUES only — PR-side rescues are deferred.
 """
 from __future__ import annotations
 
@@ -33,15 +31,19 @@ from cai_lib.config import (
     LABEL_HUMAN_NEEDED,
     LABEL_HUMAN_SOLVED,
     LABEL_OPUS_ATTEMPTED,
+    LABEL_PR_HUMAN_NEEDED,
 )
 from cai_lib.fsm import (
     Confidence,
+    apply_pr_transition,
     apply_transition,
+    resume_pr_transition_for,
     resume_transition_for,
 )
 from cai_lib.github import (
     _gh_json,
     _post_issue_comment,
+    _post_pr_comment,
     _set_labels,
     close_issue_completed,
 )
@@ -78,8 +80,12 @@ _RESCUE_JSON_SCHEMA = {
         "resume_to": {
             "type": "string",
             "enum": [
+                # Issue-side (Kind: issue-rescue)
                 "RAISED", "REFINING", "NEEDS_EXPLORATION",
                 "PLAN_APPROVED", "SOLVED",
+                # PR-side (Kind: pr-rescue)
+                "REVIEWING_CODE", "REVIEWING_DOCS",
+                "REVISION_PENDING", "APPROVED",
             ],
         },
         "reasoning": {"type": "string"},
@@ -89,11 +95,6 @@ _RESCUE_JSON_SCHEMA = {
 }
 
 
-# TODO(rescue-pr): this pass is issues-only. PR-side parked targets
-# (auto-improve:pr-human-needed) still depend on the admin-driven
-# cmd_unblock flow; their failure modes (review-comment loops, CI
-# regressions) are different enough to warrant a follow-up rescue
-# variant rather than reusing this code path.
 def _list_unresolved_human_needed_issues() -> list[dict]:
     """Return open ``:human-needed`` issues that lack ``human:solved``.
 
@@ -131,21 +132,57 @@ def _list_unresolved_human_needed_issues() -> list[dict]:
     return out
 
 
-def _build_rescue_message(issue: dict) -> str:
+def _list_unresolved_pr_human_needed_prs() -> list[dict]:
+    """Return open ``:pr-human-needed`` PRs that lack ``human:solved``.
+
+    PR-side counterpart to :func:`_list_unresolved_human_needed_issues`:
+    candidates for autonomous rescue are the ones an admin has NOT yet
+    opted-in on via ``human:solved``.
+    """
+    try:
+        candidates = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--label", LABEL_PR_HUMAN_NEEDED,
+            "--state", "open",
+            "--json", "number,title,body,labels,updatedAt,comments",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai rescue] gh pr list failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        return []
+
+    out: list[dict] = []
+    for pr in candidates:
+        names = {
+            (lb.get("name") if isinstance(lb, dict) else lb)
+            for lb in pr.get("labels", [])
+        }
+        if LABEL_HUMAN_SOLVED in names:
+            continue
+        out.append(pr)
+    return out
+
+
+def _build_rescue_message(target: dict, *, kind: str) -> str:
     """Format the user message for the cai-rescue agent.
 
     Same shape as :func:`cmd_unblock._build_unblock_message` but with a
-    ``Kind: issue-rescue`` header so the agent knows it is the
-    autonomous-rescue mode rather than the admin-resume mode.
+    ``Kind: issue-rescue`` or ``Kind: pr-rescue`` header so the agent
+    knows it is the autonomous-rescue mode rather than the admin-resume
+    mode, and which submachine's resume targets apply.
     """
-    body = issue.get("body") or "(no body)"
+    body = target.get("body") or "(no body)"
     labels = [
         (lb.get("name") if isinstance(lb, dict) else lb)
-        for lb in issue.get("labels", [])
+        for lb in target.get("labels", [])
     ]
     labels_line = ", ".join(labels) if labels else "(none)"
 
-    comments = issue.get("comments") or []
+    comments = target.get("comments") or []
     comments_block = ""
     for c in comments:
         author = (c.get("author") or {}).get("login") or "unknown"
@@ -154,13 +191,13 @@ def _build_rescue_message(issue: dict) -> str:
         comments_block += f"\n**{author}** ({created}):\n{text}\n"
 
     return (
-        f"Kind: issue-rescue\n"
+        f"Kind: {kind}\n"
         f"\n"
         f"## Labels\n"
         f"{labels_line}\n"
         f"\n"
         f"## Body\n\n"
-        f"### #{issue['number']} — {issue.get('title', '')}\n\n"
+        f"### #{target['number']} — {target.get('title', '')}\n\n"
         f"{body}\n"
         f"\n"
         f"## Comments\n"
@@ -183,6 +220,19 @@ def _post_rescue_comment(
         f"_Reasoning:_ {reasoning}\n"
     )
     return _post_issue_comment(issue_number, body, log_prefix="cai rescue")
+
+
+def _post_pr_rescue_comment(
+    pr_number: int, *, target: str, reasoning: str,
+) -> bool:
+    """PR-side counterpart of :func:`_post_rescue_comment`."""
+    body = (
+        f"**🛟 Autonomous rescue**\n\n"
+        f"`cai rescue` resumed this PR from `:pr-human-needed` "
+        f"→ `{target}` without admin input.\n\n"
+        f"_Reasoning:_ {reasoning}\n"
+    )
+    return _post_pr_comment(pr_number, body, log_prefix="cai rescue")
 
 
 def _post_opus_escalation_comment(
@@ -375,7 +425,7 @@ def _try_rescue_issue(
     """
     issue_number = issue["number"]
 
-    user_message = _build_rescue_message(issue)
+    user_message = _build_rescue_message(issue, kind="issue-rescue")
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-rescue",
          "--dangerously-skip-permissions",
@@ -498,18 +548,143 @@ def _try_rescue_issue(
     return "resumed"
 
 
+def _try_rescue_pr(
+    pr: dict, prevention_findings: list[dict],
+) -> Optional[str]:
+    """Attempt to resume *pr* autonomously. Returns the result tag.
+
+    PR-side mirror of :func:`_try_rescue_issue`. The
+    ``ATTEMPT_OPUS_IMPLEMENT`` verdict is issue-only (it re-runs the
+    implement phase on a stored plan) — if the agent emits it on a PR,
+    we treat it as ``truly_human_needed`` and park the PR, logging the
+    refusal so the behaviour shows up in the run counters.
+    """
+    pr_number = pr["number"]
+
+    user_message = _build_rescue_message(pr, kind="pr-rescue")
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-rescue",
+         "--dangerously-skip-permissions",
+         "--json-schema", json.dumps(_RESCUE_JSON_SCHEMA)],
+        category="rescue",
+        agent="cai-rescue",
+        input=user_message,
+    )
+    if result.returncode != 0:
+        print(
+            f"[cai rescue] PR #{pr_number} agent failed "
+            f"(exit {result.returncode}):\n{result.stderr}",
+            file=sys.stderr,
+        )
+        return "agent_failed"
+
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(
+            f"[cai rescue] PR #{pr_number} failed to parse JSON: {exc}; "
+            f"stdout starts with: {(result.stdout or '')[:120]!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return "agent_failed"
+
+    verdict = (payload.get("verdict") or "").upper()
+    target = (payload.get("resume_to") or "").upper() or None
+    conf_str = (payload.get("confidence") or "").upper()
+    confidence = Confidence[conf_str] if conf_str in Confidence.__members__ else None
+    reasoning = payload.get("reasoning", "(no reasoning provided)")
+    prev_text = (payload.get("prevention_finding") or "").strip()
+    print(
+        f"[cai rescue] PR #{pr_number} verdict: {verdict or 'MISSING'} "
+        f"resume_to={target or 'MISSING'} "
+        f"confidence={conf_str or 'MISSING'} reasoning={reasoning}",
+        flush=True,
+    )
+
+    if prev_text:
+        _stage_prevention_finding(
+            prevention_findings,
+            source_issue=pr_number,
+            prev_text=prev_text,
+        )
+
+    if verdict == "ATTEMPT_OPUS_IMPLEMENT":
+        # Opus escalation reruns cai-implement on a stored plan — an
+        # issue-only concept. Leave the PR parked; the agent doc forbids
+        # this verdict on PRs, so it should only happen under drift.
+        print(
+            f"[cai rescue] PR #{pr_number} got ATTEMPT_OPUS_IMPLEMENT "
+            f"(issue-only verdict); leaving parked",
+            flush=True,
+        )
+        return "truly_human_needed"
+
+    if verdict != "AUTONOMOUSLY_RESOLVABLE":
+        return "truly_human_needed"
+
+    if confidence != Confidence.HIGH:
+        print(
+            f"[cai rescue] PR #{pr_number} confidence="
+            f"{confidence.name if confidence else 'MISSING'}; leaving parked",
+            flush=True,
+        )
+        return "low_confidence"
+
+    if not target:
+        print(
+            f"[cai rescue] PR #{pr_number} no resume_to target; leaving parked",
+            flush=True,
+        )
+        return "no_target"
+
+    transition = resume_pr_transition_for(target)
+    if transition is None:
+        print(
+            f"[cai rescue] PR #{pr_number} unknown resume target {target!r}; "
+            f"leaving parked",
+            flush=True,
+        )
+        return "no_target"
+
+    # Audit comment first — surviving a transition failure still gives
+    # an operator something to anchor on.
+    _post_pr_rescue_comment(
+        pr_number,
+        target=transition.to_state.name,
+        reasoning=reasoning,
+    )
+
+    ok = apply_pr_transition(
+        pr_number, transition.name,
+        log_prefix="cai rescue",
+    )
+    if not ok:
+        return "agent_failed"
+
+    print(
+        f"[cai rescue] PR #{pr_number} resumed via {transition.name} "
+        f"→ {transition.to_state.name}",
+        flush=True,
+    )
+    return "resumed"
+
+
 def cmd_rescue(args) -> int:
-    """Scan parked :human-needed issues and attempt autonomous resume.
+    """Scan parked :human-needed issues and :pr-human-needed PRs and
+    attempt autonomous resume.
 
     Always returns 0 unless a hard infrastructure failure occurs —
-    individual per-issue failures are recorded in counters but do not
+    individual per-target failures are recorded in counters but do not
     fail the overall run, since the next cron tick will retry.
     """
     t0 = time.monotonic()
     issues = _list_unresolved_human_needed_issues()
-    if not issues:
+    prs = _list_unresolved_pr_human_needed_prs()
+    if not issues and not prs:
         print(
-            "[cai rescue] no unresolved :human-needed issues; nothing to do",
+            "[cai rescue] no unresolved :human-needed issues or "
+            ":pr-human-needed PRs; nothing to do",
             flush=True,
         )
         log_run("rescue", repo=REPO, result="no_targets", exit=0)
@@ -519,7 +694,10 @@ def cmd_rescue(args) -> int:
     prevention_findings: list[dict] = []
     for issue in issues:
         tag = _try_rescue_issue(issue, prevention_findings) or "skipped"
-        counters[tag] = counters.get(tag, 0) + 1
+        counters[f"issue_{tag}"] = counters.get(f"issue_{tag}", 0) + 1
+    for pr in prs:
+        tag = _try_rescue_pr(pr, prevention_findings) or "skipped"
+        counters[f"pr_{tag}"] = counters.get(f"pr_{tag}", 0) + 1
 
     _publish_prevention_findings(prevention_findings)
 
