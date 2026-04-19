@@ -67,9 +67,9 @@
 | `cai_lib/actions/review_pr.py` | Handler for PRState.REVIEWING_CODE — runs cai-review-pr |
 | `cai_lib/actions/revise.py` | Handler for PRState.REVISION_PENDING — runs cai-revise |
 | `cai_lib/actions/triage.py` | Handler for IssueState.RAISED / TRIAGING — runs cai-triage |
-| `cai_lib/audit/__init__.py` | TODO: add description |
+| `cai_lib/audit/__init__.py` | Package init for cai_lib.audit sub-package |
 | `cai_lib/audit/cost.py` | TODO: add description |
-| `cai_lib/audit/modules.py` | TODO: add description |
+| `cai_lib/audit/modules.py` | YAML loader + coverage validator for docs/modules.yaml — parses module registry and checks file coverage |
 | `cai_lib/cmd_agents.py` | Agent-launch cmd_* functions: analyze, audit, propose, code-audit, agent-audit, update-check, cost-optimize, external-scout |
 | `cai_lib/cmd_cycle.py` | TODO: add description |
 | `cai_lib/cmd_helpers.py` | Cross-command helpers shared between cai.py and cai_lib/actions/* |
@@ -103,6 +103,7 @@
 | `docs/configuration.md` | Documentation: environment variables and configuration |
 | `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
 | `docs/index.md` | Documentation site landing page |
+| `docs/modules.yaml` | Module registry schema — audit-refactor step 1.1, defines logical groupings of tracked files |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
 | `install.sh` | Interactive installer for end-users |
 | `parse.py` | Wrapper shim — real implementation in cai_lib/parse.py |
@@ -113,6 +114,7 @@
 | `scripts/server-cleanup.sh` | Server-side age/size cleanup for the transcript-sync store (runs on the OVH box, not in the container) |
 | `tests/__init__.py` | Test package init |
 | `tests/test_agent_staging.py` | TODO: add description |
+| `tests/test_audit_modules.py` | Tests for cai_lib.audit.modules — load_modules + coverage_check |
 | `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |

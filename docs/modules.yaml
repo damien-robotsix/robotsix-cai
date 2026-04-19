@@ -1,0 +1,38 @@
+# docs/modules.yaml — audit-refactor module registry (step 1.1).
+#
+# Each entry defines one logical "module" (group of files) that the
+# cai audit pipeline can target. The loader lives at
+# cai_lib/audit/modules.py.
+#
+# Coverage rules enforced by future audit stages (not this step):
+#   - Every tracked file (git ls-files) must match exactly one module.
+#   - Zero matches or 2+ matches are coverage failures.
+#
+# Per-entry authoring rules:
+#   - `name`:    kebab-case, unique across the file; used as the
+#                `--module` argument to `cai audit`.
+#   - `summary`: single-line description surfaced to audit agents.
+#   - `doc`:     path to narrative markdown (relative to this file's
+#                directory, i.e. docs/). Files will be created in a
+#                later audit-refactor step; the loader's existence
+#                check is OFF by default in step 1.1.
+#   - `globs`:   gitignore-style patterns (fnmatch semantics) matched
+#                against the tracked-file list. Must be a non-empty
+#                list of strings.
+#
+# The two entries below are skeletons that make this file
+# syntactically valid and demonstrate the shape; later
+# audit-refactor steps will flesh out the full registry.
+
+modules:
+  - name: cai-lib-core
+    summary: Core library modules shared by the CLI dispatcher and actions.
+    doc: modules/cai-lib-core.md
+    globs:
+      - cai_lib/*.py
+
+  - name: tests
+    summary: Unit tests for cai_lib and top-level scripts.
+    doc: modules/tests.md
+    globs:
+      - tests/*.py
