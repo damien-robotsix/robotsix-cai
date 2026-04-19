@@ -158,6 +158,35 @@ class TestConfidenceEnum(unittest.TestCase):
         self.assertFalse(t.accepts(None))
 
 
+class TestPlannedToPlanApprovedMitigated(unittest.TestCase):
+    """#918 — MEDIUM-gated sibling of planned_to_plan_approved."""
+
+    def test_mitigated_transition_accepts_medium(self):
+        t = find_transition("planned_to_plan_approved_mitigated")
+        self.assertEqual(t.min_confidence, Confidence.MEDIUM)
+        self.assertTrue(t.accepts(Confidence.HIGH))
+        self.assertTrue(t.accepts(Confidence.MEDIUM))
+        self.assertFalse(t.accepts(Confidence.LOW))
+        self.assertFalse(t.accepts(None))
+
+    def test_mitigated_transition_shares_label_move(self):
+        default = find_transition("planned_to_plan_approved")
+        mitigated = find_transition("planned_to_plan_approved_mitigated")
+        self.assertEqual(default.from_state, mitigated.from_state)
+        self.assertEqual(default.to_state, mitigated.to_state)
+        self.assertEqual(default.labels_add, mitigated.labels_add)
+        self.assertEqual(default.labels_remove, mitigated.labels_remove)
+        # Only the threshold differs between the two siblings.
+        self.assertEqual(default.min_confidence, Confidence.HIGH)
+        self.assertEqual(mitigated.min_confidence, Confidence.MEDIUM)
+
+    def test_default_transition_still_requires_high(self):
+        # Regression guard: the mitigated transition must not replace the
+        # HIGH-gated default — both must coexist, one for each path.
+        default = find_transition("planned_to_plan_approved")
+        self.assertEqual(default.min_confidence, Confidence.HIGH)
+
+
 class TestApplyTransition(unittest.TestCase):
 
     def _recording_set_labels(self):

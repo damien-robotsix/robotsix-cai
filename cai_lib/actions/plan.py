@@ -17,6 +17,7 @@ intentionally dropped here.
 """
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import time
@@ -47,6 +48,46 @@ from cai_lib.fsm import (
     IssueState,
     get_issue_state,
 )
+
+
+# ---------------------------------------------------------------------------
+# Anchor-based risk-mitigation marker (#918).
+#
+# A plan that carries the phrase ``locate edits by anchor text ... not
+# by line number`` tells the fix agent to Read each target file first
+# and anchor edits on unique surrounding text rather than on absolute
+# line numbers. Plans whose only residual risk is implementation-detail
+# (line-number drift, fence escaping, cosmetic wording) can explicitly
+# neutralise that risk with this marker, and :func:`handle_plan_gate`
+# routes them through the MEDIUM-threshold
+# ``planned_to_plan_approved_mitigated`` transition rather than the
+# default HIGH-threshold ``planned_to_plan_approved`` — see
+# :mod:`cai_lib.fsm_transitions`.
+#
+# Matching is case-insensitive and the two halves of the phrase may sit
+# on separate lines (``re.DOTALL``).
+# ---------------------------------------------------------------------------
+_ANCHOR_MITIGATION_RE = re.compile(
+    r"locate\s+edits?\s+by\s+anchor\s+text.*?not\s+by\s+line\s+number",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _plan_has_anchor_mitigation(plan_text: str | None) -> bool:
+    """Return ``True`` when *plan_text* carries the anchor-mitigation marker.
+
+    The marker is the phrase ``locate edits by anchor text ... not by
+    line number`` (case-insensitive, may span newlines). Returns
+    ``False`` for an empty, ``None``, or non-matching input.
+
+    Used by :func:`handle_plan_gate` to choose between the default
+    HIGH-gated ``planned_to_plan_approved`` transition and the
+    MEDIUM-gated ``planned_to_plan_approved_mitigated`` transition
+    introduced in #918.
+    """
+    if not plan_text:
+        return False
+    return bool(_ANCHOR_MITIGATION_RE.search(plan_text))
 
 
 # ---------------------------------------------------------------------------
@@ -454,12 +495,16 @@ def handle_plan(issue: dict) -> int:
                     duration=dur, result="edit_failed", exit=1)
             return 1
 
-        # Stash the confidence and reason on the issue dict so the gate
-        # handler (run as a separate dispatcher step) can read them. This
-        # is belt-and-braces — the gate also reparses from the body if we
-        # ever split the two calls across processes.
+        # Stash the confidence, reason, and plan text on the issue dict so
+        # the gate handler (run as a separate dispatcher step) can read
+        # them. This is belt-and-braces — the gate also reparses from the
+        # body if we ever split the two calls across processes. The plan
+        # text is consulted by handle_plan_gate to pick between the
+        # default HIGH-gated and the MEDIUM-gated mitigated transition
+        # (see #918 and _plan_has_anchor_mitigation).
         issue["_cai_plan_confidence"] = plan_confidence
         issue["_cai_plan_confidence_reason"] = plan_confidence_reason
+        issue["_cai_plan_text"] = selected_plan
 
         # 6. Transition labels: :planning → :planned (waypoint).
         ok = apply_transition(
@@ -500,8 +545,21 @@ def handle_plan_gate(issue: dict) -> int:
     auto-promote via ``planned_to_plan_approved``; anything below
     diverts to :human-needed (`planned_to_human`) so an admin can
     review.
+
+    **Anchor-mitigation relaxation (#918):** when the selected plan
+    text contains the marker phrase ``locate edits by anchor text ...
+    not by line number``, the gate routes through
+    ``planned_to_plan_approved_mitigated`` instead — a sibling
+    transition that performs the same label move but accepts
+    :attr:`Confidence.MEDIUM`. This lets plans whose only residual
+    risk is implementation-detail (line-number drift, fence escaping,
+    cosmetic wording) auto-approve because the fix agent is
+    explicitly instructed to anchor on surrounding text. Plans
+    without the marker continue to require HIGH via the default
+    transition.
     """
     from cai_lib.fsm import parse_confidence, parse_confidence_reason
+    from cai_lib.cmd_helpers import _extract_stored_plan
 
     t0 = time.monotonic()
     issue_number = issue["number"]
@@ -519,10 +577,37 @@ def handle_plan_gate(issue: dict) -> int:
         body = issue.get("body", "") or ""
         plan_confidence_reason = parse_confidence_reason(body)
 
-    # Apply the gate. HIGH → :plan-approved; below HIGH (or MISSING) →
-    # :human-needed via the configured divert target.
+    # Recover the selected plan text for the anchor-mitigation check.
+    # Prefer the in-process stash from handle_plan (exact text just
+    # chosen by cai-select); fall back to the stored plan block when
+    # this gate runs as a separate dispatcher step with a stale issue
+    # dict. Missing / empty plan text falls through to the default
+    # transition because _plan_has_anchor_mitigation returns False on
+    # None or empty input.
+    plan_text = issue.get("_cai_plan_text")
+    if plan_text is None:
+        plan_text = _extract_stored_plan(issue.get("body", "") or "") or ""
+
+    # Pick the transition. Both siblings perform the identical label
+    # move PLANNED → PLAN_APPROVED; only the confidence threshold
+    # differs (HIGH vs MEDIUM). The divert target (planned_to_human)
+    # is inherited from the chosen transition's human_label_if_below,
+    # so a below-threshold LOW/MISSING plan still ends up at
+    # :human-needed regardless of which transition was selected.
+    if _plan_has_anchor_mitigation(plan_text):
+        transition_name = "planned_to_plan_approved_mitigated"
+        print(
+            f"[cai plan] #{issue_number} anchor-mitigation marker present — "
+            f"routing through {transition_name} (#918)",
+            flush=True,
+        )
+    else:
+        transition_name = "planned_to_plan_approved"
+
+    # Apply the gate. Threshold met → :plan-approved; below → :human-needed
+    # via the configured divert target.
     ok, diverted = apply_transition_with_confidence(
-        issue_number, "planned_to_plan_approved", plan_confidence,
+        issue_number, transition_name, plan_confidence,
         current_labels=[LABEL_PLANNED],
         log_prefix="cai plan",
         reason_extra=plan_confidence_reason or "",
@@ -542,6 +627,7 @@ def handle_plan_gate(issue: dict) -> int:
         log_run("plan", repo=REPO, issue=issue_number,
                 duration=dur, result="gate_refused",
                 confidence=conf_name, diverted=int(diverted),
+                transition=transition_name,
                 exit=1)
         return 1
 
@@ -550,11 +636,12 @@ def handle_plan_gate(issue: dict) -> int:
     final_state = "human-needed" if diverted else "plan-approved"
     print(
         f"[cai plan] #{issue_number} gate → :{final_state} in {dur} "
-        f"(confidence={conf_name})",
+        f"(confidence={conf_name}, transition={transition_name})",
         flush=True,
     )
     log_run("plan", repo=REPO, issue=issue_number,
             duration=dur, result="gate_ok",
             confidence=conf_name, diverted=int(diverted),
+            transition=transition_name,
             exit=0)
     return 0
