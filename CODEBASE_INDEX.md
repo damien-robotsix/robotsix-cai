@@ -104,7 +104,15 @@
 | `docs/configuration.md` | Documentation: environment variables and configuration |
 | `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
 | `docs/index.md` | Documentation site landing page |
-| `docs/modules.yaml` | Module registry schema — audit-refactor step 1.1, defines logical groupings of tracked files |
+| `docs/modules.yaml` | TODO: add description |
+| `docs/modules/agents.md` | TODO: add description |
+| `docs/modules/cai-lib.md` | TODO: add description |
+| `docs/modules/container.md` | TODO: add description |
+| `docs/modules/dispatcher-cli.md` | TODO: add description |
+| `docs/modules/docs-site.md` | TODO: add description |
+| `docs/modules/scripts.md` | TODO: add description |
+| `docs/modules/tests.md` | TODO: add description |
+| `docs/modules/workflows.md` | TODO: add description |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
 | `install.sh` | Interactive installer for end-users |
 | `parse.py` | Wrapper shim — real implementation in cai_lib/parse.py |
