@@ -89,6 +89,7 @@ declare -A DESCRIPTIONS=(
   ["cai_lib/cmd_helpers.py"]="Cross-command helpers shared between cai.py and cai_lib/actions/*"
   ["cai_lib/cmd_helpers_git.py"]="Git and worktree helpers for cai action wrappers"
   ["cai_lib/cmd_helpers_github.py"]="GitHub API helpers for cai action wrappers"
+  ["cai_lib/issues.py"]="GitHub issue and sub-issue helpers — manages native sub-issues API and migration from convention-based tracking"
   ["cai_lib/cmd_helpers_issues.py"]="Issue-lifecycle helpers for cai action wrappers"
   ["cai_lib/dispatcher.py"]="FSM dispatcher — routes issues/PRs to the handler registered for their state"
   ["cai_lib/watchdog.py"]="Stale-lock watchdog that rolls back orphaned :in-progress / :revising labels"
