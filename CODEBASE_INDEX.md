@@ -104,7 +104,7 @@
 | `docs/configuration.md` | Documentation: environment variables and configuration |
 | `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
 | `docs/index.md` | Documentation site landing page |
-| `docs/modules.yaml` | TODO: add description |
+| `docs/modules.yaml` | Module registry schema — audit-refactor step 1.1, defines logical groupings of tracked files |
 | `docs/modules/agents.md` | TODO: add description |
 | `docs/modules/cai-lib.md` | TODO: add description |
 | `docs/modules/container.md` | TODO: add description |
