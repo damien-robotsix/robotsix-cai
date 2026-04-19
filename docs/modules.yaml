@@ -10,45 +10,91 @@
 #                that enumerate the files belonging to this module
 #       doc:     path to the per-module narrative markdown file
 modules:
-  - name: dispatcher-cli
-    summary: Top-level CLI entry point and root-level shims.
+  - name: cli
+    summary: Top-level CLI dispatcher, subcommand modules, and root-level shims.
     globs:
       - "cai.py"
       - "parse.py"
       - "publish.py"
-    doc: "docs/modules/dispatcher-cli.md"
+      - "cai_lib/__init__.py"
+      - "cai_lib/dispatcher.py"
+      - "cai_lib/cmd_*.py"
+    doc: "docs/modules/cli.md"
 
-  - name: cai-lib
-    summary: Core library — FSM, dispatcher, state handlers, helpers.
+  - name: fsm
+    summary: FSM enums, transitions, confidence parsing, and diagram generator.
     globs:
-      - "cai_lib/**"
-    doc: "docs/modules/cai-lib.md"
+      - "cai_lib/fsm*.py"
+      - "scripts/generate-fsm-docs.py"
+    doc: "docs/modules/fsm.md"
 
-  - name: agents
-    summary: Declarative Claude subagent definitions.
+  - name: actions
+    summary: Per-state handlers driven by the FSM dispatcher.
     globs:
-      - ".claude/agents/**"
+      - "cai_lib/actions/*.py"
+    doc: "docs/modules/actions.md"
+
+  - name: audit
+    summary: Audit subsystem — cost, code, workflow, module, and analysis agents.
+    globs:
+      - "cai_lib/audit/*.py"
+      - ".claude/agents/audit/*.md"
+    doc: "docs/modules/audit.md"
+
+  - name: agents-implementation
+    summary: Plan, select, implement, revise, rebase, and fix-ci subagents.
+    globs:
+      - ".claude/agents/implementation/*.md"
+    doc: "docs/modules/agents-implementation.md"
+
+  - name: agents-lifecycle
+    summary: Lifecycle subagents — triage, refine, explore, propose, dup-check, rescue, unblock.
+    globs:
+      - ".claude/agents/lifecycle/*.md"
+    doc: "docs/modules/agents-lifecycle.md"
+
+  - name: agents-review
+    summary: Review-stage subagents — review-pr, review-docs, merge, comment-filter.
+    globs:
+      - ".claude/agents/review/*.md"
+    doc: "docs/modules/agents-review.md"
+
+  - name: agents-ops
+    summary: Ops subagents — check-workflows, maintain, update-check.
+    globs:
+      - ".claude/agents/ops/*.md"
+    doc: "docs/modules/agents-ops.md"
+
+  - name: agents-utility
+    summary: Utility subagents — memorize, git, cost-optimize, external-scout.
+    globs:
+      - ".claude/agents/utility/*.md"
+    doc: "docs/modules/agents-utility.md"
+
+  - name: agents-config
+    summary: Claude Code harness configuration for the agents pipeline.
+    globs:
       - ".claude/settings.json"
-    doc: "docs/modules/agents.md"
+    doc: "docs/modules/agents-config.md"
 
-  - name: workflows
-    summary: GitHub Actions CI/CD workflows.
+  - name: transcripts
+    summary: Transcript parsing and cross-host sync of JSONL session transcripts.
     globs:
-      - ".github/workflows/**"
-    doc: "docs/modules/workflows.md"
+      - "cai_lib/parse.py"
+      - "cai_lib/transcript_sync.py"
+    doc: "docs/modules/transcripts.md"
 
-  - name: docs-site
-    summary: User-facing documentation, README, and agent guidance files.
+  - name: github-glue
+    summary: gh CLI wrappers, issue publisher, dup-check, and issue-model helpers.
     globs:
-      - "docs/**"
-      - "README.md"
-      - "CODEBASE_INDEX.md"
-      - "CLAUDE.md"
-      - "LICENSE"
-    doc: "docs/modules/docs-site.md"
+      - "cai_lib/github.py"
+      - "cai_lib/publish.py"
+      - "cai_lib/dup_check.py"
+      - "cai_lib/issues.py"
+    doc: "docs/modules/github-glue.md"
 
-  - name: container
-    summary: Container build, orchestration, and installer artefacts.
+  - name: installer
+    summary: Container image, Compose orchestration, installer, and example configuration templates.
     globs:
       - "Dockerfile"
       - "docker-compose.yml"
@@ -57,17 +103,43 @@ modules:
       - ".env.example"
       - "workspaces.json.example"
       - ".gitignore"
-      - "pyproject.toml"
-    doc: "docs/modules/container.md"
+    doc: "docs/modules/installer.md"
 
-  - name: scripts
-    summary: Maintenance and code-generation scripts.
+  - name: workflows
+    summary: GitHub Actions CI/CD workflows.
     globs:
-      - "scripts/**"
-    doc: "docs/modules/scripts.md"
+      - ".github/workflows/*.yml"
+    doc: "docs/modules/workflows.md"
+
+  - name: docs
+    summary: User-facing prose docs, README, license, CLAUDE.md, and the auto-generated index.
+    globs:
+      - "docs/**"
+      - "README.md"
+      - "LICENSE"
+      - "CLAUDE.md"
+      - "CODEBASE_INDEX.md"
+    doc: "docs/modules/docs.md"
 
   - name: tests
-    summary: Pytest suite.
+    summary: Pytest suite and Python project configuration.
     globs:
       - "tests/**"
+      - "pyproject.toml"
     doc: "docs/modules/tests.md"
+
+  - name: config
+    summary: Shared infra — constants, logging, subprocess helpers, watchdog.
+    globs:
+      - "cai_lib/config.py"
+      - "cai_lib/logging_utils.py"
+      - "cai_lib/subprocess_utils.py"
+      - "cai_lib/watchdog.py"
+    doc: "docs/modules/config.md"
+
+  - name: scripts
+    summary: Maintenance shell scripts and coverage verifier.
+    globs:
+      - "scripts/*.sh"
+      - "scripts/check-modules-coverage.py"
+    doc: "docs/modules/scripts.md"
