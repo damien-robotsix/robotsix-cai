@@ -94,7 +94,7 @@
 | `docs/_config.yml` | Jekyll configuration for GitHub Pages docs |
 | `docs/agents.md` | Documentation: agent definitions and pipeline phase mapping |
 | `docs/architecture.md` | Documentation: pipeline overview and system architecture |
-| `docs/cai-staging.md` | TODO: add description |
+| `docs/cai-staging.md` | Documentation: .cai-staging/ protocol reference — security invariant, apply order, failure semantics, and unimplemented cases |
 | `docs/cli.md` | Documentation: CLI reference for all cai.py subcommands |
 | `docs/configuration.md` | Documentation: environment variables and configuration |
 | `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
@@ -108,7 +108,7 @@
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
 | `scripts/server-cleanup.sh` | Server-side age/size cleanup for the transcript-sync store (runs on the OVH box, not in the container) |
 | `tests/__init__.py` | Test package init |
-| `tests/test_agent_staging.py` | TODO: add description |
+| `tests/test_agent_staging.py` | Tests for cai_lib.cmd_helpers_git._apply_agent_edit_staging — agent/plugin/CLAUDE.md staging, tombstone deletions, and failure semantics |
 | `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
