@@ -15,10 +15,8 @@ MODULES_YAML_REL = Path("docs/modules.yaml")
 
 KIND_TO_AGENT = {
     "cost": "cai-audit-cost-reduction",
-    "code": "cai-audit-code-reduction",
-    "workflow": "cai-audit-workflow-enhancement",
-    "best-practices": "cai-audit-good-practices",
-    "external-libs": "cai-audit-external-libs",
+    # Remaining kinds (code, workflow, best-practices, external-libs) are
+    # added here as their on-demand agents ship in the #3.x issue series.
 }
 AUDIT_KINDS = tuple(KIND_TO_AGENT.keys())
 
