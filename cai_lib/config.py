@@ -206,6 +206,8 @@ CAI_LOCK_COMMENT_RE = re.compile(
     r"<!--\s*cai-lock\s+owner=(?P<owner>\S+)\s+acquired=(?P<acquired>\S+)\s*-->"
 )
 
+BLOCKED_ON_LABEL_RE = re.compile(r"^blocked-on:(\d+)$")
+
 
 # ---------------------------------------------------------------------------
 # Run log

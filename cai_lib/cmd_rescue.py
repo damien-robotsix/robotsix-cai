@@ -46,6 +46,8 @@ from cai_lib.github import (
     _post_pr_comment,
     _set_labels,
     close_issue_completed,
+    blocking_issue_numbers,
+    open_blockers,
 )
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run_claude_p
@@ -96,12 +98,13 @@ _RESCUE_JSON_SCHEMA = {
 
 
 def _list_unresolved_human_needed_issues() -> list[dict]:
-    """Return open ``:human-needed`` issues that lack ``human:solved``.
+    """Return open ``:human-needed`` issues that lack ``human:solved`` and have no open blockers.
 
     Mirrors :func:`cmd_unblock._list_human_needed_issues` but inverts
     the second filter — we want the issues an admin has NOT yet acted
     on, since those are the candidates the autonomous rescue pass
-    should consider.
+    should consider. Issues carrying ``blocked-on:<N>`` labels are
+    skipped if issue ``#<N>`` is still open.
     """
     try:
         candidates = _gh_json([
@@ -120,6 +123,7 @@ def _list_unresolved_human_needed_issues() -> list[dict]:
         return []
 
     out: list[dict] = []
+    _blocker_cache: dict[int, bool] = {}
     for issue in candidates:
         names = {
             (lb.get("name") if isinstance(lb, dict) else lb)
@@ -128,16 +132,27 @@ def _list_unresolved_human_needed_issues() -> list[dict]:
         if LABEL_HUMAN_SOLVED in names:
             # Admin already opted-in — leave it to cmd_unblock.
             continue
+        blockers = blocking_issue_numbers(issue.get("labels", []))
+        if blockers:
+            open_set = open_blockers(blockers, cache=_blocker_cache)
+            if open_set:
+                print(
+                    f"[cai rescue] #{issue['number']}: blocked on open "
+                    f"{sorted(open_set)} — skipping",
+                    flush=True,
+                )
+                continue
         out.append(issue)
     return out
 
 
 def _list_unresolved_pr_human_needed_prs() -> list[dict]:
-    """Return open ``:pr-human-needed`` PRs that lack ``human:solved``.
+    """Return open ``:pr-human-needed`` PRs that lack ``human:solved`` and have no open blockers.
 
     PR-side counterpart to :func:`_list_unresolved_human_needed_issues`:
     candidates for autonomous rescue are the ones an admin has NOT yet
-    opted-in on via ``human:solved``.
+    opted-in on via ``human:solved``. PRs carrying ``blocked-on:<N>``
+    labels are skipped if issue ``#<N>`` is still open.
     """
     try:
         candidates = _gh_json([
@@ -156,6 +171,7 @@ def _list_unresolved_pr_human_needed_prs() -> list[dict]:
         return []
 
     out: list[dict] = []
+    _blocker_cache: dict[int, bool] = {}
     for pr in candidates:
         names = {
             (lb.get("name") if isinstance(lb, dict) else lb)
@@ -163,6 +179,16 @@ def _list_unresolved_pr_human_needed_prs() -> list[dict]:
         }
         if LABEL_HUMAN_SOLVED in names:
             continue
+        blockers = blocking_issue_numbers(pr.get("labels", []))
+        if blockers:
+            open_set = open_blockers(blockers, cache=_blocker_cache)
+            if open_set:
+                print(
+                    f"[cai rescue] PR #{pr['number']}: blocked on open "
+                    f"{sorted(open_set)} — skipping",
+                    flush=True,
+                )
+                continue
         out.append(pr)
     return out
 

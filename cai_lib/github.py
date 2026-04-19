@@ -14,6 +14,7 @@ from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGE_BLOCKED,
     LABEL_REVISING, LABEL_RAISED, LABEL_REFINED,
     LABEL_LOCKED, INSTANCE_ID, CAI_LOCK_COMMENT_RE,
+    BLOCKED_ON_LABEL_RE,
 )
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run
@@ -669,6 +670,55 @@ def _release_remote_lock(kind: str, number: int) -> bool:
 
     del _HELD_LOCKS[key]
     return True
+
+
+def blocking_issue_numbers(labels) -> set:
+    """Return the set of blocker issue numbers declared via
+    ``blocked-on:<N>`` labels on *labels*.
+
+    Accepts both gh-JSON dict shapes (``{"name": "…"}``) and raw
+    string shapes, matching the two shapes seen elsewhere in this
+    module (``_set_labels`` vs. ``_list_*``).
+    """
+    out: set = set()
+    for lb in labels or []:
+        name = lb.get("name") if isinstance(lb, dict) else lb
+        if not name:
+            continue
+        m = BLOCKED_ON_LABEL_RE.match(name)
+        if m:
+            out.add(int(m.group(1)))
+    return out
+
+
+def open_blockers(blocker_numbers, *, cache=None) -> set:
+    """Resolve *blocker_numbers* to the subset that are still open.
+
+    A blocker that doesn't exist (gh 404), is closed, or cannot be
+    resolved (network failure) is treated as NOT blocking — err on
+    the side of letting work proceed rather than stranding a
+    candidate forever. When *cache* is provided it is a
+    ``dict[int, bool]`` that maps blocker number → is_open; the
+    helper populates missing entries in place so callers amortise
+    lookups across loop iterations.
+    """
+    if cache is None:
+        cache = {}
+    still_open: set = set()
+    for n in blocker_numbers:
+        if n not in cache:
+            try:
+                data = _gh_json([
+                    "issue", "view", str(n),
+                    "--repo", REPO,
+                    "--json", "number,state",
+                ])
+                cache[n] = bool(data and data.get("state") == "OPEN")
+            except subprocess.CalledProcessError:
+                cache[n] = False  # unresolvable → not blocking
+        if cache[n]:
+            still_open.add(n)
+    return still_open
 
 
 def close_issue_completed(
