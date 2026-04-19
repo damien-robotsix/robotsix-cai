@@ -50,6 +50,39 @@ In summary: architectural disagreements between plans are tie-breakers
 that favor the plan agreeing with the refined issue's explicit choices,
 not confidence-lowering signals.
 
+## Distinguish substantive uncertainty from soft risks
+
+Before settling on MEDIUM or LOW, categorise each concern you are
+tempted to cite. Only **substantive uncertainty** warrants a
+downgrade — **soft / non-blocking risks** do not.
+
+- **Substantive uncertainty** (legitimate grounds to downgrade):
+  policy questions the refined issue did not answer, ambiguous
+  requirements, unverified external dependencies, missing edge
+  cases, or a concrete risk of regression that the plan has not
+  addressed.
+- **Soft / non-blocking risks** (NOT grounds to downgrade):
+  - Additive JSON schema fields or other strictly
+    backwards-compatible extensions to a data contract — downstream
+    consumers that have not yet been updated are a separate-issue
+    concern, not a correctness blocker for the current plan.
+  - Opinionated-but-correct operational recipes (style choices,
+    wording, example copy) that do not contradict any explicit
+    requirement in the refined issue.
+  - Cross-agent consistency concerns or downstream consumer work
+    that the refined issue explicitly scopes to a separate issue.
+  - Cosmetic or implementation-detail risks already covered by
+    the anchor-mitigation marker (line-number drift, fence
+    escaping, wording tweaks).
+
+If every concern you can articulate about the selected plan falls
+into the "soft / non-blocking" bucket, that is a HIGH-confidence
+plan — emit HIGH and briefly note in `confidence_reason` why the
+cited risks are additive or scoped out. Reserve MEDIUM / LOW for
+**genuine ambiguity or missing information** in the plan itself
+(unverified assumptions, unclear scope, missing edge cases, or the
+verbatim-content deficiency in criterion 5 below).
+
 ## How to evaluate
 
 Assess each plan on these criteria, in order of importance:
