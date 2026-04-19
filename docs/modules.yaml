@@ -4,51 +4,51 @@
 #
 # Schema:
 #   modules:
-#     - name:        short identifier (matches narrative filename stem)
-#       description: one-line summary of the module's purpose
-#       globs:       list of fnmatch-style patterns, repo-root-relative,
-#                    that enumerate the files belonging to this module
-#       narrative:   path to the per-module narrative markdown file
+#     - name:    short identifier (matches narrative filename stem)
+#       summary: one-line summary of the module's purpose
+#       globs:   list of fnmatch-style patterns, repo-root-relative,
+#                that enumerate the files belonging to this module
+#       doc:     path to the per-module narrative markdown file
 modules:
   - name: dispatcher-cli
-    description: Top-level CLI entry point and root-level shims.
+    summary: Top-level CLI entry point and root-level shims.
     globs:
       - "cai.py"
       - "parse.py"
       - "publish.py"
-    narrative: "docs/modules/dispatcher-cli.md"
+    doc: "docs/modules/dispatcher-cli.md"
 
   - name: cai-lib
-    description: Core library — FSM, dispatcher, state handlers, helpers.
+    summary: Core library — FSM, dispatcher, state handlers, helpers.
     globs:
       - "cai_lib/**"
-    narrative: "docs/modules/cai-lib.md"
+    doc: "docs/modules/cai-lib.md"
 
   - name: agents
-    description: Declarative Claude subagent definitions.
+    summary: Declarative Claude subagent definitions.
     globs:
       - ".claude/agents/**"
       - ".claude/settings.json"
-    narrative: "docs/modules/agents.md"
+    doc: "docs/modules/agents.md"
 
   - name: workflows
-    description: GitHub Actions CI/CD workflows.
+    summary: GitHub Actions CI/CD workflows.
     globs:
       - ".github/workflows/**"
-    narrative: "docs/modules/workflows.md"
+    doc: "docs/modules/workflows.md"
 
   - name: docs-site
-    description: User-facing documentation, README, and agent guidance files.
+    summary: User-facing documentation, README, and agent guidance files.
     globs:
       - "docs/**"
       - "README.md"
       - "CODEBASE_INDEX.md"
       - "CLAUDE.md"
       - "LICENSE"
-    narrative: "docs/modules/docs-site.md"
+    doc: "docs/modules/docs-site.md"
 
   - name: container
-    description: Container build, orchestration, and installer artefacts.
+    summary: Container build, orchestration, and installer artefacts.
     globs:
       - "Dockerfile"
       - "docker-compose.yml"
@@ -58,16 +58,16 @@ modules:
       - "workspaces.json.example"
       - ".gitignore"
       - "pyproject.toml"
-    narrative: "docs/modules/container.md"
+    doc: "docs/modules/container.md"
 
   - name: scripts
-    description: Maintenance and code-generation scripts.
+    summary: Maintenance and code-generation scripts.
     globs:
       - "scripts/**"
-    narrative: "docs/modules/scripts.md"
+    doc: "docs/modules/scripts.md"
 
   - name: tests
-    description: Pytest suite.
+    summary: Pytest suite.
     globs:
       - "tests/**"
-    narrative: "docs/modules/tests.md"
+    doc: "docs/modules/tests.md"

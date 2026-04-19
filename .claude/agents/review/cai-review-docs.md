@@ -87,11 +87,11 @@ tracked file set.
 ~~~yaml
 modules:
   - name: <short-identifier>          # matches narrative filename stem
-    description: <one-line summary>
+    summary: <one-line summary>
     globs:                            # fnmatch-style, repo-root-relative
       - "cai.py"
       - "cai_lib/**"
-    narrative: "docs/modules/<name>.md"
+    doc: "docs/modules/<name>.md"
 ~~~
 
 ### Contract — `docs/modules/<name>.md`
@@ -117,7 +117,7 @@ tracked source file whose status in the stat summary is `A` (added),
   path. If a module fits but its current globs do not yet cover this
   path, add a narrower glob to `docs/modules.yaml`. If no module
   fits, create a new module entry in `docs/modules.yaml` (short
-  `name`, `description`, `globs`, `narrative`) and create the
+  `name`, `summary`, `globs`, `doc`) and create the
   narrative at `docs/modules/<name>.md` using the contract above.
 - **Renamed file.** If `docs/modules.yaml` contains an exact-match
   glob for the old path, replace it with the new path. Update the
