@@ -155,6 +155,10 @@ Example of updating root CLAUDE.md:
   - GOOD: `Write("<work_dir>/.cai-staging/claudemd/CLAUDE.md", "<full content>")`
   - BAD:  `Write("<work_dir>/CLAUDE.md", ...)`  (blocked)
 
+For the full protocol reference — security invariant, apply order,
+failure semantics, and audit of unimplemented cases — see
+[`docs/cai-staging.md`](docs/cai-staging.md).
+
 Example of deleting an agent file:
 
   - GOOD: `Write("<work_dir>/.cai-staging/agents-delete/cai-triage.md", "")`

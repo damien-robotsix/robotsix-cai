@@ -110,5 +110,242 @@ class TestAgentDeletionTombstones(unittest.TestCase):
         self.assertTrue((tmp / ".claude/agents/cai-triage.md").exists())
 
 
+class TestStagingMatrix(unittest.TestCase):
+    """Matrix tests exercising all four .cai-staging/ subdirectories."""
+
+    def _fresh(self) -> Path:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        return tmp
+
+    # ------------------------------------------------------------------
+    # agents/ subdir
+    # ------------------------------------------------------------------
+
+    def test_agent_write_creates_file(self):
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+        staged = tmp / ".cai-staging" / "agents" / "foo" / "bar.md"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text("A")
+        count = _apply_agent_edit_staging(tmp)
+        target = tmp / ".claude" / "agents" / "foo" / "bar.md"
+        self.assertTrue(target.exists())
+        self.assertEqual(target.read_text(), "A")
+        self.assertGreaterEqual(count, 1)
+
+    def test_agent_write_overwrites_existing(self):
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+        target = tmp / ".claude" / "agents" / "x.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("old")
+        staged = tmp / ".cai-staging" / "agents" / "x.md"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text("new")
+        _apply_agent_edit_staging(tmp)
+        self.assertEqual(target.read_text(), "new")
+
+    # ------------------------------------------------------------------
+    # plugins/ subdir
+    # ------------------------------------------------------------------
+
+    def test_plugin_copytree_merges(self):
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+        staged = tmp / ".cai-staging" / "plugins" / "myplug" / "skills" / "foo" / "SKILL.md"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text("S")
+        count = _apply_agent_edit_staging(tmp)
+        target = tmp / ".claude" / "plugins" / "myplug" / "skills" / "foo" / "SKILL.md"
+        self.assertTrue(target.exists())
+        self.assertEqual(target.read_text(), "S")
+        self.assertGreaterEqual(count, 1)
+
+    def test_plugin_copytree_preserves_existing_siblings(self):
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+        # Pre-create a sibling plugin file that should NOT be touched
+        keep = tmp / ".claude" / "plugins" / "other" / "keep.md"
+        keep.parent.mkdir(parents=True, exist_ok=True)
+        keep.write_text("keep")
+        # Stage a different plugin
+        staged = tmp / ".cai-staging" / "plugins" / "newplug" / "x.md"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text("x")
+        _apply_agent_edit_staging(tmp)
+        self.assertTrue(keep.exists())
+        self.assertEqual(keep.read_text(), "keep")
+
+    # ------------------------------------------------------------------
+    # claudemd/ subdir
+    # ------------------------------------------------------------------
+
+    def test_claudemd_root_write(self):
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+        staged = tmp / ".cai-staging" / "claudemd" / "CLAUDE.md"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text("root")
+        _apply_agent_edit_staging(tmp)
+        self.assertEqual((tmp / "CLAUDE.md").read_text(), "root")
+
+    def test_claudemd_subdir_write(self):
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+        staged = tmp / ".cai-staging" / "claudemd" / "subdir" / "CLAUDE.md"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text("sub")
+        _apply_agent_edit_staging(tmp)
+        self.assertEqual((tmp / "subdir" / "CLAUDE.md").read_text(), "sub")
+
+    def test_claudemd_non_claudemd_files_ignored(self):
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+        staged_dir = tmp / ".cai-staging" / "claudemd"
+        staged_dir.mkdir(parents=True, exist_ok=True)
+        (staged_dir / "README.md").write_text("readme")
+        (staged_dir / "CLAUDE.md").write_text("real")
+        _apply_agent_edit_staging(tmp)
+        self.assertFalse((tmp / "README.md").exists())
+        self.assertEqual((tmp / "CLAUDE.md").read_text(), "real")
+
+    # ------------------------------------------------------------------
+    # Combined / multi-subdir
+    # ------------------------------------------------------------------
+
+    def test_combined_apply_matrix(self):
+        """One setup+apply pass exercising all four staging subdirs."""
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+
+        # Agent write
+        agent_staged = tmp / ".cai-staging" / "agents" / "a.md"
+        agent_staged.parent.mkdir(parents=True, exist_ok=True)
+        agent_staged.write_text("agent-content")
+
+        # Plugin file
+        plugin_staged = tmp / ".cai-staging" / "plugins" / "p" / "x"
+        plugin_staged.parent.mkdir(parents=True, exist_ok=True)
+        plugin_staged.write_text("plugin-content")
+
+        # CLAUDE.md
+        claude_staged = tmp / ".cai-staging" / "claudemd" / "CLAUDE.md"
+        claude_staged.parent.mkdir(parents=True, exist_ok=True)
+        claude_staged.write_text("claude-content")
+
+        # Tombstone — pre-seed the target first
+        gone = tmp / ".claude" / "agents" / "gone.md"
+        gone.parent.mkdir(parents=True, exist_ok=True)
+        gone.write_text("gone")
+        tombstone = tmp / ".cai-staging" / "agents-delete" / "gone.md"
+        tombstone.parent.mkdir(parents=True, exist_ok=True)
+        tombstone.write_text("")
+
+        count = _apply_agent_edit_staging(tmp)
+
+        self.assertTrue((tmp / ".claude" / "agents" / "a.md").exists())
+        self.assertTrue((tmp / ".claude" / "plugins" / "p" / "x").exists())
+        self.assertEqual((tmp / "CLAUDE.md").read_text(), "claude-content")
+        self.assertFalse(gone.exists())
+        self.assertGreaterEqual(count, 4)
+
+    def test_staging_dir_cleaned_up_after_success(self):
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+        staged = tmp / ".cai-staging" / "agents" / "z.md"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text("z")
+        _apply_agent_edit_staging(tmp)
+        self.assertFalse((tmp / ".cai-staging").exists())
+
+    def test_plugin_failure_preserves_staging_and_returns_early(self):
+        """If shutil.copytree fails, staging is preserved and the
+        function returns early — CLAUDE.md writes and tombstone
+        deletions do NOT execute."""
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+
+        # Agent write (should succeed before the plugin step)
+        agent_staged = tmp / ".cai-staging" / "agents" / "ok.md"
+        agent_staged.parent.mkdir(parents=True, exist_ok=True)
+        agent_staged.write_text("ok")
+
+        # Make .claude/plugins/ a regular file so copytree raises OSError
+        plugins_dir = tmp / ".claude" / "plugins"
+        plugins_dir.parent.mkdir(parents=True, exist_ok=True)
+        plugins_dir.write_text("not-a-dir")
+
+        # Stage a plugin write
+        plugin_staged = tmp / ".cai-staging" / "plugins" / "fail.md"
+        plugin_staged.parent.mkdir(parents=True, exist_ok=True)
+        plugin_staged.write_text("fail")
+
+        # Stage a CLAUDE.md write (should NOT happen — early return)
+        claude_staged = tmp / ".cai-staging" / "claudemd" / "CLAUDE.md"
+        claude_staged.parent.mkdir(parents=True, exist_ok=True)
+        claude_staged.write_text("should-not-appear")
+
+        # Pre-seed a tombstone target (should NOT be deleted — early return)
+        keep_agent = tmp / ".claude" / "agents" / "keep.md"
+        keep_agent.parent.mkdir(parents=True, exist_ok=True)
+        keep_agent.write_text("keep")
+        tombstone = tmp / ".cai-staging" / "agents-delete" / "keep.md"
+        tombstone.parent.mkdir(parents=True, exist_ok=True)
+        tombstone.write_text("")
+
+        count = _apply_agent_edit_staging(tmp)
+
+        # .cai-staging preserved (not cleaned up)
+        self.assertTrue((tmp / ".cai-staging").exists())
+        # CLAUDE.md NOT written
+        self.assertFalse((tmp / "CLAUDE.md").exists())
+        # Tombstone target NOT deleted
+        self.assertTrue(keep_agent.exists())
+        # Return value counts only the agent writes (1), not plugin
+        self.assertEqual(count, 1)
+
+    def test_return_count_sums_all_operations(self):
+        """Return value = 2 agent writes + 1 plugin tree + 1 CLAUDE.md
+        + 1 tombstone = 5."""
+        tmp = self._fresh()
+        _setup_agent_edit_staging(tmp)
+
+        # 2 agent writes
+        for name in ("a1.md", "a2.md"):
+            f = tmp / ".cai-staging" / "agents" / name
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(name)
+
+        # 1 plugin tree (counts as 1 total, not per-file)
+        pf = tmp / ".cai-staging" / "plugins" / "mypkg" / "f.md"
+        pf.parent.mkdir(parents=True, exist_ok=True)
+        pf.write_text("p")
+
+        # 1 CLAUDE.md
+        cf = tmp / ".cai-staging" / "claudemd" / "CLAUDE.md"
+        cf.parent.mkdir(parents=True, exist_ok=True)
+        cf.write_text("c")
+
+        # 1 tombstone with pre-seeded target
+        target = tmp / ".claude" / "agents" / "del.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("del")
+        ts = tmp / ".cai-staging" / "agents-delete" / "del.md"
+        ts.parent.mkdir(parents=True, exist_ok=True)
+        ts.write_text("")
+
+        count = _apply_agent_edit_staging(tmp)
+        self.assertEqual(count, 5)
+
+    def test_apply_no_staging_is_noop(self):
+        """Calling apply without any .cai-staging/ dir must return 0."""
+        tmp = self._fresh()
+        # Deliberately do NOT call _setup_agent_edit_staging
+        self.assertFalse((tmp / ".cai-staging").exists())
+        count = _apply_agent_edit_staging(tmp)
+        self.assertEqual(count, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
