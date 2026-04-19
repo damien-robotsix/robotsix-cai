@@ -128,7 +128,7 @@
 | `parse.py` | Wrapper shim — real implementation in cai_lib/parse.py |
 | `publish.py` | Wrapper shim — real implementation in cai_lib/publish.py |
 | `pyproject.toml` | Python project configuration (ruff lint settings) |
-| `scripts/check-modules-coverage.py` | TODO: add description |
+| `scripts/check-modules-coverage.py` | Verification script — checks that every tracked file in the repo is matched by exactly one module in docs/modules.yaml |
 | `scripts/generate-fsm-docs.py` | Generator script for docs/fsm.md (renders cai_lib.fsm transitions as Mermaid) |
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
 | `scripts/server-cleanup.sh` | Server-side age/size cleanup for the transcript-sync store (runs on the OVH box, not in the container) |
