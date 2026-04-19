@@ -29,4 +29,4 @@ publish, rescue, and transcript sync. Also enforces lint hygiene.
 - `tests/test_unblock.py` — `cmd_unblock` admin-comment handling.
 
 ## Dependencies
-- `cai-lib` — all tests import from `cai_lib/`.
+- `fsm`, `actions`, `config`, `audit`, `cli`, `transcripts`, `github-glue` — tests import from `cai_lib/` sub-packages covering all functional modules.
