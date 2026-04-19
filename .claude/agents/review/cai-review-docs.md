@@ -1,6 +1,6 @@
 ---
 name: cai-review-docs
-description: Pre-merge documentation review for an open PR. Checks whether changes to user-facing behavior, CLI interface, configuration, or architecture require updates to files in /docs, and directly fixes any stale documentation it finds.
+description: Pre-merge documentation review for an open PR. Checks whether changes to user-facing behavior, CLI interface, configuration, or architecture require updates to files in /docs, and directly fixes any stale documentation it finds. Also owns docs/modules.yaml and docs/modules/<name>.md — keeps the module index and narratives in sync whenever a PR adds, renames, or deletes tracked source files.
 tools: Read, Grep, Glob, Edit, Write
 model: haiku
 memory: project
@@ -19,6 +19,9 @@ You own **all** documentation concerns — `cai-review-pr` deliberately skips
 them. Your scope covers:
 
 - **`/docs/**`** — all Markdown files under the docs directory.
+- **Module index** — `docs/modules.yaml` and every `docs/modules/<name>.md`
+  narrative. You own the schema and the update rules below (see
+  "Index maintenance").
 - **`README.md`** at the repo root.
 - **Code docstrings** (Python `"""..."""` blocks, module-level and function-level).
 - **Inline code comments** that describe user-facing behavior or reference
@@ -71,6 +74,95 @@ Changes that **do NOT warrant documentation review**:
   prose references
 - Bug fixes that restore behavior to what is already documented
 - Changes only to `.cai/pr-context.md` (auto-generated metadata)
+
+## Index maintenance
+
+In addition to reviewing prose docs you own the **module index** at
+`docs/modules.yaml` plus the per-module narratives at
+`docs/modules/<name>.md`. On every PR run, keep these in sync with the
+tracked file set.
+
+### Schema — `docs/modules.yaml`
+
+~~~yaml
+modules:
+  - name: <short-identifier>          # matches narrative filename stem
+    summary: <one-line summary>
+    globs:                            # fnmatch-style, repo-root-relative
+      - "cai.py"
+      - "cai_lib/**"
+    doc: "docs/modules/<name>.md"
+~~~
+
+### Contract — `docs/modules/<name>.md`
+
+- H1 title equal to the module's `name`.
+- One paragraph describing the module's purpose and scope.
+- `## Entry points` section: bullet list of key files with a one-line
+  description each.
+- `## Dependencies` section (optional): other module names this one
+  relies on.
+
+### When to update
+
+Read `docs/modules.yaml` at the start of every PR run. Then, for every
+tracked source file whose status in the stat summary is `A` (added),
+`R` (renamed), or `D` (deleted), apply the matching rule.
+
+- **Added file.** Run `fnmatch.fnmatch(path, glob)` mentally against
+  every module's `globs`. If exactly one module matches, add the file
+  to that module's `## Entry points` list in `docs/modules/<name>.md`
+  with a one-line description — `docs/modules.yaml` itself needs no
+  edit when a broader glob (e.g. `cai_lib/**`) already covers the new
+  path. If a module fits but its current globs do not yet cover this
+  path, add a narrower glob to `docs/modules.yaml`. If no module
+  fits, create a new module entry in `docs/modules.yaml` (short
+  `name`, `summary`, `globs`, `doc`) and create the
+  narrative at `docs/modules/<name>.md` using the contract above.
+- **Renamed file.** If `docs/modules.yaml` contains an exact-match
+  glob for the old path, replace it with the new path. Update the
+  corresponding bullet in the narrative's `## Entry points` list to
+  use the new path. If the rename crosses module boundaries, remove
+  the entry from the source module and add it to the target module
+  (including glob and narrative bullet in each).
+- **Deleted file.** If `docs/modules.yaml` contains an exact-match
+  glob for the deleted path, remove that glob. Remove the bullet
+  from the narrative's `## Entry points` list. If this leaves the
+  module with zero `globs`, emit a `### Finding: stale_docs` block
+  requesting removal of the now-empty module entry and its narrative
+  file — your tool set cannot delete files, so the wrapper / human
+  handles the actual `rm`. Do not attempt workarounds.
+
+Files with status `M` (edited in place, no rename/delete) do NOT
+require a module-index update.
+
+### Coverage check (inline, no script)
+
+After applying your edits, re-walk every added or renamed tracked file
+in the PR and confirm at least one module's `globs` matches it
+(`fnmatch.fnmatch(path, glob)` in your head). If any such file is
+still uncovered:
+
+- Widen or add a glob in the closest existing module to cover it, or
+- Create a new module entry plus narrative, or
+- If classification is ambiguous, emit a `### Finding: stale_docs`
+  block naming the file and asking for human classification — do not
+  guess.
+
+There is **no script** for this check. Do not invoke
+`scripts/check-modules-coverage.py` or any similar file — no such
+file exists and none should be created.
+
+### How to stage these edits
+
+`docs/modules.yaml` and `docs/modules/*.md` are **regular docs
+files**, not agent definitions. Edit them directly with `Edit` or
+`Write` in the work directory — they are NOT subject to the
+`.claude/agents/*.md` sensitive-file protection, so do NOT route
+them through `.cai-staging/`.
+
+After each modification, emit a `### Fixed: stale_docs` block whose
+`**File(s):**` line lists the yaml and/or narrative paths touched.
 
 ## How to work
 
