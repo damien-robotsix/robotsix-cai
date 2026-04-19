@@ -49,26 +49,6 @@ The user message contains:
 ## Hard rules
 
 1. **Read-only.** Do not modify any files — only read and plan.
-2. **Verbatim Edit/Write content — no prose placeholders.** Every
-   plan step that calls for an `Edit` or `Write` MUST include the
-   **exact final text** the fix agent will emit — either the full
-   file body (for `Write`) or both `old_string` and `new_string`
-   literals (for `Edit`). Prose summaries such as "rewritten
-   docstring keeping only the surviving paragraphs", "update the
-   config block to use the new schema", or "remove the outdated
-   paragraphs and tighten the wording" are **forbidden** — they
-   force the fix agent to improvise and drop plan confidence from
-   HIGH to MEDIUM at the `cai-select` gate (see issue #910 for a
-   textbook divert caused by exactly this pattern). Before you
-   emit the plan, run this **self-check on every step**:
-   > Does this Edit/Write step contain the literal output the fix
-   > agent will type, or only a prose description of it?
-   If the answer is "prose description", rewrite the step to
-   include the literal text inside a fenced code block. If a
-   verbatim block would be prohibitively long (e.g. a full-file
-   rewrite of a >500-line file), split the `Write` into a
-   sequence of targeted `Edit`s, each with literal `old_string` /
-   `new_string` pairs.
 
 ## Agent-specific efficiency guidance
 
@@ -85,7 +65,10 @@ The user message contains:
 
 ## Output format
 
-Produce your plan in exactly this structure:
+Produce your plan in exactly this structure. The structure is
+non-negotiable: `cai-select` evaluates plans against it, and any
+Edit/Write step that omits the required literal fenced blocks is
+capped at MEDIUM confidence (see `cai-select.md`).
 
 ```
 ## Plan
@@ -98,12 +81,47 @@ Produce your plan in exactly this structure:
 - **`path/to/file`**: <what to change and why>
 
 ### Detailed steps
-1. <step 1 — be specific: name the function, the line range, the
-   exact change. For any Edit/Write step, include the literal
-   final text inside a fenced code block; prose placeholders such
-   as "rewritten docstring" or "updated config" are forbidden.>
-2. <step 2>
-...
+
+<For each step that edits an existing file, use this sub-template:>
+
+#### Step N — Edit `<clone-absolute-path>`
+
+**Locate:** <1 sentence: function name, line range, or anchor text>
+
+**old_string (verbatim — the exact bytes currently in the file):**
+
+    ```
+    <the literal old_string, copied byte-for-byte from the file;
+    every character, every blank line, every space preserved>
+    ```
+
+**new_string (verbatim — the exact bytes the fix agent will paste):**
+
+    ```
+    <the literal new_string; no prose, no placeholders, no "…",
+    no "(same as above but with X removed)">
+    ```
+
+<For each step that writes a new file or wholly rewrites an
+existing one, use this sub-template:>
+
+#### Step N — Write `<clone-absolute-path>`
+
+**Intent:** <1 sentence on what the file is and why>
+
+**Full file body (verbatim — the exact bytes the fix agent will write):**
+
+    ```
+    <the entire file body, byte-for-byte, YAML frontmatter and all>
+    ```
+
+If the final file body exceeds ~200 lines, split the change into
+several surgical Edit steps against the existing file rather than
+a wholesale Write — never substitute a prose summary for the body.
+
+<For a step that is not a file edit (e.g. "read the following
+files first" or "verify X"), use a plain numbered paragraph; no
+fenced block is required.>
 
 ### Risks and edge cases
 - <anything the fix agent should watch out for>
@@ -112,7 +130,49 @@ Produce your plan in exactly this structure:
 - <what the fix agent must NOT touch; boundaries of the change — do NOT list `docs/**` or `CODEBASE_INDEX.md` as off-limits; those may be updated by the cai-review-docs pipeline stage and are always allowed>
 ```
 
+### Anti-pattern vs correct pattern
+
+The example below shows the one failure mode the template exists
+to prevent. Copy the shape of the "correct" example; never emit
+the "anti-pattern" shape.
+
+✗ **Anti-pattern (prose description — cai-select will cap at MEDIUM):**
+
+    #### Step 1 — Edit `/tmp/work/foo.py`
+    Rewrite the docstring of `parse_config` keeping only the
+    surviving paragraphs and drop the YAML example.
+
+✓ **Correct (verbatim literal bytes):**
+
+    #### Step 1 — Edit `/tmp/work/foo.py`
+
+    **Locate:** docstring of `parse_config`, lines 10–22.
+
+    **old_string:**
+
+    ```
+    """Parse a config file.
+
+    Supports YAML and JSON.
+
+    Examples:
+        parse_config('x.yaml')
+        parse_config('x.json')
+    """
+    ```
+
+    **new_string:**
+
+    ```
+    """Parse a JSON config file.
+
+    Examples:
+        parse_config('x.json')
+    """
+    ```
+
 Be concrete and specific. Name functions, variables, and line
-numbers. The fix agent will follow your plan literally, so vague
-instructions like "update the logic" are not helpful — say exactly
-what the new logic should be.
+numbers. The fix agent will follow your plan literally and copy
+your `new_string` / file body directly into the Edit / Write call
+— vague instructions like "update the logic" force the fix agent
+to improvise and waste a plan cycle.
