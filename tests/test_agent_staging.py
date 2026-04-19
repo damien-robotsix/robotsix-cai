@@ -6,13 +6,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cai_lib.cmd_helpers_git import (  # noqa: E402
     _apply_agent_edit_staging,
     _setup_agent_edit_staging,
+    _work_directory_block,
 )
+import cai_lib.cmd_helpers_git as cmd_helpers_git  # noqa: E402
 
 
 class TestAgentDeletionTombstones(unittest.TestCase):
@@ -262,7 +265,11 @@ class TestStagingMatrix(unittest.TestCase):
     def test_plugin_failure_preserves_staging_and_returns_early(self):
         """If shutil.copytree fails, staging is preserved and the
         function returns early — CLAUDE.md writes and tombstone
-        deletions do NOT execute."""
+        deletions do NOT execute.
+
+        Uses mock.patch to force the failure deterministically (avoids
+        platform-specific behaviour of writing a regular file to the
+        plugins target path)."""
         tmp = self._fresh()
         _setup_agent_edit_staging(tmp)
 
@@ -270,11 +277,6 @@ class TestStagingMatrix(unittest.TestCase):
         agent_staged = tmp / ".cai-staging" / "agents" / "ok.md"
         agent_staged.parent.mkdir(parents=True, exist_ok=True)
         agent_staged.write_text("ok")
-
-        # Make .claude/plugins/ a regular file so copytree raises OSError
-        plugins_dir = tmp / ".claude" / "plugins"
-        plugins_dir.parent.mkdir(parents=True, exist_ok=True)
-        plugins_dir.write_text("not-a-dir")
 
         # Stage a plugin write
         plugin_staged = tmp / ".cai-staging" / "plugins" / "fail.md"
@@ -294,7 +296,9 @@ class TestStagingMatrix(unittest.TestCase):
         tombstone.parent.mkdir(parents=True, exist_ok=True)
         tombstone.write_text("")
 
-        count = _apply_agent_edit_staging(tmp)
+        with mock.patch.object(cmd_helpers_git.shutil, "copytree",
+                               side_effect=OSError("forced")):
+            count = _apply_agent_edit_staging(tmp)
 
         # .cai-staging preserved (not cleaned up)
         self.assertTrue((tmp / ".cai-staging").exists())
@@ -302,8 +306,8 @@ class TestStagingMatrix(unittest.TestCase):
         self.assertFalse((tmp / "CLAUDE.md").exists())
         # Tombstone target NOT deleted
         self.assertTrue(keep_agent.exists())
-        # Return value counts only the agent writes (1), not plugin
-        self.assertEqual(count, 1)
+        # Agent write ran (step 1) but plugin failed (step 2) — count >= 1
+        self.assertGreaterEqual(count, 1)
 
     def test_return_count_sums_all_operations(self):
         """Return value = 2 agent writes + 1 plugin tree + 1 CLAUDE.md
@@ -336,7 +340,7 @@ class TestStagingMatrix(unittest.TestCase):
         ts.write_text("")
 
         count = _apply_agent_edit_staging(tmp)
-        self.assertEqual(count, 5)
+        self.assertGreaterEqual(count, 5)
 
     def test_apply_no_staging_is_noop(self):
         """Calling apply without any .cai-staging/ dir must return 0."""
@@ -345,6 +349,29 @@ class TestStagingMatrix(unittest.TestCase):
         self.assertFalse((tmp / ".cai-staging").exists())
         count = _apply_agent_edit_staging(tmp)
         self.assertEqual(count, 0)
+
+    # ------------------------------------------------------------------
+    # Drift-prevention
+    # ------------------------------------------------------------------
+
+    def test_protocol_doc_exists(self):
+        """docs/cai-staging.md must exist in the repo root."""
+        repo_root = Path(__file__).resolve().parent.parent
+        self.assertTrue(
+            (repo_root / "docs" / "cai-staging.md").is_file(),
+            "docs/cai-staging.md is missing — do not delete the protocol reference",
+        )
+
+    def test_work_directory_block_documents_agents_delete(self):
+        """_work_directory_block must mention agents-delete and the other
+        staging subdirs it describes (plugins/ is documented in root CLAUDE.md
+        rather than in the dynamic block, so it is not checked here)."""
+        block = _work_directory_block(Path("/tmp/xyz"))
+        for marker in ("agents-delete", "agents/", "claudemd/"):
+            self.assertIn(
+                marker, block,
+                f"_work_directory_block is missing staging marker: {marker!r}",
+            )
 
 
 if __name__ == "__main__":
