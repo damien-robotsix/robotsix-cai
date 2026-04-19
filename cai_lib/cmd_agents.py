@@ -21,8 +21,8 @@ from pathlib import Path
 from cai_lib.config import *  # noqa: F403
 from cai_lib.config import _STALE_MERGED_DAYS  # noqa: F401
 
-from cai_lib.logging_utils import (
-    log_run,
+from cai_lib.logging_utils import log_run
+from cai_lib.audit.cost import (
     _load_cost_log, _row_ts, _build_cost_summary, _load_outcome_counts,
 )
 

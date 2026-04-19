@@ -258,8 +258,10 @@ from cai_lib.config import (  # noqa: E402
 
 from cai_lib.logging_utils import (  # noqa: E402
     log_cost,  # noqa: F401
-    _get_issue_category, _log_outcome, _load_outcome_counts,
-    _load_outcome_stats, _load_cost_log, _row_ts, _build_cost_summary,
+    _get_issue_category, _log_outcome, _load_outcome_stats,
+)
+from cai_lib.audit.cost import (  # noqa: E402
+    _load_outcome_counts, _load_cost_log, _row_ts, _build_cost_summary,
 )
 
 
