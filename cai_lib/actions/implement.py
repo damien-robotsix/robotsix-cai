@@ -280,6 +280,98 @@ def _find_existing_branch(issue_number: int) -> str | None:
     return None
 
 
+def _extract_test_failures(output: str, max_chars: int = 3000) -> str:
+    """Filter ``python -m unittest -v`` output to FAIL/ERROR sections only.
+
+    The full unittest log can be hundreds of lines of ``... ok`` entries
+    that crowd out the actual failure signal when posted into a divert
+    comment. We surface three concise pieces instead:
+
+    1. A list of failing test identifiers (``FAIL: <dotted>`` /
+       ``ERROR: <dotted>``) from the per-test status lines at the top
+       of the verbose output.
+    2. Each detailed ``FAIL:`` / ``ERROR:`` block emitted after the
+       ``===`` separators, including the traceback for that test.
+    3. The final summary line (``FAILED (failures=N, errors=M)`` or
+       ``OK``) so the divert consumer can see aggregate counts.
+
+    Result is capped at *max_chars* and suffixed with ``... (truncated)``
+    when clipped. If the input has no recognisable FAIL/ERROR markers
+    (e.g. a crash before unittest ran), the raw output is returned
+    truncated so the divert comment is never empty.
+    """
+    lines = output.splitlines()
+
+    status_re = re.compile(
+        r"^(\S+)\s+\(([^)]+)\)\s+\.\.\.\s+(FAIL|ERROR)\b"
+    )
+    block_start_re = re.compile(r"^(FAIL|ERROR):\s+")
+
+    failing_names: list[str] = []
+    for ln in lines:
+        m = status_re.match(ln)
+        if m:
+            failing_names.append(f"{m.group(3)}: {m.group(2)}")
+
+    blocks: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        if block_start_re.match(lines[i]):
+            block_lines = [lines[i]]
+            i += 1
+            while i < n:
+                # Next detailed block starts — stop so we don't swallow it.
+                if (
+                    lines[i].startswith("=====")
+                    and i + 1 < n
+                    and block_start_re.match(lines[i + 1])
+                ):
+                    break
+                # End of test session — stop before the "Ran N tests" summary.
+                if (
+                    lines[i].startswith("-----")
+                    and i + 1 < n
+                    and lines[i + 1].startswith("Ran ")
+                ):
+                    break
+                block_lines.append(lines[i])
+                i += 1
+            blocks.append("\n".join(block_lines).rstrip())
+        else:
+            i += 1
+
+    summary = ""
+    for ln in reversed(lines):
+        stripped = ln.strip()
+        if stripped.startswith("FAILED") or stripped == "OK":
+            summary = stripped
+            break
+
+    if not failing_names and not blocks:
+        truncated = output[:max_chars]
+        if len(output) > max_chars:
+            truncated += "\n\n... (truncated)"
+        return truncated
+
+    parts: list[str] = []
+    if failing_names:
+        parts.append("Failing tests:")
+        parts.extend(f"  - {name}" for name in failing_names)
+        parts.append("")
+    if blocks:
+        parts.extend(blocks)
+    if summary:
+        if parts and parts[-1] != "":
+            parts.append("")
+        parts.append(summary)
+
+    result = "\n".join(parts).rstrip()
+    if len(result) > max_chars:
+        result = result[:max_chars].rstrip() + "\n\n... (truncated)"
+    return result
+
+
 def _count_consecutive_tests_failed(issue_number: int) -> int:
     """Count trailing consecutive ``result=tests_failed`` log entries
     for *issue_number* in LOG_PATH.
@@ -721,16 +813,14 @@ def handle_implement(issue: dict) -> int:
                 # with the same double-retry guard so a transient GitHub
                 # failure does not leave the issue stuck without a lifecycle
                 # label.
-                truncated = failure_output[:3000]
-                if len(failure_output) > 3000:
-                    truncated += "\n\n... (truncated)"
+                failure_summary = _extract_test_failures(failure_output)
                 comment_body = (
                     "## Implement subagent: repeated test failures\n\n"
                     f"Regression tests failed {consecutive} consecutive times "
                     f"for this issue. Escalating to human review to avoid "
                     f"monopolising the implement loop.\n\n"
-                    "### Last test output\n\n"
-                    f"```\n{truncated}\n```\n\n"
+                    "### Failing tests\n\n"
+                    f"```\n{failure_summary}\n```\n\n"
                     "---\n"
                     "_Set by `cai implement` after "
                     f"{_MAX_TESTS_FAILED_RETRIES} consecutive `tests_failed` "

@@ -128,6 +128,7 @@
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
 | `tests/test_implement_consecutive_failures.py` | TODO: add description |
+| `tests/test_implement_test_failure_extract.py` | TODO: add description |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
 | `tests/test_maintain.py` | Tests for cai_lib.actions.maintain — handle_maintain confidence routing and FSM transitions |
 | `tests/test_merge_diff.py` | TODO: add description |
