@@ -61,10 +61,14 @@ Choose exactly one verdict:
 
 Only emit this when ALL of the following hold:
 
-- The divert reason is mechanical — a confidence-gate trip
-  (LOW/MEDIUM rather than substantive uncertainty), a transient
-  infrastructure failure, a parser glitch, or a plan-quality issue
-  that simply re-running the upstream agent will fix.
+- The divert reason is mechanical — a transient infrastructure
+  failure, a parser glitch, or a plan-quality issue that simply
+  re-running the upstream agent will fix. A confidence-gate trip
+  (LOW/MEDIUM) is only autonomously resolvable when the evidence
+  points to a parser or transcription glitch that prevented a
+  correct HIGH assignment — under the current `cai-select` guidance,
+  a genuine LOW/MEDIUM indicates substantive uncertainty and is
+  **NOT** mechanically resolvable.
 - The path forward is unambiguous — there is exactly one obvious
   resume target and no judgement call between alternatives.
 - Nothing in the divert comment, the issue body, or the comment
