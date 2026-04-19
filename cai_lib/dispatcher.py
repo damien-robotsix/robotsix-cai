@@ -383,6 +383,10 @@ def _pick_oldest_actionable_target(
     ``createdAt`` timestamp (oldest first), so PRs that have been around
     longer get the next tick — keeps in-flight work ahead of fresh intake.
 
+    Issues and PRs carrying a ``blocked-on:<N>`` label are skipped if issue
+    ``#<N>`` is still open. Candidates with open blockers remain suppressed
+    until the blocker closes (the label is never auto-removed).
+
     ``skip`` is an optional set of ``(kind, number)`` tuples to exclude — used
     by :func:`dispatch_drain` to move past a target whose handler already
     failed in the current drain pass so the rest of the queue can still run.
