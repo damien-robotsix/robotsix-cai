@@ -15,8 +15,8 @@ degrading correctness. You write findings to findings.json and do not modify any
 other file.
 
 You have Read, Grep, Glob, Agent, and Write. Use the Agent tool only to spawn
-`Explore` (multi-round codebase exploration) or `cai-transcript-finder`
-(session-transcript signal retrieval). Use Write only to emit findings.json.
+`Explore` (multi-round codebase exploration or transcript searching). Use Write
+only to emit findings.json.
 
 ## What you receive
 
@@ -35,9 +35,11 @@ Absolute path where you must write your `findings.json` output.
 
 ### Recent transcripts pointer (optional)
 
-When present, this section describes how to call `cai-transcript-finder` to
-surface cost signals from recent sessions. Follow the instructions in this
-section verbatim when calling the subagent.
+When present, this section provides a glob pattern or directory path pointing
+to recent session transcripts for this module. Spawn an `Explore` subagent
+with that path and a focused question (e.g. "find repeated tool-call sequences
+or high-token turns in these transcripts") to retrieve cost signals from past
+sessions.
 
 ### Cost log (filtered)
 
@@ -60,12 +62,11 @@ cite one or more rows from this table as motivation.
    structure, tool lists, and model assignments. Do not read every file —
    sample to understand patterns.
 
-3. **Call `cai-transcript-finder` for session signals.** If a
-   `## Recent transcripts pointer` section is present, call the
-   `cai-transcript-finder` subagent as described there to retrieve signals
-   from prior sessions (e.g. repeated tool-call sequences, high-token
-   turns). Incorporate these signals into your findings when they point to
-   avoidable spend.
+3. **Search transcripts for session signals.** If a
+   `## Recent transcripts pointer` section is present, spawn an `Explore`
+   subagent with the provided path/glob and a focused question about
+   repeated tool-call sequences or high-token turns. Incorporate any
+   signals you find into your findings when they point to avoidable spend.
 
 4. **Use `Explore` only for open questions.** If after steps 1–3 you have
    a hypothesis that genuinely requires multi-round codebase searching
