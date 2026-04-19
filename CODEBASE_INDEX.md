@@ -7,6 +7,7 @@
 |------|---------|
 | `.claude/agents/audit/cai-agent-audit.md` | TODO: add description |
 | `.claude/agents/audit/cai-analyze.md` | TODO: add description |
+| `.claude/agents/audit/cai-audit-cost-reduction.md` | TODO: add description |
 | `.claude/agents/audit/cai-audit.md` | TODO: add description |
 | `.claude/agents/audit/cai-code-audit.md` | TODO: add description |
 | `.claude/agents/audit/cai-confirm.md` | TODO: add description |
