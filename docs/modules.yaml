@@ -1,14 +1,25 @@
-# Module index — owned and maintained by cai-review-docs.
-# On every PR that adds, renames, or deletes a tracked file, cai-review-docs
-# updates this file and the matching docs/modules/<name>.md narrative.
+# docs/modules.yaml — audit-refactor module registry (step 1.1).
 #
-# Schema:
-#   modules:
-#     - name:    short identifier (matches narrative filename stem)
-#       summary: one-line summary of the module's purpose
-#       globs:   list of fnmatch-style patterns, repo-root-relative,
-#                that enumerate the files belonging to this module
-#       doc:     path to the per-module narrative markdown file
+# Each entry defines one logical "module" (group of files) that the
+# cai audit pipeline can target. The loader lives at
+# cai_lib/audit/modules.py.
+#
+# Coverage rules enforced by future audit stages (not this step):
+#   - Every tracked file (git ls-files) must match exactly one module.
+#   - Zero matches or 2+ matches are coverage failures.
+#
+# Per-entry authoring rules:
+#   - `name`:    kebab-case, unique across the file; used as the
+#                `--module` argument to `cai audit`.
+#   - `summary`: single-line description surfaced to audit agents.
+#   - `doc`:     path to narrative markdown (relative to this file's
+#                directory, i.e. docs/). Files will be created in a
+#                later audit-refactor step; the loader's existence
+#                check is OFF by default in step 1.1.
+#   - `globs`:   gitignore-style patterns (fnmatch semantics) matched
+#                against the tracked-file list. Must be a non-empty
+#                list of strings.
+
 modules:
   - name: dispatcher-cli
     summary: Top-level CLI entry point and root-level shims.
