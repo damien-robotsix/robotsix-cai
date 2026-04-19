@@ -20,12 +20,12 @@ The invoker will provide:
 The invoker will provide the absolute path to `findings.json` where your structured findings must be written.
 
 ### Recent transcripts pointer (optional)
-If the invoker provides a transcripts pointer, use it to call `cai-transcript-finder` with the module name and any relevant subagent names. `cai-transcript-finder` surfaces:
+If the invoker provides a transcripts pointer, spawn an `Explore` subagent (via the Agent tool) with that path/glob and a focused question about the module's past sessions. Useful signals to ask it to surface:
 - Repeated tool sequences across runs (e.g., the same Grep called 3+ times in every session).
 - Agent-to-agent handoff retry loops (e.g., `cai-plan` → `cai-implement` → back to `cai-plan` more than once per issue).
 - Duplicate Grep patterns that appear in multiple consecutive tool calls within a single session.
 
-If no transcripts pointer is provided, skip `cai-transcript-finder` and rely solely on static code analysis.
+If no transcripts pointer is provided, skip the transcript search and rely solely on static code analysis.
 
 ## Strategy
 
@@ -35,7 +35,7 @@ Follow these steps in order:
 
 2. **Sample representative files.** Use Glob to enumerate the module's files, then Read a small but representative set (3–5 files) to get concrete anchors for your findings. Focus on files that contain prompt logic, tool invocation sequences, or handoff instructions.
 
-3. **Call `cai-transcript-finder` for past-session signals.** If a transcripts pointer was provided, spawn `cai-transcript-finder` via the Agent tool with the module name. Ask it specifically for:
+3. **Search transcripts for past-session signals.** If a transcripts pointer was provided, spawn an `Explore` subagent via the Agent tool with the transcripts path/glob and a focused question about the module's agent behavior. Ask it specifically for:
    - Repeated tool sequences (same sequence of tool calls appearing in ≥ 3 sessions).
    - Handoff retry loops (agent A calls agent B which calls agent A again within the same session).
    - Duplicate Grep patterns (the same Grep pattern called more than once in a session with identical results).
