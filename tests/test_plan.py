@@ -232,7 +232,22 @@ class TestPlanSelectPipelineFallback(unittest.TestCase):
         self.assertIn("## Refined Issue", plan_text)
         self.assertNotIn("Original issue text", plan_text)  # trimmed at ---
         self.assertEqual(conf, Confidence.LOW)
-        self.assertIn("Both cai-plan invocations failed", reason)
+        self.assertIn("refinement-embedded plan", reason)
+        mock_select.assert_not_called()
+
+    @patch("cai_lib.actions.plan._run_select_agent")
+    @patch("cai_lib.actions.plan._run_plan_agent")
+    def test_double_failure_no_embedded_returns_none(self, mock_plan, mock_select):
+        from cai_lib.actions.plan import _run_plan_select_pipeline
+        mock_plan.side_effect = [
+            ("(Plan 1 failed: exit 1 after 2 attempts)", False),
+            ("(Plan 2 failed: exit 1 after 2 attempts)", False),
+        ]
+        issue = {"number": 999, "title": "t", "body": "", "labels": []}
+
+        result = _run_plan_select_pipeline(issue, Path("/tmp/x"))
+
+        self.assertIsNone(result)
         mock_select.assert_not_called()
 
     @patch("cai_lib.actions.plan._run_select_agent")

@@ -38,6 +38,7 @@ from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import (
     _work_directory_block,
     _strip_stored_plan_block,
+    _extract_stored_plan,
     _fetch_previous_fix_attempts,
     _build_attempt_history_block,
 )
@@ -363,29 +364,31 @@ def _run_plan_select_pipeline(
     # cai-select two failure placeholders (which forces a :human-needed
     # divert even when the refined plan is high-quality — see issue #879).
     if not plan1_ok and not plan2_ok:
-        refined_plan = _extract_refined_plan(issue.get("body", "") or "")
-        if refined_plan:
-            from cai_lib.fsm import Confidence
-            reason = (
-                "Both cai-plan invocations failed on all retry attempts; "
-                "falling back to the cai-refine-embedded plan. "
-                "The fix agent should treat the plan as best-effort."
-            )
+        from cai_lib.fsm import Confidence
+        # For resume scenarios, prefer any stored plan already in the body.
+        embedded = _extract_stored_plan(issue.get("body", "") or "")
+        if not embedded:
+            # Fresh run: fall back to the ## Refined Issue section.
+            embedded = _extract_refined_plan(issue.get("body", "") or "")
+        if not embedded:
             print(
-                f"[cai plan] both planners failed for #{issue_number} — "
-                f"using refinement-embedded plan ({len(refined_plan)} chars) "
-                "with LOW confidence",
-                flush=True,
+                f"[cai plan] both planners failed and no embedded plan "
+                f"found in body for #{issue_number}; pipeline cannot proceed",
+                file=sys.stderr, flush=True,
             )
-            return refined_plan + "\n", Confidence.LOW, reason
-        # No refined block found (shouldn't happen for :refined issues, but
-        # defensively fall through to the existing select path so we retain
-        # the old failure behaviour rather than returning None-with-plan).
+            return None
+        reason = (
+            "Both cai-plan invocations failed on all retry attempts; "
+            "falling back to the refinement-embedded plan with "
+            "LOW confidence so an admin can review."
+        )
         print(
-            f"[cai plan] both planners failed and no ## Refined Issue "
-            f"block found in body for #{issue_number}; proceeding to select",
+            f"[cai plan] both planners failed for #{issue_number} — "
+            f"using refinement-embedded plan ({len(embedded)} chars) "
+            "with LOW confidence",
             flush=True,
         )
+        return embedded + "\n", Confidence.LOW, reason
 
     plans = [plan1_text, plan2_text]
 
