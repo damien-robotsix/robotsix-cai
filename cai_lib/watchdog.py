@@ -40,9 +40,15 @@ from cai_lib.logging_utils import log_run
 def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
     """Deterministic rollback: :in-progress, :revising, or :applying issues with no recent activity.
 
-    When ``immediate=True`` every locked issue is rolled back regardless of age
-    (used by ``cmd_cycle`` on container restart where all in-flight locks are
-    guaranteed to be orphaned).
+    TTL-based (normal operation): each state's configured threshold applies
+    (``_STALE_IN_PROGRESS_HOURS``, ``_STALE_REVISING_HOURS``,
+    ``_STALE_APPLYING_HOURS``, ``_STALE_LOCKED_HOURS``).
+
+    When ``immediate=True`` every locked issue is rolled back regardless of age.
+    This path is reserved for **explicit container-restart recovery** where all
+    in-flight locks are guaranteed orphaned.  It must NOT be used on normal
+    hourly cron ticks — doing so kills live handlers whose lock age is below
+    the TTL.
 
     Returns the list of issues that were rolled back.
     """

@@ -190,6 +190,30 @@ class TestRollbackStaleInProgress(unittest.TestCase):
             "watchdog must call _set_labels with remove=[LABEL_LOCKED]",
         )
 
+    def test_rollback_locked_10min_not_rolled_back(self):
+        """A 10-minute-old :locked issue must NOT be rolled back without immediate=True.
+
+        This is the exact scenario observed live (age ~0.1h against TTL=1h):
+        cmd_cycle was calling _rollback_stale_in_progress(immediate=True),
+        which bypassed TTLs and killed active handlers.  With immediate=False
+        (the correct call from cmd_cycle), a 10-min-old lock must survive.
+        """
+        locked_issue = _make_issue(811, cai.LABEL_LOCKED, age_hours=0.1)  # ~6 min
+        result = self._run_rollback(
+            immediate=False,
+            issues_by_label={
+                cai.LABEL_IN_PROGRESS: [],
+                cai.LABEL_REVISING: [],
+                cai.LABEL_APPLYING: [],
+                cai.LABEL_LOCKED: [locked_issue],
+            },
+        )
+        nums = {i["number"] for i in result}
+        self.assertNotIn(811, nums,
+                         "0.1h-old :locked must NOT be rolled back "
+                         f"(TTL={cai._STALE_LOCKED_HOURS}h) — "
+                         "cmd_cycle must use TTL-based path, not immediate=True")
+
     def test_rollback_locked_fresh(self):
         """:locked issues within the TTL window must NOT be rolled back."""
         # Half the TTL — well within the window.
