@@ -40,6 +40,17 @@ class TestRescueJsonSchema(unittest.TestCase):
         self.assertIn("AUTONOMOUSLY_RESOLVABLE", enum)
         self.assertIn("TRULY_HUMAN_NEEDED", enum)
 
+    def test_resume_to_enum_covers_issue_and_pr_states(self):
+        enum = R._RESCUE_JSON_SCHEMA["properties"]["resume_to"]["enum"]
+        # Issue-side targets.
+        for state in ("RAISED", "REFINING", "NEEDS_EXPLORATION",
+                      "PLAN_APPROVED", "SOLVED"):
+            self.assertIn(state, enum)
+        # PR-side targets.
+        for state in ("REVIEWING_CODE", "REVIEWING_DOCS",
+                      "REVISION_PENDING", "APPROVED"):
+            self.assertIn(state, enum)
+
 
 class TestIssueHasOpusAttempted(unittest.TestCase):
 
@@ -185,6 +196,101 @@ class TestTryRescueIssueDispatchesOpusBranch(unittest.TestCase):
             tag = R._try_rescue_issue(issue, prevention_findings=[])
         self.assertEqual(tag, "low_confidence")
         sched.assert_not_called()
+
+
+class TestTryRescuePr(unittest.TestCase):
+    """End-to-end: PR-side rescue wiring routes through apply_pr_transition."""
+
+    def _claude_reply(self, payload):
+        proc = mock.Mock()
+        proc.returncode = 0
+        proc.stdout = json.dumps(payload)
+        proc.stderr = ""
+        return proc
+
+    def _pr(self):
+        return {
+            "number": 77,
+            "title": "fix widget",
+            "body": "…",
+            "labels": [{"name": "auto-improve:pr-human-needed"}],
+            "comments": [],
+        }
+
+    def test_high_confidence_resume_fires_pr_transition(self):
+        pr = self._pr()
+        claude_payload = {
+            "verdict": "AUTONOMOUSLY_RESOLVABLE",
+            "confidence": "HIGH",
+            "resume_to": "REVIEWING_CODE",
+            "reasoning": "reviewer diverted on a transient; re-run review",
+        }
+        with mock.patch.object(
+            R, "_run_claude_p", return_value=self._claude_reply(claude_payload)
+        ), mock.patch.object(
+            R, "apply_pr_transition", return_value=True
+        ) as apply_pr, mock.patch.object(
+            R, "_post_pr_rescue_comment", return_value=True
+        ) as cmt:
+            tag = R._try_rescue_pr(pr, prevention_findings=[])
+        self.assertEqual(tag, "resumed")
+        apply_pr.assert_called_once()
+        self.assertEqual(apply_pr.call_args.args[1], "pr_human_to_reviewing_code")
+        cmt.assert_called_once()
+        self.assertEqual(cmt.call_args.kwargs["target"], "REVIEWING_CODE")
+
+    def test_opus_verdict_on_pr_parks_target(self):
+        pr = self._pr()
+        claude_payload = {
+            "verdict": "ATTEMPT_OPUS_IMPLEMENT",
+            "confidence": "HIGH",
+            "reasoning": "mis-targeted",
+        }
+        with mock.patch.object(
+            R, "_run_claude_p", return_value=self._claude_reply(claude_payload)
+        ), mock.patch.object(R, "apply_pr_transition") as apply_pr, \
+             mock.patch.object(R, "_schedule_opus_attempt") as sched:
+            tag = R._try_rescue_pr(pr, prevention_findings=[])
+        self.assertEqual(tag, "truly_human_needed")
+        apply_pr.assert_not_called()
+        sched.assert_not_called()
+
+    def test_low_confidence_resume_parks_pr(self):
+        pr = self._pr()
+        claude_payload = {
+            "verdict": "AUTONOMOUSLY_RESOLVABLE",
+            "confidence": "MEDIUM",
+            "resume_to": "REVIEWING_CODE",
+            "reasoning": "not sure",
+        }
+        with mock.patch.object(
+            R, "_run_claude_p", return_value=self._claude_reply(claude_payload)
+        ), mock.patch.object(R, "apply_pr_transition") as apply_pr:
+            tag = R._try_rescue_pr(pr, prevention_findings=[])
+        self.assertEqual(tag, "low_confidence")
+        apply_pr.assert_not_called()
+
+
+class TestPrHumanNeededLister(unittest.TestCase):
+    """`_list_unresolved_pr_human_needed_prs` must filter out human:solved."""
+
+    def test_filters_out_pr_with_human_solved(self):
+        resolved = {
+            "number": 1, "title": "t", "body": "",
+            "labels": [
+                {"name": "auto-improve:pr-human-needed"},
+                {"name": "human:solved"},
+            ],
+            "comments": [],
+        }
+        unresolved = {
+            "number": 2, "title": "t", "body": "",
+            "labels": [{"name": "auto-improve:pr-human-needed"}],
+            "comments": [],
+        }
+        with mock.patch.object(R, "_gh_json", return_value=[resolved, unresolved]):
+            out = R._list_unresolved_pr_human_needed_prs()
+        self.assertEqual([p["number"] for p in out], [2])
 
 
 if __name__ == "__main__":
