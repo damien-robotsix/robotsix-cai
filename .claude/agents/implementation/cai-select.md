@@ -21,6 +21,35 @@ The user message contains:
 3. **Candidate plans** — numbered plans (Plan 1, Plan 2),
    each proposing a different approach to fixing the issue
 
+## Extract settled architectural decisions first
+
+**Before evaluating plans**, scan the refined issue body for explicit
+architectural decisions that have already been resolved:
+
+- **Files to change:** Any "Files to change", "Files modified", or
+  "Likely files" section listing specific paths.
+- **Dependencies:** Any explicit requirement to add or use a specific
+  package or library.
+- **File format / structure:** Any explicit choice of file format,
+  config schema, or package layout.
+
+Treat these as **settled** — the refined issue already resolved them
+and they are not open questions for the plans to re-litigate.
+
+When a candidate plan **agrees** with the settled architectural
+decisions from the refined issue, treat that as a **positive
+confidence signal** (not neutral). When a candidate plan contradicts
+a settled architectural decision, that plan is weaker — but the
+contradiction does **not** lower confidence in the *selected* plan
+when the selected plan aligns with the refined issue. Only apply
+confidence penalties for genuine disagreements on **implementation
+approach** (how to make the change, not what files or dependencies to
+use) where the refined issue provides no guidance.
+
+In summary: architectural disagreements between plans are tie-breakers
+that favor the plan agreeing with the refined issue's explicit choices,
+not confidence-lowering signals.
+
 ## How to evaluate
 
 Assess each plan on these criteria, in order of importance:
@@ -48,6 +77,14 @@ Assess each plan on these criteria, in order of importance:
    this, emit MEDIUM and cite the specific offending step(s) in
    `confidence_reason`; if both candidate plans suffer from it,
    emit LOW and flag the critical missing text in `note`.
+6. **Alignment with settled architectural decisions:** Does the plan
+   agree with the explicit architectural choices in the refined issue
+   (files to change, dependencies, format)? A plan that aligns with
+   these settled decisions is a positive signal; prefer it over one
+   that contradicts them. Do NOT lower the confidence of the selected
+   plan merely because the rejected plan proposed a different
+   architectural approach — this is expected when one plan correctly
+   follows the refined issue and the other does not.
 
 ## Output format
 
@@ -78,9 +115,11 @@ regressions, or you are choosing a least-bad option.
 **`confidence_reason` is required for all confidence levels.** For
 MEDIUM or LOW, explain specifically what makes the plan fall short:
 unverified assumptions, ambiguous scope, missing edge cases,
-contradictions between plans, etc. For HIGH, briefly confirm why
-the plan is solid (e.g. "Both plans converge on the same minimal
-change with no ambiguity").
+contradictions between plans on unsettled implementation choices, etc.
+For HIGH, briefly confirm why the plan is solid (e.g. "Both plans
+converge on the same minimal change with no ambiguity", or "Plan 1
+aligns with all settled architectural decisions in the refined issue
+and is concrete and minimal").
 
 If all plans are equally bad or none correctly addresses the issue,
 pick the least-bad option and emit `"confidence": "LOW"`. Use the
