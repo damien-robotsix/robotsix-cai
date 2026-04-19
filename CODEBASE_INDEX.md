@@ -7,6 +7,7 @@
 |------|---------|
 | `.claude/agents/audit/cai-agent-audit.md` | TODO: add description |
 | `.claude/agents/audit/cai-analyze.md` | TODO: add description |
+| `.claude/agents/audit/cai-audit-code-reduction.md` | Agent: on-demand code-reduction audit for a module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers, and writes findings to findings.json |
 | `.claude/agents/audit/cai-audit-cost-reduction.md` | Agent: on-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings |
 | `.claude/agents/audit/cai-audit.md` | TODO: add description |
 | `.claude/agents/audit/cai-code-audit.md` | TODO: add description |
