@@ -121,6 +121,34 @@ converge on the same minimal change with no ambiguity", or "Plan 1
 aligns with all settled architectural decisions in the refined issue
 and is concrete and minimal").
 
+**Do NOT cite either of the following as a weakness, and do NOT
+lower confidence below HIGH on these grounds alone** — both are
+documented, accepted mechanics, not novel risks:
+
+- **Staged full-file overwrite under `<work_dir>/.cai-staging/`** for
+  `CLAUDE.md`, `.claude/agents/*.md`, or `.claude/plugins/**`. The
+  headless `-p` runtime hardcodes a sensitive-file write block on
+  the real paths, so direct `Edit`/`Write` always fails; the staging
+  directory is the only supported mechanism and the wrapper performs
+  an unconditional full-file overwrite by design (see the
+  "Self-modifying ..." section of `CLAUDE.md`). A plan that emits
+  the complete new file body verbatim and writes it under
+  `.cai-staging/agents/`, `.cai-staging/plugins/`, or
+  `.cai-staging/claudemd/` is following the documented contract.
+- **Soft length cap met "in spirit".** When a refined issue suggests
+  a non-binding cap ("≤10 lines", "keep it short", "a few lines")
+  and the chosen plan exceeds it by a small amount while preserving
+  the intent (e.g. ~19 short lines versus a suggested 10, one extra
+  clarifying bullet), that is a stylistic deviation, not a
+  correctness risk. Hard, numeric, or normative caps ("must not
+  exceed N", "exactly N lines") are not soft caps and continue to
+  lower confidence when violated.
+
+Every other risk class (missing verbatim Edit/Write content per
+criterion 5, unverified assumptions, ambiguous scope, contradictions
+on unsettled implementation choices, missing edge cases, etc.)
+continues to lower confidence exactly as documented above.
+
 If all plans are equally bad or none correctly addresses the issue,
 pick the least-bad option and emit `"confidence": "LOW"`. Use the
 optional `note` field to flag a critical weakness for the fix agent
