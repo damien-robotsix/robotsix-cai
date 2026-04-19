@@ -728,22 +728,82 @@ class TestSubIssueOrderingGate(unittest.TestCase):
         target = self._pick(issues, sub_issues_by_parent)
         self.assertEqual(target, ("issue", 10))
 
+    # ------------------------------------------------------------------
+    # Nested-parent propagation tests (issue #922)
+    # ------------------------------------------------------------------
 
-class TestBuildOrderingGate(unittest.TestCase):
-    def test_gate_maps_each_child_to_last_open_prior_sibling(self):
-        parents = [{"number": 900}]
-        subs = {
+    def test_nested_parent_blocks_grandchildren_while_ancestor_sibling_open(self):
+        """Grandchildren of a gated nested parent must not be dispatched
+        while the ancestor's prior sibling is still open.
+
+        Tree:
+          M=900 (parent)
+          ├── S1=50  (:in-progress, open)   ← S2 must wait for S1
+          └── S2=51  (parent, open)
+              ├── ss1=60 (:raised, open)    ← BUG: was dispatched before fix
+              └── ss2=61 (:raised, open)
+        """
+        # S2=51 has no FSM state label so it never appears in the issues list.
+        issues = [
+            {"number": 50, "createdAt": "2024-01-01T00:00:00Z",
+             "labels": [{"name": "auto-improve:in-progress"}]},
+            {"number": 60, "createdAt": "2024-01-02T00:00:00Z",
+             "labels": [{"name": "auto-improve:raised"}]},
+            {"number": 61, "createdAt": "2024-01-03T00:00:00Z",
+             "labels": [{"name": "auto-improve:raised"}]},
+        ]
+        sub_issues_by_parent = {
             900: [
-                {"number": 10, "state": "open"},
-                {"number": 20, "state": "closed"},
-                {"number": 30, "state": "open"},
-                {"number": 40, "state": "open"},
+                {"number": 50, "state": "open"},
+                {"number": 51, "state": "open"},
+            ],
+            51: [
+                {"number": 60, "state": "open"},
+                {"number": 61, "state": "open"},
             ],
         }
+        # S1=50 is the only pickable target; ss1=60 must be gated.
+        target = self._pick(issues, sub_issues_by_parent)
+        self.assertEqual(target, ("issue", 50))
 
+    def test_nested_parent_grandchildren_pickable_when_ancestor_sibling_closed(self):
+        """Once the ancestor's prior sibling is closed the gate lifts and
+        the first grandchild (ss1) becomes dispatchable.
+
+        Tree (S1 now closed):
+          M=900 (parent)
+          ├── S1=50  (closed)
+          └── S2=51  (parent, open)
+              ├── ss1=60 (:raised, open)  ← should now be picked
+              └── ss2=61 (:raised, open)
+        """
+        # S1=50 is closed and absent from the open-issues list.
+        issues = [
+            {"number": 60, "createdAt": "2024-01-02T00:00:00Z",
+             "labels": [{"name": "auto-improve:raised"}]},
+            {"number": 61, "createdAt": "2024-01-03T00:00:00Z",
+             "labels": [{"name": "auto-improve:raised"}]},
+        ]
+        sub_issues_by_parent = {
+            900: [
+                {"number": 50, "state": "closed"},
+                {"number": 51, "state": "open"},
+            ],
+            51: [
+                {"number": 60, "state": "open"},
+                {"number": 61, "state": "open"},
+            ],
+        }
+        target = self._pick(issues, sub_issues_by_parent)
+        self.assertEqual(target, ("issue", 60))
+
+
+class TestBuildOrderingGate(unittest.TestCase):
+    def _build(self, parents_list, subs):
+        """Helper: run _build_ordering_gate with fake gh and list_sub_issues."""
         def fake_gh_json(cmd):
             if "issue" in cmd and "list" in cmd:
-                return parents
+                return [{"number": p} for p in parents_list]
             raise AssertionError(f"unexpected _gh_json call: {cmd}")
 
         def fake_list_sub_issues(parent_num):
@@ -752,7 +812,17 @@ class TestBuildOrderingGate(unittest.TestCase):
         with patch.object(dispatcher, "_gh_json", side_effect=fake_gh_json), \
              patch.object(dispatcher, "list_sub_issues",
                           side_effect=fake_list_sub_issues):
-            gate = dispatcher._build_ordering_gate()
+            return dispatcher._build_ordering_gate()
+
+    def test_gate_maps_each_child_to_last_open_prior_sibling(self):
+        gate = self._build([900], {
+            900: [
+                {"number": 10, "state": "open"},
+                {"number": 20, "state": "closed"},
+                {"number": 30, "state": "open"},
+                {"number": 40, "state": "open"},
+            ],
+        })
 
         # #10 is first — no prior sibling → not in gate.
         self.assertNotIn(10, gate)
@@ -764,6 +834,64 @@ class TestBuildOrderingGate(unittest.TestCase):
         # #40 is preceded by #10 (open), #20 (closed), #30 (open) →
         # blocked by #30 (the most recent still-open prior).
         self.assertEqual(gate[40], (900, 30))
+
+    def test_nested_parent_gate_propagates_to_ungated_grandchildren(self):
+        """Gate propagation: ss1 (first child of gated S2) must inherit
+        S2's ancestor blocker (M, S1) because S2 itself is gated.
+
+        Tree:
+          M=900 (parent)
+          ├── S1=50  (open)
+          └── S2=51  (parent, open)   ← gate[51] = (900, 50)
+              ├── ss1=60 (open)        ← gate[60] should be (900, 50)
+              └── ss2=61 (open)        ← gate[61] = (51, 60) from first pass
+        """
+        gate = self._build([900, 51], {
+            900: [
+                {"number": 50, "state": "open"},
+                {"number": 51, "state": "open"},
+            ],
+            51: [
+                {"number": 60, "state": "open"},
+                {"number": 61, "state": "open"},
+            ],
+        })
+
+        # S2=51 gated on S1=50 under M=900.
+        self.assertEqual(gate[51], (900, 50))
+        # ss1=60 is ungated in the flat first pass (first child of S2) but
+        # must inherit S2's ancestor blocker after propagation.
+        self.assertEqual(gate[60], (900, 50))
+        # ss2=61 was already gated locally (on ss1=60); that gate must
+        # be preserved — local gate is stricter than the inherited one.
+        self.assertEqual(gate[61], (51, 60))
+
+    def test_nested_parent_no_propagation_when_ancestor_sibling_closed(self):
+        """When S2's prior sibling (S1) is closed, S2 is not in the gate
+        and neither are its children — they are freely pickable.
+
+        Tree (S1 closed):
+          M=900 (parent)
+          ├── S1=50  (closed)
+          └── S2=51  (parent, open)   ← not gated
+              ├── ss1=60 (open)        ← not gated
+              └── ss2=61 (open)        ← gate[61] = (51, 60) from first pass
+        """
+        gate = self._build([900, 51], {
+            900: [
+                {"number": 50, "state": "closed"},
+                {"number": 51, "state": "open"},
+            ],
+            51: [
+                {"number": 60, "state": "open"},
+                {"number": 61, "state": "open"},
+            ],
+        })
+
+        self.assertNotIn(51, gate)
+        self.assertNotIn(60, gate)
+        # ss2=61 still has local gate within S2 (ss1 is open prior sibling).
+        self.assertEqual(gate[61], (51, 60))
 
 
 if __name__ == "__main__":
