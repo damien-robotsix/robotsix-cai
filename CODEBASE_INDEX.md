@@ -65,6 +65,9 @@
 | `cai_lib/actions/review_pr.py` | Handler for PRState.REVIEWING_CODE — runs cai-review-pr |
 | `cai_lib/actions/revise.py` | Handler for PRState.REVISION_PENDING — runs cai-revise |
 | `cai_lib/actions/triage.py` | Handler for IssueState.RAISED / TRIAGING — runs cai-triage |
+| `cai_lib/audit/__init__.py` | TODO: add description |
+| `cai_lib/audit/cost.py` | TODO: add description |
+| `cai_lib/audit/modules.py` | TODO: add description |
 | `cai_lib/cmd_agents.py` | Agent-launch cmd_* functions: analyze, audit, propose, code-audit, agent-audit, update-check, cost-optimize, external-scout |
 | `cai_lib/cmd_cycle.py` | TODO: add description |
 | `cai_lib/cmd_helpers.py` | Cross-command helpers shared between cai.py and cai_lib/actions/* |

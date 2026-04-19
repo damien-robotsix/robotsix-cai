@@ -57,8 +57,10 @@ from cai_lib.logging_utils import (
     log_cost,
     _get_issue_category,
     _log_outcome,
-    _load_outcome_counts,
     _load_outcome_stats,
+)
+from cai_lib.audit.cost import (
+    _load_outcome_counts,
     _load_cost_log,
     _row_ts,
     _build_cost_summary,
