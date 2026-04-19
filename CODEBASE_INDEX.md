@@ -105,14 +105,14 @@
 | `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
 | `docs/index.md` | Documentation site landing page |
 | `docs/modules.yaml` | Module registry schema — audit-refactor step 1.1, defines logical groupings of tracked files |
-| `docs/modules/agents.md` | TODO: add description |
-| `docs/modules/cai-lib.md` | TODO: add description |
-| `docs/modules/container.md` | TODO: add description |
-| `docs/modules/dispatcher-cli.md` | TODO: add description |
-| `docs/modules/docs-site.md` | TODO: add description |
-| `docs/modules/scripts.md` | TODO: add description |
-| `docs/modules/tests.md` | TODO: add description |
-| `docs/modules/workflows.md` | TODO: add description |
+| `docs/modules/agents.md` | Module narrative — describes the agents module (declarative subagent definitions under .claude/agents/) |
+| `docs/modules/cai-lib.md` | Module narrative — describes the cai-lib module (FSM, dispatcher, actions, and shared helpers) |
+| `docs/modules/container.md` | Module narrative — describes the container module (Dockerfile, Compose, installer, entrypoint, config templates) |
+| `docs/modules/dispatcher-cli.md` | Module narrative — describes the dispatcher-cli module (cai.py main CLI and root-level shims) |
+| `docs/modules/docs-site.md` | Module narrative — describes the docs-site module (user-facing docs, README, CODEBASE_INDEX, module index) |
+| `docs/modules/scripts.md` | Module narrative — describes the scripts module (generate-index.sh, generate-fsm-docs.py, server-cleanup.sh) |
+| `docs/modules/tests.md` | Module narrative — describes the tests module (pytest suite covering FSM, dispatcher, handlers, and helpers) |
+| `docs/modules/workflows.md` | Module narrative — describes the workflows module (GitHub Actions CI/CD workflows) |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
 | `install.sh` | Interactive installer for end-users |
 | `parse.py` | Wrapper shim — real implementation in cai_lib/parse.py |
