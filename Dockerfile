@@ -121,11 +121,6 @@ RUN groupadd --system --gid 1000 cai \
 ARG CAI_GIT_URL=https://github.com/damien-robotsix/robotsix-cai.git
 ARG CAI_GIT_REF=main
 
-# Install PyYAML for the audit-refactor modules.yaml loader
-# (cai_lib/audit/modules.py). First pip dependency in the image;
-# everything else is stdlib.
-RUN pip install --no-cache-dir pyyaml
-
 RUN mkdir -p /app && chown cai:cai /app
 
 USER cai
