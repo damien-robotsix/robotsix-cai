@@ -118,6 +118,50 @@ present**:
 All other files in the diff must still meet the usual completeness,
 scope, and correctness criteria.
 
+### Exemption: reviewer-recommended co-changes
+
+Before each merge evaluation, the `cai-review-pr` pre-merge reviewer
+posts one or more comments on the PR. A clean run looks like `## cai
+pre-merge review (clean) — <sha>`; a flagged run looks like `## cai
+pre-merge review — <sha>` and contains one or more `### Finding:`
+blocks, each with a `**File(s):**` line and a `**Suggested fix:**`
+paragraph that tells the fix agent to update specific files — often
+files that are *not* listed in the linked issue's "Likely files" or
+scope guardrails. The canonical example is `scripts/generate-index.sh`,
+which must be updated whenever a new tracked file is added so the
+auto-generated `CODEBASE_INDEX.md` does not drift when the
+`regenerate-docs.yml` CI workflow runs. The fix agent then addresses
+those findings in a follow-up revise commit, and a subsequent `## cai
+pre-merge review (clean) — <sha>` comment confirms the findings were
+resolved.
+
+When walking the diff, **treat any file cited in a prior `###
+Finding:` block's `**File(s):**` list as in-scope for this PR**:
+
+- Do not count edits to such files as "new files not mentioned in
+  the issue", as scope creep, or as "PR scope is broader than the
+  issue asks for", even when the issue's remediation or "Likely
+  files" does not list them.
+- Do not treat an issue scope guardrail saying "only touch file X"
+  as violated because a reviewer-cited file Y was also changed,
+  provided the change to Y matches the finding's `**Suggested
+  fix:**`.
+- Limit the exemption strictly to the files cited in the
+  `**File(s):**` line of a `### Finding:` block that appears in the
+  PR's own comment history. Unrelated edits to other files are NOT
+  exempted even if similar in spirit.
+- The exemption covers scope only — it does not waive the
+  correctness, completeness, or workflow-files (`.github/workflows/`)
+  rules. A reviewer-recommended edit to a workflow file is still
+  disqualifying.
+
+All other files in the diff must still meet the usual completeness,
+scope, and correctness criteria. If a reviewer-cited co-change is
+the *only* soft concern standing between the PR and a **high**
+verdict, and the final pre-merge review comment is clean (`(clean)
+— <sha>`), emit **high** — do not downgrade to **medium** on a
+scope concern that the pipeline itself introduced.
+
 ## Output format
 
 Emit exactly this structured block — nothing else:
