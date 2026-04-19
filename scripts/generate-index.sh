@@ -30,6 +30,7 @@ declare -A DESCRIPTIONS=(
   [".claude/settings.json"]="Claude Code harness configuration"
   [".claude/agents/audit/cai-audit-cost-reduction.md"]="Agent: on-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings"
   [".claude/agents/audit/cai-audit-code-reduction.md"]="Agent: on-demand code-reduction audit for a module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers, and writes findings to findings.json"
+  [".claude/agents/audit/cai-audit-workflow-enhancement.md"]="Agent: on-demand workflow-enhancement audit for a module — identifies recurring inefficiencies in agent workflows and proposes targeted remediations"
   [".claude/agents/cai-agent-audit.md"]="Agent: weekly audit of .claude/agents/*.md for best-practice violations and unused agents"
   [".claude/agents/cai-analyze.md"]="Agent: parse transcript signals and raise auto-improve findings"
   [".claude/agents/cai-audit.md"]="Agent: audit issue queue and lifecycle state machine"
