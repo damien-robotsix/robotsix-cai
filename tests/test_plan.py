@@ -135,5 +135,172 @@ class TestRunPlanAgent(unittest.TestCase):
         self.assertIn("cai-plan: rate limited", printed)
 
 
+class TestHandlePlanGateAnchorMitigation(unittest.TestCase):
+    """#918 — handle_plan_gate routes anchor-mitigated plans via the
+    MEDIUM-threshold sibling transition instead of the HIGH default."""
+
+    _ANCHOR_NOTE = (
+        "> **Anchor-based edits:** The fix agent must Read each "
+        "target file first and locate edits by anchor text (unique "
+        "surrounding lines), not by line number.\n\n"
+        "## Plan\n### Summary\n..."
+    )
+
+    def _issue(self, *, confidence, plan_text):
+        return {
+            "number": 918,
+            "title": "t",
+            "body": "",
+            "labels": [{"name": "auto-improve:planned"}],
+            "_cai_plan_confidence": confidence,
+            "_cai_plan_confidence_reason": "line-number drift only",
+            "_cai_plan_text": plan_text,
+        }
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_medium_with_marker_uses_mitigated_transition(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            plan_text=self._ANCHOR_NOTE,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        # Positional: (issue_number, transition_name, confidence).
+        self.assertEqual(args[0], 918)
+        self.assertEqual(args[1], "planned_to_plan_approved_mitigated")
+        # Reported confidence is passed through unchanged — gating is a
+        # property of the selected transition, not a confidence upgrade.
+        self.assertEqual(args[2], Confidence.MEDIUM)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_medium_without_marker_uses_default_transition(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        # Default HIGH transition diverts MEDIUM → (True, True).
+        mock_apply.return_value = (True, True)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            plan_text="plan body with no anchor marker",
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[1], "planned_to_plan_approved")
+        self.assertEqual(args[2], Confidence.MEDIUM)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_low_with_marker_still_diverts(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, True)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.LOW,
+            plan_text=self._ANCHOR_NOTE,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        # Marker present → mitigated transition is picked; LOW < MEDIUM
+        # so the gate still diverts (required=MEDIUM, reported=LOW).
+        self.assertEqual(args[1], "planned_to_plan_approved_mitigated")
+        self.assertEqual(args[2], Confidence.LOW)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_high_with_marker_uses_mitigated_transition(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.HIGH,
+            plan_text=self._ANCHOR_NOTE,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        # Marker present → mitigated transition regardless of reported
+        # confidence. HIGH >= MEDIUM so the gate passes.
+        self.assertEqual(args[1], "planned_to_plan_approved_mitigated")
+        self.assertEqual(args[2], Confidence.HIGH)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_high_without_marker_uses_default_transition(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.HIGH,
+            plan_text="plan body with no anchor marker",
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[1], "planned_to_plan_approved")
+        self.assertEqual(args[2], Confidence.HIGH)
+
+
+class TestPlanHasAnchorMitigationHelper(unittest.TestCase):
+    """#918 — module-private anchor-mitigation regex helper."""
+
+    def test_canonical_note_matches(self):
+        from cai_lib.actions.plan import _plan_has_anchor_mitigation
+        plan = (
+            "> **Anchor-based edits:** Read first and locate edits by "
+            "anchor text (unique surrounding lines), not by line number.\n"
+        )
+        self.assertTrue(_plan_has_anchor_mitigation(plan))
+
+    def test_case_insensitive(self):
+        from cai_lib.actions.plan import _plan_has_anchor_mitigation
+        self.assertTrue(_plan_has_anchor_mitigation(
+            "LOCATE EDITS BY ANCHOR TEXT ... NOT BY LINE NUMBER"
+        ))
+
+    def test_crosses_newlines(self):
+        from cai_lib.actions.plan import _plan_has_anchor_mitigation
+        plan = (
+            "Locate edits by anchor text in each file,\n"
+            "and do not rely on absolute line numbers "
+            "- not by line number.\n"
+        )
+        self.assertTrue(_plan_has_anchor_mitigation(plan))
+
+    def test_missing_marker_returns_false(self):
+        from cai_lib.actions.plan import _plan_has_anchor_mitigation
+        self.assertFalse(_plan_has_anchor_mitigation(""))
+        self.assertFalse(_plan_has_anchor_mitigation(None))
+        self.assertFalse(_plan_has_anchor_mitigation(
+            "plan body with no marker at all"
+        ))
+
+    def test_partial_marker_returns_false(self):
+        from cai_lib.actions.plan import _plan_has_anchor_mitigation
+        # Only one half of the phrase — must not trigger the override.
+        self.assertFalse(_plan_has_anchor_mitigation(
+            "locate edits by anchor text only"
+        ))
+        self.assertFalse(_plan_has_anchor_mitigation(
+            "do not use line numbers"
+        ))
+
+
 if __name__ == "__main__":
     unittest.main()

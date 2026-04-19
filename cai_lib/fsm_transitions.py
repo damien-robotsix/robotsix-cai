@@ -129,6 +129,21 @@ ISSUE_TRANSITIONS: list[Transition] = [
     # planned_to_human transition covers the explicit "needs human" case.
     Transition("planned_to_plan_approved",   IssueState.PLANNED,           IssueState.PLAN_APPROVED,
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_PLAN_APPROVED]),
+    # Anchor-mitigation relaxation (#918): same label move as
+    # planned_to_plan_approved, but accepts MEDIUM confidence.
+    # handle_plan_gate (cai_lib.actions.plan) picks this transition
+    # only when the selected plan text carries an explicit anchor-
+    # based risk-mitigation note (the phrase
+    # "locate edits by anchor text ... not by line number"), which
+    # signals that the only residual risks are implementation-detail
+    # (line-number drift, fence escaping, cosmetic wording) and that
+    # the fix agent has been instructed to Read first and anchor on
+    # surrounding text rather than line numbers. Plans without the
+    # marker go through the default HIGH-threshold transition and
+    # MEDIUM still diverts them.
+    Transition("planned_to_plan_approved_mitigated", IssueState.PLANNED,   IssueState.PLAN_APPROVED,
+               labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_PLAN_APPROVED],
+               min_confidence=Confidence.MEDIUM),
     Transition("planned_to_human",           IssueState.PLANNED,           IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_HUMAN_NEEDED]),
 
