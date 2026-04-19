@@ -39,7 +39,13 @@ from cai_lib.fsm import (
     resume_transition_for,
     resume_pr_transition_for,
 )
-from cai_lib.github import _gh_json, _set_pr_labels, close_issue_completed
+from cai_lib.github import (
+    _gh_json,
+    _set_pr_labels,
+    close_issue_completed,
+    blocking_issue_numbers,
+    open_blockers,
+)
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run_claude_p
 
@@ -81,9 +87,12 @@ def _list_human_needed_issues() -> list[dict]:
     Passing ``--label`` twice to ``gh issue list`` ANDs the filters, so
     we only get issues that carry BOTH labels. Everything else stays
     parked and is ignored by this pass.
+
+    Issues whose ``blocked-on:<N>`` blockers are still open are excluded —
+    even admin-driven unblock respects the dependency ordering.
     """
     try:
-        return _gh_json([
+        candidates = _gh_json([
             "issue", "list",
             "--repo", REPO,
             "--label", LABEL_HUMAN_NEEDED,
@@ -98,6 +107,22 @@ def _list_human_needed_issues() -> list[dict]:
             file=sys.stderr,
         )
         return []
+
+    out: list[dict] = []
+    _blocker_cache: dict[int, bool] = {}
+    for issue in candidates:
+        blockers = blocking_issue_numbers(issue.get("labels", []))
+        if blockers:
+            open_set = open_blockers(blockers, cache=_blocker_cache)
+            if open_set:
+                print(
+                    f"[cai unblock] #{issue['number']}: blocked on open "
+                    f"{sorted(open_set)} — skipping",
+                    flush=True,
+                )
+                continue
+        out.append(issue)
+    return out
 
 
 def _extract_admin_comments(issue: dict) -> list[dict]:
@@ -290,9 +315,12 @@ def _list_pr_human_needed_prs() -> list[dict]:
     Returns open PRs carrying BOTH ``auto-improve:pr-human-needed`` and
     ``human:solved``. PRs lacking ``human:solved`` stay parked and are
     ignored by this pass.
+
+    PRs whose ``blocked-on:<N>`` blockers are still open are excluded —
+    even admin-driven unblock respects the dependency ordering.
     """
     try:
-        return _gh_json([
+        candidates = _gh_json([
             "pr", "list",
             "--repo", REPO,
             "--label", LABEL_PR_HUMAN_NEEDED,
@@ -307,6 +335,22 @@ def _list_pr_human_needed_prs() -> list[dict]:
             file=sys.stderr,
         )
         return []
+
+    out: list[dict] = []
+    _blocker_cache: dict[int, bool] = {}
+    for pr in candidates:
+        blockers = blocking_issue_numbers(pr.get("labels", []))
+        if blockers:
+            open_set = open_blockers(blockers, cache=_blocker_cache)
+            if open_set:
+                print(
+                    f"[cai unblock] PR #{pr['number']}: blocked on open "
+                    f"{sorted(open_set)} — skipping",
+                    flush=True,
+                )
+                continue
+        out.append(pr)
+    return out
 
 
 def _try_unblock_pr(pr: dict) -> Optional[str]:
