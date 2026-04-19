@@ -49,6 +49,26 @@ The user message contains:
 ## Hard rules
 
 1. **Read-only.** Do not modify any files — only read and plan.
+2. **Verbatim Edit/Write content — no prose placeholders.** Every
+   plan step that calls for an `Edit` or `Write` MUST include the
+   **exact final text** the fix agent will emit — either the full
+   file body (for `Write`) or both `old_string` and `new_string`
+   literals (for `Edit`). Prose summaries such as "rewritten
+   docstring keeping only the surviving paragraphs", "update the
+   config block to use the new schema", or "remove the outdated
+   paragraphs and tighten the wording" are **forbidden** — they
+   force the fix agent to improvise and drop plan confidence from
+   HIGH to MEDIUM at the `cai-select` gate (see issue #910 for a
+   textbook divert caused by exactly this pattern). Before you
+   emit the plan, run this **self-check on every step**:
+   > Does this Edit/Write step contain the literal output the fix
+   > agent will type, or only a prose description of it?
+   If the answer is "prose description", rewrite the step to
+   include the literal text inside a fenced code block. If a
+   verbatim block would be prohibitively long (e.g. a full-file
+   rewrite of a >500-line file), split the `Write` into a
+   sequence of targeted `Edit`s, each with literal `old_string` /
+   `new_string` pairs.
 
 ## Agent-specific efficiency guidance
 
@@ -78,7 +98,10 @@ Produce your plan in exactly this structure:
 - **`path/to/file`**: <what to change and why>
 
 ### Detailed steps
-1. <step 1 — be specific: name the function, the line range, the exact change>
+1. <step 1 — be specific: name the function, the line range, the
+   exact change. For any Edit/Write step, include the literal
+   final text inside a fenced code block; prose placeholders such
+   as "rewritten docstring" or "updated config" are forbidden.>
 2. <step 2>
 ...
 
