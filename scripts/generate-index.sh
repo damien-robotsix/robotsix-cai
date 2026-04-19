@@ -137,6 +137,7 @@ declare -A DESCRIPTIONS=(
   ["tests/test_multistep.py"]="Tests for multi-step plan support"
   ["tests/test_parse.py"]="Tests for parse.py signal extraction"
   ["tests/test_publish.py"]="Tests for publish.py issue publishing"
+  ["tests/test_rollback.py"]="Tests for rollback functionality"
   ["tests/test_transcript_sync.py"]="Tests for cai_lib.transcript_sync — no-op path, parse_source fallback, repo slug"
 )
 

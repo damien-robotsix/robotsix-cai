@@ -7,6 +7,7 @@ source for the symbols listed below; ``cai.py`` still contains the remaining
 
 Re-exported at the package level so that:
 
+  import cai_lib as cai          # test_rollback.py compatibility
   from cai_lib import X          # test_multistep.py and future callers
 """
 
