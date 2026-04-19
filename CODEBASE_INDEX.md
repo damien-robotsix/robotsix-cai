@@ -141,7 +141,6 @@
 | `tests/test_rescue_opus.py` | Tests for cai_lib.cmd_rescue — Opus-escalation verdict plumbing, schema, and one-shot label guard |
 | `tests/test_retroactive_sweep.py` | TODO: add description |
 | `tests/test_revise_filter.py` | TODO: add description |
-| `tests/test_rollback.py` | Tests for rollback functionality |
 | `tests/test_subprocess_utils.py` | TODO: add description |
 | `tests/test_transcript_sync.py` | Tests for cai_lib.transcript_sync — no-op path, parse_source fallback, repo slug |
 | `tests/test_unblock.py` | Tests for cai_lib.cmd_unblock — admin-comment filtering and agent input formatting |
