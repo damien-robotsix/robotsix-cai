@@ -4,7 +4,10 @@ import time
 
 from cai_lib.config import *  # noqa: E402,F403
 from cai_lib.github import _gh_json, _set_labels
-from cai_lib.watchdog import _rollback_stale_in_progress
+from cai_lib.watchdog import (
+    _rollback_stale_in_progress,
+    _rollback_stale_pr_locks,
+)
 from cai_lib.dispatcher import dispatch_drain
 from cai_lib.logging_utils import log_run
 
@@ -76,12 +79,21 @@ def cmd_cycle(args) -> int:
                 _healed.add(_num)
 
     # Phase 1: restart recovery — force-rollback any stuck locks left
-    # behind by a previous run that crashed mid-handler.
+    # behind by a previous run that crashed mid-handler. Covers both
+    # issue-side FSM/ownership locks and PR-side ownership locks.
     rolled_back = _rollback_stale_in_progress(immediate=True)
     if rolled_back:
         nums = ", ".join(f"#{i['number']}" for i in rolled_back)
         print(f"[cai cycle] recovered {len(rolled_back)} stale lock(s): {nums}",
               flush=True)
+    rolled_back_prs = _rollback_stale_pr_locks(immediate=True)
+    if rolled_back_prs:
+        nums = ", ".join(f"#{p['number']}" for p in rolled_back_prs)
+        print(
+            f"[cai cycle] recovered {len(rolled_back_prs)} stale PR lock(s): "
+            f"{nums}",
+            flush=True,
+        )
 
     # Phase 2: dispatch a single actionable issue/PR via the FSM dispatcher.
     # Note: :applied → :solved bookkeeping is handled by handle_applied in

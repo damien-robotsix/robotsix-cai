@@ -210,5 +210,94 @@ class TestRollbackStaleInProgress(unittest.TestCase):
                          "must NOT be rolled back")
 
 
+def _make_pr(number, label, age_hours):
+    """Build a minimal fake PR dict with updatedAt set to age_hours ago."""
+    updated = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+    return {
+        "number": number,
+        "title": f"Test PR {number}",
+        "updatedAt": updated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "createdAt": updated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "labels": [{"name": label}],
+    }
+
+
+class TestRollbackStalePrLocks(unittest.TestCase):
+
+    def _run_pr_rollback(self, immediate, prs, set_pr_labels_mock=None):
+        """Run _rollback_stale_pr_locks with mocked gh + label calls."""
+
+        def fake_gh_json(args, **kwargs):
+            # Cai-lock claim comment scan — return empty list.
+            if args and args[0] == "api":
+                return []
+            # gh pr list --label ... → return the seeded PRs.
+            if args and args[0] == "pr" and args[1] == "list":
+                return prs
+            return []
+
+        spl = (set_pr_labels_mock if set_pr_labels_mock is not None
+               else MagicMock(return_value=True))
+
+        with patch("cai_lib.watchdog._gh_json", side_effect=fake_gh_json), \
+             patch("cai_lib.watchdog._set_pr_labels", spl), \
+             patch("cai_lib.watchdog._delete_issue_comment", return_value=True), \
+             patch("cai_lib.watchdog.log_run"):
+            return cai._rollback_stale_pr_locks(immediate=immediate)
+
+    def test_stale_pr_lock_rolled_back(self):
+        """A PR older than _STALE_LOCKED_HOURS gets its :locked stripped."""
+        pr = _make_pr(901, cai.LABEL_LOCKED,
+                      age_hours=cai._STALE_LOCKED_HOURS + 0.5)
+        spl_mock = MagicMock(return_value=True)
+        result = self._run_pr_rollback(
+            immediate=False, prs=[pr], set_pr_labels_mock=spl_mock,
+        )
+        nums = {p["number"] for p in result}
+        self.assertIn(
+            901, nums,
+            f"{cai._STALE_LOCKED_HOURS + 0.5}h-old :locked PR should be "
+            f"rolled back (TTL={cai._STALE_LOCKED_HOURS}h)",
+        )
+        # Verify _set_pr_labels was called with remove=[LABEL_LOCKED] and
+        # no add=.
+        called = False
+        for call in spl_mock.call_args_list:
+            kwargs = call.kwargs
+            if kwargs.get("remove") == [cai.LABEL_LOCKED]:
+                called = True
+                self.assertFalse(
+                    kwargs.get("add"),
+                    "watchdog must not add an FSM state label when "
+                    "rolling back :locked on a PR",
+                )
+        self.assertTrue(
+            called,
+            "watchdog must call _set_pr_labels with remove=[LABEL_LOCKED]",
+        )
+
+    def test_fresh_pr_lock_not_rolled_back(self):
+        """PRs within _STALE_LOCKED_HOURS must NOT be rolled back."""
+        pr = _make_pr(902, cai.LABEL_LOCKED,
+                      age_hours=cai._STALE_LOCKED_HOURS / 2)
+        result = self._run_pr_rollback(immediate=False, prs=[pr])
+        nums = {p["number"] for p in result}
+        self.assertNotIn(
+            902, nums,
+            f"fresh :locked PR (age < {cai._STALE_LOCKED_HOURS}h) must NOT "
+            "be rolled back",
+        )
+
+    def test_immediate_true_rolls_back_fresh_pr(self):
+        """immediate=True must roll back even fresh :locked PRs (restart)."""
+        pr = _make_pr(903, cai.LABEL_LOCKED, age_hours=0.01)
+        result = self._run_pr_rollback(immediate=True, prs=[pr])
+        nums = {p["number"] for p in result}
+        self.assertIn(
+            903, nums,
+            "immediate=True must roll back :locked PRs regardless of age",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
