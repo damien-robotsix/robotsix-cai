@@ -47,6 +47,23 @@ State transitions between these rows are rendered in [the lifecycle FSM diagram]
 | `PR_HUMAN_NEEDED` | [`handle_pr_human_needed`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/cmd_unblock.py) | `cai-unblock` (only when `human:solved` present) |
 | `MERGED` | *terminal* | *(no handler)* |
 
+## Audit agents
+
+Agents under `.claude/agents/audit/` write their output to
+`findings.json` for later conversion into `auto-improve:raised`
+issues. They are either cron-scheduled, on-demand, or inline
+helpers; none correspond to an FSM issue/PR state transition
+except `cai-confirm` (MERGED).
+
+| Agent | Trigger | Description |
+|---|---|---|
+| `cai-agent-audit` | Weekly cron | Audits `.claude/agents/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. |
+| `cai-analyze` | Cron | Analyzes parsed signals from the cai container's own Claude Code session transcripts and raises code/prompt/workflow findings. |
+| `cai-audit` | Cron | Audits the GitHub issue queue, recent PRs, and log tail for inconsistencies in the auto-improve FSM. Findings are duplicate-filtered via `cai-dup-check` at publish time. |
+| `cai-audit-cost-reduction` | On-demand | Runs a cost-reduction audit on a single `robotsix-cai` module — analyzes agent token/dollar spend and proposes concrete savings. |
+| `cai-code-audit` | Weekly cron | Audits the `robotsix-cai` source tree for concrete inconsistencies, dead code, and missing cross-file references. |
+| `cai-confirm` | PR-solved (MERGED) | INTERNAL — Verifies that each `auto-improve:merged` issue is actually resolved by checking the merged PR's diff against the issue's remediation. |
+
 ## Agent catalog
 
 | Agent | Description | Tools | Model | Lifecycle trigger | Mode |
