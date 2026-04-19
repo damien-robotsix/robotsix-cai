@@ -103,6 +103,7 @@
 | `docs/configuration.md` | Documentation: environment variables and configuration |
 | `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
 | `docs/index.md` | Documentation site landing page |
+| `docs/modules.yaml` | TODO: add description |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
 | `install.sh` | Interactive installer for end-users |
 | `parse.py` | Wrapper shim — real implementation in cai_lib/parse.py |
@@ -113,6 +114,7 @@
 | `scripts/server-cleanup.sh` | Server-side age/size cleanup for the transcript-sync store (runs on the OVH box, not in the container) |
 | `tests/__init__.py` | Test package init |
 | `tests/test_agent_staging.py` | TODO: add description |
+| `tests/test_audit_modules.py` | TODO: add description |
 | `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
