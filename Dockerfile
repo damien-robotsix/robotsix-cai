@@ -1,9 +1,10 @@
 # Phase A — first runnable container.
 #
 # Base image is python:3.12-slim. Node.js is installed via apt so we can
-# install the @anthropic-ai/claude-code CLI globally. The backend itself
-# is plain Python (stdlib only at this stage) and shells out to `claude -p`
-# in autonomous mode.
+# install the @anthropic-ai/claude-code CLI globally. The backend is plain
+# Python; runtime dependencies are declared in pyproject.toml's
+# [project].dependencies and installed via `pip install` after the clone
+# step below. It shells out to `claude -p` in autonomous mode.
 
 FROM python:3.12-slim
 
@@ -136,5 +137,18 @@ RUN git clone "${CAI_GIT_URL}" /app \
     && git -C /app checkout "${CAI_GIT_REF}" \
     && chmod +x /app/entrypoint.sh \
     && mkdir -p /app/.claude/agent-memory/shared
+
+# Install Python runtime dependencies declared in pyproject.toml.
+# We install system-wide (as root) rather than per-user so the cai user
+# and any future root-invoked scripts both pick them up from site-packages.
+# The project itself is not installed — cai.py runs directly from /app —
+# so we extract the dependencies list and feed it to pip via a requirements
+# file, keeping pyproject.toml as the single source of truth.
+USER root
+RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('/app/pyproject.toml','rb'))['project']['dependencies']))" \
+        > /tmp/requirements.txt \
+    && pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+USER cai
 
 CMD ["/app/entrypoint.sh"]
