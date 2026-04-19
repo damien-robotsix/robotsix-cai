@@ -32,7 +32,7 @@
 | `.claude/agents/ops/cai-update-check.md` | TODO: add description |
 | `.claude/agents/review/cai-comment-filter.md` | TODO: add description |
 | `.claude/agents/review/cai-merge.md` | TODO: add description |
-| `.claude/agents/review/cai-review-docs.md` | TODO: add description |
+| `.claude/agents/review/cai-review-docs.md` | Agent: pre-merge documentation review for an open PR. Checks whether changes to user-facing behavior, CLI interface, configuration, or architecture require updates to files in /docs, and directly fixes any stale documentation it finds. Also owns docs/modules.yaml and docs/modules/<name>.md — keeps the module index and narratives in sync whenever a PR adds, renames, or deletes tracked source files. |
 | `.claude/agents/review/cai-review-pr.md` | TODO: add description |
 | `.claude/agents/utility/cai-cost-optimize.md` | TODO: add description |
 | `.claude/agents/utility/cai-external-scout.md` | TODO: add description |
