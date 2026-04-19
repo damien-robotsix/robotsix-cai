@@ -78,15 +78,18 @@ def cmd_cycle(args) -> int:
                     )
                 _healed.add(_num)
 
-    # Phase 1: restart recovery — force-rollback any stuck locks left
-    # behind by a previous run that crashed mid-handler. Covers both
-    # issue-side FSM/ownership locks and PR-side ownership locks.
-    rolled_back = _rollback_stale_in_progress(immediate=True)
+    # Phase 1: TTL-based stale-lock sweep — rolls back only locks that
+    # have exceeded their configured TTL (_STALE_LOCKED_HOURS etc.).
+    # NOTE: immediate=True is NOT used here; that path bypasses TTLs and
+    # is reserved for explicit container-restart recovery where every
+    # in-flight lock is guaranteed orphaned.  Normal cron ticks must use
+    # TTL-based detection so live handlers are not killed.
+    rolled_back = _rollback_stale_in_progress()
     if rolled_back:
         nums = ", ".join(f"#{i['number']}" for i in rolled_back)
         print(f"[cai cycle] recovered {len(rolled_back)} stale lock(s): {nums}",
               flush=True)
-    rolled_back_prs = _rollback_stale_pr_locks(immediate=True)
+    rolled_back_prs = _rollback_stale_pr_locks()
     if rolled_back_prs:
         nums = ", ".join(f"#{p['number']}" for p in rolled_back_prs)
         print(
