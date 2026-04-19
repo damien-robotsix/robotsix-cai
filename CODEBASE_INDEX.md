@@ -30,9 +30,9 @@
 | `.claude/agents/ops/cai-check-workflows.md` | Agent: analyze recent GitHub Actions workflow failures and emit structured findings |
 | `.claude/agents/ops/cai-maintain.md` | Agent: apply approved maintenance ops — runs IaC/config changes and reports Confidence |
 | `.claude/agents/ops/cai-update-check.md` | Agent: check for new Claude Code releases |
-| `.claude/agents/review/cai-comment-filter.md` | Agent: inline haiku that classifies PR comments as resolved or unresolved |
+| `.claude/agents/review/cai-comment-filter.md` | Agent: inline-only haiku agent that classifies PR comments as resolved or unresolved |
 | `.claude/agents/review/cai-merge.md` | Agent: assess PR correctness and emit merge verdict |
-| `.claude/agents/review/cai-review-docs.md` | Agent: pre-merge documentation review for an open PR. Checks whether changes to user-facing behavior, CLI interface, configuration, or architecture require updates to files in /docs, and directly fixes any stale documentation it finds. Also owns docs/modules.yaml and docs/modules/<name>.md — keeps the module index and narratives in sync whenever a PR adds, renames, or deletes tracked source files. |
+| `.claude/agents/review/cai-review-docs.md` | Agent: pre-merge documentation review |
 | `.claude/agents/review/cai-review-pr.md` | Agent: pre-merge ripple-effect review |
 | `.claude/agents/utility/cai-cost-optimize.md` | Agent: weekly cost-reduction analysis |
 | `.claude/agents/utility/cai-external-scout.md` | Agent: weekly scout for open-source libraries that could replace in-house plumbing |
