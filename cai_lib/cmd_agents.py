@@ -32,7 +32,10 @@ from cai_lib.github import (
     _gh_json, _set_labels, close_issue_not_planned, _recover_stale_pr_open,
     _close_orphaned_prs,
 )
-from cai_lib.watchdog import _rollback_stale_in_progress
+from cai_lib.watchdog import (
+    _rollback_stale_in_progress,
+    _rollback_stale_pr_locks,
+)
 from cai_lib.cmd_helpers import _work_directory_block
 from cai_lib import transcript_sync
 
@@ -658,6 +661,18 @@ def cmd_audit(args) -> int:
 
     # Step 1: Deterministic rollback of stale :in-progress issues.
     rolled_back = _rollback_stale_in_progress()
+
+    # Step 1a: Same TTL-based sweep for PR-side :locked stragglers. The
+    # issue-side helper only lists `gh issue list`, so PRs whose
+    # dispatcher crashed mid-handler would otherwise strand the
+    # ownership lock until manual cleanup.
+    rolled_back_pr_locks = _rollback_stale_pr_locks()
+    if rolled_back_pr_locks:
+        nums = ", ".join(f"#{p['number']}" for p in rolled_back_pr_locks)
+        print(
+            f"[cai audit] cleared stale :locked on PRs: {nums}",
+            flush=True,
+        )
 
     # Step 1b: Delete orphaned auto-improve/* branches with no open PR
     #           (covers merged/closed-PR branches and branches with no PR at all).

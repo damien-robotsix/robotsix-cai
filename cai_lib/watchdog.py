@@ -28,7 +28,12 @@ from cai_lib.config import (
     _STALE_APPLYING_HOURS,
     _STALE_LOCKED_HOURS,
 )
-from cai_lib.github import _gh_json, _set_labels, _delete_issue_comment
+from cai_lib.github import (
+    _gh_json,
+    _set_labels,
+    _set_pr_labels,
+    _delete_issue_comment,
+)
 from cai_lib.logging_utils import log_run
 
 
@@ -182,5 +187,105 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
                     f"(removed {lock_label}, stale {age / 3600:.1f}h)",
                     flush=True,
                 )
+
+    return rolled_back
+
+
+def _rollback_stale_pr_locks(*, immediate: bool = False) -> list[dict]:
+    """PR-side counterpart for stale ``auto-improve:locked`` cleanup.
+
+    The issue-side :func:`_rollback_stale_in_progress` only queries
+    ``gh issue list``, so PRs whose dispatcher crashed mid-handler can
+    strand the ownership lock indefinitely — there is no TTL sweep and
+    no restart sweep for them. This helper closes that gap: it lists
+    open PRs carrying ``LABEL_LOCKED``, and for each one older than
+    ``_STALE_LOCKED_HOURS`` (or every one when ``immediate=True``), it
+    strips the label and deletes any ``<!-- cai-lock ... -->`` claim
+    comments. The FSM pipeline label (``pr:reviewing-code`` etc.) is
+    orthogonal and left untouched — only the ownership lock is cleared.
+
+    Returns the list of PRs that were rolled back.
+    """
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--label", LABEL_LOCKED,
+            "--state", "open",
+            "--json", "number,title,updatedAt,createdAt,labels",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai audit] gh pr list ({LABEL_LOCKED}) failed:\n{e.stderr}",
+            file=sys.stderr,
+        )
+        return []
+
+    if not prs:
+        return []
+
+    now = datetime.now(timezone.utc).timestamp()
+    threshold = 0 if immediate else _STALE_LOCKED_HOURS * 3600
+    rolled_back: list[dict] = []
+
+    for pr in prs:
+        pr_num = pr["number"]
+        # No PR-side log-marker parsing (unlike the issue rollback which
+        # scans [fix]/[revise]/[maintain] lines). The PR dispatcher spans
+        # many action markers ([rebase], [fix-ci], [merge], [review_docs],
+        # …) keyed by pr=<N>, and :locked is a brief ownership window —
+        # falling back to updatedAt mirrors how the issue path falls back
+        # when no log line is found, and the short _STALE_LOCKED_HOURS
+        # TTL bounds any over-extension from a stray comment.
+        try:
+            updated = datetime.strptime(
+                pr["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc).timestamp()
+        except (ValueError, KeyError):
+            updated = 0
+        age = now - updated
+
+        if age <= threshold:
+            continue
+
+        ok = _set_pr_labels(
+            pr_num,
+            remove=[LABEL_LOCKED],
+            log_prefix="cai audit",
+        )
+        if not ok:
+            continue
+
+        # Delete this PR's cai-lock claim comments, if any. Same endpoint
+        # as the issue path — GitHub posts PR-level issue comments at
+        # /repos/.../issues/<N>/comments.
+        try:
+            comments = _gh_json([
+                "api", f"/repos/{REPO}/issues/{pr_num}/comments",
+                "--paginate",
+            ]) or []
+        except subprocess.CalledProcessError:
+            comments = []
+        for c in comments:
+            body = c.get("body", "") or ""
+            if CAI_LOCK_COMMENT_RE.search(body):
+                cid = c.get("id")
+                if cid is not None:
+                    _delete_issue_comment(int(cid), log_prefix="cai audit")
+
+        rolled_back.append(pr)
+        log_run(
+            "audit",
+            action="stale_lock_rollback",
+            pr=pr_num,
+            lock_label=LABEL_LOCKED,
+            stale_hours=f"{age / 3600:.1f}",
+        )
+        print(
+            f"[cai audit] rolled back PR #{pr_num} "
+            f"(removed {LABEL_LOCKED}, stale {age / 3600:.1f}h)",
+            flush=True,
+        )
 
     return rolled_back

@@ -83,7 +83,10 @@ from cai_lib.github import (
     _build_implement_user_message,
 )
 
-from cai_lib.watchdog import _rollback_stale_in_progress
+from cai_lib.watchdog import (
+    _rollback_stale_in_progress,
+    _rollback_stale_pr_locks,
+)
 
 from cai_lib.cmd_implement import _parse_decomposition
 
@@ -122,6 +125,7 @@ __all__ = [
     "_set_labels", "_issue_has_label", "_build_issue_block", "_build_implement_user_message",
     # watchdog
     "_rollback_stale_in_progress",
+    "_rollback_stale_pr_locks",
     # cmd_implement
     "_parse_decomposition",
     # fsm
