@@ -89,7 +89,7 @@
 | `cai_lib/fsm_states.py` | FSM state enums — IssueState and PRState that represent the auto-improve pipeline states |
 | `cai_lib/fsm_transitions.py` | FSM transition data and logic — Transition dataclass, transition lists (ISSUE_TRANSITIONS, PR_TRANSITIONS), and apply/query functions |
 | `cai_lib/github.py` | GitHub/gh CLI helpers and shared label utilities |
-| `cai_lib/issues.py` | TODO: add description |
+| `cai_lib/issues.py` | GitHub issue and sub-issue helpers — manages native sub-issues API and migration from convention-based tracking |
 | `cai_lib/logging_utils.py` | Logging utilities extracted from cai.py |
 | `cai_lib/parse.py` | Deterministic signal extractor from Claude Code JSONL transcripts |
 | `cai_lib/publish.py` | GitHub issue publisher with fingerprint dedup |
