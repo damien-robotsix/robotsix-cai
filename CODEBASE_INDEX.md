@@ -5,39 +5,39 @@
 
 | File | Purpose |
 |------|---------|
-| `.claude/agents/audit/cai-agent-audit.md` | TODO: add description |
-| `.claude/agents/audit/cai-analyze.md` | TODO: add description |
+| `.claude/agents/audit/cai-agent-audit.md` | Agent: weekly audit of .claude/agents/*.md for best-practice violations and unused agents |
+| `.claude/agents/audit/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
 | `.claude/agents/audit/cai-audit-code-reduction.md` | Agent: on-demand code-reduction audit for a module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers, and writes findings to findings.json |
 | `.claude/agents/audit/cai-audit-cost-reduction.md` | Agent: on-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings |
 | `.claude/agents/audit/cai-audit-workflow-enhancement.md` | Agent: on-demand workflow-enhancement audit for a module — identifies recurring inefficiencies in agent workflows and proposes targeted remediations |
-| `.claude/agents/audit/cai-audit.md` | TODO: add description |
-| `.claude/agents/audit/cai-code-audit.md` | TODO: add description |
-| `.claude/agents/audit/cai-confirm.md` | TODO: add description |
-| `.claude/agents/implementation/cai-fix-ci.md` | TODO: add description |
-| `.claude/agents/implementation/cai-implement.md` | TODO: add description |
-| `.claude/agents/implementation/cai-plan.md` | TODO: add description |
-| `.claude/agents/implementation/cai-rebase.md` | TODO: add description |
-| `.claude/agents/implementation/cai-revise.md` | TODO: add description |
-| `.claude/agents/implementation/cai-select.md` | TODO: add description |
-| `.claude/agents/lifecycle/cai-dup-check.md` | TODO: add description |
-| `.claude/agents/lifecycle/cai-explore.md` | TODO: add description |
-| `.claude/agents/lifecycle/cai-propose-review.md` | TODO: add description |
-| `.claude/agents/lifecycle/cai-propose.md` | TODO: add description |
-| `.claude/agents/lifecycle/cai-refine.md` | TODO: add description |
-| `.claude/agents/lifecycle/cai-rescue.md` | TODO: add description |
-| `.claude/agents/lifecycle/cai-triage.md` | TODO: add description |
-| `.claude/agents/lifecycle/cai-unblock.md` | TODO: add description |
-| `.claude/agents/ops/cai-check-workflows.md` | TODO: add description |
-| `.claude/agents/ops/cai-maintain.md` | TODO: add description |
-| `.claude/agents/ops/cai-update-check.md` | TODO: add description |
-| `.claude/agents/review/cai-comment-filter.md` | TODO: add description |
-| `.claude/agents/review/cai-merge.md` | TODO: add description |
+| `.claude/agents/audit/cai-audit.md` | Agent: audit issue queue and lifecycle state machine |
+| `.claude/agents/audit/cai-code-audit.md` | Agent: read-only source tree audit for inconsistencies and dead code |
+| `.claude/agents/audit/cai-confirm.md` | Agent: verify merged PRs actually resolved their issues |
+| `.claude/agents/implementation/cai-fix-ci.md` | Agent: diagnose and fix failing CI checks on auto-improve PRs |
+| `.claude/agents/implementation/cai-implement.md` | Agent: autonomous code-editing subagent for code-editing tasks |
+| `.claude/agents/implementation/cai-plan.md` | Agent: generate detailed fix plan for an issue |
+| `.claude/agents/implementation/cai-rebase.md` | Agent: rebase-only conflict resolution |
+| `.claude/agents/implementation/cai-revise.md` | Agent: handle review comments on auto-improve PRs |
+| `.claude/agents/implementation/cai-select.md` | Agent: evaluate and select best fix plan |
+| `.claude/agents/lifecycle/cai-dup-check.md` | Agent: cheap haiku pre-check for duplicate / already-resolved issues |
+| `.claude/agents/lifecycle/cai-explore.md` | Agent: autonomous exploration and benchmarking |
+| `.claude/agents/lifecycle/cai-propose-review.md` | Agent: review creative proposals for feasibility |
+| `.claude/agents/lifecycle/cai-propose.md` | Agent: weekly creative improvement proposals |
+| `.claude/agents/lifecycle/cai-refine.md` | Agent: rewrite human-filed issues into structured plans |
+| `.claude/agents/lifecycle/cai-rescue.md` | Agent: autonomously resume :human-needed issues without admin input (Opus); optionally proposes a prevention finding |
+| `.claude/agents/lifecycle/cai-triage.md` | Agent: triage `auto-improve:raised` issues one at a time — classify as REFINE, PLAN_APPROVE, APPLY, or HUMAN. Inline-only — full issue body is provided in the user message. No tool use needed. |
+| `.claude/agents/lifecycle/cai-unblock.md` | Agent: classify admin comments on :human-needed issues into FSM resume targets |
+| `.claude/agents/ops/cai-check-workflows.md` | Agent: analyze recent GitHub Actions workflow failures and emit structured findings |
+| `.claude/agents/ops/cai-maintain.md` | Agent: apply approved maintenance ops — runs IaC/config changes and reports Confidence |
+| `.claude/agents/ops/cai-update-check.md` | Agent: check for new Claude Code releases |
+| `.claude/agents/review/cai-comment-filter.md` | Agent: inline haiku that classifies PR comments as resolved or unresolved |
+| `.claude/agents/review/cai-merge.md` | Agent: assess PR correctness and emit merge verdict |
 | `.claude/agents/review/cai-review-docs.md` | Agent: pre-merge documentation review for an open PR. Checks whether changes to user-facing behavior, CLI interface, configuration, or architecture require updates to files in /docs, and directly fixes any stale documentation it finds. Also owns docs/modules.yaml and docs/modules/<name>.md — keeps the module index and narratives in sync whenever a PR adds, renames, or deletes tracked source files. |
-| `.claude/agents/review/cai-review-pr.md` | TODO: add description |
-| `.claude/agents/utility/cai-cost-optimize.md` | TODO: add description |
-| `.claude/agents/utility/cai-external-scout.md` | TODO: add description |
-| `.claude/agents/utility/cai-git.md` | TODO: add description |
-| `.claude/agents/utility/cai-memorize.md` | TODO: add description |
+| `.claude/agents/review/cai-review-pr.md` | Agent: pre-merge ripple-effect review |
+| `.claude/agents/utility/cai-cost-optimize.md` | Agent: weekly cost-reduction analysis |
+| `.claude/agents/utility/cai-external-scout.md` | Agent: weekly scout for open-source libraries that could replace in-house plumbing |
+| `.claude/agents/utility/cai-git.md` | Agent: lightweight git operations subagent |
+| `.claude/agents/utility/cai-memorize.md` | Agent: post-solved memory curator for cross-cutting design decisions |
 | `.claude/settings.json` | Claude Code harness configuration |
 | `.env.example` | Template for required environment variables |
 | `.github/workflows/admin-only-label.yml` | CI: restrict auto-improve:requested label to admins |
@@ -105,19 +105,30 @@
 | `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
 | `docs/index.md` | Documentation site landing page |
 | `docs/modules.yaml` | Module registry schema — audit-refactor step 1.1, defines logical groupings of tracked files |
-| `docs/modules/agents.md` | Module narrative — describes the agents module (declarative subagent definitions under .claude/agents/) |
-| `docs/modules/cai-lib.md` | Module narrative — describes the cai-lib module (FSM, dispatcher, actions, and shared helpers) |
-| `docs/modules/container.md` | Module narrative — describes the container module (Dockerfile, Compose, installer, entrypoint, config templates) |
-| `docs/modules/dispatcher-cli.md` | Module narrative — describes the dispatcher-cli module (cai.py main CLI and root-level shims) |
-| `docs/modules/docs-site.md` | Module narrative — describes the docs-site module (user-facing docs, README, CODEBASE_INDEX, module index) |
+| `docs/modules/actions.md` | Module narrative — per-state FSM action handlers for issue/PR lifecycle management |
+| `docs/modules/agents-config.md` | Module narrative — Claude Code harness configuration (settings, permissions, hooks, env vars) |
+| `docs/modules/agents-implementation.md` | Module narrative — plan, select, implement, revise, rebase, and fix-ci subagents |
+| `docs/modules/agents-lifecycle.md` | Module narrative — triage, refine, propose, explore, dup-check, rescue, and unblock subagents |
+| `docs/modules/agents-ops.md` | Module narrative — scheduled workflow-failure check, maintenance runner, and release checker subagents |
+| `docs/modules/agents-review.md` | Module narrative — ripple-effect review, docs review, merge-readiness, and PR-comment filtering subagents |
+| `docs/modules/agents-utility.md` | Module narrative — memory curator, git runner, cost optimiser, and external-library scout subagents |
+| `docs/modules/audit.md` | Module narrative — audit subsystem covering cost, code, workflow, module, and analysis findings |
+| `docs/modules/cli.md` | Module narrative — top-level CLI dispatcher and subcommand implementations |
+| `docs/modules/config.md` | Module narrative — shared infrastructure utilities (constants, logging, subprocess, watchdog) |
+| `docs/modules/docs.md` | Module narrative — user-facing prose documentation, README, license, and module registry |
+| `docs/modules/fsm.md` | Module narrative — FSM core (state enums, transitions, confidence parsing, diagram generator) |
+| `docs/modules/github-glue.md` | Module narrative — GitHub glue layer (gh CLI wrappers, publishing, dup-check, issue helpers) |
+| `docs/modules/installer.md` | Module narrative — container image, Compose orchestration, installer, entry point, and config templates |
 | `docs/modules/scripts.md` | Module narrative — describes the scripts module (generate-index.sh, generate-fsm-docs.py, server-cleanup.sh) |
 | `docs/modules/tests.md` | Module narrative — describes the tests module (pytest suite covering FSM, dispatcher, handlers, and helpers) |
+| `docs/modules/transcripts.md` | Module narrative — transcript parsing (signal extractor) and cross-host JSONL sync |
 | `docs/modules/workflows.md` | Module narrative — describes the workflows module (GitHub Actions CI/CD workflows) |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
 | `install.sh` | Interactive installer for end-users |
 | `parse.py` | Wrapper shim — real implementation in cai_lib/parse.py |
 | `publish.py` | Wrapper shim — real implementation in cai_lib/publish.py |
 | `pyproject.toml` | Python project configuration (ruff lint settings) |
+| `scripts/check-modules-coverage.py` | Verification script — checks that every tracked file in the repo is matched by exactly one module in docs/modules.yaml |
 | `scripts/generate-fsm-docs.py` | Generator script for docs/fsm.md (renders cai_lib.fsm transitions as Mermaid) |
 | `scripts/generate-index.sh` | Generator script for CODEBASE_INDEX.md |
 | `scripts/server-cleanup.sh` | Server-side age/size cleanup for the transcript-sync store (runs on the OVH box, not in the container) |
