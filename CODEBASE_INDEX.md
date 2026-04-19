@@ -105,23 +105,23 @@
 | `docs/fsm.md` | Auto-generated lifecycle FSM diagrams (issue + PR state machines) |
 | `docs/index.md` | Documentation site landing page |
 | `docs/modules.yaml` | Module registry schema — audit-refactor step 1.1, defines logical groupings of tracked files |
-| `docs/modules/actions.md` | TODO: add description |
-| `docs/modules/agents-config.md` | TODO: add description |
-| `docs/modules/agents-implementation.md` | TODO: add description |
-| `docs/modules/agents-lifecycle.md` | TODO: add description |
-| `docs/modules/agents-ops.md` | TODO: add description |
-| `docs/modules/agents-review.md` | TODO: add description |
-| `docs/modules/agents-utility.md` | TODO: add description |
-| `docs/modules/audit.md` | TODO: add description |
-| `docs/modules/cli.md` | TODO: add description |
-| `docs/modules/config.md` | TODO: add description |
-| `docs/modules/docs.md` | TODO: add description |
-| `docs/modules/fsm.md` | TODO: add description |
-| `docs/modules/github-glue.md` | TODO: add description |
-| `docs/modules/installer.md` | TODO: add description |
+| `docs/modules/actions.md` | Module narrative — per-state FSM action handlers for issue/PR lifecycle management |
+| `docs/modules/agents-config.md` | Module narrative — Claude Code harness configuration (settings, permissions, hooks, env vars) |
+| `docs/modules/agents-implementation.md` | Module narrative — plan, select, implement, revise, rebase, and fix-ci subagents |
+| `docs/modules/agents-lifecycle.md` | Module narrative — triage, refine, propose, explore, dup-check, rescue, and unblock subagents |
+| `docs/modules/agents-ops.md` | Module narrative — scheduled workflow-failure check, maintenance runner, and release checker subagents |
+| `docs/modules/agents-review.md` | Module narrative — ripple-effect review, docs review, merge-readiness, and PR-comment filtering subagents |
+| `docs/modules/agents-utility.md` | Module narrative — memory curator, git runner, cost optimiser, and external-library scout subagents |
+| `docs/modules/audit.md` | Module narrative — audit subsystem covering cost, code, workflow, module, and analysis findings |
+| `docs/modules/cli.md` | Module narrative — top-level CLI dispatcher and subcommand implementations |
+| `docs/modules/config.md` | Module narrative — shared infrastructure utilities (constants, logging, subprocess, watchdog) |
+| `docs/modules/docs.md` | Module narrative — user-facing prose documentation, README, license, and module registry |
+| `docs/modules/fsm.md` | Module narrative — FSM core (state enums, transitions, confidence parsing, diagram generator) |
+| `docs/modules/github-glue.md` | Module narrative — GitHub glue layer (gh CLI wrappers, publishing, dup-check, issue helpers) |
+| `docs/modules/installer.md` | Module narrative — container image, Compose orchestration, installer, entry point, and config templates |
 | `docs/modules/scripts.md` | Module narrative — describes the scripts module (generate-index.sh, generate-fsm-docs.py, server-cleanup.sh) |
 | `docs/modules/tests.md` | Module narrative — describes the tests module (pytest suite covering FSM, dispatcher, handlers, and helpers) |
-| `docs/modules/transcripts.md` | TODO: add description |
+| `docs/modules/transcripts.md` | Module narrative — transcript parsing (signal extractor) and cross-host JSONL sync |
 | `docs/modules/workflows.md` | Module narrative — describes the workflows module (GitHub Actions CI/CD workflows) |
 | `entrypoint.sh` | Docker entrypoint — templates crontab, runs initial cycle, execs supercronic |
 | `install.sh` | Interactive installer for end-users |
