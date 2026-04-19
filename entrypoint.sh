@@ -24,6 +24,7 @@
 #      - check-workflows: monitor GitHub Actions for failures (every 6 hours)
 #      - agent-audit:    weekly audit of .claude/agents/ for consistency and usage (Sundays 06:00)
 #      - external-scout: weekly scout for open-source libraries that could replace in-house plumbing (Mondays 06:00)
+#      - rescue:         autonomous resume of :human-needed issues without human:solved (every 4 hours at :30)
 #
 # Environment variables:
 #   CAI_WORKSPACES_CONFIG  Path to a JSON file listing additional repos to maintain
@@ -80,6 +81,7 @@ CAI_COST_OPTIMIZE_SCHEDULE="${CAI_COST_OPTIMIZE_SCHEDULE:-0 5 * * 0}"
 CAI_CHECK_WORKFLOWS_SCHEDULE="${CAI_CHECK_WORKFLOWS_SCHEDULE:-0 */6 * * *}"
 CAI_AGENT_AUDIT_SCHEDULE="${CAI_AGENT_AUDIT_SCHEDULE:-0 6 * * 0}"
 CAI_EXTERNAL_SCOUT_SCHEDULE="${CAI_EXTERNAL_SCOUT_SCHEDULE:-0 6 * * 1}"
+CAI_RESCUE_SCHEDULE="${CAI_RESCUE_SCHEDULE:-30 */4 * * *}"
 CAI_TRANSCRIPT_SYNC_SCHEDULE="${CAI_TRANSCRIPT_SYNC_SCHEDULE:-*/15 * * * *}"
 CAI_TRANSCRIPT_SYNC_URL="${CAI_TRANSCRIPT_SYNC_URL:-}"
 CAI_WORKSPACES_CONFIG="${CAI_WORKSPACES_CONFIG:-/app/workspaces.json}"
@@ -102,6 +104,7 @@ $CAI_COST_OPTIMIZE_SCHEDULE python /app/cai.py cost-optimize
 $CAI_CHECK_WORKFLOWS_SCHEDULE python /app/cai.py check-workflows
 $CAI_AGENT_AUDIT_SCHEDULE python /app/cai.py agent-audit
 $CAI_EXTERNAL_SCOUT_SCHEDULE python /app/cai.py external-scout
+$CAI_RESCUE_SCHEDULE python /app/cai.py rescue
 CRONTAB
 
 # Append the transcript-sync cron line only when sync is actually

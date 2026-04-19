@@ -182,6 +182,22 @@ Subcommands:
                             to be set; without it, `human:solved` is silently
                             ignored.
 
+    python cai.py rescue    Autonomous counterpart to `unblock`. Scans
+                            `auto-improve:human-needed` issues that have
+                            NOT yet received the `human:solved` label and
+                            asks the Opus `cai-rescue` agent whether each
+                            divert can be resumed without human input. On
+                            a HIGH-confidence `AUTONOMOUSLY_RESOLVABLE`
+                            verdict, fires the matching state transition
+                            and posts an audit comment; otherwise leaves
+                            the issue parked. Optionally collects
+                            `prevention_finding` text from the agent and
+                            publishes the survivors as
+                            `auto-improve:raised` issues so recurring
+                            divert patterns get fixed at the source.
+                            Issues-only in the first cut; PR-side rescues
+                            are deferred.
+
 Default schedules (all configurable via environment variables):
 
     Subcommand        Default cron       Frequency               Env var
@@ -198,6 +214,7 @@ Default schedules (all configurable via environment variables):
     update-check      0 4 * * 1          Weekly, Mondays 04:00   CAI_UPDATE_CHECK_SCHEDULE
     external-scout    0 6 * * 1          Weekly, Mondays 06:00   CAI_EXTERNAL_SCOUT_SCHEDULE
     health-report     0 7 * * 1          Weekly, Mondays 07:00   CAI_HEALTH_REPORT_SCHEDULE
+    rescue            30 */4 * * *       Every 4 hours at :30    CAI_RESCUE_SCHEDULE
 
 The container runs `entrypoint.sh`, which executes `cai.py cycle` once
 synchronously at startup (driving the full issue-solving pipeline:
@@ -261,6 +278,7 @@ from cai_lib.github import (  # noqa: E402
 )
 from cai_lib.cmd_helpers import _work_directory_block  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
+from cai_lib.cmd_rescue import cmd_rescue  # noqa: E402
 from cai_lib.cmd_misc import (  # noqa: E402
     cmd_init, cmd_verify, cmd_test,
     cmd_cost_report, cmd_health_report, cmd_check_workflows,
@@ -300,6 +318,10 @@ def main() -> int:
     sub.add_parser(
         "unblock",
         help="Resume :human-needed issues when an admin has commented",
+    )
+    sub.add_parser(
+        "rescue",
+        help="Autonomously resume :human-needed issues that don't actually require human input (Opus cai-rescue agent)",
     )
     sub.add_parser("cost-optimize", help="Weekly cost-reduction proposal or evaluation")
     sub.add_parser("check-workflows", help="Check GitHub Actions for recent workflow failures and raise findings")
@@ -365,6 +387,7 @@ def main() -> int:
         "update-check": cmd_update_check,
         "external-scout": cmd_external_scout,
         "unblock": cmd_unblock,
+        "rescue": cmd_rescue,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
         "health-report": cmd_health_report,
