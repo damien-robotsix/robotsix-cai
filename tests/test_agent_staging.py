@@ -196,6 +196,26 @@ class TestFilesDeleteTombstones(unittest.TestCase):
             _apply_agent_edit_staging(tmp)
         self.assertTrue((tmp / ".git/HEAD").exists())
 
+    def test_protected_cai_staging_dir_refused(self):
+        """Guard 2: tombstones targeting .cai-staging/ are refused without
+        calling git ls-files, mirroring test_protected_git_dir_refused."""
+        tmp = self._make_tmp()
+        _setup_agent_edit_staging(tmp)
+        # Also seed an unrelated tracked file to ensure _git IS called for
+        # legitimate tombstones (proving the mock is active).
+        self._seed_file(tmp, "a/keep.py", "KEEP")
+        self._drop_files_tombstone(tmp, ".cai-staging/some-artifact.txt")
+        git_mock = MagicMock(side_effect=self._git_ok)
+        with patch("cai_lib.cmd_helpers_git._git", git_mock):
+            _apply_agent_edit_staging(tmp)
+        # _git must never have been called with the protected path.
+        called_with_protected = any(
+            ".cai-staging/some-artifact.txt" in str(call)
+            for call in git_mock.call_args_list
+        )
+        self.assertFalse(called_with_protected,
+                         "guard 2 should refuse .cai-staging/ before git ls-files")
+
 
 if __name__ == "__main__":
     unittest.main()
