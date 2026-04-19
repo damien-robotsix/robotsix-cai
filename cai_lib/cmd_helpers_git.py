@@ -54,6 +54,7 @@ AGENT_EDIT_STAGING_REL = Path(".cai-staging") / "agents"
 AGENT_DELETE_STAGING_REL = Path(".cai-staging") / "agents-delete"
 PLUGIN_STAGING_REL = Path(".cai-staging") / "plugins"
 CLAUDEMD_STAGING_REL = Path(".cai-staging") / "claudemd"
+FILES_DELETE_STAGING_REL = Path(".cai-staging") / "files-delete"
 
 
 def _git(work_dir: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -93,6 +94,7 @@ def _work_directory_block(work_dir: Path) -> str:
     staging_abs = (work_dir / AGENT_EDIT_STAGING_REL).as_posix()
     delete_staging_abs = (work_dir / AGENT_DELETE_STAGING_REL).as_posix()
     claudemd_abs = (work_dir / CLAUDEMD_STAGING_REL).as_posix()
+    files_delete_staging_abs = (work_dir / FILES_DELETE_STAGING_REL).as_posix()
     return (
         "## Work directory\n\n"
         "You are running with cwd `/app` so your declarative agent "
@@ -174,6 +176,28 @@ def _work_directory_block(work_dir: Path) -> str:
         "(tombstone the old flat copy)\n\n"
         "Do NOT try `Bash(\"rm ...\")` on `.claude/agents/` — it is "
         "blocked by the same sensitive-file protection.\n\n"
+        "## Deleting arbitrary repo files (self-modification)\n\n"
+        "To delete any tracked file in the repo (outside `.git/` and "
+        "`.cai-staging/`), drop a **tombstone file** at:\n\n"
+        f"    {files_delete_staging_abs}/<same-relative-path>\n\n"
+        "The wrapper walks `.cai-staging/files-delete/` with `rglob(\"*\")` "
+        "after your session exits, and for each tombstone found deletes the "
+        "matching file at `<work_dir>/<relative-path>`. Rules:\n"
+        "  - Tombstone contents are ignored — only the relative path matters; "
+        "an empty string is fine.\n"
+        "  - Targets must be tracked by git (`git ls-files --error-unmatch` "
+        "must succeed); untracked files are skipped with a stderr warning.\n"
+        "  - Targets under `.git/` or `.cai-staging/` are refused.\n"
+        "  - Missing targets are silently skipped (stale tombstones are safe).\n"
+        "  - Symlink-escape attempts (resolved path outside work_dir) are "
+        "refused with a stderr warning.\n\n"
+        "Examples:\n"
+        f"  - To delete `cai_lib/cmd_agents.py`: "
+        f"`Write(\"{files_delete_staging_abs}/cai_lib/cmd_agents.py\", \"\")`\n"
+        f"  - To delete `tests/test_retroactive_sweep.py`: "
+        f"`Write(\"{files_delete_staging_abs}/tests/test_retroactive_sweep.py\", \"\")`\n\n"
+        "Do NOT stub files with `raise ImportError(...)` as a workaround — "
+        "use tombstones instead.\n\n"
         "## Updating `CLAUDE.md` files (self-modification)\n\n"
         "Claude-code's headless `-p` mode also hardcodes a write block "
         "on `CLAUDE.md` files (project-level context files). Edit/Write "
@@ -221,34 +245,57 @@ def _setup_agent_edit_staging(work_dir: Path) -> Path:
     plugin_staging.mkdir(parents=True, exist_ok=True)
     claudemd_staging = work_dir / CLAUDEMD_STAGING_REL
     claudemd_staging.mkdir(parents=True, exist_ok=True)
+    files_delete_staging = work_dir / FILES_DELETE_STAGING_REL
+    files_delete_staging.mkdir(parents=True, exist_ok=True)
     return staging
 
 
 def _apply_agent_edit_staging(work_dir: Path) -> int:
-    """Copy any files staged at `<work_dir>/.cai-staging/agents/`
-    back to `<work_dir>/.claude/agents/`, copy any plugin tree staged
-    at `<work_dir>/.cai-staging/plugins/` to `<work_dir>/.claude/plugins/`,
-    then remove the staging directory so it doesn't land in the PR.
+    """Apply all pending changes from the `.cai-staging/` tree and clean up.
+
+    Operations performed (in order):
+
+      1. **Agent files** — copy `.cai-staging/agents/*.md` to
+         `.claude/agents/`, preserving subdirectory paths.  New files are
+         created; existing ones are overwritten.
+      2. **Plugin tree** — merge `.cai-staging/plugins/` into
+         `.claude/plugins/` using shutil.copytree with dirs_exist_ok=True.
+      3. **CLAUDE.md files** — copy every file literally named ``CLAUDE.md``
+         found under `.cai-staging/claudemd/` to the matching path under
+         `<work_dir>/`.
+      4. **Agent deletions** — treat every `.md` file under
+         `.cai-staging/agents-delete/` as a tombstone: delete the matching
+         file under `.claude/agents/`.  Missing targets are silently skipped.
+      5. **Arbitrary file deletions** — treat every file under
+         `.cai-staging/files-delete/` as a tombstone: delete the matching
+         file at `<work_dir>/<relative-path>`.  Three safety guards are
+         enforced before deletion (see below).
+      6. **Cleanup** — remove the entire `.cai-staging/` tree so it does
+         not land in the PR.
 
     Security boundaries:
 
-      1. Each staged agent file is copied to `<work_dir>/.claude/agents/`
-         preserving its subdirectory path relative to the staging root.
-         If no target exists a new file is created; if one exists it is
-         overwritten. Parent directories are created as needed.
-      2. Staged plugin trees are merged into `<work_dir>/.claude/plugins/`
-         using shutil.copytree with dirs_exist_ok=True.
-      3. The staging dir lives entirely inside `work_dir` so escapes
-         via `..` are not possible (the wrapper recursively walks the
-         staging directory via `rglob("*.md")` and copies whole files
-         preserving subdirectory paths).
-      4. The staging dir is removed before commit if all staging
-         operations succeeded. If plugin staging fails, the staging
-         dir is preserved for inspection and the function returns
-         early so staged content is not silently lost.
+      Agent / plugin / CLAUDE.md staging:
+        - Staging dirs live entirely inside `work_dir`, so path traversal
+          via ``..`` segments is structurally impossible (rglob only yields
+          descendants of the staging root).
+        - If plugin staging fails the function returns early and preserves
+          `.cai-staging/` for inspection so staged content is not silently
+          lost.
 
-    Returns the count of files successfully applied. If the staging
-    dir doesn't exist or is empty, returns 0 with no side effects.
+      files-delete tombstones (guard 1–3 applied in order):
+        1. **Path escape** — the resolved absolute target must remain inside
+           `work_dir.resolve()`.  Defends against tombstones that contain
+           symlinks pointing outside the clone.
+        2. **Protected prefixes** — tombstones whose relative path starts
+           with ``.git/`` or ``.cai-staging/`` (or equals those names) are
+           refused with a stderr warning.
+        3. **Tracked-tree membership** — `git ls-files --error-unmatch` must
+           succeed for the target path; untracked files are skipped with a
+           stderr warning.
+
+    Returns the count of files/operations successfully applied. If the
+    staging dir doesn't exist or is empty, returns 0 with no side effects.
     """
     staging = work_dir / AGENT_EDIT_STAGING_REL
     applied = 0
@@ -367,6 +414,102 @@ def _apply_agent_edit_staging(work_dir: Path) -> int:
                 print(
                     f"[cai] agent edit staging: failed to delete "
                     f".claude/agents/{rel}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+
+    # Apply any arbitrary-file deletions requested via tombstone markers
+    # at .cai-staging/files-delete/<relative-path>. Any file under this
+    # tree triggers deletion of the matching path under <work_dir>/.
+    # Contents are ignored — only the relative path matters. Directories
+    # under the tombstone tree are skipped (only files trigger).
+    #
+    # Safety boundaries:
+    #   1. Path escape — resolved target must stay within work_dir.
+    #      Defends against tombstones that contain symlinks pointing
+    #      outside the clone. (Plain `..` segments cannot appear since
+    #      rglob only yields descendants of the staging root.)
+    #   2. Protected prefixes — refuse to touch `.git/` or
+    #      `.cai-staging/` even if listed by git.
+    #   3. Tracked-tree membership — `git ls-files --error-unmatch`
+    #      must succeed; untracked files are skipped with a warning.
+    files_delete_staging = work_dir / FILES_DELETE_STAGING_REL
+    if files_delete_staging.exists() and files_delete_staging.is_dir():
+        work_dir_resolved = work_dir.resolve()
+        for tombstone in sorted(files_delete_staging.rglob("*")):
+            if not tombstone.is_file():
+                continue
+            rel = tombstone.relative_to(files_delete_staging)
+            target = work_dir / rel
+
+            # Guard 1: path escape via symlinks / absolute components
+            try:
+                target_resolved = target.resolve()
+            except OSError as exc:
+                print(
+                    f"[cai] files-delete staging: cannot resolve "
+                    f"{rel}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+            if not target_resolved.is_relative_to(work_dir_resolved):
+                print(
+                    f"[cai] files-delete staging: refusing to delete "
+                    f"{rel} — resolved path escapes work_dir",
+                    file=sys.stderr,
+                )
+                continue
+
+            # Guard 2: protected prefixes
+            rel_posix = rel.as_posix()
+            if (
+                rel_posix.startswith(".git/")
+                or rel_posix == ".git"
+                or rel_posix.startswith(".cai-staging/")
+                or rel_posix == ".cai-staging"
+            ):
+                print(
+                    f"[cai] files-delete staging: refusing to delete "
+                    f"protected path {rel_posix}",
+                    file=sys.stderr,
+                )
+                continue
+
+            # Guard 3: must be a tracked file (git ls-files succeeds)
+            ls = _git(
+                work_dir,
+                "ls-files",
+                "--error-unmatch",
+                rel_posix,
+                check=False,
+            )
+            if ls.returncode != 0:
+                print(
+                    f"[cai] files-delete staging: skipping {rel_posix} "
+                    f"— not in git's tracked tree",
+                    file=sys.stderr,
+                )
+                continue
+
+            try:
+                if target.is_file():
+                    target.unlink()
+                    print(
+                        f"[cai] applied staged file deletion: {rel_posix}",
+                        flush=True,
+                    )
+                    applied += 1
+                else:
+                    print(
+                        f"[cai] files-delete staging: tombstone for "
+                        f"{rel_posix} has no target file "
+                        f"(already absent; skipping)",
+                        flush=True,
+                    )
+            except OSError as exc:
+                print(
+                    f"[cai] files-delete staging: failed to delete "
+                    f"{rel_posix}: {exc}",
                     file=sys.stderr,
                 )
                 continue
