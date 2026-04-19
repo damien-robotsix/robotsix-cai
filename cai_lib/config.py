@@ -1,6 +1,9 @@
 """cai_lib.config — shared constants and path definitions."""
 
 import os
+import re
+import socket
+import uuid
 from pathlib import Path
 
 
@@ -77,6 +80,25 @@ def _resolve_machine_id() -> str:
 
 
 MACHINE_ID: str = _resolve_machine_id()
+
+
+def _resolve_instance_id() -> str:
+    """Globally-unique owner tag for ``auto-improve:locked`` claims.
+
+    Three parts so two cai containers on the same host never generate
+    the same tag: ``<machine_id>-<hostname>-<pid>``. Falls back to a
+    uuid4 hex when ``MACHINE_ID`` is empty so we never emit an
+    ambiguous empty prefix.
+    """
+    mid = MACHINE_ID or uuid.uuid4().hex[:12]
+    return f"{mid}-{socket.gethostname()}-{os.getpid()}"
+
+
+# Per-process owner tag posted in ``cai-lock`` claim comments. Resolved
+# at import time so a single container has one stable identity for its
+# lifetime (used by both the cycle process and any direct dispatch_*
+# callers within the same process).
+INSTANCE_ID: str = _resolve_instance_id()
 
 
 def transcript_sync_enabled() -> bool:
@@ -169,6 +191,21 @@ LABEL_PR_CI_FAILING       = "pr:ci-failing"        # PRState.CI_FAILING
 # on their decision (`label:needs-human-review`). Issue #216.
 LABEL_PR_NEEDS_HUMAN = "needs-human-review"
 
+# Cross-instance ownership lock. Orthogonal to the FSM state labels
+# (:in-progress, :applying, :revising, …) — :locked marks which cai
+# instance currently owns the issue/PR and serializes work across
+# containers/hosts. Acquired via _acquire_remote_lock at dispatch entry
+# and released via _release_remote_lock; expired by the watchdog after
+# _STALE_LOCKED_HOURS so a crashed handler can't strand a target forever.
+LABEL_LOCKED = "auto-improve:locked"
+
+# Marker comment used as the first-writer-wins arbiter for :locked. The
+# oldest comment matching this regex on an issue/PR identifies the lock
+# owner; ties are broken by GitHub comment id (monotonic).
+CAI_LOCK_COMMENT_RE = re.compile(
+    r"<!--\s*cai-lock\s+owner=(?P<owner>\S+)\s+acquired=(?P<acquired>\S+)\s*-->"
+)
+
 
 # ---------------------------------------------------------------------------
 # Run log
@@ -187,6 +224,11 @@ OUTCOME_LOG_PATH = Path("/var/log/cai/cai-outcomes.jsonl")
 _STALE_IN_PROGRESS_HOURS = 6
 _STALE_REVISING_HOURS = 1
 _STALE_APPLYING_HOURS = 2
+# Time-to-live for a remote ownership lock (LABEL_LOCKED). The watchdog
+# expires :locked after this many hours so a crashed handler cannot
+# strand a target indefinitely. 1h is short enough that recovery is
+# operational; long enough that legitimate handlers reliably finish first.
+_STALE_LOCKED_HOURS = 1
 # _STALE_NO_ACTION_DAYS retired — no-action issues are now closed, not relabeled
 _STALE_MERGED_DAYS = 14
 

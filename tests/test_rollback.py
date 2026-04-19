@@ -26,16 +26,26 @@ def _make_issue(number, label, age_hours):
 
 class TestRollbackStaleInProgress(unittest.TestCase):
 
-    def _run_rollback(self, immediate, issues_by_label):
+    def _run_rollback(self, immediate, issues_by_label, set_labels_mock=None):
         """Run _rollback_stale_in_progress with mocked gh calls."""
 
         def fake_gh_json(args, **kwargs):
-            # Extract the --label argument
-            label = args[args.index("--label") + 1]
-            return issues_by_label.get(label, [])
+            # The :locked rollback path also calls
+            # `gh api /repos/.../issues/<n>/comments` to find cai-lock
+            # claims. Treat that call as "no comments".
+            if args and args[0] == "api":
+                return []
+            # Extract the --label argument from `gh issue list ...`.
+            if "--label" in args:
+                label = args[args.index("--label") + 1]
+                return issues_by_label.get(label, [])
+            return []
+
+        sl = set_labels_mock if set_labels_mock is not None else MagicMock(return_value=True)
 
         with patch("cai_lib.watchdog._gh_json", side_effect=fake_gh_json), \
-             patch("cai_lib.watchdog._set_labels", return_value=True), \
+             patch("cai_lib.watchdog._set_labels", sl), \
+             patch("cai_lib.watchdog._delete_issue_comment", return_value=True), \
              patch("cai_lib.watchdog.log_run"), \
              patch("cai_lib.watchdog.LOG_PATH", MagicMock(exists=lambda: False)):
             return cai._rollback_stale_in_progress(immediate=immediate)
@@ -138,6 +148,66 @@ class TestRollbackStaleInProgress(unittest.TestCase):
         nums = {i["number"] for i in result}
         self.assertNotIn(601, nums,
                          "1h-old :applying should NOT be rolled back (TTL=2h)")
+
+    def test_rollback_locked_stale(self):
+        """:locked issues older than _STALE_LOCKED_HOURS get the lock stripped.
+
+        The watchdog must NOT touch the FSM state label (:locked is
+        orthogonal). Verify by checking that _set_labels was called
+        with remove=[LABEL_LOCKED] and no add=.
+        """
+        locked_issue = _make_issue(701, cai.LABEL_LOCKED,
+                                   age_hours=cai._STALE_LOCKED_HOURS + 0.5)
+        sl_mock = MagicMock(return_value=True)
+        result = self._run_rollback(
+            immediate=False,
+            issues_by_label={
+                cai.LABEL_IN_PROGRESS: [],
+                cai.LABEL_REVISING: [],
+                cai.LABEL_APPLYING: [],
+                cai.LABEL_LOCKED: [locked_issue],
+            },
+            set_labels_mock=sl_mock,
+        )
+        nums = {i["number"] for i in result}
+        self.assertIn(701, nums,
+                      f"{cai._STALE_LOCKED_HOURS + 0.5}h-old :locked should "
+                      f"be rolled back (TTL={cai._STALE_LOCKED_HOURS}h)")
+        # Verify the call removed only LABEL_LOCKED and did not add any
+        # FSM state label.
+        called = False
+        for call in sl_mock.call_args_list:
+            kwargs = call.kwargs
+            if kwargs.get("remove") == [cai.LABEL_LOCKED]:
+                called = True
+                self.assertFalse(
+                    kwargs.get("add"),
+                    "watchdog must not add an FSM state label when "
+                    "rolling back :locked (orthogonal lock)",
+                )
+        self.assertTrue(
+            called,
+            "watchdog must call _set_labels with remove=[LABEL_LOCKED]",
+        )
+
+    def test_rollback_locked_fresh(self):
+        """:locked issues within the TTL window must NOT be rolled back."""
+        # Half the TTL — well within the window.
+        locked_issue = _make_issue(801, cai.LABEL_LOCKED,
+                                   age_hours=cai._STALE_LOCKED_HOURS / 2)
+        result = self._run_rollback(
+            immediate=False,
+            issues_by_label={
+                cai.LABEL_IN_PROGRESS: [],
+                cai.LABEL_REVISING: [],
+                cai.LABEL_APPLYING: [],
+                cai.LABEL_LOCKED: [locked_issue],
+            },
+        )
+        nums = {i["number"] for i in result}
+        self.assertNotIn(801, nums,
+                         f"fresh :locked (age < {cai._STALE_LOCKED_HOURS}h) "
+                         "must NOT be rolled back")
 
 
 if __name__ == "__main__":

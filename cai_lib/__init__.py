@@ -46,9 +46,13 @@ from cai_lib.config import (
     LABEL_APPLIED,
     LABEL_HUMAN_NEEDED,
     LABEL_PR_HUMAN_NEEDED,
+    LABEL_LOCKED,
+    INSTANCE_ID,
+    CAI_LOCK_COMMENT_RE,
     _STALE_IN_PROGRESS_HOURS,
     _STALE_REVISING_HOURS,
     _STALE_APPLYING_HOURS,
+    _STALE_LOCKED_HOURS,
     _STALE_MERGED_DAYS,
 )
 
@@ -104,8 +108,9 @@ __all__ = [
     "LABEL_REFINING", "LABEL_PLANNING",
     "LABEL_APPLYING", "LABEL_APPLIED",
     "LABEL_HUMAN_NEEDED", "LABEL_PR_HUMAN_NEEDED",
+    "LABEL_LOCKED", "INSTANCE_ID", "CAI_LOCK_COMMENT_RE",
     "_STALE_IN_PROGRESS_HOURS", "_STALE_REVISING_HOURS", "_STALE_APPLYING_HOURS",
-    "_STALE_MERGED_DAYS",
+    "_STALE_LOCKED_HOURS", "_STALE_MERGED_DAYS",
     # logging
     "log_run", "log_cost",
     "_get_issue_category", "_log_outcome", "_load_outcome_counts",

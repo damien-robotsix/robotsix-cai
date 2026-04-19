@@ -1,6 +1,4 @@
 """Cycle and dispatch entry-points for the cai pipeline."""
-import fcntl
-import os
 import sys
 import time
 
@@ -21,40 +19,18 @@ def _run_step(name: str, handler, args) -> int:
         return 1
 
 
-_CYCLE_LOCK_PATH = f"/tmp/cai-cycle-{REPO.replace('/', '-')}.lock"
-
-
 def cmd_cycle(args) -> int:
-    """One cycle tick under a non-blocking flock.
-
-    Delegates to :func:`_cmd_cycle_inner`, which reconciles labels,
-    runs audit, and dispatches a single actionable issue/PR via the
-    FSM dispatcher. The flock on ``_CYCLE_LOCK_PATH`` (per-repo) ensures
-    overlapping supercronic fires don't step on each other.
-    """
-    lock_fd = os.open(_CYCLE_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        os.close(lock_fd)
-        print("[cai cycle] another cycle is already running; skipping this tick",
-              flush=True)
-        return 0
-
-    try:
-        return _cmd_cycle_inner(args)
-    finally:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            os.close(lock_fd)
-
-
-def _cmd_cycle_inner(args) -> int:
     """One cycle tick: restart-recovery + dispatch one actionable issue/PR.
 
-    Verify and audit run on their own cron cadences (CAI_VERIFY_SCHEDULE,
-    CAI_AUDIT_SCHEDULE) — the cycle is purely restart-recovery + dispatch.
+    Cross-instance serialization is enforced GitHub-side via the
+    ``auto-improve:locked`` ownership lock acquired at every dispatch
+    entry (see :func:`cai_lib.github._acquire_remote_lock`); two cai
+    containers — on the same host or across hosts — cannot advance the
+    same issue/PR concurrently. A stale-lock watchdog expires the lock
+    after ``_STALE_LOCKED_HOURS`` so a crashed handler cannot strand a
+    target. Verify and audit run on their own cron cadences
+    (CAI_VERIFY_SCHEDULE, CAI_AUDIT_SCHEDULE) — the cycle itself is
+    purely restart-recovery + dispatch.
     """
     print("[cai cycle] starting cycle tick", flush=True)
     t0 = time.monotonic()

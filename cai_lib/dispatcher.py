@@ -30,7 +30,11 @@ from cai_lib.fsm import (
     IssueState, PRState,
     get_issue_state, get_pr_state,
 )
-from cai_lib.github import _gh_json
+from cai_lib.github import (
+    _gh_json,
+    _acquire_remote_lock,
+    _release_remote_lock,
+)
 from cai_lib.issues import list_sub_issues
 
 
@@ -250,7 +254,14 @@ def dispatch_issue(issue_number: int) -> int:
 
     print(f"[cai dispatch] issue #{issue_number} at {state.name} → {handler.__name__}",
           flush=True)
-    return handler(issue)
+    if not _acquire_remote_lock("issue", issue_number):
+        print(f"[cai dispatch] issue #{issue_number}: lock busy, yielding",
+              flush=True)
+        return 0
+    try:
+        return handler(issue)
+    finally:
+        _release_remote_lock("issue", issue_number)
 
 
 def dispatch_pr(pr_number: int) -> int:
@@ -289,9 +300,16 @@ def dispatch_pr(pr_number: int) -> int:
               f"mergeable={pr.get('mergeable')} / "
               f"mergeStateStatus={pr.get('mergeStateStatus')} → "
               f"{entry} → handle_rebase", flush=True)
-        apply_pr_transition(pr_number, entry, current_pr=pr,
-                            log_prefix="cai dispatch")
-        return handle_rebase(pr)
+        if not _acquire_remote_lock("pr", pr_number):
+            print(f"[cai dispatch] PR #{pr_number}: lock busy, yielding",
+                  flush=True)
+            return 0
+        try:
+            apply_pr_transition(pr_number, entry, current_pr=pr,
+                                log_prefix="cai dispatch")
+            return handle_rebase(pr)
+        finally:
+            _release_remote_lock("pr", pr_number)
 
     handler = _pr_registry().get(state)
     if handler is None:
@@ -301,7 +319,14 @@ def dispatch_pr(pr_number: int) -> int:
 
     print(f"[cai dispatch] PR #{pr_number} at {state.name} → {handler.__name__}",
           flush=True)
-    return handler(pr)
+    if not _acquire_remote_lock("pr", pr_number):
+        print(f"[cai dispatch] PR #{pr_number}: lock busy, yielding",
+              flush=True)
+        return 0
+    try:
+        return handler(pr)
+    finally:
+        _release_remote_lock("pr", pr_number)
 
 
 def _pick_oldest_actionable_target(
@@ -523,122 +548,163 @@ def _drive_target_to_completion(
 
     Every ``(kind, number)`` visited is added to ``touched`` so the outer
     drain won't re-pick the same target later in the same tick.
+
+    Lock lifecycle: an outer ``try/finally`` wraps the whole drive so a
+    single ``_release_remote_lock`` covers every exit path (returns *and*
+    uncaught exceptions). The only manual release/acquire pair sits at
+    the issue↔PR hop, where the old target must be released before the
+    new one is acquired (a ``finally``-only pattern can't sequence that).
+    The inner per-dispatch acquire/release wrappers in ``dispatch_*``
+    are no-ops while ``held`` is set thanks to the refcount in
+    ``_HELD_LOCKS``.
     """
     import time
     import traceback
 
     worst_rc = 0
     ci_polled = False
+    held: tuple[str, int] | None = None
 
-    for _ in range(_INNER_LOOP_CAP):
+    try:
         touched.add((kind, number))
-
-        # --- Pre-dispatch state ---
-        if kind == "issue":
-            pre_state = _fetch_issue_state(number)
-            if pre_state is None:
-                return worst_rc
-            if pre_state not in actionable_issue_states():
-                print(f"[cai dispatch] issue #{number} at "
-                      f"{pre_state.name} — terminal/parked, drive done",
-                      flush=True)
-                return worst_rc
-        else:
-            info = _fetch_pr_state_info(number)
-            if info is None:
-                return worst_rc
-            pre_state, _pre_pr = info
-            if pre_state not in actionable_pr_states():
-                print(f"[cai dispatch] PR #{number} at "
-                      f"{pre_state.name} — terminal/parked, drive done",
-                      flush=True)
-                return worst_rc
-
-        # --- Dispatch one handler step ---
-        try:
-            rc = dispatch_issue(number) if kind == "issue" else dispatch_pr(number)
-        except Exception:
-            traceback.print_exc()
-            print(f"[cai dispatch] handler for {kind} #{number} raised; "
-                  "stopping drive", flush=True)
-            return max(worst_rc, 1)
-        worst_rc = max(worst_rc, rc)
-
-        # --- Post-dispatch state ---
-        if kind == "issue":
-            post_state = _fetch_issue_state(number)
-            if post_state is None:
-                return worst_rc
-            # Issue→PR hop: issue advanced to PR state — drive the linked PR.
-            if post_state == IssueState.PR:
-                linked = _linked_open_pr_number(number)
-                if linked is not None and ("pr", linked) not in touched:
-                    print(f"[cai dispatch] issue #{number} advanced to PR — "
-                          f"following PR #{linked}", flush=True)
-                    kind, number = "pr", linked
-                    ci_polled = False
-                    continue
-                # No linked open PR found (orphan) or already driven.
-                return worst_rc
-            if post_state == pre_state:
-                # Handler ran but did not advance state → blocked.
-                print(f"[cai dispatch] issue #{number} at "
-                      f"{post_state.name}: no state change — blocked, "
-                      f"moving on", flush=True)
-                return worst_rc
-            # State advanced on the same issue — keep driving.
-            continue
-
-        # kind == "pr"
-        post_info = _fetch_pr_state_info(number)
-        if post_info is None:
+        if not _acquire_remote_lock(kind, number):
+            print(f"[cai dispatch] {kind} #{number}: lock busy at drive "
+                  "entry, yielding", flush=True)
             return worst_rc
-        post_state, post_pr = post_info
+        held = (kind, number)
 
-        # PR merged → hop back to the linked issue (now at MERGED) so
-        # confirm runs in the same drive.
-        if post_pr.get("mergedAt") or post_state == PRState.MERGED:
-            issue_num = _issue_number_from_pr_branch(post_pr)
-            if issue_num is not None and ("issue", issue_num) not in touched:
-                print(f"[cai dispatch] PR #{number} merged — following "
-                      f"back to issue #{issue_num}", flush=True)
-                kind, number = "issue", issue_num
-                ci_polled = False
-                continue
-            return worst_rc
+        for _ in range(_INNER_LOOP_CAP):
+            touched.add((kind, number))
 
-        if post_state != pre_state:
-            ci_polled = False
-            continue
-
-        # No state change on a PR. Brief CI poll before giving up.
-        if not ci_polled and _pr_ci_pending(post_pr):
-            print(f"[cai dispatch] PR #{number} at {post_state.name}: CI "
-                  f"pending — polling up to {_CI_POLL_MAX_SECONDS}s",
-                  flush=True)
-            waited = 0
-            while waited < _CI_POLL_MAX_SECONDS:
-                time.sleep(_CI_POLL_INTERVAL_SECONDS)
-                waited += _CI_POLL_INTERVAL_SECONDS
+            # --- Pre-dispatch state ---
+            if kind == "issue":
+                pre_state = _fetch_issue_state(number)
+                if pre_state is None:
+                    return worst_rc
+                if pre_state not in actionable_issue_states():
+                    print(f"[cai dispatch] issue #{number} at "
+                          f"{pre_state.name} — terminal/parked, drive done",
+                          flush=True)
+                    return worst_rc
+            else:
                 info = _fetch_pr_state_info(number)
                 if info is None:
                     return worst_rc
-                _, polled_pr = info
-                if not _pr_ci_pending(polled_pr):
-                    print(f"[cai dispatch] PR #{number}: CI settled after "
-                          f"{waited}s — retrying dispatch", flush=True)
-                    break
-            ci_polled = True
-            continue
+                pre_state, _pre_pr = info
+                if pre_state not in actionable_pr_states():
+                    print(f"[cai dispatch] PR #{number} at "
+                          f"{pre_state.name} — terminal/parked, drive done",
+                          flush=True)
+                    return worst_rc
 
-        print(f"[cai dispatch] PR #{number} at {post_state.name}: no state "
-              f"change and no CI to wait on — blocked, moving on",
-              flush=True)
-        return worst_rc
+            # --- Dispatch one handler step ---
+            try:
+                rc = dispatch_issue(number) if kind == "issue" else dispatch_pr(number)
+            except Exception:
+                traceback.print_exc()
+                print(f"[cai dispatch] handler for {kind} #{number} raised; "
+                      "stopping drive", flush=True)
+                return max(worst_rc, 1)
+            worst_rc = max(worst_rc, rc)
 
-    print(f"[cai dispatch] inner driver hit cap "
-          f"({_INNER_LOOP_CAP}) on {kind} #{number}", flush=True)
-    return max(worst_rc, 1)
+            # --- Post-dispatch state ---
+            if kind == "issue":
+                post_state = _fetch_issue_state(number)
+                if post_state is None:
+                    return worst_rc
+                # Issue→PR hop: issue advanced to PR state — drive the linked PR.
+                if post_state == IssueState.PR:
+                    linked = _linked_open_pr_number(number)
+                    if linked is not None and ("pr", linked) not in touched:
+                        print(f"[cai dispatch] issue #{number} advanced to PR — "
+                              f"following PR #{linked}", flush=True)
+                        # Manual release/acquire — finally can't sequence
+                        # release-old-then-acquire-new across a continue.
+                        if held is not None:
+                            _release_remote_lock(*held)
+                            held = None
+                        kind, number = "pr", linked
+                        if not _acquire_remote_lock(kind, number):
+                            print(f"[cai dispatch] {kind} #{number}: lock "
+                                  "busy after issue→PR hop, yielding",
+                                  flush=True)
+                            return worst_rc
+                        held = (kind, number)
+                        ci_polled = False
+                        continue
+                    # No linked open PR found (orphan) or already driven.
+                    return worst_rc
+                if post_state == pre_state:
+                    # Handler ran but did not advance state → blocked.
+                    print(f"[cai dispatch] issue #{number} at "
+                          f"{post_state.name}: no state change — blocked, "
+                          f"moving on", flush=True)
+                    return worst_rc
+                # State advanced on the same issue — keep driving.
+                continue
+
+            # kind == "pr"
+            post_info = _fetch_pr_state_info(number)
+            if post_info is None:
+                return worst_rc
+            post_state, post_pr = post_info
+
+            # PR merged → hop back to the linked issue (now at MERGED) so
+            # confirm runs in the same drive.
+            if post_pr.get("mergedAt") or post_state == PRState.MERGED:
+                issue_num = _issue_number_from_pr_branch(post_pr)
+                if issue_num is not None and ("issue", issue_num) not in touched:
+                    print(f"[cai dispatch] PR #{number} merged — following "
+                          f"back to issue #{issue_num}", flush=True)
+                    if held is not None:
+                        _release_remote_lock(*held)
+                        held = None
+                    kind, number = "issue", issue_num
+                    if not _acquire_remote_lock(kind, number):
+                        print(f"[cai dispatch] {kind} #{number}: lock "
+                              "busy after PR→issue hop, yielding",
+                              flush=True)
+                        return worst_rc
+                    held = (kind, number)
+                    ci_polled = False
+                    continue
+                return worst_rc
+
+            if post_state != pre_state:
+                ci_polled = False
+                continue
+
+            # No state change on a PR. Brief CI poll before giving up.
+            if not ci_polled and _pr_ci_pending(post_pr):
+                print(f"[cai dispatch] PR #{number} at {post_state.name}: CI "
+                      f"pending — polling up to {_CI_POLL_MAX_SECONDS}s",
+                      flush=True)
+                waited = 0
+                while waited < _CI_POLL_MAX_SECONDS:
+                    time.sleep(_CI_POLL_INTERVAL_SECONDS)
+                    waited += _CI_POLL_INTERVAL_SECONDS
+                    info = _fetch_pr_state_info(number)
+                    if info is None:
+                        return worst_rc
+                    _, polled_pr = info
+                    if not _pr_ci_pending(polled_pr):
+                        print(f"[cai dispatch] PR #{number}: CI settled after "
+                              f"{waited}s — retrying dispatch", flush=True)
+                        break
+                ci_polled = True
+                continue
+
+            print(f"[cai dispatch] PR #{number} at {post_state.name}: no state "
+                  f"change and no CI to wait on — blocked, moving on",
+                  flush=True)
+            return worst_rc
+
+        print(f"[cai dispatch] inner driver hit cap "
+              f"({_INNER_LOOP_CAP}) on {kind} #{number}", flush=True)
+        return max(worst_rc, 1)
+    finally:
+        if held is not None:
+            _release_remote_lock(*held)
 
 
 def dispatch_drain(max_iter: int = _DEFAULT_DRAIN_MAX_ITER) -> int:

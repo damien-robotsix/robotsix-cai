@@ -100,7 +100,34 @@ def _pr(number: int, label: str | None, merged: bool = False,
     }
 
 
-class TestDispatchIssue(unittest.TestCase):
+class _LockNoopMixin:
+    """Patch the cross-instance ownership lock helpers to no-ops.
+
+    Production dispatch acquires LABEL_LOCKED via gh on entry and releases
+    it on exit. These tests stub the lock so the existing happy-path
+    routing assertions don't have to thread a fake gh comments backend
+    through every test. The dedicated lock semantics live in
+    tests/test_remote_lock.py.
+    """
+
+    def setUp(self):
+        self._lock_acq = patch.object(
+            dispatcher, "_acquire_remote_lock", return_value=True
+        )
+        self._lock_rel = patch.object(
+            dispatcher, "_release_remote_lock", return_value=True
+        )
+        self._lock_acq.start()
+        self._lock_rel.start()
+        super().setUp()
+
+    def tearDown(self):
+        super().tearDown()
+        self._lock_acq.stop()
+        self._lock_rel.stop()
+
+
+class TestDispatchIssue(_LockNoopMixin, unittest.TestCase):
     """dispatch_issue fetches the issue and routes by FSM label."""
 
     def _run_routing(self, label: str, expected_state: IssueState):
@@ -152,7 +179,7 @@ class TestDispatchIssue(unittest.TestCase):
 # dispatch_pr routing
 # ---------------------------------------------------------------------------
 
-class TestDispatchPR(unittest.TestCase):
+class TestDispatchPR(_LockNoopMixin, unittest.TestCase):
     """dispatch_pr fetches the PR and routes by FSM label / merged flag."""
 
     def _run_routing(self, pr: dict, expected_state: PRState):
@@ -254,7 +281,7 @@ class TestDispatchPR(unittest.TestCase):
 # dispatch_drain (and the dispatch_oldest_actionable alias)
 # ---------------------------------------------------------------------------
 
-class TestDispatchOldestActionable(unittest.TestCase):
+class TestDispatchOldestActionable(_LockNoopMixin, unittest.TestCase):
     """Picks the oldest (by createdAt) across issues + PRs and drives each
     picked target end-to-end before moving on to the next."""
 
@@ -380,7 +407,7 @@ class TestDispatchOldestActionable(unittest.TestCase):
         dp.assert_not_called()
 
 
-class TestDispatchDrain(unittest.TestCase):
+class TestDispatchDrain(_LockNoopMixin, unittest.TestCase):
     """dispatch_drain picks oldest target, drives it end-to-end, repeats
     until the queue is empty or the per-drain cap is hit."""
 
