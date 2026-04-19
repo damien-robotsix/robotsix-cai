@@ -28,6 +28,7 @@ declare -A DESCRIPTIONS=(
   ["workspaces.json.example"]="Template for multi-workspace configuration with per-repo cycle schedules"
   [".gitignore"]="Git ignore rules"
   [".claude/settings.json"]="Claude Code harness configuration"
+  [".claude/agents/audit/cai-audit-cost-reduction.md"]="Agent: on-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings"
   [".claude/agents/cai-agent-audit.md"]="Agent: weekly audit of .claude/agents/*.md for best-practice violations and unused agents"
   [".claude/agents/cai-analyze.md"]="Agent: parse transcript signals and raise auto-improve findings"
   [".claude/agents/cai-audit.md"]="Agent: audit issue queue and lifecycle state machine"
