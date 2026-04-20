@@ -33,8 +33,39 @@ from cai_lib.github import (
     _set_labels,
     _set_pr_labels,
     _delete_issue_comment,
+    _list_lock_comments,
 )
 from cai_lib.logging_utils import log_run
+
+
+def _lock_claim_age_seconds(number: int, now: float) -> float | None:
+    """Age (seconds since ``now``) of the oldest ``cai-lock`` claim comment.
+
+    The oldest ``<!-- cai-lock owner=... acquired=... -->`` comment on an
+    issue/PR is the authoritative lock-acquisition marker: ``_acquire_remote_lock``
+    posts it atomically with the ``:locked`` label and the comment survives
+    every crash scenario the label does. Unlike the issue/PR's ``updatedAt``
+    (which GitHub bumps for CI check-runs, label churn from losing
+    lock-acquire races, and many unrelated events), this timestamp is
+    immune to self-perpetuating freshness loops: later cycles' failed
+    acquire attempts post+delete their *own* claim comments without
+    disturbing the winning-oldest one.
+
+    Returns ``None`` when no claim comment exists (the label alone is an
+    anomaly — caller should fall back to ``updatedAt``) or the comment
+    endpoint errored.
+    """
+    locks = _list_lock_comments(number)
+    if not locks:
+        return None
+    oldest = locks[0].get("created_at") or ""
+    try:
+        ts = datetime.strptime(oldest, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        ).timestamp()
+    except (ValueError, TypeError):
+        return None
+    return now - ts
 
 
 def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
@@ -119,18 +150,30 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
         else:
             ttl_hours = _STALE_IN_PROGRESS_HOURS
         threshold = 0 if immediate else ttl_hours * 3600
-        last_fix = fix_timestamps.get(issue_num)
-        if last_fix is not None:
-            age = now - last_fix
+        # :locked age comes from the oldest cai-lock claim comment — the
+        # authoritative acquisition marker. The log-line and updatedAt
+        # fallbacks below are unsafe for :locked: every cycle's failing
+        # _acquire_remote_lock posts+deletes a claim comment, bumping
+        # updatedAt indefinitely and hiding locks that are hours stale.
+        if lock_label == LABEL_LOCKED:
+            claim_age = _lock_claim_age_seconds(issue_num, now)
+            # Label set but no claim comment is an anomaly (acquire
+            # crashed between label and comment, or comment was deleted).
+            # Treat as stale so the watchdog can strip the orphan label.
+            age = claim_age if claim_age is not None else float("inf")
         else:
-            # No fix log line — use the issue's updatedAt as a fallback.
-            try:
-                updated = datetime.strptime(
-                    issue["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
-                ).replace(tzinfo=timezone.utc).timestamp()
-            except (ValueError, KeyError):
-                updated = 0
-            age = now - updated
+            last_fix = fix_timestamps.get(issue_num)
+            if last_fix is not None:
+                age = now - last_fix
+            else:
+                # No fix log line — use the issue's updatedAt as a fallback.
+                try:
+                    updated = datetime.strptime(
+                        issue["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
+                    ).replace(tzinfo=timezone.utc).timestamp()
+                except (ValueError, KeyError):
+                    updated = 0
+                age = now - updated
 
         if age > threshold:
             if lock_label == LABEL_REVISING:
@@ -237,20 +280,20 @@ def _rollback_stale_pr_locks(*, immediate: bool = False) -> list[dict]:
 
     for pr in prs:
         pr_num = pr["number"]
-        # No PR-side log-marker parsing (unlike the issue rollback which
-        # scans [fix]/[revise]/[maintain] lines). The PR dispatcher spans
-        # many action markers ([rebase], [fix-ci], [merge], [review_docs],
-        # …) keyed by pr=<N>, and :locked is a brief ownership window —
-        # falling back to updatedAt mirrors how the issue path falls back
-        # when no log line is found, and the short _STALE_LOCKED_HOURS
-        # TTL bounds any over-extension from a stray comment.
-        try:
-            updated = datetime.strptime(
-                pr["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
-            ).replace(tzinfo=timezone.utc).timestamp()
-        except (ValueError, KeyError):
-            updated = 0
-        age = now - updated
+        # Age comes from the oldest cai-lock claim comment — the
+        # authoritative acquisition marker. Using PR ``updatedAt`` here is
+        # unsafe: GitHub bumps it for CI check-runs, head-branch pushes,
+        # merge-conflict recomputation, and every losing _acquire_remote_lock
+        # race (post+delete of a claim comment), so a lock set hours ago
+        # can look "fresh" forever.
+        claim_age = _lock_claim_age_seconds(pr_num, now)
+        if claim_age is not None:
+            age = claim_age
+        else:
+            # Anomaly: :locked label with no claim comment (crashed acquire
+            # or manually deleted claim). Treat as stale so the watchdog
+            # can strip the orphan label.
+            age = float("inf")
 
         if age <= threshold:
             continue
