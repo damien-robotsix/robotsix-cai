@@ -60,7 +60,9 @@ except `cai-confirm` (MERGED).
 | `cai-agent-audit` | Weekly cron | Audits `.claude/agents/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. |
 | `cai-analyze` | Cron | Analyzes parsed signals from the cai container's own Claude Code session transcripts and raises code/prompt/workflow findings. |
 | `cai-audit` | Cron | Audits the GitHub issue queue, recent PRs, and log tail for inconsistencies in the auto-improve FSM. Findings are duplicate-filtered via `cai-dup-check` at publish time. |
+| `cai-audit-code-reduction` | On-demand | Runs a code-reduction audit on a single `robotsix-cai` module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers. |
 | `cai-audit-cost-reduction` | On-demand | Runs a cost-reduction audit on a single `robotsix-cai` module — analyzes agent token/dollar spend and proposes concrete savings. |
+| `cai-audit-workflow-enhancement` | On-demand | Spots recurring inefficiencies in agent workflows and proposes targeted remediations. |
 | `cai-code-audit` | Weekly cron | Audits the `robotsix-cai` source tree for concrete inconsistencies, dead code, and missing cross-file references. |
 | `cai-confirm` | PR-solved (MERGED) | INTERNAL — Verifies that each `auto-improve:merged` issue is actually resolved by checking the merged PR's diff against the issue's remediation. |
 

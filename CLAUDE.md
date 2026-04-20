@@ -34,7 +34,8 @@ the agent prompt files for that category:
 
   - `audit/` — scheduled and on-demand audit agents that write to
     `findings.json` (cai-agent-audit, cai-analyze, cai-audit,
-    cai-audit-cost-reduction, cai-code-audit, cai-confirm).
+    cai-audit-code-reduction, cai-audit-cost-reduction,
+    cai-audit-workflow-enhancement, cai-code-audit, cai-confirm).
   - `implementation/` — code-editing and planning agents invoked
     by the FSM (cai-fix-ci, cai-implement, cai-plan, cai-rebase,
     cai-revise, cai-select).
