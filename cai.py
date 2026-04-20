@@ -42,9 +42,8 @@ Subcommands:
                             closed-unmerged → `:refined`,
                             no-linked-PR → `:raised`.
 
-    python cai.py audit     Dual-mode audit command. With no <kind>
-                            argument: runs legacy queue/PR consistency
-                            audit. Deterministically rolls back stale
+    python cai.py audit     Periodic queue/PR consistency audit.
+                            Deterministically rolls back stale
                             `:in-progress` (>6h), `:revising` (>1h),
                             and `:applying` (>2h) locks; unsticks stale
                             `:no-action` issues; flags stale `:merged`
@@ -60,12 +59,15 @@ Subcommands:
                             cai-dup-check; survivors are published as
                             `auto-improve:raised` + `audit` issues in
                             the unified label scheme.
-                            With <kind> (e.g., `cost`): runs on-demand
-                            per-module audit dispatching the matching
-                            agent over selected modules (--module <name>
-                            or --all). Module manifests are loaded from
-                            docs/modules.yaml and passed to the audit
-                            agent for focused analysis.
+
+    python cai.py audit-module  On-demand per-module audit: iterate every
+                            module in docs/modules.yaml and dispatch the
+                            matching on-demand audit agent for each module.
+                            Takes --kind <kind> to select which audit type
+                            to run (choices: good-practices, code-reduction,
+                            cost-reduction, workflow-enhancement). Publishes
+                            findings through the existing dedup/dup-check
+                            pipeline.
 
     python cai.py audit-triage  Autonomously resolve `auto-improve:raised`
                             + `audit` findings without opening a PR. Calls
@@ -324,7 +326,7 @@ def main() -> int:
     sub.add_parser("verify", help="Update labels based on PR merge state")
     sub.add_parser(
         "audit",
-        help="Queue/PR consistency audit (legacy single-mode)",
+        help="Periodic queue/PR consistency audit with stale-lock rollback and semantic analysis",
     )
     audit_module_p = sub.add_parser(
         "audit-module",
