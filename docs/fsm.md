@@ -22,6 +22,7 @@ stateDiagram-v2
     TRIAGING --> PLAN_APPROVED : triaging_to_plan_approved [caller-gated]
     TRIAGING --> APPLYING : triaging_to_applying [caller-gated]
     APPLYING --> APPLIED : applying_to_applied [≥HIGH]
+    APPLYING --> APPLIED : applying_to_applied_inferred_ops [≥MEDIUM]
     APPLYING --> HUMAN_NEEDED : applying_to_human [≥HIGH]
     APPLIED --> SOLVED : applied_to_solved [≥HIGH]
     REFINING --> REFINED : refining_to_refined [≥HIGH]
