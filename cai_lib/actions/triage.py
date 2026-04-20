@@ -171,7 +171,7 @@ def handle_triage(issue: dict) -> int:
         close_res = _run(
             ["gh", "issue", "close", str(issue_number),
              "--repo", REPO,
-             "--reason", "not-planned",
+             "--reason", "not planned",
              "--comment", comment],
             capture_output=True,
         )
