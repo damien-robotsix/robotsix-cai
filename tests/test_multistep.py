@@ -189,5 +189,105 @@ class TestDepthGate(unittest.TestCase):
         self.assertIn("Do NOT produce", input_msg)
 
 
+from cai_lib.actions.refine import (
+    _detect_guardrail_contradictions,
+    _extract_files_to_change,
+    _extract_scope_guardrails_paths,
+)
+
+
+class TestGuardrailContradictionLint(unittest.TestCase):
+    """Tests for the #919 scope-guardrail contradiction lint."""
+
+    def test_no_contradiction_when_sections_disjoint(self):
+        body = (
+            "## Refined Issue\n\n"
+            "### Files to change\n"
+            "- `cai_lib/audit/runner.py`\n"
+            "- `cai.py`\n\n"
+            "### Scope guardrails\n"
+            "- Do not modify `cai_lib/publish.py`\n"
+        )
+        self.assertEqual(_detect_guardrail_contradictions(body), [])
+
+    def test_direct_contradiction_detected(self):
+        body = (
+            "## Refined Issue\n\n"
+            "### Files to change\n"
+            "- `cai_lib/audit/runner.py`\n"
+            "- `cai_lib/publish.py`\n\n"
+            "### Scope guardrails\n"
+            "- Do not modify `cai_lib/publish.py` beyond the "
+            "  minimal category-set extension\n"
+        )
+        self.assertEqual(
+            _detect_guardrail_contradictions(body),
+            ["cai_lib/publish.py"],
+        )
+
+    def test_extract_files_to_change_handles_bold_and_backticks(self):
+        body = (
+            "### Files to change\n"
+            "- **`cai_lib/audit/runner.py`** — new file\n"
+            "- `cai.py` — update parser\n"
+            "- docs/modules.yaml (new)\n\n"
+            "### Scope guardrails\n"
+        )
+        self.assertEqual(
+            _extract_files_to_change(body),
+            {"cai_lib/audit/runner.py", "cai.py", "docs/modules.yaml"},
+        )
+
+    def test_extract_scope_guardrails_paths_multiline(self):
+        body = (
+            "### Scope guardrails\n"
+            "- Do not modify `cai_lib/publish.py`.\n"
+            "- Do not delete `cai_lib/cmd_agents.py`.\n"
+            "- Keep the YAML schema flat.\n"
+        )
+        self.assertEqual(
+            _extract_scope_guardrails_paths(body),
+            {"cai_lib/publish.py", "cai_lib/cmd_agents.py"},
+        )
+
+    def test_docs_path_is_ignored_even_if_in_both(self):
+        body = (
+            "### Files to change\n"
+            "- `docs/modules.yaml`\n"
+            "- `cai.py`\n\n"
+            "### Scope guardrails\n"
+            "- Do not edit `docs/modules.yaml`\n"
+        )
+        self.assertEqual(_detect_guardrail_contradictions(body), [])
+
+    def test_codebase_index_ignored(self):
+        body = (
+            "### Files to change\n"
+            "- `CODEBASE_INDEX.md`\n\n"
+            "### Scope guardrails\n"
+            "- Do not touch `CODEBASE_INDEX.md`\n"
+        )
+        self.assertEqual(_detect_guardrail_contradictions(body), [])
+
+    def test_clone_prefix_stripped_so_paths_match(self):
+        body = (
+            "### Files to change\n"
+            "- `/tmp/cai-plan-902-abcd1234/cai_lib/publish.py`\n\n"
+            "### Scope guardrails\n"
+            "- Do not modify `cai_lib/publish.py`\n"
+        )
+        self.assertEqual(
+            _detect_guardrail_contradictions(body),
+            ["cai_lib/publish.py"],
+        )
+
+    def test_empty_body_no_contradictions(self):
+        self.assertEqual(_detect_guardrail_contradictions(""), [])
+
+    def test_missing_sections_no_contradictions(self):
+        body = "## Refined Issue\n\n### Description\n\nSomething.\n"
+        self.assertEqual(_detect_guardrail_contradictions(body), [])
+
+
 if __name__ == "__main__":
     unittest.main()
