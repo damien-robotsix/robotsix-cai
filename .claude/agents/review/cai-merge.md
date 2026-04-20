@@ -162,6 +162,48 @@ verdict, and the final pre-merge review comment is clean (`(clean)
 — <sha>`), emit **high** — do not downgrade to **medium** on a
 scope concern that the pipeline itself introduced.
 
+### Exemption: docs-reviewer co-edits
+
+After each code-review pass, the `cai-review-docs` pre-merge reviewer
+also runs and may directly commit edits to the PR. Its scope is
+broader than `docs/**` / `CODEBASE_INDEX.md`: it is authorized to
+update `README.md`, Python/shell docstrings, inline code comments,
+`argparse` help strings, and any other prose reference to a symbol
+the PR renamed. When it applies a fix, it posts a `## cai docs
+review (applied) — <sha>` comment containing one or more `### Fixed:
+stale_docs` blocks, each with a `**File(s):**` line listing the
+exact paths it touched. A clean run posts `## cai docs review
+(clean) — <sha>` with no `### Fixed:` blocks.
+
+When walking the diff, **treat any file cited in a prior `### Fixed:
+stale_docs` block's `**File(s):**` list as in-scope for this PR**:
+
+- Do not count edits to such files as "new files not mentioned in
+  the issue", as scope creep, or as "PR scope is broader than the
+  issue asks for", even when the issue's remediation or "Likely
+  files" does not list them.
+- Do not treat an issue scope guardrail saying "only touch file X"
+  as violated because a docs-reviewer-cited file Y was also
+  changed, provided the change to Y matches the `### Fixed:
+  stale_docs` block's `**What was changed:**` description.
+- Limit the exemption strictly to the files cited in the
+  `**File(s):**` line of a `### Fixed: stale_docs` block that
+  appears in a `## cai docs review (applied) — <sha>` comment in
+  the PR's own comment history. Unrelated edits to other files are
+  NOT exempted even if similar in spirit.
+- The exemption covers scope only — it does not waive the
+  correctness, completeness, or workflow-files (`.github/workflows/`)
+  rules. A docs-reviewer edit to a workflow file is still
+  disqualifying.
+
+All other files in the diff must still meet the usual completeness,
+scope, and correctness criteria. If a docs-reviewer co-edit is the
+*only* soft concern standing between the PR and a **high** verdict,
+and the latest `## cai docs review` comment is either `(clean) —
+<sha>` or `(applied) — <sha>` for the current HEAD, emit **high** —
+do not downgrade to **medium** on a scope concern that the pipeline
+itself introduced.
+
 ## Output format
 
 Emit exactly this structured block — nothing else:
