@@ -219,3 +219,24 @@ Multi-step guidelines:
   may be injected by the `cai-review-docs` pipeline stage regardless
   of the implementer's plan. Omit them from "do not touch" lists —
   they are implicitly allowed in every PR.
+- **Never forbid a file you also list in "Files to change".** The
+  two sections must be disjoint — if a path appears in *Files to
+  change*, it must not appear in *Scope guardrails*, and vice
+  versa. A post-agent lint (in `cai_lib/actions/refine.py`)
+  deterministically diverts the issue to `:human-needed` when the
+  two sections overlap, so the refinement will never reach the
+  planner.
+- **Check runtime data flow before guardrailing a file.** Before
+  writing a `do not touch X` guardrail, trace where the feature's
+  output goes. Concrete example from issue #902: the new `cai audit
+  <kind>` runner emits findings that flow through
+  `cai_lib/publish.py`'s `AUDIT_CATEGORIES` filter. Forbidding
+  `publish.py` in Scope guardrails while shipping the runner makes
+  every finding silently rejected at publish time — the feature
+  "works" end-to-end yet produces zero published issues. If the
+  runtime path requires editing a file you want out of scope,
+  either (a) include that file in *Files to change* and do the
+  minimal edit, or (b) emit a `## Multi-Step Decomposition` with
+  the forbidden edit as an earlier predecessor step that the
+  current feature depends on. Do not ship a refined issue whose
+  forbidden file is provably required for the feature to function.

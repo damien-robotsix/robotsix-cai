@@ -21,7 +21,9 @@ from cai_lib.config import (
     MAX_DECOMPOSITION_DEPTH,
 )
 from cai_lib.fsm import apply_transition
-from cai_lib.github import _gh_json, _set_labels, _build_issue_block
+from cai_lib.github import (
+    _gh_json, _set_labels, _build_issue_block, _post_issue_comment,
+)
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import _strip_stored_plan_block
@@ -48,6 +50,89 @@ def _parse_refine_next_step(text: str) -> "str | None":
     if not m:
         return None
     return m.group(1).upper()
+
+
+# ---------------------------------------------------------------------------
+# Scope-guardrail contradiction lint (issue #919).
+#
+# When cai-refine writes a "Scope guardrails" entry that forbids editing
+# a file that also appears in its own "Files to change" list, the plan
+# agent produced downstream will self-flag the contradiction and drop
+# confidence to MEDIUM — wasting a full plan cycle per #902. Catch the
+# direct contradiction deterministically here and divert to :human-needed
+# with a clear comment so the admin can either drop the guardrail or
+# split the forbidden work into a predecessor issue.
+# ---------------------------------------------------------------------------
+
+# _PATH_RE only recognises paths that begin with a word char (no leading
+# slash). Absolute clone-prefix paths like
+# "/tmp/cai-plan-902-abcd1234/cai_lib/publish.py" are normalised by the
+# _CLONE_PREFIX_RE pre-strip below before this regex runs, so the
+# resulting "cai_lib/publish.py" matches identically to a bare relative
+# reference.
+_PATH_RE = re.compile(
+    r"(?<![\w/.-])"
+    r"([A-Za-z_][\w./-]*\.(?:py|md|yaml|yml|json|sh|js|ts|tsx|jsx|toml|cfg|ini|txt))"
+    r"(?![\w/.-])"
+)
+
+# Matches the work-directory prefix the planner/implement subagent injects
+# into its plan ("/tmp/cai-<phase>-<issue>-<hash>/"). Stripping it before
+# path extraction lets a `/tmp/.../cai_lib/publish.py` reference match a
+# bare `cai_lib/publish.py` reference for the contradiction check.
+_CLONE_PREFIX_RE = re.compile(r"/tmp/cai-[^/\s]+/")
+
+_FILES_TO_CHANGE_HEADER = "### Files to change"
+_SCOPE_GUARDRAILS_HEADER = "### Scope guardrails"
+
+
+def _extract_section(refined_body: str, header: str) -> str:
+    """Return the text of the named ``### <Header>`` section, or ``""``."""
+    if not refined_body or header not in refined_body:
+        return ""
+    lines = refined_body.splitlines()
+    try:
+        start = next(i for i, ln in enumerate(lines) if ln.strip() == header)
+    except StopIteration:
+        return ""
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        stripped = lines[j].lstrip()
+        if stripped.startswith("## ") or stripped.startswith("### "):
+            end = j
+            break
+    return "\n".join(lines[start + 1:end]).strip()
+
+
+def _extract_paths(section_text: str) -> set[str]:
+    # Pre-strip clone-prefix paths so the path regex (which is anchored on
+    # word chars and cannot start with `/`) matches the relative remainder.
+    text = _CLONE_PREFIX_RE.sub("", section_text or "")
+    paths: set[str] = set()
+    for m in _PATH_RE.finditer(text):
+        raw = m.group(1).strip("`()[],.;: ")
+        if not raw or any(ch.isspace() for ch in raw):
+            continue
+        if raw.startswith("./"):
+            raw = raw[2:]
+        paths.add(raw)
+    return paths
+
+
+def _extract_files_to_change(refined_body: str) -> set[str]:
+    return _extract_paths(_extract_section(refined_body, _FILES_TO_CHANGE_HEADER))
+
+
+def _extract_scope_guardrails_paths(refined_body: str) -> set[str]:
+    return _extract_paths(_extract_section(refined_body, _SCOPE_GUARDRAILS_HEADER))
+
+
+def _detect_guardrail_contradictions(refined_body: str) -> list[str]:
+    files = _extract_files_to_change(refined_body)
+    guards = _extract_scope_guardrails_paths(refined_body)
+    ignorable = {"CODEBASE_INDEX.md"}
+    both = sorted((files & guards) - ignorable)
+    return [p for p in both if not p.startswith("docs/")]
 
 
 def _issue_depth(issue: dict) -> int:
@@ -262,6 +347,45 @@ def handle_refine(issue: dict) -> int:
         return 0
 
     refined_body = stdout[marker_pos:].strip()
+
+    # Scope-guardrail contradiction lint (issue #919).
+    contradictions = _detect_guardrail_contradictions(refined_body)
+    if contradictions:
+        bullet_list = "\n".join(f"- `{p}`" for p in contradictions)
+        comment_body = (
+            "**🙋 Human attention needed**\n\n"
+            "Automation paused refinement because the proposed scope "
+            "contradicts itself: the following file(s) are listed under "
+            "**Files to change** *and* under **Scope guardrails**.\n\n"
+            f"{bullet_list}\n\n"
+            "Either drop the guardrail (the file genuinely needs editing) "
+            "or split the forbidden work into a predecessor issue and "
+            "drop it from **Files to change** here.\n\n"
+            "Apply the `human:solved` label after leaving a comment to "
+            "signal the contradiction is resolved and have the FSM "
+            "resume (the refine agent will re-run with your input)."
+        )
+        _post_issue_comment(
+            issue_number, comment_body, log_prefix="cai refine"
+        )
+        apply_transition(
+            issue_number, "refining_to_human",
+            current_labels=[LABEL_REFINING],
+            log_prefix="cai refine",
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        print(
+            f"[cai refine] #{issue_number} diverted :refining → :human-needed "
+            f"in {dur} (guardrail contradicts Files-to-change: "
+            f"{', '.join(contradictions)})",
+            flush=True,
+        )
+        log_run(
+            "refine", repo=REPO, issue=issue_number,
+            duration=dur, result="guardrail_contradiction",
+            contradictions=",".join(contradictions), exit=0,
+        )
+        return 0
 
     # Build the new issue body: refined content + original text quoted.
     next_step = _parse_refine_next_step(stdout)
