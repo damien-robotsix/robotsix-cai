@@ -42,8 +42,9 @@ Subcommands:
                             closed-unmerged → `:refined`,
                             no-linked-PR → `:raised`.
 
-    python cai.py audit     Periodic queue/PR consistency audit.
-                            Deterministically rolls back stale
+    python cai.py audit     Dual-mode audit command. With no <kind>
+                            argument: runs legacy queue/PR consistency
+                            audit. Deterministically rolls back stale
                             `:in-progress` (>6h), `:revising` (>1h),
                             and `:applying` (>2h) locks; unsticks stale
                             `:no-action` issues; flags stale `:merged`
@@ -59,6 +60,12 @@ Subcommands:
                             cai-dup-check; survivors are published as
                             `auto-improve:raised` + `audit` issues in
                             the unified label scheme.
+                            With <kind> (e.g., `cost`): runs on-demand
+                            per-module audit dispatching the matching
+                            agent over selected modules (--module <name>
+                            or --all). Module manifests are loaded from
+                            docs/modules.yaml and passed to the audit
+                            agent for focused analysis.
 
     python cai.py audit-triage  Autonomously resolve `auto-improve:raised`
                             + `audit` findings without opening a PR. Calls
@@ -294,6 +301,7 @@ from cai_lib.cmd_agents import (  # noqa: E402
 )
 from cai_lib.cmd_cycle import cmd_cycle, cmd_dispatch  # noqa: E402
 from cai_lib.transcript_sync import cmd_transcript_sync  # noqa: E402
+from cai_lib.audit.runner import cmd_audit_run, AUDIT_KINDS  # noqa: E402
 
 
 
@@ -314,7 +322,30 @@ def main() -> int:
     dispatch_parser.add_argument("--pr", type=int, default=None, help="Dispatch a specific PR by number")
 
     sub.add_parser("verify", help="Update labels based on PR merge state")
-    sub.add_parser("audit", help="Run the queue/PR consistency audit (includes human-needed checks)")
+    audit_p = sub.add_parser(
+        "audit",
+        help=(
+            "Queue/PR consistency audit (no kind) or on-demand per-module "
+            "audit (with <kind>)"
+        ),
+    )
+    audit_p.add_argument(
+        "kind", nargs="?", default=None,
+        choices=list(AUDIT_KINDS),
+        help=(
+            "On-demand audit kind. Omit to run the legacy queue/PR consistency "
+            "audit; pass a kind to dispatch the matching on-demand agent over "
+            "modules declared in docs/modules.yaml."
+        ),
+    )
+    audit_p.add_argument(
+        "--module", default=None,
+        help="Audit only this module name from docs/modules.yaml",
+    )
+    audit_p.add_argument(
+        "--all", action="store_true", default=False,
+        help="Audit every module declared in docs/modules.yaml",
+    )
     sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
     sub.add_parser("agent-audit", help="Weekly audit of .claude/agents/ for consistency and usage")
     sub.add_parser("propose", help="Weekly creative improvement proposal")
@@ -385,7 +416,7 @@ def main() -> int:
         "analyze": cmd_analyze,
         "dispatch": cmd_dispatch,
         "verify": cmd_verify,
-        "audit": cmd_audit,
+        "audit": lambda args: cmd_audit_run(args) if args.kind else cmd_audit(args),
         "code-audit": cmd_code_audit,
         "agent-audit": cmd_agent_audit,
         "propose": cmd_propose,
