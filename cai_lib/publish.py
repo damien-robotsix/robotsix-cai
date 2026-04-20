@@ -457,6 +457,9 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     elif namespace == "external-scout":
         source_note = "cai external-scout agent"
         source_file = ".claude/agents/cai-external-scout.md"
+    elif namespace == "audit-external-libs":
+        source_note = "cai external-libs audit agent"
+        source_file = ".claude/agents/audit/cai-audit-external-libs.md"
     else:
         source_note = "cai self-analyzer"
         source_file = ".claude/agents/cai-analyze.md"
