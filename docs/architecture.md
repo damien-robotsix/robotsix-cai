@@ -62,7 +62,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 | `human:solved` | Admin-applied signal to resume FSM for parked issues/PRs (unblocking) |
 | `blocked-on:<N>` | Suppresses dispatch and rescue on this issue/PR while issue `#<N>` is open. Multiple blockers may be declared by applying the label once per blocker. The label is a hint, not a state change — it never clears itself. (Self-blocking cycles result in both issues staying skipped; no cycle detection is performed.) |
 | `kind:code` | Issue is a code fix (vs. kind:maintenance) |
-| `kind:maintenance` | Issue is a maintenance operation (requires `Ops:` block in body) |
+| `kind:maintenance` | Issue is a maintenance operation (requires `Ops:` block, or a `cai-plan-start` block from which Ops can be synthesized) |
 | `pr:reviewing-code` | PR is in code review (review-pr handler); a new SHA lands here on any push |
 | `pr:revision-pending` | Review-pr handler posted findings; revise handler will address them |
 | `pr:reviewing-docs` | Code review clean; docs review is next |
@@ -98,7 +98,7 @@ For review and planning agents (`cai-code-audit`, `cai-external-scout`, `cai-git
 
 `cai-review-docs` is a special review agent that can edit documentation: it has `Edit` and `Write` tools to fix stale docs directly, and the wrapper automatically commits and pushes any changes to the same PR branch (not to a new isolated branch).
 
-`cai-maintain` is a maintenance agent that executes operations (label mutations, bulk-close, workflow YAML edits) declared in the `Ops:` block of a `kind:maintenance` issue. It runs `gh` CLI commands to perform administrative tasks and emits a Confidence level for transition gating.
+`cai-maintain` is a maintenance agent that executes operations (label mutations, bulk-close, workflow YAML edits) declared in the `Ops:` block (explicit or synthesized from a stored `cai-plan-start` block per issue #986) of a `kind:maintenance` issue. It runs `gh` CLI commands to perform administrative tasks and emits a Confidence level for transition gating.
 
 ### Clone agents
 

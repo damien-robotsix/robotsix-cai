@@ -33,14 +33,20 @@ def _make_clone_result(rc=0):
     return r
 
 
-def _make_agent_result(confidence="HIGH", rc=0, reason=None):
+def _make_agent_result(confidence="HIGH", rc=0, reason=None, ops_source=None):
     r = MagicMock()
     reason_line = ""
     if confidence in ("MEDIUM", "LOW"):
         default_reason = "Some operations could not be verified." if reason is None else reason
         reason_line = f"Confidence reason: {default_reason}\n"
+    ops_source_line = ""
+    if ops_source == "inferred":
+        ops_source_line = "Ops-source: inferred\n"
     r.returncode = rc
-    r.stdout = f"## Maintenance Summary\n\nConfidence: {confidence}\n{reason_line}"
+    r.stdout = (
+        f"## Maintenance Summary\n\nConfidence: {confidence}\n"
+        f"{reason_line}{ops_source_line}"
+    )
     r.stderr = ""
     return r
 
@@ -132,6 +138,77 @@ class TestHandleMaintainLowConfidence(unittest.TestCase):
         self.assertTrue(
             human_calls,
             f"Expected divert to HUMAN_NEEDED; got calls: {label_calls}"
+        )
+
+
+class TestHandleMaintainInferredOps(unittest.TestCase):
+    """MEDIUM confidence + Ops-source: inferred → :applied transition fires (#986)."""
+
+    def test_inferred_ops_medium_advances_to_applied(self):
+        issue = _make_applying_issue()
+        label_calls = []
+
+        def fake_set_labels(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            label_calls.append({"issue_number": issue_number,
+                                 "add": list(add), "remove": list(remove)})
+            return True
+
+        with patch("cai_lib.actions.maintain._run", return_value=_make_clone_result()), \
+             patch("cai_lib.actions.maintain._run_claude_p",
+                   return_value=_make_agent_result("MEDIUM", ops_source="inferred")), \
+             patch("cai_lib.actions.maintain.shutil.rmtree"), \
+             patch("cai_lib.actions.maintain.log_run"), \
+             patch("cai_lib.github._set_labels", side_effect=fake_set_labels), \
+             patch("cai_lib.github._post_issue_comment", return_value=True):
+            from cai_lib.actions.maintain import handle_maintain
+            rc = handle_maintain(issue)
+
+        self.assertEqual(rc, 0)
+        applied_calls = [c for c in label_calls
+                         if LABEL_APPLIED in c["add"] and LABEL_APPLYING in c["remove"]]
+        self.assertTrue(
+            applied_calls,
+            "Expected relaxed transition to move :applying → :applied on "
+            "MEDIUM + Ops-source: inferred; got calls: "
+            f"{label_calls}"
+        )
+        human_calls = [c for c in label_calls
+                       if LABEL_HUMAN_NEEDED in c["add"] and LABEL_APPLYING in c["remove"]]
+        self.assertFalse(
+            human_calls,
+            "MEDIUM + inferred must NOT divert to :human-needed; "
+            f"got calls: {label_calls}"
+        )
+
+    def test_medium_without_inferred_marker_still_diverts(self):
+        # Regression guard: a bare MEDIUM (no Ops-source marker) must
+        # continue to divert to :human-needed via the default
+        # applying_to_applied transition (HIGH gate).
+        issue = _make_applying_issue()
+        label_calls = []
+
+        def fake_set_labels(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            label_calls.append({"issue_number": issue_number,
+                                 "add": list(add), "remove": list(remove)})
+            return True
+
+        with patch("cai_lib.actions.maintain._run", return_value=_make_clone_result()), \
+             patch("cai_lib.actions.maintain._run_claude_p",
+                   return_value=_make_agent_result("MEDIUM")), \
+             patch("cai_lib.actions.maintain.shutil.rmtree"), \
+             patch("cai_lib.actions.maintain.log_run"), \
+             patch("cai_lib.github._set_labels", side_effect=fake_set_labels), \
+             patch("cai_lib.github._post_issue_comment", return_value=True):
+            from cai_lib.actions.maintain import handle_maintain
+            rc = handle_maintain(issue)
+
+        self.assertEqual(rc, 0)
+        human_calls = [c for c in label_calls
+                       if LABEL_HUMAN_NEEDED in c["add"] and LABEL_APPLYING in c["remove"]]
+        self.assertTrue(
+            human_calls,
+            "Expected MEDIUM without inferred marker to divert to "
+            f":human-needed; got calls: {label_calls}"
         )
 
 
