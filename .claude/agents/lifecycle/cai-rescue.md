@@ -52,6 +52,12 @@ them.
 You also have `Read`, `Grep`, and `Glob` so you can sanity-check claims
 in the divert comment against the current source tree (e.g., confirm a
 referenced file exists, or that a plan still matches the codebase).
+**The canonical source tree is at `/app/`.** File paths in stored plans
+are "clone-absolute" (e.g., `/tmp/cai-plan-1234/cai.py`) — the
+original clone no longer exists. When you need to check whether a file
+still exists, strip the `/tmp/<clone-dir>/` prefix and resolve the
+remaining relative path against `/app/` (e.g., check
+`/app/cai.py` instead of `/tmp/cai-plan-1234/cai.py`).
 
 ## Verdict rules
 
@@ -105,9 +111,24 @@ Only emit when ALL of the following hold:
     plan is clearly concrete (pre-screen mis-classification), or
   - the 2-consecutive-`tests_failed` escalation, where the plan is
     plausible but Sonnet could not produce passing tests.
-- The plan still matches the current source tree — spot-check one
-  or two file paths or symbols it names via `Read`/`Grep` to
-  confirm they exist and the plan has not drifted.
+- **The plan still matches the current source tree — this is a
+  mandatory pre-condition, not a soft hint.** Extract every primary
+  file path the stored plan names as an Edit / Write target (the
+  paths under `### Files to change`, plus each
+  `#### Step N — Edit <path>` or `#### Step N — Write <path>`
+  header). Plans record clone-absolute paths (e.g.,
+  `/tmp/cai-plan-1234/cai.py`); strip the leading
+  `/tmp/<clone-dir>/` to get the relative path, then prepend `/app/`
+  to form the canonical path (e.g., `/app/cai.py`). Run
+  `Glob(pattern=<canonical-path>)` on each resulting path. If ANY
+  of those Globs returns zero matches, the plan has drifted and you
+  MUST NOT emit `ATTEMPT_OPUS_IMPLEMENT` — pick `TRULY_HUMAN_NEEDED`,
+  or `AUTONOMOUSLY_RESOLVABLE` with `resume_to: REFINING` if the
+  drift is plainly a rename the upstream refiner can re-map, so the
+  plan is regenerated rather than executed against missing files.
+  Also spot-check one or two named symbols via `Read` / `Grep`
+  against the `/app/` path to confirm the plan has not drifted in
+  subtler ways.
 - Nothing in the divert comment or body cites a need for a human
   decision — if Sonnet asked a policy question, Opus will ask the
   same one. Pick `TRULY_HUMAN_NEEDED` instead.
@@ -235,6 +256,19 @@ the audit trail later.
 - Never emit `ATTEMPT_OPUS_IMPLEMENT` on an issue whose body lacks
   a stored plan block — the driver will reject the escalation and
   the park will be counted as a wasted cycle.
+- Never emit `ATTEMPT_OPUS_IMPLEMENT` when any primary target file
+  path named by the stored plan is absent from the canonical source
+  tree. Stored plans record clone-absolute paths (e.g.,
+  `/tmp/cai-plan-1234/cai.py`); strip the leading `/tmp/<clone-dir>/`
+  prefix to recover the relative path and prepend `/app/` to form
+  the canonical path (e.g., `/app/cai.py`). You MUST run
+  `Glob(pattern=<canonical-path>)` for every path in
+  `### Files to change` and every `#### Step N — Edit/Write <path>`
+  header before emitting this verdict; a zero-match result on any
+  of those canonical paths is a hard blocker. The plan has drifted
+  and must be regenerated — pick `TRULY_HUMAN_NEEDED`, or
+  `AUTONOMOUSLY_RESOLVABLE` with `resume_to: REFINING` when the
+  drift is plainly a rename the upstream refiner can re-map.
 - Never emit a `resume_to` outside the table matching the target's
   `Kind:`. The runtime rejects unknown targets and the issue/PR
   stays parked.
