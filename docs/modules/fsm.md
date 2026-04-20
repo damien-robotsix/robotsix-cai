@@ -29,7 +29,11 @@ import from `cai_lib.fsm` rather than the split modules directly.
   the canonical import path for handlers.
 - [`scripts/generate-fsm-docs.py`](../../scripts/generate-fsm-docs.py)
   — regenerates `docs/fsm.md` by calling `render_fsm_mermaid` over
-  both transition tables.
+  both transition tables. Before rendering it runs
+  `_validate_catalog` on each catalog, which builds a
+  `transitions.Machine` and surfaces unknown state references as
+  `ValueError` — so catalog typos fail the docs-regen CI job instead
+  of silently landing in the rendered diagram.
 
 ## Inter-module dependencies
 - Imported by **actions** — every handler in `cai_lib/actions/*.py`
@@ -41,7 +45,10 @@ import from `cai_lib.fsm` rather than the split modules directly.
   `:in-progress` / `:revising` labels using the helpers here.
 - Imported by **tests** — `tests/test_fsm.py` pins
   `ISSUE_TRANSITIONS`, `PR_TRANSITIONS`, and the parse helpers;
-  `tests/test_dispatcher.py` exercises the routing tables.
+  `tests/test_fsm_schema.py` validates both catalogs against
+  `transitions.Machine` so unknown state references fail CI before
+  the docs are regenerated; `tests/test_dispatcher.py` exercises the
+  routing tables.
 - No upstream imports inside the pipeline — this is a leaf
   dependency.
 - `scripts/generate-fsm-docs.py` writes regenerated diagrams into

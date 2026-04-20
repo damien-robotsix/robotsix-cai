@@ -146,6 +146,7 @@ declare -A DESCRIPTIONS=(
   ["tests/test_maintain.py"]="Tests for cai_lib.actions.maintain — handle_maintain confidence routing and FSM transitions"
   ["tests/test_dispatcher.py"]="Tests for the FSM dispatcher and state→handler registries"
   ["tests/test_fsm.py"]="Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers"
+  ["tests/test_fsm_schema.py"]="Tests for cai_lib.fsm_schema — validates ISSUE_TRANSITIONS and PR_TRANSITIONS catalogs against transitions.Machine for state reference correctness"
   ["tests/test_unblock.py"]="Tests for cai_lib.cmd_unblock — admin-comment filtering and agent input formatting"
   ["tests/test_rescue_opus.py"]="Tests for cai_lib.cmd_rescue — Opus-escalation verdict plumbing, schema, and one-shot label guard"
   ["tests/test_lint.py"]="Lint check: ruff must report zero violations"

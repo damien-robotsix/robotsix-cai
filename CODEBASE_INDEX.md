@@ -145,6 +145,7 @@
 | `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
+| `tests/test_fsm_schema.py` | Tests for cai_lib.fsm_schema — validates ISSUE_TRANSITIONS and PR_TRANSITIONS catalogs against transitions.Machine for state reference correctness |
 | `tests/test_implement_consecutive_failures.py` | TODO: add description |
 | `tests/test_implement_helper_extract.py` | TODO: add description |
 | `tests/test_implement_test_failure_extract.py` | TODO: add description |
