@@ -1,5 +1,7 @@
 """Subprocess helpers extracted from cai.py."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import shutil
@@ -8,12 +10,16 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, query
-from claude_agent_sdk.types import (
-    AssistantMessage,
-    ResultMessage,
-    TextBlock,
-)
+try:
+    from claude_agent_sdk import ClaudeAgentOptions, query
+    from claude_agent_sdk.types import (
+        AssistantMessage,
+        ResultMessage,
+        TextBlock,
+    )
+    _SDK_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _SDK_AVAILABLE = False
 
 from cai_lib.logging_utils import log_cost
 
