@@ -16,20 +16,11 @@ for a PR that was never going to auto-merge.
 """
 from __future__ import annotations
 
-import re
-
+from cai_lib.actions.merge import _BOT_BRANCH_RE
 from cai_lib.config import REPO
 from cai_lib.fsm import apply_pr_transition
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run
-
-
-# Bot-PR branch prefix regex. Only PRs on ``auto-improve/<issue>-…``
-# branches enter the auto-improve review pipeline; all other
-# branches are parked at PR-open time as ``pr:human-needed``
-# (issue #1065). Mirrors ``_BOT_BRANCH_RE`` in
-# ``cai_lib/actions/merge.py`` — the two regexes must stay in sync.
-_BOT_BRANCH_RE = re.compile(r"^auto-improve/(\d+)-")
 
 
 def handle_open_to_review(pr: dict) -> int:
