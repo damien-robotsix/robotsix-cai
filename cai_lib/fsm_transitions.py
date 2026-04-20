@@ -373,6 +373,23 @@ PR_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_PR_APPROVED],
                labels_add=[LABEL_PR_HUMAN_NEEDED],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    # Merge handler redirect: when the merge agent's verdict is LOW
+    # confidence + action=hold AND the reasoning cites only a concrete
+    # mechanically-fixable code bug (AttributeError, NameError, wrong
+    # field / method name, typo, etc.), route back through cai-revise
+    # instead of parking at PR_HUMAN_NEEDED. cai-revise can address the
+    # cited bug in one shot, whereas parking would burn a rescue cycle
+    # for a trivially fixable finding (issue #1055). The merge handler
+    # is responsible for (a) posting a follow-up comment with a heading
+    # NOT in cai-comment-filter's bot-self-comment allowlist so the
+    # filter treats it as unresolved, and (b) firing this transition
+    # only on LOW+hold verdicts that match the concrete-bug detector.
+    # All other held verdicts continue to use ``approved_to_human``.
+    Transition("approved_to_revision_pending",
+               PRState.APPROVED, PRState.REVISION_PENDING,
+               labels_remove=[LABEL_PR_APPROVED],
+               labels_add=[LABEL_PR_REVISION_PENDING],
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     Transition("pr_human_to_reviewing_code",
                PRState.PR_HUMAN_NEEDED, PRState.REVIEWING_CODE,
                labels_remove=[LABEL_PR_HUMAN_NEEDED],

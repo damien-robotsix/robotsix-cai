@@ -6,9 +6,15 @@ agent to obtain a confidence-gated verdict and, on a high-enough
 merge verdict, squash-merges via ``gh pr merge``. On new commits
 arriving since the APPROVED label was set, diverts back to code
 review. On low-confidence / refusal / merge failure on a still-open
-PR, transitions the PR out of APPROVED into ``PR_HUMAN_NEEDED``
-(``approved_to_human``) so the dispatcher parks it instead of
-re-routing back to ``handle_merge`` every drain tick.
+PR:
+
+- If the verdict is LOW+hold citing a concrete, mechanically-fixable
+  code bug (e.g., "field-name mismatch", "AttributeError", "typo"),
+  transitions to ``PR_REVISION_PENDING`` (``approved_to_revision_pending``)
+  so ``cai-revise`` can immediately fix it.
+- Otherwise, transitions the PR out of APPROVED into ``PR_HUMAN_NEEDED``
+  (``approved_to_human``) so the dispatcher parks it instead of
+  re-routing back to ``handle_merge`` every drain tick.
 """
 from __future__ import annotations
 
@@ -51,6 +57,58 @@ from cai_lib.logging_utils import log_run
 # ---------------------------------------------------------------------------
 
 _MERGE_COMMENT_HEADING = "## cai merge verdict"
+
+# Heading for the follow-up comment posted when a LOW+hold verdict's
+# reasoning names a concrete, mechanically-fixable code bug (see
+# ``_verdict_cites_concrete_code_bug`` below). The heading is
+# intentionally distinct from ``_MERGE_COMMENT_HEADING`` so
+# ``cai-comment-filter`` does not treat it as a resolved bot
+# self-comment — the heading is NOT listed in the filter's
+# bot-self-comment allowlist in ``cai-comment-filter.md``, so the
+# filter defaults to classifying it as unresolved. cai-revise then
+# picks up the comment on its next tick and addresses the cited bug
+# without waiting for a rescue cycle (issue #1055).
+_MERGE_FIXABLE_COMMENT_HEADING = "## cai merge: fixable code bug"
+
+# Reasoning patterns that indicate a LOW+hold verdict is citing a
+# concrete, mechanically-fixable code bug rather than a design /
+# scope / policy concern. Matched case-insensitively on the verdict's
+# ``reasoning`` string. When ANY of these patterns match AND the
+# verdict is ``low`` + ``hold``, ``handle_merge`` routes the PR to
+# REVISION_PENDING via ``approved_to_revision_pending`` instead of
+# parking at PR_HUMAN_NEEDED via ``approved_to_human``.
+_CONCRETE_CODE_BUG_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"\bAttributeError\b"),
+    re.compile(r"\bNameError\b"),
+    re.compile(r"\bTypeError\b"),
+    re.compile(r"\bImportError\b"),
+    re.compile(r"\bModuleNotFoundError\b"),
+    re.compile(r"\bKeyError\b"),
+    re.compile(r"\bwrong (?:field|method|attribute|argument|parameter|variable) name\b", re.IGNORECASE),
+    re.compile(r"\bincorrect (?:field|method|attribute|argument|parameter|variable) name\b", re.IGNORECASE),
+    re.compile(r"\b(?:field|method|attribute) name mismatch\b", re.IGNORECASE),
+    re.compile(r"\btypo\b", re.IGNORECASE),
+    re.compile(r"\bundefined (?:name|variable|symbol|reference|function)\b", re.IGNORECASE),
+)
+
+
+def _verdict_cites_concrete_code_bug(reasoning: str) -> bool:
+    """Return True when *reasoning* matches a concrete-bug pattern.
+
+    The detector is deliberately narrow — it fires only when the
+    merge agent's reasoning names a Python exception class or a
+    short, well-known "wrong-name / typo" phrase. Design concerns,
+    scope concerns, and vague correctness worries ("logic looks
+    suspicious", "unsure about edge case") do NOT match, so those
+    parks keep the current ``approved_to_human`` routing.
+    """
+    if not reasoning:
+        return False
+    for pattern in _CONCRETE_CODE_BUG_PATTERNS:
+        if pattern.search(reasoning):
+            return True
+    return False
+
 
 # Confidence threshold: only verdicts at or above this level trigger a merge.
 # "high" = only high merges, "medium" = high + medium merge,
@@ -1075,6 +1133,52 @@ def handle_merge(pr: dict) -> int:
             f"< threshold={_MERGE_THRESHOLD}; holding",
             flush=True,
         )
+        # Issue #1055: when a LOW+hold verdict's reasoning cites a
+        # concrete, mechanically-fixable code bug, route the PR back
+        # through cai-revise instead of parking at PR_HUMAN_NEEDED.
+        # The verdict comment above already has the "## cai merge
+        # verdict" heading, which cai-comment-filter treats as a
+        # resolved bot self-comment — so we post a SECOND comment
+        # under a heading that is NOT in the filter's allowlist,
+        # containing the reasoning verbatim, so cai-revise sees it
+        # as an unresolved reviewer comment on the next tick.
+        fixable_bug = (
+            action == "hold"
+            and confidence == "low"
+            and _verdict_cites_concrete_code_bug(reasoning)
+        )
+        if fixable_bug:
+            fixable_body = (
+                f"{_MERGE_FIXABLE_COMMENT_HEADING} \u2014 {head_sha}\n\n"
+                f"The merge agent flagged this PR with a **low-"
+                f"confidence hold** citing a concrete, mechanically-"
+                f"fixable code bug. Routing through `cai-revise` "
+                f"instead of parking for human review.\n\n"
+                f"**Verdict reasoning:**\n\n"
+                f"{reasoning}\n\n"
+                f"---\n"
+                f"_Auto-routed by `cai merge` to `pr:revision-"
+                f"pending`. `cai-revise` will address the bug cited "
+                f"above on its next tick; the revised PR returns to "
+                f"code review automatically._"
+            )
+            _run(
+                ["gh", "pr", "comment", str(pr_number),
+                 "--repo", REPO, "--body", fixable_body],
+                capture_output=True,
+            )
+            print(
+                f"[cai merge] PR #{pr_number}: LOW+hold verdict cites "
+                f"concrete code bug; routing to REVISION_PENDING",
+                flush=True,
+            )
+            apply_pr_transition(
+                pr_number, "approved_to_revision_pending",
+                log_prefix="cai merge",
+            )
+            log_run("merge", repo=REPO, pr=pr_number,
+                    duration=dur(), result="held_fixable_bug", exit=0)
+            return 0
         if not _issue_has_label(issue_number, LABEL_MERGED):
             if not _set_labels(
                 issue_number,
