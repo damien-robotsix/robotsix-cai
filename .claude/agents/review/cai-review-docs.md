@@ -144,11 +144,15 @@ tracked source file whose status in the stat summary is `A` (added),
   For each file that IS in the manifest: if `docs/modules.yaml`
   contains an exact-match glob for the deleted path, remove that
   glob. Remove the bullet from the narrative's `## Entry points`
-  list. If this leaves the module with zero `globs`, emit a
-  `### Finding: stale_docs` block requesting removal of the
-  now-empty module entry and its narrative file — your tool set
-  cannot delete files, so the wrapper / human handles the actual
-  `rm`. Do not attempt workarounds.
+  list. If this leaves the module with zero `globs`, remove the
+  module entry from `docs/modules.yaml` with `Edit`, and delete
+  the narrative file using the `.cai-staging/files-delete/`
+  tombstone mechanism — write an empty tombstone file to
+  `<work_dir>/.cai-staging/files-delete/<relative-path>` (e.g.
+  `.cai-staging/files-delete/docs/modules/<name>.md`) and the
+  wrapper will delete the target after your session exits. See
+  CLAUDE.md ("Deleting arbitrary repo files") for full details.
+  Emit a `### Fixed: stale_docs` block documenting the removal.
 
 Files with status `M` (edited in place, no rename/delete) do NOT
 require a module-index update.
