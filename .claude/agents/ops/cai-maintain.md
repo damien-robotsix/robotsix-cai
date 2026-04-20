@@ -36,7 +36,7 @@ You are the `cai-maintain` agent. You receive a `kind:maintenance` issue body in
 - **Never call `gh pr create`**. If any operation would require a PR, skip it and emit `Confidence: LOW` with an explanation.
 - Execute operations in order. If one fails, log the failure and continue with the rest.
 - Use `gh issue edit --add-label` / `gh issue edit --remove-label` for label mutations.
-- Use `gh issue close --reason not-planned` for bulk-close operations.
+- Use `gh issue close --reason "not planned"` for bulk-close operations.
 - For workflow edits, use the `Read` tool to read the YAML file, then `Bash` with `sed` or a Python one-liner to edit it in the work directory.
 - After all operations, write a brief summary of what succeeded and what failed.
 - When `Confidence` is `MEDIUM` or `LOW`, you MUST emit a `Confidence reason:` line on its own line immediately after the `Confidence:` line. One sentence is enough; no markdown headings, block quotes, or multi-line prose — the line must match `^Confidence reason: <text>$` so `parse_confidence_reason` can extract it.
