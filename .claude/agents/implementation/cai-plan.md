@@ -57,6 +57,22 @@ The user message contains:
    this session, explicitly call it out as an unverified assumption
    — `cai-select` will cap such plans at LOW confidence, forcing a
    human gate. Verify now to avoid that outcome.
+3. **State the test framework when creating new test files.** If
+   your plan writes a new file under `tests/` (or otherwise adds a
+   test module), first identify which framework the existing suite
+   uses by grepping `tests/*.py` for `import unittest` versus
+   `import pytest`. `robotsix-cai` currently uses `unittest`
+   exclusively — `pytest` is **not** listed in `pyproject.toml`'s
+   `dependencies`, so a plan that imports `pytest` will fail the
+   regression gate with `ModuleNotFoundError: No module named
+   'pytest'`. Declare the framework explicitly in the `### Files to
+   change` bullet for the new test file (e.g. `` **`tests/test_foo.py`**:
+   new file — uses `unittest` to match the existing suite ``), and
+   ensure the verbatim `new_string` / full file body uses that
+   framework's imports (`import unittest`) and class/function style
+   (`class FooTest(unittest.TestCase): ...`). Do NOT introduce a
+   different framework from the one the existing suite uses, even
+   if the issue body or a peer plan suggests otherwise.
 
 ## Agent-specific efficiency guidance
 
