@@ -213,6 +213,13 @@ ISSUE_TRANSITIONS: list[Transition] = [
     # the issue's branch.
     Transition("pr_to_refined",              IssueState.PR,                IssueState.REFINED,
                labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_REFINED]),
+    # Merge-side approach-mismatch escalation (#1075): cai-merge closes
+    # the PR and fires this transition so cai-implement re-runs under
+    # Opus on the next tick. Caller-gated (handler decides when to
+    # fire); no FSM-level confidence threshold.
+    Transition("pr_to_plan_approved",        IssueState.PR,                IssueState.PLAN_APPROVED,
+               labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_PLAN_APPROVED],
+               min_confidence=None),
     Transition("pr_to_human_needed",         IssueState.PR,                IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_HUMAN_NEEDED]),
     Transition("merged_to_solved",           IssueState.MERGED,            IssueState.SOLVED,

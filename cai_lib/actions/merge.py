@@ -37,8 +37,9 @@ from cai_lib.config import (
     LABEL_PLAN_APPROVED,
     LABEL_PR_NEEDS_HUMAN,
     LABEL_PR_NEEDS_WORKFLOW_REVIEW,
+    LABEL_OPUS_ATTEMPTED,
 )
-from cai_lib.fsm import apply_pr_transition, get_pr_state, PRState
+from cai_lib.fsm import apply_pr_transition, apply_transition, get_pr_state, PRState
 from cai_lib.github import _gh_json, _set_labels, _issue_has_label, close_issue_not_planned
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import (
@@ -132,6 +133,13 @@ _BOT_BRANCH_RE = re.compile(r"^auto-improve/(\d+)-")
 _MERGE_MAX_DIFF_LEN = int(os.environ.get("CAI_MERGE_MAX_DIFF_LEN", "200000"))
 
 # JSON schema for structured merge verdict (forced tool-use via --json-schema).
+# ``issue_type`` is an optional classifier the agent may set on ``hold``
+# verdicts so the handler can fast-path specific failure modes. Today
+# the only value that triggers wrapper-side routing is
+# ``approach_mismatch``, which causes handle_merge to close the PR and
+# schedule an Opus re-implement on the linked issue without burning a
+# rescue cycle (issue #1075). Any other value — or the field being
+# absent — leaves existing held-verdict behaviour unchanged.
 _MERGE_JSON_SCHEMA = {
     "type": "object",
     "properties": {
@@ -145,6 +153,16 @@ _MERGE_JSON_SCHEMA = {
         },
         "reasoning": {
             "type": "string",
+        },
+        "issue_type": {
+            "type": "string",
+            "enum": [
+                "approach_mismatch",
+                "missing_steps",
+                "implementation_bug",
+                "scope_creep",
+                "other",
+            ],
         },
     },
     "required": ["confidence", "action", "reasoning"],
@@ -1304,6 +1322,104 @@ def handle_merge(pr: dict) -> int:
             )
             log_run("merge", repo=REPO, pr=pr_number,
                     duration=dur(), result="held_fixable_bug", exit=0)
+            return 0
+        # Issue #1075: when a held verdict is tagged
+        # ``issue_type == "approach_mismatch"``, the implementation took
+        # the wrong fundamental approach (wrong API / wrong algorithm /
+        # wrong data model) — ``cai-revise`` cannot salvage it.
+        # Short-circuit the rescue loop: close the PR, stamp
+        # ``LABEL_OPUS_ATTEMPTED`` on the linked issue, and transition
+        # the issue back to PLAN_APPROVED via ``pr_to_plan_approved`` so
+        # ``cai-implement`` re-runs under Opus on the next tick.
+        approach_mismatch = (
+            action == "hold"
+            and tool_input.get("issue_type") == "approach_mismatch"
+        )
+        if approach_mismatch:
+            mismatch_body = (
+                f"## cai merge: approach mismatch \u2014 {head_sha}\n\n"
+                f"The merge agent flagged this PR with a **hold** verdict "
+                f"citing an implementation-approach mismatch (wrong API, "
+                f"algorithm, or data model). `cai-revise` cannot address "
+                f"this kind of issue with incremental edits, so the PR "
+                f"will be closed automatically and the linked issue "
+                f"#{issue_number} re-queued for a fresh `cai-implement` "
+                f"run under Opus.\n\n"
+                f"**Verdict reasoning:**\n\n"
+                f"{reasoning}\n\n"
+                f"---\n"
+                f"_Auto-routed by `cai merge`: closing PR, adding "
+                f"`{LABEL_OPUS_ATTEMPTED}` to issue #{issue_number}, "
+                f"and returning the issue to `:plan-approved`._"
+            )
+            _run(
+                ["gh", "pr", "comment", str(pr_number),
+                 "--repo", REPO, "--body", mismatch_body],
+                capture_output=True,
+            )
+            close_result = _run(
+                ["gh", "pr", "close", str(pr_number),
+                 "--repo", REPO, "--delete-branch"],
+                capture_output=True,
+            )
+            if close_result.returncode != 0:
+                print(
+                    f"[cai merge] PR #{pr_number}: approach_mismatch "
+                    f"close failed:\n{close_result.stderr}",
+                    file=sys.stderr,
+                )
+                apply_pr_transition(
+                    pr_number, "approved_to_human",
+                    log_prefix="cai merge",
+                    divert_reason=(
+                        "cai-merge returned a hold verdict with "
+                        "`issue_type=approach_mismatch` but `gh pr "
+                        "close` failed. The PR is still open; a human "
+                        "must close it and decide next steps on the "
+                        "linked issue."
+                    ),
+                )
+                log_run("merge", repo=REPO, pr=pr_number,
+                        duration=dur(),
+                        result="approach_mismatch_close_failed", exit=0)
+                return 0
+            if not _set_labels(
+                issue_number,
+                add=[LABEL_OPUS_ATTEMPTED],
+                log_prefix="cai merge",
+            ):
+                print(
+                    f"[cai merge] WARNING: failed to add "
+                    f"{LABEL_OPUS_ATTEMPTED} to #{issue_number} after "
+                    f"approach_mismatch close of PR #{pr_number}",
+                    file=sys.stderr, flush=True,
+                )
+            issue_labels_now = [
+                (lb.get("name") if isinstance(lb, dict) else lb)
+                for lb in (issue.get("labels") or [])
+            ]
+            transition_ok = apply_transition(
+                issue_number, "pr_to_plan_approved",
+                current_labels=issue_labels_now,
+                log_prefix="cai merge",
+            )
+            if not transition_ok:
+                print(
+                    f"[cai merge] WARNING: pr_to_plan_approved failed "
+                    f"for issue #{issue_number} after closing PR "
+                    f"#{pr_number}",
+                    file=sys.stderr, flush=True,
+                )
+            print(
+                f"[cai merge] PR #{pr_number}: approach_mismatch — "
+                f"closed PR and scheduled Opus re-implement on "
+                f"issue #{issue_number}",
+                flush=True,
+            )
+            log_run("merge", repo=REPO, pr=pr_number,
+                    duration=dur(),
+                    result="held_approach_mismatch_opus_triggered",
+                    exit=0)
             return 0
         if not _issue_has_label(issue_number, LABEL_MERGED):
             if not _set_labels(

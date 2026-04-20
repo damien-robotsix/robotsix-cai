@@ -54,6 +54,28 @@ You must emit exactly one of three confidence levels:
 | **medium** | The PR mostly implements the issue but has minor concerns: slightly broader scope, a small ambiguous choice, or one element you're not fully sure about. Probably fine, but better with human review. |
 | **low** | The PR has significant issues: wrong approach, missing core functionality, potential bugs, or substantial scope creep. Should not be merged automatically. |
 
+## Issue type classification (optional, only for `hold` verdicts)
+
+When your action is `hold`, you may optionally set the `issue_type`
+field to classify *why* the PR is being held. Setting `issue_type`
+lets the wrapper fast-path specific failure modes instead of parking
+at `pr:human-needed` and burning a rescue cycle.
+
+| `issue_type` | Set when... |
+|---|---|
+| `approach_mismatch` | The implementation took the **wrong fundamental approach** — wrong API used entirely, wrong algorithm (e.g. polling instead of events, linear scan instead of hash lookup), wrong data model, wrong architectural layer. `cai-revise` cannot salvage this with incremental edits; a fresh `cai-implement` attempt is needed. |
+| `missing_steps` | The PR implements the approach correctly but omits one or more required remediation steps from the issue. `cai-revise` can likely add the missing steps. |
+| `implementation_bug` | The approach is correct but there is a concrete code defect (wrong variable, off-by-one, missing edge case). `cai-revise` can fix it. |
+| `scope_creep` | The PR's approach is correct but its scope is too broad. A human must decide whether to narrow, split, or accept the extra edits. |
+| `other` | None of the above — or you are uncertain. Treated the same as omitting the field. |
+
+**Do NOT set `approach_mismatch` for:**
+- stylistic nits, typos, rename suggestions (those are `implementation_bug` at most);
+- bugs that `cai-revise` can fix in a follow-up commit (AttributeError, wrong field name — already routed via the `low+hold` fixable-bug detector);
+- missing remediation steps that the original approach supports (use `missing_steps`).
+
+Only set `approach_mismatch` when you are confident the PR would need to be re-written from scratch on the correct approach. The field is omitted by default and has no effect on `merge` or `reject` verdicts.
+
 ## Things that must NEVER produce a high verdict
 
 - PR scope is broader than the issue asks for
@@ -357,6 +379,7 @@ Emit exactly this structured block — nothing else:
 - **Confidence:** high | medium | low
 - **Action:** merge | hold | reject
 - **Reasoning:** <2-3 sentences explaining your assessment. Be specific about what you checked and why you're confident or not.>
+- **Issue type (optional, only with `hold`):** approach_mismatch | missing_steps | implementation_bug | scope_creep | other
 ```
 
 The action mapping:
