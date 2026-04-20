@@ -16,7 +16,7 @@ import from `cai_lib.fsm` rather than the split modules directly.
   labels.
 - [`cai_lib/fsm_transitions.py`](../../cai_lib/fsm_transitions.py) —
   `Transition` dataclass; `ISSUE_TRANSITIONS` and `PR_TRANSITIONS`
-  tables (compact 1-line-per-transition format, ~350 lines total);
+  tables (compact 1-line-per-transition format);
   `get_issue_state`, `get_pr_state`, `find_transition`,
   `apply_transition`, `apply_transition_with_confidence`,
   `resume_transition_for`, `apply_pr_transition`,
