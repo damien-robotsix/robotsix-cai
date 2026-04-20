@@ -14,6 +14,7 @@ the suite is the primary safety net for refactors.
   [`tests/test_multistep.py`](../../tests/test_multistep.py),
   [`tests/test_implement_consecutive_failures.py`](../../tests/test_implement_consecutive_failures.py),
   [`tests/test_implement_helper_extract.py`](../../tests/test_implement_helper_extract.py),
+  [`tests/test_implement_scope.py`](../../tests/test_implement_scope.py),
   [`tests/test_pr_bounce.py`](../../tests/test_pr_bounce.py),
   [`tests/test_revise_filter.py`](../../tests/test_revise_filter.py),
   [`tests/test_merge_diff.py`](../../tests/test_merge_diff.py),
