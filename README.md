@@ -57,8 +57,9 @@ handler fires; handlers are safely re-enterable so a crashed run
 resumes on the next tick. HIGH-confidence plans auto-promote to
 `:plan-approved`; MEDIUM-confidence plans with explicit anchor-based
 risk mitigation (the phrase "locate edits by anchor text ... not by
-line number") also auto-promote; plans flagged with
-`requires_human_review=true` (when cai-select knowingly chose a plan
+line number") also auto-promote; MEDIUM-confidence documentation-only
+plans (those touching only `docs/` files) also auto-promote; plans flagged
+with `requires_human_review=true` (when cai-select knowingly chose a plan
 that diverges from the refined-issue's stated preference) divert to
 `:human-needed` with a special "Plan diverges from preference" message;
 all others divert to `:human-needed` for admin review with a comment
