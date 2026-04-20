@@ -13,7 +13,7 @@ REVIEWING_CODE → REVIEWING_DOCS → APPROVED pipeline.
   did not update, and emits `### Finding:` blocks the wrapper
   posts as a PR comment. Read-only.
 - [`.claude/agents/review/cai-review-docs.md`](../../.claude/agents/review/cai-review-docs.md)
-  — sonnet docs-drift reviewer. Also owns `docs/modules.yaml` and
+  — haiku docs-drift reviewer. Also owns `docs/modules.yaml` and
   `docs/modules/<name>.md` — keeps the module index and
   narratives in sync whenever a PR adds, renames, or deletes
   tracked source files.
