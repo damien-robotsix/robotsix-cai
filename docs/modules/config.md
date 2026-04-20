@@ -21,8 +21,9 @@ every handler and `cmd_*` function; changes here ripple everywhere.
 - [`cai_lib/subprocess_utils.py`](../../cai_lib/subprocess_utils.py)
   — `_run(cmd, **kwargs)` is the subprocess wrapper with timeout
   and logging; `_run_claude_p(…)` launches a headless claude-code
-  session and returns events; `_last_assistant_text(events)`
-  extracts the final assistant message.
+  session via the Claude Agent SDK and returns a CompletedProcess
+  with `.stdout` containing the result; `_argv_to_options(argv, cwd)`
+  parses command-line arguments into SDK options.
 - [`cai_lib/watchdog.py`](../../cai_lib/watchdog.py) —
   `_rollback_stale_in_progress(immediate)` rolls back orphaned
   issue `:in-progress` / `:revising` labels;
