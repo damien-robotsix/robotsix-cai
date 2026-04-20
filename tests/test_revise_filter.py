@@ -47,6 +47,23 @@ NO_CHANGES_MARKER = _make_comment(4, "damien-robotsix",
                                    "Reviewed `parse()` signature — annotation not warranted.",
                                    "2026-04-01T23:00:00Z")
 
+# (e) A pre-merge review finding that revise deferred as out-of-scope.
+#     On its own this would look unresolved (diff doesn't address it),
+#     but a LATER `(clean)` pre-merge review supersedes it — see rule 6.
+PREMERGE_FINDING = _make_comment(
+    5, "damien-robotsix",
+    "## cai pre-merge review — abc1234\n\n"
+    "### Finding: missing_co_change\n\n"
+    "File X references symbol Y but isn't updated.",
+    "2026-04-02T10:00:00Z",
+)
+
+PREMERGE_CLEAN = _make_comment(
+    6, "damien-robotsix",
+    "## cai pre-merge review (clean) — def5678\n\nNo ripple effects found.",
+    "2026-04-02T11:00:00Z",
+)
+
 
 def _mock_claude_p_returning(payload: dict):
     """Return a mock subprocess.CompletedProcess that looks like a cai-comment-filter result."""
@@ -99,6 +116,19 @@ class TestFilterCommentsWithHaiku(unittest.TestCase):
         with run_p, claude_p:
             result = _filter_comments_with_haiku(
                 [COVERED_COMMENT, NO_CHANGES_MARKER], pr_number=42,
+            )
+        self.assertEqual(result, [])
+
+    def test_clean_premerge_review_supersedes_earlier_finding(self):
+        """A later `(clean)` pre-merge review should cause the haiku to treat
+        earlier `## cai pre-merge review —` findings as resolved, even if the
+        diff doesn't address them (the revise subagent may have deferred them
+        as out-of-scope and the clean re-review at the newer SHA is
+        authoritative)."""
+        run_p, claude_p = self._patch_run({"unresolved": []})
+        with run_p, claude_p:
+            result = _filter_comments_with_haiku(
+                [PREMERGE_FINDING, PREMERGE_CLEAN], pr_number=42,
             )
         self.assertEqual(result, [])
 

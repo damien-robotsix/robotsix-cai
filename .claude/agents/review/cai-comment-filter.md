@@ -68,6 +68,15 @@ of the following is true:
    "done", "fixed", "addressed", "resolved", "agreed", or similar
    affirmations that the concern has been handled.
 
+6. **Later clean pre-merge review supersedes**: A LATER comment
+   (higher `_idx`) starts with `## cai pre-merge review (clean)` —
+   this means the pre-merge reviewer re-ran after the revise
+   subagent's response and found nothing to address at the newer
+   SHA. Treat ALL earlier `## cai pre-merge review —` findings as
+   resolved, whether the revise subagent addressed them directly
+   or deferred them as out-of-scope (the clean verdict at a later
+   SHA is authoritative).
+
 A comment is **unresolved** if NONE of the above apply — including
 human comments that predate a rebase commit, because a rebase does
 not address the comment's concern.
