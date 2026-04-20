@@ -190,8 +190,12 @@ class TestDepthGate(unittest.TestCase):
 
 
 from cai_lib.actions.refine import (
+    _CLONE_PREFIX_RE,
+    _DOT_SLASH_RE,
+    _PATH_RE,
     _detect_guardrail_contradictions,
     _extract_files_to_change,
+    _extract_paths,
     _extract_scope_guardrails_paths,
 )
 
@@ -287,6 +291,70 @@ class TestGuardrailContradictionLint(unittest.TestCase):
     def test_missing_sections_no_contradictions(self):
         body = "## Refined Issue\n\n### Description\n\nSomething.\n"
         self.assertEqual(_detect_guardrail_contradictions(body), [])
+
+
+class TestExtractPathsHelper(unittest.TestCase):
+    """Tests for the _extract_paths pre-strips (clone-prefix + leading ./).
+
+    These lock in that both _CLONE_PREFIX_RE and _DOT_SLASH_RE are
+    load-bearing: without them, _PATH_RE's word-char-anchored lookbehind
+    silently drops the following legitimate path references.
+    """
+
+    def test_clone_prefix_stripped_so_path_is_extracted(self):
+        body = (
+            "### Files to change\n"
+            "- `/tmp/cai-plan-902-abcd1234/cai_lib/publish.py`\n"
+        )
+        self.assertEqual(
+            _extract_paths(body),
+            {"cai_lib/publish.py"},
+        )
+
+    def test_clone_prefix_is_load_bearing(self):
+        # Without _CLONE_PREFIX_RE, _PATH_RE cannot match the bare path
+        # because every candidate start position is preceded by "/" or
+        # "-", both of which are in _PATH_RE's excluded-lookbehind class.
+        raw = "/tmp/cai-plan-902-abcd1234/cai_lib/publish.py"
+        self.assertEqual(_PATH_RE.findall(raw), [])
+        stripped = _CLONE_PREFIX_RE.sub("", raw)
+        self.assertEqual(stripped, "cai_lib/publish.py")
+        self.assertEqual(_PATH_RE.findall(stripped), ["cai_lib/publish.py"])
+
+    def test_clone_prefix_regex_matches_canonical_shape(self):
+        for prefix in (
+            "/tmp/cai-plan-902-abcd1234/",
+            "/tmp/cai-implement-998-94eb0b0b/",
+            "/tmp/cai-refine-7-deadbeef/",
+        ):
+            self.assertIsNotNone(
+                _CLONE_PREFIX_RE.fullmatch(prefix),
+                f"expected _CLONE_PREFIX_RE to fullmatch {prefix!r}",
+            )
+
+    def test_leading_dot_slash_is_normalised(self):
+        body = (
+            "### Files to change\n"
+            "- `./cai_lib/publish.py`\n"
+        )
+        self.assertEqual(
+            _extract_paths(body),
+            {"cai_lib/publish.py"},
+        )
+
+    def test_dot_slash_is_load_bearing(self):
+        # Without _DOT_SLASH_RE, _PATH_RE cannot match "./cai_lib/publish.py"
+        # because the "c" of "cai_lib" is preceded by "/", which is in
+        # _PATH_RE's excluded-lookbehind class [\w/.-].
+        raw = "./cai_lib/publish.py"
+        self.assertEqual(_PATH_RE.findall(raw), [])
+        stripped = _DOT_SLASH_RE.sub("", raw)
+        self.assertEqual(stripped, "cai_lib/publish.py")
+        self.assertEqual(_PATH_RE.findall(stripped), ["cai_lib/publish.py"])
+
+    def test_empty_and_none_input(self):
+        self.assertEqual(_extract_paths(""), set())
+        self.assertEqual(_extract_paths(None), set())
 
 
 if __name__ == "__main__":

@@ -82,6 +82,17 @@ _PATH_RE = re.compile(
 # bare `cai_lib/publish.py` reference for the contradiction check.
 _CLONE_PREFIX_RE = re.compile(r"/tmp/cai-[^/\s]+/")
 
+# Matches a leading "./" on a path reference (e.g. "./cai_lib/foo.py")
+# that occurs at the start of a token — at string start or after
+# whitespace / backtick / bracket / comma / etc. The lookbehind excludes
+# word chars and "/" so mid-path occurrences like "foo/./bar" are NOT
+# stripped. Running this after _CLONE_PREFIX_RE (which removes
+# "/tmp/cai-<phase>-<issue>-<hash>/") and before _PATH_RE lets the
+# word-char-anchored _PATH_RE match the bare remainder, since its own
+# lookbehind (?<![\w/.-]) would otherwise block a match immediately
+# after a slash.
+_DOT_SLASH_RE = re.compile(r"(?<![/\w])\./")
+
 _FILES_TO_CHANGE_HEADER = "### Files to change"
 _SCOPE_GUARDRAILS_HEADER = "### Scope guardrails"
 
@@ -108,13 +119,15 @@ def _extract_paths(section_text: str) -> set[str]:
     # Pre-strip clone-prefix paths so the path regex (which is anchored on
     # word chars and cannot start with `/`) matches the relative remainder.
     text = _CLONE_PREFIX_RE.sub("", section_text or "")
+    # Pre-strip a leading "./" so references like "./cai_lib/foo.py" also
+    # match _PATH_RE on the bare remainder "cai_lib/foo.py". Without this,
+    # _PATH_RE's lookbehind (?<![\w/.-]) blocks matching after a slash.
+    text = _DOT_SLASH_RE.sub("", text)
     paths: set[str] = set()
     for m in _PATH_RE.finditer(text):
         raw = m.group(1).strip("`()[],.;: ")
         if not raw or any(ch.isspace() for ch in raw):
             continue
-        if raw.startswith("./"):
-            raw = raw[2:]
         paths.add(raw)
     return paths
 
