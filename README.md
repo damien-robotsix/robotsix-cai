@@ -371,13 +371,20 @@ implement their linked issue. For each open `:pr-open` PR on an
 6. If the action is `reject` and confidence meets the threshold,
    closes the PR via `gh pr close --delete-branch` and closes the
    linked issue via `gh issue close --reason "not planned"`
-7. If the action is `hold`, confidence is `low`, and the verdict's
+7. If the action is `hold` with `issue_type == "approach_mismatch"`,
+   the implementation took the wrong fundamental approach (wrong API,
+   wrong algorithm, wrong architecture) — closes the PR, stamps the
+   linked issue with `LABEL_OPUS_ATTEMPTED`, transitions it back to
+   `:plan-approved`, and schedules an Opus re-implement on the next
+   cycle. This bypasses the rescue loop to avoid repeated Sonnet
+   failures on fundamentally-misguided implementations.
+8. If the action is `hold`, confidence is `low`, and the verdict's
    reasoning cites a concrete, mechanically-fixable code bug (e.g.,
    "field-name mismatch", "AttributeError", "NameError", "typo"),
    routes the PR to `:pr-revision-pending` so `cai-revise` can
    immediately apply the fix on the next tick, rather than parking
    at `:pr-human-needed` for human review
-8. Otherwise, labels the issue `merge-blocked` and
+9. Otherwise, labels the issue `merge-blocked` and
    posts the verdict reasoning as a PR comment
 
 **Confidence levels:**

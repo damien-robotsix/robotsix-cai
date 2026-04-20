@@ -646,10 +646,17 @@ def handle_merge(pr: dict) -> int:
     ``PRState.APPROVED``. This handler either:
 
     * merges the PR (``approved_to_merged``), or
+    * applies ``pr_to_plan_approved`` (closes the PR, stamps the linked
+      issue with ``LABEL_OPUS_ATTEMPTED``, and re-queues for Opus
+      re-implement) when the merge agent flags a ``hold`` verdict with
+      ``issue_type == "approach_mismatch"`` — the implementation took
+      the wrong fundamental approach and needs a fresh attempt, or
+    * applies ``approved_to_revision_pending`` (routes to ``cai-revise``)
+      when the merge agent flags a ``hold`` verdict whose reasoning cites
+      a concrete, mechanically-fixable code bug, or
     * applies ``approved_to_human`` (clears ``pr:approved``, sets
-      ``pr:human-needed``) when the merge agent refuses / yields low
-      confidence / merge itself fails on a still-open PR. Parking is
-      done via FSM transition so the PR has exactly one state — the
+      ``pr:human-needed``) for all other held/refused verdicts. Parking
+      is done via FSM transition so the PR has exactly one state — the
       old behavior of layering a ``needs-human-review`` flag on top of
       ``pr:approved`` made the dispatcher loop on the same PR every
       drain tick.
