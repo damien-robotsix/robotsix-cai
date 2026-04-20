@@ -69,5 +69,20 @@ class TestCountConsecutiveTestsFailed(unittest.TestCase):
             self.assertEqual(_count_consecutive_tests_failed(42), 2)
 
 
+class TestInProgressToRefiningTransitionExists(unittest.TestCase):
+    """The new #923 transition must exist for the MEDIUM-plan auto-refine branch."""
+
+    def test_transition_registered(self):
+        from cai_lib.fsm import (
+            ISSUE_TRANSITIONS,
+            IssueState,
+            find_transition,
+        )
+        t = find_transition("in_progress_to_refining")
+        self.assertEqual(t.from_state, IssueState.IN_PROGRESS)
+        self.assertEqual(t.to_state, IssueState.REFINING)
+        self.assertIn(t, ISSUE_TRANSITIONS)
+
+
 if __name__ == "__main__":
     unittest.main()

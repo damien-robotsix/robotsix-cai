@@ -328,5 +328,175 @@ class TestHandlePrHumanNeeded(unittest.TestCase):
         fake.assert_called_once_with(pr)
 
 
+class TestCollectAmendmentComments(unittest.TestCase):
+    """Short acknowledgments are noise — filter them out."""
+
+    def test_filters_short_comments(self):
+        comments = [
+            {"body": "ok"},
+            {"body": "lgtm"},
+            {"body": "approved"},
+        ]
+        self.assertEqual(U._collect_amendment_comments(comments), [])
+
+    def test_keeps_substantive_comments(self):
+        long_text = (
+            "Please change step 3 so that it uses json.dumps instead of "
+            "repr, and add a regression test for the MEDIUM-plan branch."
+        )
+        comments = [
+            {"body": "ok"},
+            {"body": long_text},
+        ]
+        kept = U._collect_amendment_comments(comments)
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["body"], long_text)
+
+
+class TestAppendAdminAmendmentsToPlan(unittest.TestCase):
+    """Amendments are appended inside the stored plan block."""
+
+    _BODY_WITH_PLAN = (
+        "<!-- cai-plan-start -->\n"
+        "## Selected Implementation Plan\n\n"
+        "Do the thing.\n"
+        "Confidence: MEDIUM\n"
+        "Confidence reason: ambiguous scope\n"
+        "<!-- cai-plan-end -->\n\n"
+        "Original issue body below.\n"
+    )
+
+    def test_noop_without_amendments(self):
+        with mock.patch.object(U, "_run") as fake_run:
+            ok = U._append_admin_amendments_to_plan(
+                42, self._BODY_WITH_PLAN, amendments=[],
+            )
+        self.assertFalse(ok)
+        fake_run.assert_not_called()
+
+    def test_noop_when_body_has_no_plan_block(self):
+        with mock.patch.object(U, "_run") as fake_run:
+            ok = U._append_admin_amendments_to_plan(
+                42, "no plan here", amendments=[
+                    {"author": {"login": "alice"},
+                     "createdAt": "2026-04-19T10:00:00Z",
+                     "body": "please tweak step 3 to use json.dumps"},
+                ],
+            )
+        self.assertFalse(ok)
+        fake_run.assert_not_called()
+
+    def test_amendments_are_injected_into_plan_block(self):
+        amendment = {
+            "author": {"login": "alice"},
+            "createdAt": "2026-04-19T10:00:00Z",
+            "body": "please tweak step 3 to use json.dumps",
+        }
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["body"] = cmd[cmd.index("--body") + 1]
+            result = mock.MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+
+        with mock.patch.object(U, "_run", side_effect=fake_run):
+            ok = U._append_admin_amendments_to_plan(
+                42, self._BODY_WITH_PLAN, amendments=[amendment],
+            )
+        self.assertTrue(ok)
+        new_body = captured["body"]
+        # Plan markers remain and still enclose a single block.
+        self.assertEqual(new_body.count("<!-- cai-plan-start -->"), 1)
+        self.assertEqual(new_body.count("<!-- cai-plan-end -->"), 1)
+        # Original plan text still present.
+        self.assertIn("Do the thing.", new_body)
+        self.assertIn("Confidence: MEDIUM", new_body)
+        # Amendment content and author are inside the stored plan.
+        start = new_body.index("<!-- cai-plan-start -->")
+        end = new_body.index("<!-- cai-plan-end -->")
+        plan_region = new_body[start:end]
+        self.assertIn("## Admin Amendments", plan_region)
+        self.assertIn("alice", plan_region)
+        self.assertIn("please tweak step 3 to use json.dumps", plan_region)
+        # Non-plan body trailer is preserved.
+        self.assertIn("Original issue body below.", new_body)
+
+
+class TestTryUnblockIssueAppendsAmendmentsForPlanApproved(unittest.TestCase):
+    """PLAN_APPROVED resumes must fold admin amendments into the plan block."""
+
+    def _issue_with_plan(self):
+        return {
+            "number": 880,
+            "title": "t",
+            "body": (
+                "<!-- cai-plan-start -->\n"
+                "## Selected Implementation Plan\n\n"
+                "Original plan.\n"
+                "Confidence: MEDIUM\n"
+                "<!-- cai-plan-end -->\n\n"
+                "Rest of body.\n"
+            ),
+            "labels": [
+                {"name": "auto-improve:human-needed"},
+                {"name": "human:solved"},
+            ],
+            "comments": [
+                {"author": {"login": "alice"},
+                 "createdAt": "2026-04-19T12:00:00Z",
+                 "body": "Please adjust the plan: also strip trailing whitespace in step 2."},
+            ],
+        }
+
+    def _run_with_verdict(self, resume_to: str):
+        agent_stdout = json.dumps({
+            "resume_to": resume_to,
+            "confidence": "HIGH",
+            "reasoning": "admin greenlit the plan",
+        })
+        fake_agent = mock.MagicMock()
+        fake_agent.returncode = 0
+        fake_agent.stdout = agent_stdout
+        fake_agent.stderr = ""
+
+        calls: dict = {"append": [], "transition": []}
+
+        def fake_append(issue_number, body, amendments):
+            calls["append"].append(
+                {"issue": issue_number, "n": len(amendments)}
+            )
+            return True
+
+        def fake_apply(issue_number, transition_name, **kwargs):
+            calls["transition"].append(transition_name)
+            return True
+
+        issue = self._issue_with_plan()
+
+        with mock.patch.object(U, "_run_claude_p", return_value=fake_agent), \
+             mock.patch.object(U, "_append_admin_amendments_to_plan",
+                               side_effect=fake_append), \
+             mock.patch.object(U, "apply_transition", side_effect=fake_apply):
+            result = U._try_unblock_issue(issue)
+        return result, calls
+
+    def test_plan_approved_triggers_append(self):
+        result, calls = self._run_with_verdict("PLAN_APPROVED")
+        self.assertEqual(result, "resumed")
+        self.assertEqual(calls["transition"], ["human_to_plan_approved"])
+        self.assertEqual(len(calls["append"]), 1)
+        self.assertEqual(calls["append"][0]["n"], 1)
+
+    def test_refining_does_not_trigger_append(self):
+        result, calls = self._run_with_verdict("REFINING")
+        self.assertEqual(result, "resumed")
+        self.assertEqual(calls["transition"], ["human_to_refining"])
+        self.assertEqual(calls["append"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
