@@ -84,6 +84,7 @@
 | `cai_lib/cmd_implement.py` | Helpers for the implement-subagent pipeline |
 | `cai_lib/cmd_misc.py` | CLI subcommands extracted from cai.py: init, verify, cost-report, health-report, check-workflows, test |
 | `cai_lib/cmd_rescue.py` | Autonomous rescue pass for :human-needed issues lacking human:solved (calls cai-rescue) |
+| `cai_lib/cmd_review_docs.py` | TODO: add description |
 | `cai_lib/cmd_unblock.py` | Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock) |
 | `cai_lib/config.py` | Shared constants and path definitions |
 | `cai_lib/dispatcher.py` | FSM dispatcher — routes issues/PRs to the handler registered for their state |
