@@ -19,11 +19,17 @@ pull_request, issues, or manual dispatch).
 - [`.github/workflows/regenerate-docs.yml`](../../.github/workflows/regenerate-docs.yml)
   — regenerates `CODEBASE_INDEX.md` and `docs/fsm.md` on every
   PR, and auto-commits the drift back onto the PR branch.
+  Invokes `cai review-docs` to check for stale documentation,
+  runs `scripts/check-modules-coverage.py` to verify module
+  registry coverage, and retries the doc agent if coverage
+  checking fails (to auto-fix stale `docs/modules.yaml` entries).
   Replaces the former `check-index.yml`.
 
 ## Inter-module dependencies
 - Runs **scripts** — `regenerate-docs.yml` invokes
-  `scripts/generate-index.sh` and `scripts/generate-fsm-docs.py`.
+  `scripts/generate-index.sh`, `scripts/generate-fsm-docs.py`,
+  and `scripts/check-modules-coverage.py` (module registry
+  coverage verification).
 - Runs **installer** — `docker-publish.yml` consumes the
   `Dockerfile` and `docker-compose.yml`.
 - Enforces **github-glue** semantics — `admin-only-label.yml`

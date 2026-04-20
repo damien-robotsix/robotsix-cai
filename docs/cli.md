@@ -4,7 +4,7 @@
 
 Run inside the container: `docker compose exec cai python /app/cai.py <subcommand>`
 
-Subcommands group into three categories: **pipeline drivers** (`cycle`, `dispatch`) drain the auto-improve FSM queue; **audit subcommands** (`audit`, `audit-module`) file findings into the loop; **utility commands** (`cost-report`, `init`, `test`, `unblock`, `verify`) are operational helpers.
+Subcommands group into four categories: **pipeline drivers** (`cycle`, `dispatch`) drain the auto-improve FSM queue; **audit subcommands** (`audit`, `audit-module`) file findings into the loop; **review commands** (`review-docs`) run pre-merge documentation review in CI mode; **utility commands** (`cost-report`, `init`, `test`, `unblock`, `verify`) are operational helpers.
 
 ---
 
@@ -38,6 +38,22 @@ cai audit-module --kind code-reduction
 cai audit-module --kind cost-reduction
 cai audit-module --kind workflow-enhancement
 ```
+
+## review-docs
+
+CI-mode entry point for the `cai-review-docs` agent. Clones the PR branch, runs documentation review without any FSM state gate, commits any documentation fixes, and pushes them back to the branch. Intended for use in the GitHub Actions `regenerate-docs.yml` workflow as part of the module-coverage retry loop: if the first docs review passes but coverage check fails, this command re-runs the agent to auto-fix stale `docs/modules.yaml` entries.
+
+```bash
+cai review-docs --pr N
+```
+
+| Option | Type | Description |
+|---|---|---|
+| `--pr` | required | PR number to review |
+
+**Exit code behavior:**
+- `0` if the agent succeeds (whether or not doc fixes were applied)
+- Non-zero if clone, agent execution, or push fails
 
 ## cost-report
 
