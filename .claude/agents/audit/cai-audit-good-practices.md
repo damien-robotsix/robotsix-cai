@@ -1,6 +1,6 @@
 ---
 name: cai-audit-good-practices
-description: On-demand auditor for Claude Code best practices and documentation-vs-implementation drift in a declared module scope. Invoked by `cai audit good-practices`.
+description: On-demand auditor for Claude Code best practices and documentation-vs-implementation drift in a declared module scope.
 tools: Read, Grep, Glob, Agent, Write
 model: opus
 memory: project
