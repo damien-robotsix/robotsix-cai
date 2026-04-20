@@ -188,6 +188,35 @@ class TestPlannedToPlanApprovedMitigated(unittest.TestCase):
         self.assertEqual(default.min_confidence, Confidence.HIGH)
 
 
+class TestApplyingToAppliedInferredOps(unittest.TestCase):
+    """#986 — MEDIUM-gated sibling of applying_to_applied for inferred-ops runs."""
+
+    def test_inferred_ops_transition_accepts_medium(self):
+        t = find_transition("applying_to_applied_inferred_ops")
+        self.assertEqual(t.min_confidence, Confidence.MEDIUM)
+        self.assertTrue(t.accepts(Confidence.HIGH))
+        self.assertTrue(t.accepts(Confidence.MEDIUM))
+        self.assertFalse(t.accepts(Confidence.LOW))
+        self.assertFalse(t.accepts(None))
+
+    def test_inferred_ops_shares_label_move(self):
+        default = find_transition("applying_to_applied")
+        inferred = find_transition("applying_to_applied_inferred_ops")
+        self.assertEqual(default.from_state, inferred.from_state)
+        self.assertEqual(default.to_state, inferred.to_state)
+        self.assertEqual(default.labels_add, inferred.labels_add)
+        self.assertEqual(default.labels_remove, inferred.labels_remove)
+        # Only the threshold differs between the two siblings.
+        self.assertEqual(default.min_confidence, Confidence.HIGH)
+        self.assertEqual(inferred.min_confidence, Confidence.MEDIUM)
+
+    def test_default_transition_still_requires_high(self):
+        # Regression guard: the inferred-ops sibling must not replace the
+        # HIGH-gated default — both must coexist, one for each path.
+        default = find_transition("applying_to_applied")
+        self.assertEqual(default.min_confidence, Confidence.HIGH)
+
+
 class TestApplyTransition(unittest.TestCase):
 
     def _recording_set_labels(self):
