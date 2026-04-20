@@ -27,6 +27,29 @@ This file is loaded by all Claude Code subagents in headless mode.
    the file set, then Grep the results, instead of running
    exploratory Grep calls one at a time.
 
+## Project layout
+
+`.claude/agents/` is organized into six subfolders, each holding
+the agent prompt files for that category:
+
+  - `audit/` — scheduled and on-demand audit agents that write to
+    `findings.json` (cai-agent-audit, cai-analyze, cai-audit,
+    cai-audit-code-reduction, cai-audit-cost-reduction,
+    cai-audit-workflow-enhancement, cai-code-audit, cai-confirm).
+  - `implementation/` — code-editing and planning agents invoked
+    by the FSM (cai-fix-ci, cai-implement, cai-plan, cai-rebase,
+    cai-revise, cai-select).
+  - `lifecycle/` — FSM lifecycle handlers and helpers
+    (cai-dup-check, cai-explore, cai-propose, cai-propose-review,
+    cai-refine, cai-rescue, cai-triage, cai-unblock).
+  - `ops/` — operational / maintenance agents
+    (cai-check-workflows, cai-maintain, cai-update-check).
+  - `review/` — pre-merge code and docs review plus merge
+    verdict agents (cai-comment-filter, cai-merge, cai-review-docs,
+    cai-review-pr).
+  - `utility/` — shared helper agents used across pipelines
+    (cai-cost-optimize, cai-external-scout, cai-git, cai-memorize).
+
 ## Your working directory and the canonical /app location
 
 **Your `cwd` is `/app`, NOT the clone.** `/app` is where your declarative

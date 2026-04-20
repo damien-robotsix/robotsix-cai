@@ -117,7 +117,7 @@ Subcommands:
                             Findings are published as issues via
                             publish.py with the `code-audit` namespace.
 
-    python cai.py agent-audit  Weekly audit of .claude/agents/*.md for
+    python cai.py agent-audit  Weekly audit of .claude/agents/**/*.md for
                             Claude Code best-practice violations, unused
                             agents (not invoked via `--agent` anywhere), and
                             near-duplicate agents. Runs on Opus. Findings are
