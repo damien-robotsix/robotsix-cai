@@ -105,9 +105,19 @@ Only emit when ALL of the following hold:
     plan is clearly concrete (pre-screen mis-classification), or
   - the 2-consecutive-`tests_failed` escalation, where the plan is
     plausible but Sonnet could not produce passing tests.
-- The plan still matches the current source tree — spot-check one
-  or two file paths or symbols it names via `Read`/`Grep` to
-  confirm they exist and the plan has not drifted.
+- **The plan still matches the current source tree — this is a
+  mandatory pre-condition, not a soft hint.** Extract every
+  clone-absolute file path the stored plan names as a primary
+  Edit / Write target (the paths under `### Files to change`, plus
+  each `#### Step N — Edit <path>` or `#### Step N — Write <path>`
+  header) and run `Glob(pattern=<path>)` on each. If ANY of those
+  Globs returns zero matches, the plan has drifted and you MUST NOT
+  emit `ATTEMPT_OPUS_IMPLEMENT` — pick `TRULY_HUMAN_NEEDED`, or
+  `AUTONOMOUSLY_RESOLVABLE` with `resume_to: REFINING` if the drift
+  is plainly a rename the upstream refiner can re-map, so the plan
+  is regenerated rather than executed against missing files. Also
+  spot-check one or two named symbols via `Read` / `Grep` to confirm
+  the plan has not drifted in subtler ways.
 - Nothing in the divert comment or body cites a need for a human
   decision — if Sonnet asked a policy question, Opus will ask the
   same one. Pick `TRULY_HUMAN_NEEDED` instead.
@@ -235,6 +245,15 @@ the audit trail later.
 - Never emit `ATTEMPT_OPUS_IMPLEMENT` on an issue whose body lacks
   a stored plan block — the driver will reject the escalation and
   the park will be counted as a wasted cycle.
+- Never emit `ATTEMPT_OPUS_IMPLEMENT` when any primary target file
+  path named by the stored plan is absent from the current clone.
+  You MUST run `Glob(pattern=<path>)` for every path in
+  `### Files to change` and every `#### Step N — Edit/Write <path>`
+  header before emitting this verdict; a zero-match result on any
+  of those paths is a hard blocker. The plan has drifted and must
+  be regenerated — pick `TRULY_HUMAN_NEEDED`, or
+  `AUTONOMOUSLY_RESOLVABLE` with `resume_to: REFINING` when the
+  drift is plainly a rename the upstream refiner can re-map.
 - Never emit a `resume_to` outside the table matching the target's
   `Kind:`. The runtime rejects unknown targets and the issue/PR
   stays parked.
