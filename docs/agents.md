@@ -37,7 +37,7 @@ State transitions between these rows are rendered in [the lifecycle FSM diagram]
 
 | State | Handler | Subagent(s) invoked |
 |---|---|---|
-| `OPEN` | [`handle_open_to_review`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/open_pr.py) | *(label transition only)* |
+| `OPEN` | [`handle_open_to_review`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/open_pr.py) | *(branch-name-aware label transition; routes to `pr:reviewing-code` for bot branches, `pr:human-needed` for non-bot branches per issue #1065)* |
 | `REVIEWING_CODE` | [`handle_review_pr`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/review_pr.py) | `cai-review-pr` |
 | `REVISION_PENDING` | [`handle_revise`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/revise.py) | `cai-revise` (or `cai-rebase` when conflict-only) + inline `cai-comment-filter` |
 | `REVIEWING_DOCS` | [`handle_review_docs`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/review_docs.py) | `cai-review-docs` |

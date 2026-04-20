@@ -22,7 +22,7 @@ Handler registry (PR states):
 
 | State | Handler file | Role |
 |---|---|---|
-| `OPEN` | `cai_lib/actions/open_pr.py` | Tag a fresh PR into `pr:reviewing-code`. |
+| `OPEN` | `cai_lib/actions/open_pr.py` | Route a fresh PR based on its branch name: if the head branch matches `auto-improve/<issue>-…`, tag it into `pr:reviewing-code`; otherwise tag it into `pr:human-needed` with a comment explaining that non-bot-branch PRs cannot auto-merge (issue #1065). |
 | `REVIEWING_CODE` | `cai_lib/actions/review_pr.py` | Run `cai-review-pr` for ripple-effect findings; raise out-of-scope issues as separate GitHub issues. |
 | `REVISION_PENDING` | `cai_lib/actions/revise.py` | Run `cai-revise` (or `cai-rebase`) to address review comments / rebase conflicts. |
 | `REVIEWING_DOCS` | `cai_lib/actions/review_docs.py` | Run `cai-review-docs`; directly fix stale docs and push, or raise out-of-scope documentation issues as separate GitHub issues. On clean, transition to `pr:approved`. |
@@ -70,7 +70,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 | `pr:approved` | Docs review clean; merge handler runs the final confidence-gated merge from here |
 | `pr:rebasing` | Mergeable=CONFLICTING with main; rebase handler runs cai-rebase, posts an outcome comment, and always bounces back to `pr:reviewing-code` so the rebased SHA is re-reviewed |
 | `pr:ci-failing` | Checks are red; fix-ci handler is the action — returns to `pr:reviewing-code` after a push |
-| `pr:human-needed` | PR awaiting human decision; human applies `human:solved` to resume |
+| `pr:human-needed` | PR awaiting human decision; applied at open time for non-bot-branch PRs (those not matching `auto-improve/<issue>-…`), or later by review/merge handlers for issues found during the pipeline. Human applies `human:solved` to resume (but non-bot-branch PRs can only proceed via manual merge). |
 
 ## The Cycle Command
 
