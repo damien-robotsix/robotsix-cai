@@ -516,7 +516,13 @@ def handle_merge(pr: dict) -> int:
                 result="unaddressed_comments", exit=0)
         return 0
 
-    # Safety filter 5: failed CI checks.
+    # Safety filter 5: failed CI checks. Divert to CI_FAILING so
+    # handle_fix_ci picks the PR up on the next drive step. Returning
+    # 0 here without a state change would leave the PR stuck at
+    # APPROVED (the dispatcher sees no state change and no CI pending
+    # → "blocked, moving on") because no other code path transitions
+    # into CI_FAILING — handle_fix_ci only applies the transition
+    # from the pre-approved states.
     try:
         pr_detail = _gh_json([
             "pr", "view", str(pr_number),
@@ -529,8 +535,12 @@ def handle_merge(pr: dict) -> int:
             if conclusion == "FAILURE" or status == "FAILURE":
                 print(
                     f"[cai merge] PR #{pr_number}: has failed CI "
-                    f"checks; skipping",
+                    f"checks; diverting to CI_FAILING",
                     flush=True,
+                )
+                apply_pr_transition(
+                    pr_number, "approved_to_ci_failing",
+                    log_prefix="cai merge",
                 )
                 log_run("merge", repo=REPO, pr=pr_number,
                         result="ci_failing", exit=0)
