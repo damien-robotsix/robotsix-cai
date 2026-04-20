@@ -152,6 +152,21 @@ Default to this whenever the divert comment cites or implies any of:
   outside the bot's reach.
 - An explicit "need admin decision" / "must be reviewed by a human"
   request.
+- **A hard prerequisite on another issue or PR is unmet.** Scan
+  the issue body AND the stored plan block for phrases like
+  "must wait for #<N>", "depends on #<N>", "blocked on #<N>",
+  "requires #<N>", "prerequisite: #<N>", or "needs #<N> to merge
+  first". When you find such a reference, use `Read` / `Grep` /
+  `Glob` against `/app/` to check whether the named mechanism
+  (file, function, label constant, FSM transition, etc.) is
+  already present in the canonical source tree. If the reference
+  is explicit AND the mechanism is still absent, emit
+  `TRULY_HUMAN_NEEDED` with `HIGH` confidence — re-running
+  plan/implement before the blocker lands is guaranteed to
+  re-divert. Also surface a `prevention_finding` recommending the
+  `blocked-on:<N>` label (see the prevention-finding examples
+  below) so future rescue passes skip the issue at the list stage
+  via the existing filter in `cai_lib/cmd_rescue.py`.
 - Anything you yourself feel uncertain about after reading the
   evidence.
 
@@ -216,6 +231,13 @@ class of divert from recurring, emit it as Markdown text in
   for issues that already contain a stored plan block."
 - "cai-plan should retry once on parser-fence failures before
   diverting."
+- "Apply a `blocked-on:<N>` label (no `#` prefix — see
+  `BLOCKED_ON_LABEL_RE` in `cai_lib/config.py`) to this issue so
+  future rescue passes skip it at the list stage via
+  `_list_unresolved_human_needed_issues` /
+  `_list_unresolved_pr_human_needed_prs` in
+  `cai_lib/cmd_rescue.py`, instead of re-running the rescue agent
+  every 4 hours while the blocker remains open."
 
 Keep it ≤ 10 lines. Be specific — name files, agents, or thresholds
 where possible. Leave the field empty (or omit it) when no actionable
