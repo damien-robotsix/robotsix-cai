@@ -49,6 +49,13 @@ every handler and `cmd_*` function; changes here ripple everywhere.
 - **Watchdog invariant.** `_rollback_stale_in_progress` must
   remain safe to re-run; it relies on lock comments emitted by
   `github.py._acquire_remote_lock` to detect abandonment.
+- **`:locked` age comes from the claim comment, not `updatedAt`.**
+  The watchdog reads the oldest `<!-- cai-lock -->` comment's
+  `created_at` to decide whether a `:locked` label is past its TTL.
+  Using the issue/PR's `updatedAt` was a prior bug: GitHub bumps
+  `updatedAt` for CI check-runs and each cycle's losing
+  `_acquire_remote_lock` race (post+delete of a claim comment),
+  which kept hours-old locks looking "fresh" forever.
 - **CI implications.** Tests import from these files directly;
   breaking a public helper breaks ~30 tests.
 - **Cost sensitivity — indirect but central.** Logging is free;

@@ -24,15 +24,39 @@ def _make_issue(number, label, age_hours):
     }
 
 
+def _make_lock_claim(age_hours, owner="test-instance", comment_id=1):
+    """Build a fake cai-lock claim-comment dict ``age_hours`` old."""
+    created = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+    return {
+        "id": comment_id,
+        "owner": owner,
+        "created_at": created.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
 class TestRollbackStaleInProgress(unittest.TestCase):
 
-    def _run_rollback(self, immediate, issues_by_label, set_labels_mock=None):
-        """Run _rollback_stale_in_progress with mocked gh calls."""
+    def _run_rollback(self, immediate, issues_by_label, set_labels_mock=None,
+                      lock_comments_by_number=None):
+        """Run _rollback_stale_in_progress with mocked gh calls.
+
+        ``lock_comments_by_number`` lets tests seed cai-lock claim
+        comments per issue/PR: ``{number: [{"id": int, "owner": str,
+        "created_at": "YYYY-MM-DDTHH:MM:SSZ"}, ...]}``. Lists are
+        returned oldest-first (matching the real ``_list_lock_comments``
+        contract). Omitted numbers see an empty list.
+        """
+
+        comments = lock_comments_by_number or {}
+
+        def fake_list_lock_comments(number):
+            return list(comments.get(number, []))
 
         def fake_gh_json(args, **kwargs):
             # The :locked rollback path also calls
-            # `gh api /repos/.../issues/<n>/comments` to find cai-lock
-            # claims. Treat that call as "no comments".
+            # `gh api /repos/.../issues/<n>/comments` for claim-comment
+            # deletion after a successful label strip. Treat as empty so
+            # the deletion branch no-ops in tests.
             if args and args[0] == "api":
                 return []
             # Extract the --label argument from `gh issue list ...`.
@@ -46,6 +70,8 @@ class TestRollbackStaleInProgress(unittest.TestCase):
         with patch("cai_lib.watchdog._gh_json", side_effect=fake_gh_json), \
              patch("cai_lib.watchdog._set_labels", sl), \
              patch("cai_lib.watchdog._delete_issue_comment", return_value=True), \
+             patch("cai_lib.watchdog._list_lock_comments",
+                   side_effect=fake_list_lock_comments), \
              patch("cai_lib.watchdog.log_run"), \
              patch("cai_lib.watchdog.LOG_PATH", MagicMock(exists=lambda: False)):
             return cai._rollback_stale_in_progress(immediate=immediate)
@@ -168,6 +194,9 @@ class TestRollbackStaleInProgress(unittest.TestCase):
                 cai.LABEL_LOCKED: [locked_issue],
             },
             set_labels_mock=sl_mock,
+            lock_comments_by_number={
+                701: [_make_lock_claim(age_hours=cai._STALE_LOCKED_HOURS + 0.5)],
+            },
         )
         nums = {i["number"] for i in result}
         self.assertIn(701, nums,
@@ -207,6 +236,9 @@ class TestRollbackStaleInProgress(unittest.TestCase):
                 cai.LABEL_APPLYING: [],
                 cai.LABEL_LOCKED: [locked_issue],
             },
+            lock_comments_by_number={
+                811: [_make_lock_claim(age_hours=0.1)],
+            },
         )
         nums = {i["number"] for i in result}
         self.assertNotIn(811, nums,
@@ -227,11 +259,131 @@ class TestRollbackStaleInProgress(unittest.TestCase):
                 cai.LABEL_APPLYING: [],
                 cai.LABEL_LOCKED: [locked_issue],
             },
+            lock_comments_by_number={
+                801: [_make_lock_claim(age_hours=cai._STALE_LOCKED_HOURS / 2)],
+            },
         )
         nums = {i["number"] for i in result}
         self.assertNotIn(801, nums,
                          f"fresh :locked (age < {cai._STALE_LOCKED_HOURS}h) "
                          "must NOT be rolled back")
+
+    def test_rollback_locked_uses_claim_comment_over_stale_updated_at(self):
+        """:locked rollback age must come from the oldest cai-lock comment.
+
+        Regression for the production bug where issues kept a :locked label
+        for hours because GitHub ``updatedAt`` was bumped by each cycle's
+        losing ``_acquire_remote_lock`` race (post+delete of a claim
+        comment) and by CI check-runs. The watchdog was using ``updatedAt``
+        as the freshness fallback and never crossed the TTL threshold.
+        """
+        # Issue looks "fresh" via updatedAt (5 min), but the actual cai-lock
+        # claim comment is 4 hours old → must be rolled back.
+        locked_issue = _make_issue(
+            851, cai.LABEL_LOCKED, age_hours=5 / 60.0)
+        result = self._run_rollback(
+            immediate=False,
+            issues_by_label={
+                cai.LABEL_IN_PROGRESS: [],
+                cai.LABEL_REVISING: [],
+                cai.LABEL_APPLYING: [],
+                cai.LABEL_LOCKED: [locked_issue],
+            },
+            lock_comments_by_number={
+                851: [_make_lock_claim(
+                    age_hours=cai._STALE_LOCKED_HOURS + 3.0)],
+            },
+        )
+        nums = {i["number"] for i in result}
+        self.assertIn(
+            851, nums,
+            "a :locked issue with a claim comment older than "
+            f"{cai._STALE_LOCKED_HOURS}h must be rolled back even when "
+            "updatedAt is fresh (production bug — updatedAt is tainted "
+            "by losing acquire races)",
+        )
+
+    def test_rollback_locked_ignores_stale_updated_at_when_claim_fresh(self):
+        """A fresh claim comment must protect a :locked label even if ``updatedAt`` is old.
+
+        Inverse of the regression: a healthy, actively-held lock whose
+        issue hasn't been touched for a while (e.g. a long-running
+        handler with no label churn) must NOT be rolled back.
+        """
+        locked_issue = _make_issue(
+            852, cai.LABEL_LOCKED,
+            age_hours=cai._STALE_LOCKED_HOURS + 10,  # stale updatedAt
+        )
+        result = self._run_rollback(
+            immediate=False,
+            issues_by_label={
+                cai.LABEL_IN_PROGRESS: [],
+                cai.LABEL_REVISING: [],
+                cai.LABEL_APPLYING: [],
+                cai.LABEL_LOCKED: [locked_issue],
+            },
+            lock_comments_by_number={
+                852: [_make_lock_claim(age_hours=0.05)],  # ~3 min old
+            },
+        )
+        nums = {i["number"] for i in result}
+        self.assertNotIn(
+            852, nums,
+            "a :locked issue with a fresh claim comment must NOT be "
+            "rolled back even if updatedAt is hours old",
+        )
+
+    def test_rollback_locked_uses_oldest_claim_when_many(self):
+        """When multiple claim comments exist, the oldest wins (protocol contract)."""
+        locked_issue = _make_issue(853, cai.LABEL_LOCKED, age_hours=0.1)
+        result = self._run_rollback(
+            immediate=False,
+            issues_by_label={
+                cai.LABEL_IN_PROGRESS: [],
+                cai.LABEL_REVISING: [],
+                cai.LABEL_APPLYING: [],
+                cai.LABEL_LOCKED: [locked_issue],
+            },
+            lock_comments_by_number={
+                # Oldest-first (contract of _list_lock_comments).
+                853: [
+                    _make_lock_claim(
+                        age_hours=cai._STALE_LOCKED_HOURS + 2,
+                        comment_id=1, owner="old-owner",
+                    ),
+                    _make_lock_claim(age_hours=0.02, comment_id=2,
+                                     owner="fresh-loser"),
+                ],
+            },
+        )
+        nums = {i["number"] for i in result}
+        self.assertIn(
+            853, nums,
+            "rollback must use the OLDEST claim-comment timestamp — a "
+            "fresh losing-race claim must not protect a stale winner",
+        )
+
+    def test_rollback_locked_orphan_label_stripped(self):
+        """:locked label with NO cai-lock comment is an anomaly → always strip."""
+        locked_issue = _make_issue(854, cai.LABEL_LOCKED, age_hours=0.01)
+        result = self._run_rollback(
+            immediate=False,
+            issues_by_label={
+                cai.LABEL_IN_PROGRESS: [],
+                cai.LABEL_REVISING: [],
+                cai.LABEL_APPLYING: [],
+                cai.LABEL_LOCKED: [locked_issue],
+            },
+            lock_comments_by_number={},  # no claims for #854
+        )
+        nums = {i["number"] for i in result}
+        self.assertIn(
+            854, nums,
+            "orphan :locked (label without claim comment) must be "
+            "rolled back regardless of age — the acquire protocol "
+            "guarantees label+comment are posted together, so a label "
+            "alone means a crashed/manual anomaly",
+        )
 
 
 def _make_pr(number, label, age_hours):
@@ -248,8 +400,18 @@ def _make_pr(number, label, age_hours):
 
 class TestRollbackStalePrLocks(unittest.TestCase):
 
-    def _run_pr_rollback(self, immediate, prs, set_pr_labels_mock=None):
-        """Run _rollback_stale_pr_locks with mocked gh + label calls."""
+    def _run_pr_rollback(self, immediate, prs, set_pr_labels_mock=None,
+                         lock_comments_by_number=None):
+        """Run _rollback_stale_pr_locks with mocked gh + label calls.
+
+        ``lock_comments_by_number`` seeds cai-lock claim comments per PR
+        (same shape as the issue-side helper).
+        """
+
+        comments = lock_comments_by_number or {}
+
+        def fake_list_lock_comments(number):
+            return list(comments.get(number, []))
 
         def fake_gh_json(args, **kwargs):
             # Cai-lock claim comment scan — return empty list.
@@ -266,6 +428,8 @@ class TestRollbackStalePrLocks(unittest.TestCase):
         with patch("cai_lib.watchdog._gh_json", side_effect=fake_gh_json), \
              patch("cai_lib.watchdog._set_pr_labels", spl), \
              patch("cai_lib.watchdog._delete_issue_comment", return_value=True), \
+             patch("cai_lib.watchdog._list_lock_comments",
+                   side_effect=fake_list_lock_comments), \
              patch("cai_lib.watchdog.log_run"):
             return cai._rollback_stale_pr_locks(immediate=immediate)
 
@@ -276,6 +440,9 @@ class TestRollbackStalePrLocks(unittest.TestCase):
         spl_mock = MagicMock(return_value=True)
         result = self._run_pr_rollback(
             immediate=False, prs=[pr], set_pr_labels_mock=spl_mock,
+            lock_comments_by_number={
+                901: [_make_lock_claim(age_hours=cai._STALE_LOCKED_HOURS + 0.5)],
+            },
         )
         nums = {p["number"] for p in result}
         self.assertIn(
@@ -304,12 +471,56 @@ class TestRollbackStalePrLocks(unittest.TestCase):
         """PRs within _STALE_LOCKED_HOURS must NOT be rolled back."""
         pr = _make_pr(902, cai.LABEL_LOCKED,
                       age_hours=cai._STALE_LOCKED_HOURS / 2)
-        result = self._run_pr_rollback(immediate=False, prs=[pr])
+        result = self._run_pr_rollback(
+            immediate=False, prs=[pr],
+            lock_comments_by_number={
+                902: [_make_lock_claim(age_hours=cai._STALE_LOCKED_HOURS / 2)],
+            },
+        )
         nums = {p["number"] for p in result}
         self.assertNotIn(
             902, nums,
             f"fresh :locked PR (age < {cai._STALE_LOCKED_HOURS}h) must NOT "
             "be rolled back",
+        )
+
+    def test_pr_lock_uses_claim_comment_over_stale_updated_at(self):
+        """PR :locked rollback must read the claim comment, not ``updatedAt``.
+
+        Production regression: PR #938 kept :locked for 4+ hours because
+        GitHub bumped ``updatedAt`` for CI check-runs and losing
+        lock-acquire races, while the real lock acquisition was hours old.
+        """
+        # updatedAt looks fresh (3 min), claim comment is 4h old.
+        pr = _make_pr(904, cai.LABEL_LOCKED, age_hours=3 / 60.0)
+        spl_mock = MagicMock(return_value=True)
+        result = self._run_pr_rollback(
+            immediate=False, prs=[pr], set_pr_labels_mock=spl_mock,
+            lock_comments_by_number={
+                904: [_make_lock_claim(
+                    age_hours=cai._STALE_LOCKED_HOURS + 3.0)],
+            },
+        )
+        nums = {p["number"] for p in result}
+        self.assertIn(
+            904, nums,
+            "PR rollback must use the oldest cai-lock claim comment's "
+            "created_at, not the PR's updatedAt (tainted by CI and "
+            "losing-race post/delete churn)",
+        )
+
+    def test_pr_lock_orphan_label_stripped(self):
+        """PR :locked label with no claim comment is an anomaly → strip."""
+        pr = _make_pr(905, cai.LABEL_LOCKED, age_hours=0.01)
+        result = self._run_pr_rollback(
+            immediate=False, prs=[pr],
+            lock_comments_by_number={},
+        )
+        nums = {p["number"] for p in result}
+        self.assertIn(
+            905, nums,
+            "orphan PR :locked (no claim comment) must be rolled back "
+            "regardless of age",
         )
 
     def test_immediate_true_rolls_back_fresh_pr(self):
