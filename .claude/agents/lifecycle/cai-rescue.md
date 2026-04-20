@@ -103,7 +103,7 @@ Only emit when ALL of the following hold:
     "Implement subagent: repeated test failures"),
   - the Haiku pre-screen emitting `spike` on an issue whose stored
     plan is clearly concrete (pre-screen mis-classification), or
-  - the 3-consecutive-`tests_failed` escalation, where the plan is
+  - the 2-consecutive-`tests_failed` escalation, where the plan is
     plausible but Sonnet could not produce passing tests.
 - The plan still matches the current source tree — spot-check one
   or two file paths or symbols it names via `Read`/`Grep` to

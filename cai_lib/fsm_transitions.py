@@ -151,13 +151,11 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_PLAN_APPROVED],     labels_add=[LABEL_IN_PROGRESS]),
     Transition("in_progress_to_pr",          IssueState.IN_PROGRESS,       IssueState.PR,
                labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_PR_OPEN]),
-    # Implement-strike auto-refine (#923). Fired by handle_implement when
-    # the 3-consecutive `tests_failed` counter trips on an issue whose
-    # stored plan was approved at MEDIUM confidence (i.e., it already
-    # tripped a gate). Three failures are strong evidence the plan
-    # itself is wrong, so re-planning is autonomously safer than parking
-    # at :human-needed. Not confidence-gated at the FSM level — the
-    # application-level MEDIUM check in handle_implement decides.
+    # Re-planning gate for MEDIUM-confidence plans that implement struggled
+    # with. Not currently fired by handle_implement (which escalates to
+    # :human-needed after 2 consecutive test failures as a cost optimization).
+    # Reserved for potential future use when implementing MEDIUM-plan
+    # auto-refine logic. Not confidence-gated at the FSM level.
     Transition("in_progress_to_refining",    IssueState.IN_PROGRESS,       IssueState.REFINING,
                labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_REFINING],
                min_confidence=None),

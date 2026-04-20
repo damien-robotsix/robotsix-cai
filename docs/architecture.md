@@ -14,7 +14,7 @@ Handler registry (issue states):
 | `REFINING` | `cai_lib/actions/refine.py` | Rewrite the issue into a structured plan with steps, verification, and scope guardrails. |
 | `NEEDS_EXPLORATION` | `cai_lib/actions/explore.py` | Run `cai-explore` to investigate an under-specified issue and route back to `:refining`. |
 | `REFINED` / `PLANNING` / `PLANNED` | `cai_lib/actions/plan.py` | Run plan + select, store the plan in the issue body, then apply the confidence gate: HIGH auto-promotes to `:plan-approved`; MEDIUM with explicit anchor-based risk mitigation also auto-promotes; others (MEDIUM without marker, LOW, or missing) divert to `:human-needed` with a pending marker and a comment explaining the confidence reason (e.g., unverified assumptions, ambiguous scope). |
-| `PLAN_APPROVED` / `IN_PROGRESS` | `cai_lib/actions/implement.py` | Run `cai-implement` in a fresh worktree; commit, push, and open a PR. On repeated test failures (≥3 consecutive), MEDIUM-confidence plans auto-refine via `in_progress_to_refining` instead of escalating to `:human-needed` (implement-strike auto-refine). |
+| `PLAN_APPROVED` / `IN_PROGRESS` | `cai_lib/actions/implement.py` | Run `cai-implement` in a fresh worktree; commit, push, and open a PR. On repeated test failures (≥2 consecutive), pre-empt the subagent call and escalate to `:human-needed` to avoid wasting tokens on a plan the test suite cannot pass (cost optimization guard). |
 | `PR` | `cai_lib/actions/pr_bounce.py` | Bounce to the linked PR's dispatcher. |
 | `MERGED` | `cai_lib/actions/confirm.py` | Verify the merged fix actually resolved the issue; transition to `:solved` (and close the GitHub issue as "completed") or re-queue to `:refined`. |
 
