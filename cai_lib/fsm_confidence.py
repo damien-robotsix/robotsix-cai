@@ -52,6 +52,11 @@ _CONFIDENCE_REASON_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+_REQUIRES_HUMAN_REVIEW_RE = re.compile(
+    r"^Requires human review:\s*(true|false)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 
 def parse_confidence(text: str) -> Optional[Confidence]:
     """Extract ``Confidence: LOW|MEDIUM|HIGH`` from agent structured output.
@@ -81,6 +86,26 @@ def parse_confidence_reason(text: str) -> Optional[str]:
     if not m:
         return None
     return m.group(1).strip()
+
+
+def parse_requires_human_review(text: str) -> bool:
+    """Extract ``Requires human review: true|false`` from a plan block body.
+
+    Returns ``True`` only when a well-formed ``Requires human review: true``
+    line is present (case-insensitive). Any other case — the line absent,
+    explicitly ``false``, or malformed — returns ``False`` so the gate
+    falls through to its normal confidence-based routing.
+
+    Used by :func:`cai_lib.actions.plan.handle_plan_gate` to surface a
+    bespoke divert message when ``cai-select`` knowingly chose a plan
+    that diverges from the refined-issue's stated preference (#982).
+    """
+    if not text:
+        return False
+    m = _REQUIRES_HUMAN_REVIEW_RE.search(text)
+    if not m:
+        return False
+    return m.group(1).lower() == "true"
 
 
 _RESUME_RE = re.compile(

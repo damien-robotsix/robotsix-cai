@@ -55,10 +55,11 @@ class TestRunSelectAgent(unittest.TestCase):
         out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
 
         self.assertIsNotNone(out)
-        plan, conf, reason = out
+        plan, conf, reason, requires_review = out
         self.assertIn("do X", plan)
         self.assertEqual(conf, Confidence.HIGH)
         self.assertEqual(reason, "both plans converge")
+        self.assertFalse(requires_review)
 
     @patch("cai_lib.actions.plan._run_claude_p")
     def test_strips_markdown_code_fence(self, mock_run):
@@ -74,9 +75,42 @@ class TestRunSelectAgent(unittest.TestCase):
         out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
 
         self.assertIsNotNone(out)
-        _, conf, reason = out
+        _, conf, reason, requires_review = out
         self.assertEqual(conf, Confidence.MEDIUM)
         self.assertEqual(reason, "scope unclear")
+        self.assertFalse(requires_review)
+
+    @patch("cai_lib.actions.plan._run_claude_p")
+    def test_parses_requires_human_review_true(self, mock_run):
+        """cai-select may set requires_human_review=true on knowing divergence (#982)."""
+        from cai_lib.actions.plan import _run_select_agent
+        mock_run.return_value = self._completed(stdout=(
+            '{"plan":"swap X for Y","confidence":"MEDIUM",'
+            '"confidence_reason":"plan knowingly diverges from refined preference",'
+            '"requires_human_review":true}'
+        ))
+
+        out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
+
+        self.assertIsNotNone(out)
+        _, conf, _, requires_review = out
+        self.assertEqual(conf, Confidence.MEDIUM)
+        self.assertTrue(requires_review)
+
+    @patch("cai_lib.actions.plan._run_claude_p")
+    def test_requires_human_review_defaults_to_false(self, mock_run):
+        """Omitting the field yields False — backward-compatible with pre-#982 payloads."""
+        from cai_lib.actions.plan import _run_select_agent
+        mock_run.return_value = self._completed(stdout=(
+            '{"plan":"ok","confidence":"HIGH",'
+            '"confidence_reason":"no divergence"}'
+        ))
+
+        out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
+
+        self.assertIsNotNone(out)
+        _, _, _, requires_review = out
+        self.assertFalse(requires_review)
 
     @patch("cai_lib.actions.plan._run_claude_p")
     def test_logs_stderr_on_nonzero_exit(self, mock_run):
@@ -299,6 +333,172 @@ class TestPlanHasAnchorMitigationHelper(unittest.TestCase):
         ))
         self.assertFalse(_plan_has_anchor_mitigation(
             "do not use line numbers"
+        ))
+
+
+class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
+    """#982 — handle_plan_gate must divert via planned_to_human with a
+    bespoke admin-approval message when cai-select set
+    ``requires_human_review=true``, independent of the confidence level
+    and of the anchor-mitigation marker."""
+
+    def _issue(self, *, confidence, requires_review, plan_text="plan body"):
+        return {
+            "number": 982,
+            "title": "t",
+            "body": "",
+            "labels": [{"name": "auto-improve:planned"}],
+            "_cai_plan_confidence": confidence,
+            "_cai_plan_confidence_reason": "plan diverges from refined preference",
+            "_cai_plan_text": plan_text,
+            "_cai_plan_requires_human_review": requires_review,
+        }
+
+    @patch("cai_lib.actions.plan._post_issue_comment")
+    @patch("cai_lib.actions.plan.apply_transition")
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_requires_review_high_conf_still_diverts(
+        self, _mock_log, mock_gated, mock_apply, mock_post
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = True
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.HIGH,
+            requires_review=True,
+        ))
+
+        self.assertEqual(rc, 0)
+        # The confidence-gated transition must NOT have been called.
+        mock_gated.assert_not_called()
+        # Instead, the direct planned_to_human transition must fire.
+        args, _ = mock_apply.call_args
+        self.assertEqual(args[0], 982)
+        self.assertEqual(args[1], "planned_to_human")
+        # And a bespoke divert comment must be posted.
+        post_args, _ = mock_post.call_args
+        self.assertEqual(post_args[0], 982)
+        self.assertIn(
+            "Plan diverges from refined-issue preference",
+            post_args[1],
+        )
+        self.assertIn("admin approval required", post_args[1])
+
+    @patch("cai_lib.actions.plan._post_issue_comment")
+    @patch("cai_lib.actions.plan.apply_transition")
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_requires_review_false_falls_through_to_confidence_gate(
+        self, _mock_log, mock_gated, mock_apply, mock_post
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_gated.return_value = (True, False)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.HIGH,
+            requires_review=False,
+        ))
+
+        self.assertEqual(rc, 0)
+        # No bespoke divert — the confidence gate handles the promotion.
+        mock_apply.assert_not_called()
+        mock_post.assert_not_called()
+        # apply_transition_with_confidence must have been called on the
+        # default transition because HIGH meets its threshold.
+        call_args = mock_gated.call_args[0]
+        self.assertEqual(call_args[1], "planned_to_plan_approved")
+
+    @patch("cai_lib.actions.plan._post_issue_comment")
+    @patch("cai_lib.actions.plan.apply_transition")
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_requires_review_refused_returns_1(
+        self, _mock_log, mock_gated, mock_apply, _mock_post
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = False  # transition refused
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            requires_review=True,
+        ))
+
+        self.assertEqual(rc, 1)
+        mock_gated.assert_not_called()
+
+    @patch("cai_lib.actions.plan._post_issue_comment")
+    @patch("cai_lib.actions.plan.apply_transition")
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_requires_review_reparsed_from_body_when_stash_missing(
+        self, _mock_log, mock_gated, mock_apply, mock_post
+    ):
+        """When the in-process stash is absent, the flag must be
+        re-parsed from the stored plan block in the issue body."""
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = True
+
+        body = (
+            "<!-- cai-plan-start -->\n"
+            "## Selected Implementation Plan\n\n"
+            "plan body\n"
+            "Confidence: MEDIUM\n"
+            "Requires human review: true\n"
+            "<!-- cai-plan-end -->"
+        )
+        issue = {
+            "number": 982,
+            "title": "t",
+            "body": body,
+            "labels": [{"name": "auto-improve:planned"}],
+        }
+        rc = handle_plan_gate(issue)
+
+        self.assertEqual(rc, 0)
+        mock_gated.assert_not_called()
+        args, _ = mock_apply.call_args
+        self.assertEqual(args[1], "planned_to_human")
+        post_args, _ = mock_post.call_args
+        self.assertIn("admin approval required", post_args[1])
+
+
+class TestParseRequiresHumanReview(unittest.TestCase):
+    """#982 — parse_requires_human_review extracts the plan-block marker."""
+
+    def test_true_marker_returns_true(self):
+        from cai_lib.fsm import parse_requires_human_review
+        body = (
+            "## Selected Implementation Plan\n\n"
+            "plan\n"
+            "Confidence: MEDIUM\n"
+            "Requires human review: true\n"
+        )
+        self.assertTrue(parse_requires_human_review(body))
+
+    def test_false_marker_returns_false(self):
+        from cai_lib.fsm import parse_requires_human_review
+        body = (
+            "Confidence: HIGH\n"
+            "Requires human review: false\n"
+        )
+        self.assertFalse(parse_requires_human_review(body))
+
+    def test_missing_marker_returns_false(self):
+        from cai_lib.fsm import parse_requires_human_review
+        self.assertFalse(parse_requires_human_review(""))
+        self.assertFalse(parse_requires_human_review(None))
+        self.assertFalse(parse_requires_human_review(
+            "Confidence: HIGH\n"
+        ))
+
+    def test_case_insensitive_flag(self):
+        from cai_lib.fsm import parse_requires_human_review
+        self.assertTrue(parse_requires_human_review(
+            "Requires human review: TRUE\n"
+        ))
+        self.assertFalse(parse_requires_human_review(
+            "Requires human review: FALSE\n"
         ))
 
 

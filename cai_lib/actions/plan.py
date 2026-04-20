@@ -33,7 +33,7 @@ from cai_lib.config import (
     LABEL_PLANNING,
     LABEL_PLANNED,
 )
-from cai_lib.github import _gh_json, _build_issue_block
+from cai_lib.github import _gh_json, _build_issue_block, _post_issue_comment
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import (
@@ -221,6 +221,18 @@ _SELECT_JSON_SCHEMA = {
             "type": "string",
             "description": "Optional note flagging critical weaknesses for the fix agent.",
         },
+        "requires_human_review": {
+            "type": "boolean",
+            "description": (
+                "Set to true ONLY when the selected plan knowingly diverges from an "
+                "explicit stated preference in the refined issue (e.g. the refined "
+                "issue says 'remove references' and the chosen plan keeps them via a "
+                "different mechanism). This forces a :human-needed divert with a "
+                "bespoke admin-approval message, independent of confidence. Omit or "
+                "set to false for all other cases — routine confidence signals still "
+                "flow through the confidence gate."
+            ),
+        },
     },
     "required": ["plan", "confidence", "confidence_reason"],
 }
@@ -228,19 +240,23 @@ _SELECT_JSON_SCHEMA = {
 
 def _run_select_agent(
     issue: dict, plans: list[str], work_dir: Path,
-) -> "tuple[str, Confidence, str] | None":
-    """Run the cai-select agent and return ``(plan_text, confidence, reason)``.
+) -> "tuple[str, Confidence, str, bool] | None":
+    """Run the cai-select agent and return ``(plan_text, confidence, reason, requires_human_review)``.
 
     Invokes the Claude Code subagent with ``--json-schema`` so the final
     output is a structured JSON object ({plan, confidence, confidence_reason,
-    note?}) rather than free-form text. Removes the regex-based confidence
-    extraction that previously diverted sound plans to ``:human-needed`` when
-    the model drifted from the ``Confidence: …`` trailer format.
+    note?, requires_human_review?}) rather than free-form text. Removes the
+    regex-based confidence extraction that previously diverted sound plans
+    to ``:human-needed`` when the model drifted from the ``Confidence: …``
+    trailer format.
 
     Returns ``None`` on subprocess or parse failure; otherwise returns
     the cleaned plan text (with optional ``> **Note:** …`` blockquote
-    prepended), the :class:`~cai_lib.fsm.Confidence` enum member, and the
-    confidence reason string.
+    prepended), the :class:`~cai_lib.fsm.Confidence` enum member, the
+    confidence reason string, and a boolean ``requires_human_review``
+    flag (defaults to ``False`` when absent from the payload) that
+    signals a knowing divergence from the refined-issue's stated
+    preference (#982).
     """
     import json
 
@@ -300,6 +316,7 @@ def _run_select_agent(
     confidence_str = (payload.get("confidence") or "").upper()
     confidence_reason = (payload.get("confidence_reason") or "").strip()
     note = payload.get("note", "") or ""
+    requires_human_review = bool(payload.get("requires_human_review", False))
 
     if note:
         plan_text = f"> **Note:** {note}\n\n{plan_text}"
@@ -313,12 +330,12 @@ def _run_select_agent(
         )
         return None
 
-    return plan_text.rstrip() + "\n", confidence, confidence_reason
+    return plan_text.rstrip() + "\n", confidence, confidence_reason, requires_human_review
 
 
 def _run_plan_select_pipeline(
     issue: dict, work_dir: Path, attempt_history_block: str = "",
-) -> "tuple[str, Confidence | None, str] | None":
+) -> "tuple[str, Confidence | None, str, bool] | None":
     """Run the serial 2-plan → select pipeline.
 
     Plan 1 runs first; Plan 2 receives Plan 1's output and is asked
@@ -326,12 +343,16 @@ def _run_plan_select_pipeline(
     best and emits a trailing ``Confidence: HIGH|MEDIUM|LOW`` line
     indicating how sure it is that the chosen plan will succeed.
 
-    Returns ``(plan_text, confidence, confidence_reason)`` — plan text,
-    confidence, and reason arrive as separate structured fields from the
-    select agent's forced tool-use call. ``confidence`` is a
-    :class:`~cai_lib.fsm.Confidence` enum member, or ``None`` when the
-    select agent fails (treated as below-threshold by the caller).
-    Returns ``None`` if the pipeline fails to produce any output.
+    Returns ``(plan_text, confidence, confidence_reason, requires_human_review)``
+    — plan text, confidence, reason, and an explicit human-review flag
+    arrive as separate structured fields from the select agent's forced
+    tool-use call. ``confidence`` is a :class:`~cai_lib.fsm.Confidence`
+    enum member, or ``None`` when the select agent fails (treated as
+    below-threshold by the caller). ``requires_human_review`` is
+    ``True`` only when cai-select flagged a knowing divergence from the
+    refined-issue's stated preference (#982); handle_plan_gate uses it
+    to surface a bespoke admin-approval divert message. Returns ``None``
+    if the pipeline fails to produce any output.
     """
     issue_number = issue["number"]
 
@@ -354,14 +375,14 @@ def _run_plan_select_pipeline(
         print("[cai plan] select agent produced no output; skipping pipeline", flush=True)
         return None
 
-    plan_text, confidence, confidence_reason = select_result
+    plan_text, confidence, confidence_reason, requires_human_review = select_result
     conf_name = confidence.name if confidence else "MISSING"
     print(
         f"[cai plan] select agent produced {len(plan_text)} chars "
-        f"(confidence={conf_name})",
+        f"(confidence={conf_name}, requires_human_review={requires_human_review})",
         flush=True,
     )
-    return plan_text, confidence, confidence_reason
+    return plan_text, confidence, confidence_reason, requires_human_review
 
 
 # ---------------------------------------------------------------------------
@@ -462,7 +483,7 @@ def handle_plan(issue: dict) -> int:
             log_run("plan", repo=REPO, issue=issue_number,
                     duration=dur, result="pipeline_failed", exit=1)
             return 1
-        selected_plan, plan_confidence, plan_confidence_reason = pipeline_result
+        selected_plan, plan_confidence, plan_confidence_reason, plan_requires_human_review = pipeline_result
 
         # 5. Store plan in issue body (strip any old plan block first).
         current_body = _strip_stored_plan_block(issue.get("body", "") or "")
@@ -475,6 +496,8 @@ def handle_plan(issue: dict) -> int:
         )
         if plan_confidence_reason:
             plan_block += f"Confidence reason: {plan_confidence_reason}\n"
+        if plan_requires_human_review:
+            plan_block += "Requires human review: true\n"
         plan_block += "<!-- cai-plan-end -->"
         new_body = f"{plan_block}\n\n{current_body}"
         update = _run(
@@ -495,16 +518,20 @@ def handle_plan(issue: dict) -> int:
                     duration=dur, result="edit_failed", exit=1)
             return 1
 
-        # Stash the confidence, reason, and plan text on the issue dict so
-        # the gate handler (run as a separate dispatcher step) can read
-        # them. This is belt-and-braces — the gate also reparses from the
-        # body if we ever split the two calls across processes. The plan
-        # text is consulted by handle_plan_gate to pick between the
-        # default HIGH-gated and the MEDIUM-gated mitigated transition
-        # (see #918 and _plan_has_anchor_mitigation).
+        # Stash the confidence, reason, plan text, and human-review flag
+        # on the issue dict so the gate handler (run as a separate
+        # dispatcher step) can read them. This is belt-and-braces — the
+        # gate also reparses from the body if we ever split the two calls
+        # across processes. The plan text is consulted by handle_plan_gate
+        # to pick between the default HIGH-gated and the MEDIUM-gated
+        # mitigated transition (see #918 and _plan_has_anchor_mitigation).
+        # The human-review flag (#982) forces a divert with a bespoke
+        # admin-approval message when cai-select flagged a knowing
+        # divergence from the refined-issue's stated preference.
         issue["_cai_plan_confidence"] = plan_confidence
         issue["_cai_plan_confidence_reason"] = plan_confidence_reason
         issue["_cai_plan_text"] = selected_plan
+        issue["_cai_plan_requires_human_review"] = plan_requires_human_review
 
         # 6. Transition labels: :planning → :planned (waypoint).
         ok = apply_transition(
@@ -557,8 +584,23 @@ def handle_plan_gate(issue: dict) -> int:
     explicitly instructed to anchor on surrounding text. Plans
     without the marker continue to require HIGH via the default
     transition.
+
+    **Human-review override (#982):** when ``cai-select`` set
+    ``requires_human_review=true`` in its structured output (stashed
+    under ``_cai_plan_requires_human_review`` or re-parsed from the
+    ``Requires human review: true`` marker in the stored plan block),
+    the gate diverts directly to ``:human-needed`` via
+    ``planned_to_human`` with a bespoke admin-approval message —
+    independent of the reported confidence and of the anchor-mitigation
+    marker. This surfaces a clearer divert reason than the generic
+    confidence-gate trip when the selected plan knowingly diverges
+    from the refined-issue's stated preference.
     """
-    from cai_lib.fsm import parse_confidence, parse_confidence_reason
+    from cai_lib.fsm import (
+        parse_confidence,
+        parse_confidence_reason,
+        parse_requires_human_review,
+    )
     from cai_lib.cmd_helpers import _extract_stored_plan
 
     t0 = time.monotonic()
@@ -587,6 +629,77 @@ def handle_plan_gate(issue: dict) -> int:
     plan_text = issue.get("_cai_plan_text")
     if plan_text is None:
         plan_text = _extract_stored_plan(issue.get("body", "") or "") or ""
+
+    # Recover the explicit human-review flag (#982). Prefer the
+    # in-process stash; fall back to re-parsing the stored plan block.
+    requires_human_review = issue.get("_cai_plan_requires_human_review")
+    if requires_human_review is None:
+        body = issue.get("body", "") or ""
+        requires_human_review = parse_requires_human_review(body)
+
+    # Human-review override path (#982): if cai-select explicitly
+    # flagged the plan, divert unconditionally with a bespoke message
+    # rather than letting the confidence gate emit a generic "gate not
+    # met" comment. Independent of confidence level and of the
+    # anchor-mitigation marker.
+    if requires_human_review:
+        print(
+            f"[cai plan] #{issue_number} requires_human_review=true — "
+            f"diverting to :human-needed via planned_to_human (#982)",
+            flush=True,
+        )
+        ok = apply_transition(
+            issue_number, "planned_to_human",
+            current_labels=[LABEL_PLANNED],
+            log_prefix="cai plan",
+        )
+        if ok:
+            lines = [
+                "**🙋 Human attention needed**",
+                "",
+                "Plan diverges from refined-issue preference — admin "
+                "approval required before the fix agent proceeds.",
+            ]
+            if plan_confidence_reason:
+                lines.extend(["", plan_confidence_reason.rstrip()])
+            lines.extend([
+                "",
+                "Apply the `human:solved` label after leaving a comment "
+                "to signal the divert is resolved and have the FSM resume.",
+            ])
+            _post_issue_comment(
+                issue_number,
+                "\n".join(lines),
+                log_prefix="cai plan",
+            )
+        dur = f"{int(time.monotonic() - t0)}s"
+        conf_name = plan_confidence.name if plan_confidence else "MISSING"
+        if not ok:
+            print(
+                f"[cai plan] #{issue_number} human-review divert refused — "
+                f"state did not advance",
+                file=sys.stderr,
+                flush=True,
+            )
+            log_run("plan", repo=REPO, issue=issue_number,
+                    duration=dur, result="gate_refused",
+                    confidence=conf_name, diverted=1,
+                    transition="planned_to_human",
+                    requires_human_review=1,
+                    exit=1)
+            return 1
+        print(
+            f"[cai plan] #{issue_number} gate → :human-needed in {dur} "
+            f"(requires_human_review=true, confidence={conf_name})",
+            flush=True,
+        )
+        log_run("plan", repo=REPO, issue=issue_number,
+                duration=dur, result="gate_ok",
+                confidence=conf_name, diverted=1,
+                transition="planned_to_human",
+                requires_human_review=1,
+                exit=0)
+        return 0
 
     # Pick the transition. Both siblings perform the identical label
     # move PLANNED → PLAN_APPROVED; only the confidence threshold
