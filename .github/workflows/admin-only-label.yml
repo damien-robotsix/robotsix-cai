@@ -22,7 +22,7 @@ permissions:
 jobs:
   enforce:
     if: >-
-      contains(fromJSON('["auto-improve:raised","auto-improve:in-progress","auto-improve:pr-open","auto-improve:merged","auto-improve:solved","auto-improve:needs-exploration","auto-improve:refined","auto-improve:revising","auto-improve:parent","merge-blocked","auto-improve:planned","auto-improve:plan-approved","auto-improve:refining","auto-improve:planning","auto-improve:applying","auto-improve:applied","auto-improve:human-needed","auto-improve:pr-human-needed","human:solved","auto-improve:triaging","kind:code","kind:maintenance","pr:reviewing-code","pr:revision-pending","pr:reviewing-docs","pr:approved","pr:rebasing","pr:ci-failing","needs-human-review"]'), github.event.label.name)
+      contains(fromJSON('["auto-improve:raised","auto-improve:in-progress","auto-improve:pr-open","auto-improve:merged","auto-improve:solved","auto-improve:needs-exploration","auto-improve:refined","auto-improve:revising","auto-improve:parent","merge-blocked","auto-improve:planned","auto-improve:plan-approved","auto-improve:refining","auto-improve:planning","auto-improve:applying","auto-improve:applied","auto-improve:human-needed","auto-improve:pr-human-needed","human:solved","auto-improve:triaging","kind:code","kind:maintenance","pr:reviewing-code","pr:revision-pending","pr:reviewing-docs","pr:approved","pr:rebasing","pr:ci-failing","needs-human-review","needs-workflow-review"]'), github.event.label.name)
     runs-on: ubuntu-latest
     steps:
       - name: Check sender's permission
