@@ -293,6 +293,7 @@ from cai_lib.github import (  # noqa: E402
 from cai_lib.cmd_helpers import _work_directory_block  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.cmd_rescue import cmd_rescue  # noqa: E402
+from cai_lib.cmd_review_docs import cmd_review_docs  # noqa: E402
 from cai_lib.cmd_misc import (  # noqa: E402
     cmd_init, cmd_verify, cmd_test,
     cmd_cost_report, cmd_health_report, cmd_check_workflows,
@@ -365,6 +366,15 @@ def main() -> int:
     )
     sub.add_parser("test", help="Run the project test suite")
 
+    review_docs_parser = sub.add_parser(
+        "review-docs",
+        help="CI-mode doc review: run cai-review-docs on a PR and commit any doc fixes (no FSM transitions)",
+    )
+    review_docs_parser.add_argument(
+        "--pr", type=int, required=True,
+        help="Open PR number to review",
+    )
+
     cost_parser = sub.add_parser(
         "cost-report",
         help="Print a human-readable cost report from the cost log",
@@ -422,6 +432,7 @@ def main() -> int:
         "external-scout": cmd_external_scout,
         "unblock": cmd_unblock,
         "rescue": cmd_rescue,
+        "review-docs": cmd_review_docs,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
         "health-report": cmd_health_report,

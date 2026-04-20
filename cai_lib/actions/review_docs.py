@@ -87,8 +87,18 @@ def _build_deletion_manifest_block(work_dir: Path) -> str:
     )
 
 
-def handle_review_docs(pr: dict) -> int:
-    """Run cai-review-docs on *pr* (already at PRState.REVIEWING_DOCS)."""
+def run_review_docs_ci(pr: dict) -> int:
+    """CI-mode entry point: run cai-review-docs on *pr* without FSM side effects.
+
+    Clones the repo, checks out the PR branch, runs the cai-review-docs
+    agent, applies any staged agent-definition edits, commits + pushes
+    doc changes, and posts a review comment on the PR. Does NOT apply
+    any FSM transition; the FSM-driven caller is responsible for that.
+
+    Safe to invoke from a GitHub Actions workflow (see
+    `.github/workflows/regenerate-docs.yml`): it does not check the
+    PR's ``pr:*`` state labels and does not alter them.
+    """
     t0 = time.monotonic()
 
     pr_number = pr["number"]
@@ -97,64 +107,6 @@ def handle_review_docs(pr: dict) -> int:
     title = pr["title"]
 
     print(f"[cai review-docs] targeting PR #{pr_number}: {title}", flush=True)
-
-    # Idempotency: if we already posted a docs review for this SHA, advance
-    # the FSM based on the cached outcome instead of re-running the agent.
-    # Walk comments newest-first so the most recent verdict for this SHA wins.
-    for comment in reversed(pr.get("comments", [])):
-        body = (comment.get("body") or "")
-        first_line = body.split("\n", 1)[0]
-        if not (
-            first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_PREFIX)
-            and head_sha in first_line
-        ):
-            continue
-        if first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_CLEAN):
-            # Prior run reviewed cleanly but failed to advance state.
-            # Apply the transition the fresh-run path would have applied.
-            print(
-                f"[cai review-docs] PR #{pr_number}: cached clean review at "
-                f"{head_sha[:8]} — advancing to APPROVED",
-                flush=True,
-            )
-            apply_pr_transition(
-                pr_number, "reviewing_docs_to_approved",
-                log_prefix="cai review-docs",
-            )
-            log_run("review_docs", repo=REPO, pr=pr_number,
-                    result="cached_clean_advanced", exit=0)
-            return 0
-        if first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_APPLIED):
-            # A docs-fix push happened at this SHA. Docs review is the
-            # last gate before merge; we do not bounce back to code
-            # review just because doc files changed (the merge handler
-            # is the final gatekeeper).
-            print(
-                f"[cai review-docs] PR #{pr_number}: cached applied-fix at "
-                f"{head_sha[:8]} — advancing to APPROVED",
-                flush=True,
-            )
-            apply_pr_transition(
-                pr_number, "reviewing_docs_to_approved",
-                log_prefix="cai review-docs",
-            )
-            log_run("review_docs", repo=REPO, pr=pr_number,
-                    result="cached_applied_advanced", exit=0)
-            return 0
-        # Heading prefix matched but suffix is unfamiliar — fall through
-        # to a fresh review rather than guess.
-        break
-
-    # State gate (defensive — dispatcher should already have verified).
-    if get_pr_state(pr) != PRState.REVIEWING_DOCS:
-        print(
-            f"[cai review-docs] PR #{pr_number}: not in REVIEWING_DOCS "
-            f"state; waiting",
-            flush=True,
-        )
-        log_run("review_docs", repo=REPO, pr=pr_number,
-                result="wrong_state", exit=0)
-        return 0
 
     _uid = uuid.uuid4().hex[:8]
     work_dir = Path(f"/tmp/cai-review-docs-{pr_number}-{_uid}")
@@ -324,15 +276,6 @@ def handle_review_docs(pr: dict) -> int:
             capture_output=True,
         )
 
-        # Advance FSM state. Docs review is the final pre-merge gate:
-        # whether or not it pushed doc fixes, the PR moves to APPROVED
-        # and the merge handler decides whether to merge. Bouncing back
-        # to REVIEWING_CODE on a doc push caused review/docs ping-pong
-        # loops that produced no new code findings.
-        apply_pr_transition(
-            pr_number, "reviewing_docs_to_approved",
-            log_prefix="cai review-docs",
-        )
         if has_doc_changes:
             result_word = "fixes pushed"
             result_tag = "fixes_pushed"
@@ -373,3 +316,85 @@ def handle_review_docs(pr: dict) -> int:
     finally:
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def handle_review_docs(pr: dict) -> int:
+    """Run cai-review-docs on *pr* (already at PRState.REVIEWING_DOCS)."""
+    pr_number = pr["number"]
+    head_sha = pr["headRefOid"]
+    title = pr["title"]
+
+    print(f"[cai review-docs] targeting PR #{pr_number}: {title}", flush=True)
+
+    # Idempotency: if we already posted a docs review for this SHA, advance
+    # the FSM based on the cached outcome instead of re-running the agent.
+    # Walk comments newest-first so the most recent verdict for this SHA wins.
+    for comment in reversed(pr.get("comments", [])):
+        body = (comment.get("body") or "")
+        first_line = body.split("\n", 1)[0]
+        if not (
+            first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_PREFIX)
+            and head_sha in first_line
+        ):
+            continue
+        if first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_CLEAN):
+            # Prior run reviewed cleanly but failed to advance state.
+            # Apply the transition the fresh-run path would have applied.
+            print(
+                f"[cai review-docs] PR #{pr_number}: cached clean review at "
+                f"{head_sha[:8]} — advancing to APPROVED",
+                flush=True,
+            )
+            apply_pr_transition(
+                pr_number, "reviewing_docs_to_approved",
+                log_prefix="cai review-docs",
+            )
+            log_run("review_docs", repo=REPO, pr=pr_number,
+                    result="cached_clean_advanced", exit=0)
+            return 0
+        if first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_APPLIED):
+            # A docs-fix push happened at this SHA. Docs review is the
+            # last gate before merge; we do not bounce back to code
+            # review just because doc files changed (the merge handler
+            # is the final gatekeeper).
+            print(
+                f"[cai review-docs] PR #{pr_number}: cached applied-fix at "
+                f"{head_sha[:8]} — advancing to APPROVED",
+                flush=True,
+            )
+            apply_pr_transition(
+                pr_number, "reviewing_docs_to_approved",
+                log_prefix="cai review-docs",
+            )
+            log_run("review_docs", repo=REPO, pr=pr_number,
+                    result="cached_applied_advanced", exit=0)
+            return 0
+        # Heading prefix matched but suffix is unfamiliar — fall through
+        # to a fresh review rather than guess.
+        break
+
+    # State gate (defensive — dispatcher should already have verified).
+    if get_pr_state(pr) != PRState.REVIEWING_DOCS:
+        print(
+            f"[cai review-docs] PR #{pr_number}: not in REVIEWING_DOCS "
+            f"state; waiting",
+            flush=True,
+        )
+        log_run("review_docs", repo=REPO, pr=pr_number,
+                result="wrong_state", exit=0)
+        return 0
+
+    rc = run_review_docs_ci(pr)
+    if rc != 0:
+        return rc
+
+    # Advance FSM state. Docs review is the final pre-merge gate:
+    # whether or not it pushed doc fixes, the PR moves to APPROVED
+    # and the merge handler decides whether to merge. Bouncing back
+    # to REVIEWING_CODE on a doc push caused review/docs ping-pong
+    # loops that produced no new code findings.
+    apply_pr_transition(
+        pr_number, "reviewing_docs_to_approved",
+        log_prefix="cai review-docs",
+    )
+    return 0

@@ -1,8 +1,10 @@
 name: Regenerate generated docs
 
 # Runs every auto-generated-docs generator in one place and auto-commits
-# any drift back onto the PR branch. Replaces the former check-index.yml;
-# add new generators to the "Regenerate" step rather than new workflows.
+# any drift back onto the PR branch. Also gates PRs on docs/modules.yaml
+# coverage: `scripts/check-modules-coverage.py` must exit 0, with a
+# single auto-retry via the cai-review-docs agent if it first fails.
+# (Audit-refactor step 6.2, issue #907.)
 
 on:
   pull_request:
@@ -14,6 +16,9 @@ permissions:
 jobs:
   regenerate-docs:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,11 +30,21 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install claude-code CLI
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: npm install -g "@anthropic-ai/claude-code@latest"
+
+      - name: Install Python dependencies
+        run: |
+          python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))" > /tmp/requirements.txt
+          pip install -r /tmp/requirements.txt
+
       - name: Regenerate CODEBASE_INDEX.md
         run: bash scripts/generate-index.sh
-
-      - name: Install script dependencies
-        run: pip install transitions>=0.9.3
 
       - name: Regenerate docs/fsm.md
         run: python scripts/generate-fsm-docs.py
@@ -54,3 +69,31 @@ jobs:
           git add $TARGETS
           git commit -m "chore: auto-regenerate generated docs"
           git push
+
+      - name: Run doc agent
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: python cai.py review-docs --pr ${{ github.event.pull_request.number }}
+
+      - name: Sync local checkout after doc agent
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          git fetch origin ${{ github.event.pull_request.head.ref }}
+          git reset --hard origin/${{ github.event.pull_request.head.ref }}
+
+      - name: Check module coverage
+        id: cov1
+        run: python scripts/check-modules-coverage.py
+
+      - name: Re-run doc agent on coverage failure
+        if: failure() && steps.cov1.conclusion == 'failure' && github.event.pull_request.head.repo.full_name == github.repository
+        run: python cai.py review-docs --pr ${{ github.event.pull_request.number }}
+
+      - name: Sync local checkout after retry
+        if: steps.cov1.conclusion == 'failure' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          git fetch origin ${{ github.event.pull_request.head.ref }}
+          git reset --hard origin/${{ github.event.pull_request.head.ref }}
+
+      - name: Re-check module coverage
+        if: steps.cov1.conclusion == 'failure'
+        run: python scripts/check-modules-coverage.py
