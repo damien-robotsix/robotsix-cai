@@ -127,10 +127,11 @@ object — no prose, no code fences, no preamble. The schema is:
 
 ```json
 {
-  "plan":               "string  — full text of the chosen plan, pasted exactly as provided",
-  "confidence":         "string  — one of HIGH, MEDIUM, LOW",
-  "confidence_reason":  "string  — 1-3 sentences explaining the confidence level (required)",
-  "note":               "string  — OPTIONAL; one-sentence flag for the fix agent"
+  "plan":                    "string   — full text of the chosen plan, pasted exactly as provided",
+  "confidence":              "string   — one of HIGH, MEDIUM, LOW",
+  "confidence_reason":       "string   — 1-3 sentences explaining the confidence level (required)",
+  "note":                    "string   — OPTIONAL; one-sentence flag for the fix agent",
+  "requires_human_review":   "boolean  — OPTIONAL; set true when the chosen plan knowingly diverges from the refined issue's explicit stated preference"
 }
 ```
 
@@ -181,6 +182,36 @@ Every other risk class (missing verbatim Edit/Write content per
 criterion 5, unverified assumptions, ambiguous scope, contradictions
 on unsettled implementation choices, missing edge cases, etc.)
 continues to lower confidence exactly as documented above.
+
+## `requires_human_review` — explicit human-review escalation (#982)
+
+Set `"requires_human_review": true` in the output **only** when the
+selected plan **knowingly diverges from an explicit stated preference
+in the refined issue** — for example:
+
+- The refined issue says "the right fix is to **remove** the dead
+  references" and the selected plan keeps them (swapping them for an
+  alternative mechanism instead).
+- The refined issue lists a specific approach as preferred ("create
+  the agent" / "delete the file" / "use library X") and the selected
+  plan consciously picks the opposite path even though the opposite
+  path is defensible.
+- Any other case where the selected plan's own `confidence_reason`
+  reads like "this tradeoff warrants human sign-off" or "confirm
+  acceptable before implementing".
+
+When set, the FSM surfaces a bespoke divert message
+("Plan diverges from refined-issue preference — admin approval
+required") instead of the generic confidence-gate trip, making the
+admin's job clearer. The issue is parked at `auto-improve:human-needed`
+regardless of the confidence value.
+
+Do **not** set this flag for ordinary MEDIUM/LOW confidence signals
+(unverified assumptions, ambiguous scope, missing edge cases, etc.).
+Those are still routed through the confidence gate in the normal way;
+the flag is reserved specifically for knowing divergences from
+explicit refined-issue preferences. Omitting the field (or setting it
+to `false`) preserves the existing behaviour.
 
 If all plans are equally bad or none correctly addresses the issue,
 pick the least-bad option and emit `"confidence": "LOW"`. Use the
