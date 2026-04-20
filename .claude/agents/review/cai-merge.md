@@ -243,6 +243,55 @@ the user message:
   do not downgrade to **medium** on a scope concern that the
   wrapper itself pre-approved.
 
+### Exemption: wrapper-injected pre-authorized pipeline co-edits
+
+The merge wrapper (`cai_lib/actions/merge.py`) sometimes prepends a
+`## Pre-authorized pipeline co-edits` section to the user message,
+**between the issue body and the PR changes** (next to the
+requeue exemption block above). The wrapper emits that section
+only when it has deterministically detected one or more files
+that the pre-merge pipeline already authorized — by parsing the
+PR comment history for `**File(s):**` lines under `### Finding:`
+blocks (in `## cai pre-merge review — <sha>` comments) or under
+`### Fixed: stale_docs` blocks (in `## cai docs review (applied)
+— <sha>` comments). You do **not** need to detect any heading,
+parse any `### Finding:` or `### Fixed:` block, or scan the PR
+comment history yourself — if the section is absent, no
+pipeline-co-edit exemption applies.
+
+When a `## Pre-authorized pipeline co-edits` section is present
+in the user message:
+
+- Treat every file listed there as in-scope for this PR. Do not
+  downgrade confidence for scope-only reasons on those files —
+  including "scope broader than the issue asks for", "new files
+  not mentioned in the issue", and "PR adds new test files or
+  docstrings". The pre-merge pipeline already approved each of
+  those files as a direct consequence of running `cai-review-pr`
+  and `cai-review-docs`.
+- The exemption covers **scope only**. Correctness, completeness,
+  unaddressed review comments, and workflow-file
+  (`.github/workflows/`) rules still apply in full. A pipeline
+  co-edit to a file under `.github/workflows/` is still
+  disqualifying.
+- This wrapper-injected list takes precedence over the soft
+  exemption sections above (`### Exemption: reviewer-recommended
+  co-changes`, `### Exemption: docs-reviewer co-edits`). Those
+  sections remain as a safety net for the rare case where the
+  wrapper cannot extract a path from a non-canonical comment, but
+  you should always trust the wrapper-injected list when it is
+  present — and you must never downgrade a PR to MEDIUM solely
+  because a file in the injected list is "outside the issue's
+  stated scope". Issue #928 parked three times in a row on
+  exactly that mistake (the merger's own reasoning called the
+  changes "legitimate pipeline work" each time, yet still capped
+  the verdict at MEDIUM); this exemption exists specifically to
+  prevent that loop.
+- If a pipeline co-edit is the *only* soft concern standing
+  between the PR and a **high** verdict, emit **high** — do not
+  downgrade to **medium** on a scope concern that the pipeline
+  itself introduced.
+
 ## Output format
 
 Emit exactly this structured block — nothing else:
