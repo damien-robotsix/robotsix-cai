@@ -160,6 +160,7 @@ LABELS = [
     ("auto-improve:pr-human-needed", "e11d48", "PR parked awaiting admin comment (cai-unblock resume)"),
     ("merge-blocked", "e11d48", "Merge subcommand reviewed and decided not to auto-merge; awaiting human"),
     ("needs-human-review", "e11d48", "PR needs a human decision before merge"),
+    ("needs-workflow-review", "e11d48", "PR touches `.github/workflows/` and was held at medium confidence; awaiting admin workflow review"),
     ("pr:reviewing-code",   "e4e669", "PR is in code review (cai-review-pr)"),
     ("pr:revision-pending", "d93f0b", "Code review posted findings; revise needed"),
     ("pr:reviewing-docs",   "0075ca", "Code clean; in docs review (cai-review-docs)"),

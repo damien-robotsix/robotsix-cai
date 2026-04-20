@@ -191,6 +191,16 @@ LABEL_PR_CI_FAILING       = "pr:ci-failing"        # PRState.CI_FAILING
 # on their decision (`label:needs-human-review`). Issue #216.
 LABEL_PR_NEEDS_HUMAN = "needs-human-review"
 
+# PR-level label applied by `cai merge` when a `medium + hold` verdict
+# lands on a PR whose diff touches any `.github/workflows/` file. The
+# cai-merge "never high" rule structurally caps workflow-touching PRs
+# at medium confidence, so the merge wrapper surfaces a dedicated
+# `needs-workflow-review` label that admins can filter on
+# (`label:needs-workflow-review`) instead of scanning the generic
+# `pr:human-needed` queue. Supplements — does not replace —
+# `pr:human-needed`. Issue #1064.
+LABEL_PR_NEEDS_WORKFLOW_REVIEW = "needs-workflow-review"
+
 # Cross-instance ownership lock. Orthogonal to the FSM state labels
 # (:in-progress, :applying, :revising, …) — :locked marks which cai
 # instance currently owns the issue/PR and serializes work across
