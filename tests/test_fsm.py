@@ -19,6 +19,7 @@ from cai_lib.config import (
     LABEL_PLANNING, LABEL_PLANNED,
     LABEL_HUMAN_NEEDED, LABEL_PARENT, LABEL_TRIAGING,
     LABEL_APPLYING, LABEL_APPLIED,
+    LABEL_KIND_CODE, LABEL_KIND_MAINTENANCE,
 )
 
 
@@ -817,6 +818,136 @@ class TestTriagingHandlerPairCheck(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("triaging_to_refining", transitions_called)
         self.assertNotIn("triaging_to_plan_approved", transitions_called)
+
+
+class TestTriagingHandlerOpsValidation(unittest.TestCase):
+    """handle_triage() must reject APPLY+maintenance verdicts whose ops
+    body is prose rather than cai-maintain op lines, re-routing the
+    issue into the REFINE pathway with kind:code (issue #981)."""
+
+    def _make_issue(self, number=981):
+        return {
+            "number": number,
+            "title": "Pin claude-code version",
+            "body": "Some best-practice finding.",
+            "labels": [{"name": LABEL_TRIAGING}],
+        }
+
+    def test_ops_validator_accepts_valid_op_lines(self):
+        from cai_lib.actions.triage import _ops_body_has_valid_maintenance_op
+        self.assertTrue(_ops_body_has_valid_maintenance_op(
+            "1. label add 42 kind:code\n"))
+        self.assertTrue(_ops_body_has_valid_maintenance_op(
+            "- close 12"))
+        self.assertTrue(_ops_body_has_valid_maintenance_op(
+            "label remove 7 stale"))
+        self.assertTrue(_ops_body_has_valid_maintenance_op(
+            "workflow edit .github/workflows/a.yml on push"))
+
+    def test_ops_validator_rejects_prose_and_empty(self):
+        from cai_lib.actions.triage import _ops_body_has_valid_maintenance_op
+        self.assertFalse(_ops_body_has_valid_maintenance_op(
+            "1. Open the Dockerfile and locate @latest\n"
+            "2. Replace with @2.1.114 in the npm install line\n"))
+        self.assertFalse(_ops_body_has_valid_maintenance_op(None))
+        self.assertFalse(_ops_body_has_valid_maintenance_op(""))
+
+    def test_apply_with_prose_ops_reroutes_to_refine_as_code(self):
+        """APPLY+maintenance+HIGH with implement-style prose in ``ops``
+        must fall through to REFINE and apply kind:code (not kind:maintenance)."""
+        import json
+        import subprocess
+        from unittest import mock
+        import cai_lib.actions.triage as T
+
+        verdict = {
+            "routing_decision": "APPLY",
+            "routing_confidence": "HIGH",
+            "kind": "maintenance",
+            "skip_confidence": "HIGH",
+            "reasoning": "maintenance-looking update",
+            "ops": (
+                "1. Open the Dockerfile\n"
+                "2. Replace @latest with @2.1.114\n"
+            ),
+        }
+        fake_result = subprocess.CompletedProcess(
+            args=["claude"], returncode=0,
+            stdout=json.dumps(verdict), stderr="",
+        )
+        transitions_called = []
+
+        def fake_apply_transition(issue_number, transition_name, **kwargs):
+            transitions_called.append(transition_name)
+            return True
+
+        labels_added = []
+
+        def fake_set_labels(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            labels_added.extend(add)
+            return True
+
+        with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
+             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
+             mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
+             mock.patch.object(T, "log_run"):
+            rc = T.handle_triage(self._make_issue())
+
+        self.assertEqual(rc, 0)
+        self.assertIn("triaging_to_refining", transitions_called)
+        self.assertNotIn("triaging_to_applying", transitions_called)
+        self.assertIn(LABEL_KIND_CODE, labels_added)
+        self.assertNotIn(LABEL_KIND_MAINTENANCE, labels_added)
+
+    def test_apply_with_valid_ops_still_reaches_applying(self):
+        """APPLY+maintenance+HIGH with genuine cai-maintain op lines
+        must still transition to :applying and apply kind:maintenance."""
+        import json
+        import subprocess
+        from unittest import mock
+        import cai_lib.actions.triage as T
+
+        verdict = {
+            "routing_decision": "APPLY",
+            "routing_confidence": "HIGH",
+            "kind": "maintenance",
+            "skip_confidence": "HIGH",
+            "reasoning": "valid maintenance ops",
+            "ops": "1. label add 981 kind:maintenance\n2. close 981\n",
+        }
+        fake_result = subprocess.CompletedProcess(
+            args=["claude"], returncode=0,
+            stdout=json.dumps(verdict), stderr="",
+        )
+        fake_run = subprocess.CompletedProcess(
+            args=["gh"], returncode=0, stdout="", stderr="",
+        )
+        transitions_called = []
+
+        def fake_apply_transition(issue_number, transition_name, **kwargs):
+            transitions_called.append(transition_name)
+            return True
+
+        labels_added = []
+
+        def fake_set_labels(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            labels_added.extend(add)
+            return True
+
+        with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
+             mock.patch.object(T, "_run", return_value=fake_run), \
+             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
+             mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
+             mock.patch.object(T, "log_run"):
+            rc = T.handle_triage(self._make_issue())
+
+        self.assertEqual(rc, 0)
+        self.assertIn("triaging_to_applying", transitions_called)
+        self.assertNotIn("triaging_to_refining", transitions_called)
+        self.assertIn(LABEL_KIND_MAINTENANCE, labels_added)
+        self.assertNotIn(LABEL_KIND_CODE, labels_added)
 
 
 if __name__ == "__main__":

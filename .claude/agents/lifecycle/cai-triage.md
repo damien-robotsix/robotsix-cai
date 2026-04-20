@@ -108,6 +108,11 @@ Rules:
   directly. Omit otherwise.
 - `ops` is required when `skip_confidence=HIGH` AND `routing_decision=APPLY`.
   Provide an ordered markdown list of operations for `cai-maintain` to execute.
-  Omit otherwise.
+  Valid operations are: `label add <issue_number> <label>`,
+  `label remove <issue_number> <label>`, `close <issue_number>`,
+  or `workflow edit <file_path> <key> <value>`. Each operation must appear on
+  its own line in the markdown list. Invalid ops blocks (prose, implement-style
+  steps, or empty lists) will be rescued and re-routed to `:refining` as
+  `kind:code` instead. Omit otherwise.
 - Do not write code, diffs, or remediation prose outside of `plan` / `ops`.
 - Do not propose new labels or lifecycle states.

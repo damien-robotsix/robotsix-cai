@@ -10,7 +10,7 @@ Handler registry (issue states):
 
 | State | Handler file | Role |
 |---|---|---|
-| `RAISED` / `TRIAGING` | `cai_lib/actions/triage.py` | Pre-check for duplicates/resolved issues via `cai-dup-check` (closes at HIGH confidence). Then classify the issue (REFINE / PLAN_APPROVE / APPLY / HUMAN). PLAN_APPROVE / APPLY at HIGH SkipConfidence skips ahead to `:plan-approved` or `:applying`. |
+| `RAISED` / `TRIAGING` | `cai_lib/actions/triage.py` | Pre-check for duplicates/resolved issues via `cai-dup-check` (closes at HIGH confidence). Then classify the issue (REFINE / PLAN_APPROVE / APPLY / HUMAN). PLAN_APPROVE at HIGH SkipConfidence skips ahead to `:plan-approved`; APPLY at HIGH SkipConfidence with valid maintenance ops skips ahead to `:applying`. APPLY verdicts with invalid ops blocks (prose or empty) are rescued and re-routed to `:refining` with `kind:code` instead. |
 | `REFINING` | `cai_lib/actions/refine.py` | Rewrite the issue into a structured plan with steps, verification, and scope guardrails. |
 | `NEEDS_EXPLORATION` | `cai_lib/actions/explore.py` | Run `cai-explore` to investigate an under-specified issue and route back to `:refining`. |
 | `REFINED` / `PLANNING` / `PLANNED` | `cai_lib/actions/plan.py` | Run plan + select, store the plan in the issue body, then apply the confidence gate: HIGH auto-promotes to `:plan-approved`; MEDIUM with explicit anchor-based risk mitigation also auto-promotes; others (MEDIUM without marker, LOW, or missing) divert to `:human-needed` with a pending marker and a comment explaining the confidence reason (e.g., unverified assumptions, ambiguous scope). |
