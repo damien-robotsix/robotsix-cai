@@ -97,14 +97,32 @@ Only emit when ALL of the following hold:
   confirm before emitting.
 - The labels list on the issue does NOT already include
   `auto-improve:opus-attempted` (the one-shot has been burned).
-- The divert reason is implementer-side horsepower, not ambiguity:
+- The divert reason is one of the following horsepower / verification
+  bottlenecks, not ambiguity:
   - the spike-marker branch of `cai-implement` (divert comment
     titled "Implement subagent: needs human review" or
     "Implement subagent: repeated test failures"),
   - the Haiku pre-screen emitting `spike` on an issue whose stored
-    plan is clearly concrete (pre-screen mis-classification), or
+    plan is clearly concrete (pre-screen mis-classification),
   - the 2-consecutive-`tests_failed` escalation, where the plan is
-    plausible but Sonnet could not produce passing tests.
+    plausible but Sonnet could not produce passing tests, or
+  - a plan-gate trip where the divert comment reads
+    "Automation paused `planned_to_plan_approved` because the
+    confidence gate was not met" with `Reported confidence: MEDIUM`
+    (never `LOW` or `MISSING`), AND the stored plan block is
+    substantive — concrete `Files to change`, and verbatim
+    `old_string` / `new_string` (or full file bodies) for every
+    Edit/Write step, not prose summaries. In this case the residual
+    MEDIUM signal is a verification-only concern (e.g., "line
+    numbers need re-checking at edit time", "anchor text needs
+    confirming at Edit time", additive-schema / soft-cap worry
+    the plan already acknowledges) that Opus's stronger implementer
+    can resolve inline while applying the plan. Pick
+    `TRULY_HUMAN_NEEDED` instead when the `Confidence reason`
+    trailer cites substantive uncertainty (unverified assumptions,
+    ambiguous scope, missing edge cases, contradictions between
+    plans on unsettled implementation choices), or when the stored
+    plan body carries `Requires human review: true`.
 - The plan still matches the current source tree — spot-check one
   or two file paths or symbols it names via `Read`/`Grep` to
   confirm they exist and the plan has not drifted.

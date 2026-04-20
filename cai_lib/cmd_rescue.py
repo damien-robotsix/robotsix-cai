@@ -56,10 +56,16 @@ from cai_lib.subprocess_utils import _run_claude_p
 # JSON schema for the cai-rescue verdict (forced via --json-schema).
 #
 # The ``ATTEMPT_OPUS_IMPLEMENT`` verdict is a one-shot escalation path
-# for parks where a stored plan exists but the Sonnet-backed
+# for parks where a stored plan exists and Opus-level implementation
+# would unstick the issue — either because the Sonnet-backed
 # cai-implement run gave up (spike marker, repeated test failures, no
-# diff). The rescue driver applies ``LABEL_OPUS_ATTEMPTED`` and fires
-# ``human_to_plan_approved`` so the next dispatcher tick re-runs
+# diff) or because the ``planned_to_plan_approved`` gate tripped at
+# MEDIUM confidence on an otherwise substantive plan whose only
+# residual risk is verification-shaped (line-number drift, anchor
+# re-checking at Edit time, and similar concerns Opus can resolve
+# inline). See ``.claude/agents/lifecycle/cai-rescue.md`` for the full
+# rule set. The rescue driver applies ``LABEL_OPUS_ATTEMPTED`` and
+# fires ``human_to_plan_approved`` so the next dispatcher tick re-runs
 # implement on the same plan — this time with ``--model
 # claude-opus-4-7`` (see :mod:`cai_lib.actions.implement`). The label
 # also gates re-escalation: a second park on the same issue will not
