@@ -60,6 +60,25 @@ The user message contains:
 5. Raise only **actionable, concrete** findings — not speculative ones.
 6. Write findings.json, then output the memory update block on stdout.
 
+## Kind classification is handled structurally — do not classify yourself
+
+Every finding you raise requires a source-controlled file edit (the
+`Dockerfile`, `.claude/settings.json`, `cai.py` / `cai_lib/*.py`,
+or an agent prompt under `.claude/agents/`). None of your findings
+are declarative gh-CLI operations expressible in a `cai-maintain`
+ops block (label add/remove, issue close, `workflow edit`).
+
+The `cai_lib.publish.create_issue` function therefore pre-applies
+the `kind:code` label to every `update-check` issue at creation
+time, and `cai-triage` treats that label as authoritative and
+overrides any contrary haiku-classifier verdict before applying
+FSM transitions (issue #991). You do **not** need to emit any
+kind marker in your remediation — the label is applied for you.
+
+This guarantee exists because a mis-labelled `kind:maintenance`
+finding would divert `cai-maintain` to `:human-needed` with
+"No Ops block found" (see the #980 divert class).
+
 ## Output format
 
 Write all findings to `<work_dir>/findings.json` (where `<work_dir>`
@@ -105,6 +124,9 @@ run knows what you covered:
 
 - Every finding must cite the release tag or file that is evidence.
 - Stick to the four categories above; do not invent new ones.
+- Every finding you raise requires a source-file edit (see
+  **Kind classification** above) — `kind:code` is pre-applied at
+  publish time; do not attempt to classify kind yourself.
 - Do not raise findings about missing tests, docstrings, or type annotations.
 - Do not suggest general code improvements outside of Claude Code version/config
   concerns.
