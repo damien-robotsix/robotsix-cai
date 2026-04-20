@@ -68,6 +68,32 @@ class TestCountConsecutiveTestsFailed(unittest.TestCase):
         with patch("cai_lib.actions.implement.LOG_PATH", self.log_path):
             self.assertEqual(_count_consecutive_tests_failed(42), 2)
 
+    def test_tests_failed_escalated_not_counted(self):
+        """Lines with result=tests_failed_escalated must not be
+        counted as result=tests_failed (was a substring-match bug)."""
+        self._write([
+            "2026-04-16T10:00:00Z [implement] repo=foo issue=42 "
+            "result=tests_failed exit=1",
+            "2026-04-16T10:05:00Z [implement] repo=foo issue=42 "
+            "result=tests_failed_escalated exit=0",
+        ])
+        with patch("cai_lib.actions.implement.LOG_PATH", self.log_path):
+            # Most recent line is `_escalated`, so the consecutive
+            # count of strict tests_failed must be 0 (walks back
+            # from the newest entry; the newest is not tests_failed).
+            self.assertEqual(_count_consecutive_tests_failed(42), 0)
+
+    def test_tests_failed_escalated_early_not_counted(self):
+        """Same guarantee for the new pre-empted-early tag."""
+        self._write([
+            "2026-04-16T10:00:00Z [implement] repo=foo issue=42 "
+            "result=tests_failed exit=1",
+            "2026-04-16T10:05:00Z [implement] repo=foo issue=42 "
+            "result=tests_failed_escalated_early exit=0",
+        ])
+        with patch("cai_lib.actions.implement.LOG_PATH", self.log_path):
+            self.assertEqual(_count_consecutive_tests_failed(42), 0)
+
 
 class TestInProgressToRefiningTransitionExists(unittest.TestCase):
     """The new #923 transition must exist for the MEDIUM-plan auto-refine branch."""
