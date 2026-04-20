@@ -2,7 +2,13 @@
 
 ``handle_maintain``  — runs cai-maintain against an ``:applying`` issue and
                        advances it to ``:applied`` (HIGH confidence) or
-                       ``:human-needed`` (MEDIUM / LOW / missing).
+                       ``:human-needed`` (MEDIUM / LOW / missing). When the
+                       agent emits an ``Ops-source: inferred`` marker
+                       (issue #986 — Ops synthesised from a plan block
+                       because no explicit ``Ops:`` header was present),
+                       the handler picks the relaxed sibling transition
+                       ``applying_to_applied_inferred_ops`` whose gate
+                       accepts MEDIUM confidence.
 
 ``handle_applied``   — advances an ``:applied`` issue deterministically to
                        ``:solved`` and closes it on GitHub.  No agent needed;
@@ -10,6 +16,7 @@
 """
 from __future__ import annotations
 
+import re
 import shutil
 import time
 import uuid
@@ -26,6 +33,24 @@ from cai_lib.fsm import (
 from cai_lib.github import _build_issue_block, close_issue_completed
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run, _run_claude_p
+
+
+# Matches the marker emitted by cai-maintain when the op list was
+# synthesised from a stored plan block because no explicit ``Ops:``
+# header was present on the issue body (issue #986). When present,
+# :func:`handle_maintain` selects the relaxed
+# ``applying_to_applied_inferred_ops`` transition (MEDIUM gate).
+_OPS_SOURCE_INFERRED_RE = re.compile(
+    r"^\s*Ops-source:\s*inferred\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _ops_source_is_inferred(text: str) -> bool:
+    """Return True iff *text* contains a well-formed ``Ops-source: inferred`` line."""
+    if not text:
+        return False
+    return _OPS_SOURCE_INFERRED_RE.search(text) is not None
 
 
 def handle_maintain(issue: dict) -> int:
@@ -98,9 +123,27 @@ def handle_maintain(issue: dict) -> int:
     # Parse confidence and apply FSM transition.
     confidence = parse_confidence(result.stdout)
     confidence_reason = parse_confidence_reason(result.stdout)
+
+    # Pick the relaxed sibling transition when the agent signalled that
+    # it synthesised the Ops list from a plan block (issue #986). The
+    # sibling's only difference from the default is its MEDIUM confidence
+    # gate — labels move identically. Plans with an explicit ``Ops:``
+    # header stay on the default HIGH-threshold transition.
+    ops_inferred = _ops_source_is_inferred(result.stdout)
+    transition_name = (
+        "applying_to_applied_inferred_ops" if ops_inferred
+        else "applying_to_applied"
+    )
+    if ops_inferred:
+        print(
+            f"[cai maintain] #{issue_number}: Ops-source: inferred — "
+            f"using relaxed transition {transition_name!r} (MEDIUM gate)",
+            flush=True,
+        )
+
     ok, diverted = apply_transition_with_confidence(
         issue_number,
-        "applying_to_applied",
+        transition_name,
         confidence,
         current_labels=issue_labels,
         log_prefix="cai maintain",
@@ -111,6 +154,7 @@ def handle_maintain(issue: dict) -> int:
     outcome = "diverted_to_human" if diverted else ("applied" if ok else "failed")
     log_run("maintain", repo=REPO, issue=issue_number,
             confidence=str(confidence), result=outcome, duration=dur,
+            ops_source=("inferred" if ops_inferred else "explicit"),
             exit=0 if ok else 1)
     return 0 if ok else 1
 

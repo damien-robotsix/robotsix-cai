@@ -86,6 +86,17 @@ ISSUE_TRANSITIONS: list[Transition] = [
     Transition("applying_to_applied",       IssueState.APPLYING,      IssueState.APPLIED,
                labels_remove=[LABEL_APPLYING],   labels_add=[LABEL_APPLIED],
                min_confidence=Confidence.HIGH),
+    # Relaxed threshold (#986): when cai-maintain synthesised the Ops
+    # from a stored plan block because no explicit `Ops:` header was
+    # present on the issue body, it emits an `Ops-source: inferred`
+    # marker and the handler picks this sibling transition so a
+    # successful inferred-ops execution at MEDIUM confidence still
+    # advances to :applied rather than parking at :human-needed. The
+    # only difference from applying_to_applied is the min_confidence
+    # gate (MEDIUM instead of HIGH); labels move identically.
+    Transition("applying_to_applied_inferred_ops", IssueState.APPLYING, IssueState.APPLIED,
+               labels_remove=[LABEL_APPLYING],   labels_add=[LABEL_APPLIED],
+               min_confidence=Confidence.MEDIUM),
     Transition("applying_to_human",         IssueState.APPLYING,      IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_APPLYING],   labels_add=[LABEL_HUMAN_NEEDED]),
 
