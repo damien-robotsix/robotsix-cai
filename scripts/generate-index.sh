@@ -34,6 +34,7 @@ declare -A DESCRIPTIONS=(
   [".claude/agents/audit/cai-audit-code-reduction.md"]="Agent: on-demand code-reduction audit for a module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers, and writes findings to findings.json"
   [".claude/agents/audit/cai-audit-cost-reduction.md"]="Agent: on-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings"
   [".claude/agents/audit/cai-audit-workflow-enhancement.md"]="Agent: on-demand workflow-enhancement audit for a module — identifies recurring inefficiencies in agent workflows and proposes targeted remediations"
+  [".claude/agents/audit/cai-audit-good-practices.md"]="Agent: on-demand auditor for Claude Code best practices and documentation-vs-implementation drift in a declared module scope"
   [".claude/agents/audit/cai-code-audit.md"]="Agent: read-only source tree audit for inconsistencies and dead code"
   [".claude/agents/audit/cai-confirm.md"]="Agent: verify merged PRs actually resolved their issues"
   [".claude/agents/implementation/cai-fix-ci.md"]="Agent: diagnose and fix failing CI checks on auto-improve PRs"
