@@ -16,6 +16,7 @@ dispatcher owns queue selection.
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shutil
@@ -372,6 +373,104 @@ def _extract_test_failures(output: str, max_chars: int = 3000) -> str:
     if len(result) > max_chars:
         result = result[:max_chars].rstrip() + "\n\n... (truncated)"
     return result
+
+
+# Matches ``  File "<path>", line <N>, in <func>`` traceback frames.
+_TRACEBACK_FRAME_RE = re.compile(
+    r'^\s*File "([^"]+)", line (\d+), in (\S+)',
+    re.MULTILINE,
+)
+
+
+def _enclosing_function_source(
+    source: str, line: int,
+) -> tuple[str, str] | None:
+    """Return ``(func_name, func_source)`` for the innermost ``def`` /
+    ``async def`` that encloses *line* in *source*, or ``None`` when no
+    such function exists.
+
+    Uses :mod:`ast` so nested defs and class methods resolve correctly.
+    ``line`` is 1-based, matching Python traceback line numbers.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    lines = source.splitlines()
+    best: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        end = node.end_lineno or node.lineno
+        if node.lineno <= line <= end:
+            if best is None or node.lineno >= best.lineno:
+                best = node
+    if best is None:
+        return None
+    end = best.end_lineno or best.lineno
+    src = "\n".join(lines[best.lineno - 1: end])
+    return (best.name, src)
+
+
+def _extract_referenced_helpers(
+    failure_output: str,
+    work_dir: Path,
+    max_chars: int = 2000,
+) -> str:
+    """Extract source of non-test helpers referenced by test tracebacks.
+
+    Scans *failure_output* for ``File "<path>", line <N>, in <func>``
+    frames. Skips entries under ``tests/``, absolute paths, ``..``-escapes,
+    and anything containing ``site-packages`` (stdlib / third-party). For
+    each remaining unique ``(path, func)`` pair reads
+    ``<work_dir>/<path>`` and returns the source of the function
+    enclosing line ``<N>``.
+
+    Result is Markdown suitable for inlining into a GitHub issue comment:
+    one fenced ``python`` block per helper, separated by blank lines.
+    Returns an empty string when no helpers can be resolved. Capped at
+    *max_chars*; clipped output is suffixed with ``... (truncated)``.
+
+    Added in issue #987 — the 3-consecutive-``tests_failed`` divert
+    comment previously only carried the test traceback. Pairing each
+    traceback frame with the current implementation of the helper it
+    landed in gives Opus / a human the exact context needed to diagnose
+    a narrow regression (path normalisation, regex edge case, etc.)
+    without re-reading the whole file.
+    """
+    seen: set[tuple[str, str]] = set()
+    helpers: list[str] = []
+    for m in _TRACEBACK_FRAME_RE.finditer(failure_output):
+        path, line_s, func = m.group(1), m.group(2), m.group(3)
+        if (
+            path.startswith("tests/")
+            or path.startswith("/")
+            or ".." in path.split("/")
+            or "site-packages" in path
+        ):
+            continue
+        key = (path, func)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            source = (work_dir / path).read_text()
+        except OSError:
+            continue
+        res = _enclosing_function_source(source, int(line_s))
+        if res is None:
+            continue
+        name, src = res
+        helpers.append(
+            f"`{path}` — `{name}` (line {line_s}):\n\n"
+            f"```python\n{src}\n```"
+        )
+    if not helpers:
+        return ""
+    joined = "\n\n".join(helpers)
+    if len(joined) > max_chars:
+        joined = joined[:max_chars].rstrip() + "\n\n... (truncated)"
+    return joined
 
 
 def _count_consecutive_tests_failed(issue_number: int) -> int:
@@ -890,6 +989,13 @@ def handle_implement(issue: dict) -> int:
                     issue.get("body", "") or ""
                 )
                 failure_summary = _extract_test_failures(failure_output)
+                helpers_block = _extract_referenced_helpers(
+                    failure_output, work_dir,
+                )
+                helpers_section = (
+                    "### Helper implementations referenced by failures\n\n"
+                    f"{helpers_block}\n\n"
+                ) if helpers_block else ""
 
                 if stored_plan_confidence == Confidence.MEDIUM:
                     comment_body = (
@@ -902,6 +1008,7 @@ def handle_implement(issue: dict) -> int:
                         f"autonomous re-planning instead of human review.\n\n"
                         "### Failing tests\n\n"
                         f"```\n{failure_summary}\n```\n\n"
+                        f"{helpers_section}"
                         "---\n"
                         "_Set by `cai implement` after "
                         f"{_MAX_TESTS_FAILED_RETRIES} consecutive "
@@ -946,6 +1053,7 @@ def handle_implement(issue: dict) -> int:
                     f"monopolising the implement loop.\n\n"
                     "### Failing tests\n\n"
                     f"```\n{failure_summary}\n```\n\n"
+                    f"{helpers_section}"
                     "---\n"
                     "_Set by `cai implement` after "
                     f"{_MAX_TESTS_FAILED_RETRIES} consecutive `tests_failed` "
