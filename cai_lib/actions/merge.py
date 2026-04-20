@@ -36,6 +36,7 @@ from cai_lib.cmd_helpers import (
     _parse_iso_ts,
     _is_bot_comment,
     _fetch_review_comments,
+    _extract_stored_plan,
 )
 from cai_lib.actions.revise import _filter_comments_with_haiku
 from cai_lib.logging_utils import log_run
@@ -81,6 +82,121 @@ _MERGE_JSON_SCHEMA = {
     },
     "required": ["confidence", "action", "reasoning"],
 }
+
+
+# ---------------------------------------------------------------------------
+# Re-queue scope-expansion exemption (wrapper-driven).
+#
+# When ``cai-confirm`` judges a prior merged PR unsolved it appends a
+# ``## Confirm re-queue (attempt N)`` block to the issue body and
+# re-routes the issue back through refine/plan. The replacement plan
+# is expected to be meaningfully different from the prior attempt —
+# often broader (new helpers, new files, new tests) — precisely
+# because the narrower previous attempt failed. Without an exemption
+# the merge agent would downgrade the new PR on scope grounds even
+# though the plan-selection gate already approved the broader scope.
+#
+# We detect the condition **structurally, in Python**, rather than
+# teaching the agent to parse markers at inference time:
+#
+#   1. Search the issue body for the ``## Confirm re-queue (attempt
+#      N)`` producer marker (deterministically emitted by
+#      ``cai_lib/actions/confirm.py`` — see ``_requeue_block``).
+#   2. Extract the stored plan body via ``_extract_stored_plan``.
+#   3. Pull the backticked ``path/with.ext`` tokens out of the plan's
+#      ``### Files to change`` section (same regex shape used by
+#      ``_plan_targets_only_docs`` in ``cai_lib/actions/plan.py``).
+#   4. Emit a ``## Pre-authorized scope expansion`` markdown block
+#      naming those files. The block is injected into the merge
+#      agent's ``user_message`` between the issue body and the PR
+#      diff, so the agent receives an explicit authoritative list of
+#      pre-approved files instead of having to detect a marker or
+#      parse a plan itself.
+#
+# When any precondition fails (no marker, no plan, no section, no
+# paths) the helper returns the empty string, and ``user_message``
+# is assembled exactly as before — backward-compatible for every
+# ordinary first-attempt PR. See ``cai-merge.md`` for the
+# complementary agent-side rule.
+# ---------------------------------------------------------------------------
+_REQUEUE_MARKER_RE = re.compile(
+    r"^## Confirm re-queue \(attempt \d+\)", re.MULTILINE
+)
+
+_REQUEUE_FILES_SECTION_RE = re.compile(
+    r"^###\s+Files\s+to\s+change\s*$\n(.*?)(?=^###\s|\Z)",
+    re.IGNORECASE | re.DOTALL | re.MULTILINE,
+)
+
+_REQUEUE_FILES_PATH_RE = re.compile(
+    r"`([^`\s]+/[^`\s]*\.[A-Za-z0-9]+)`"
+)
+
+
+def _build_requeue_exemption_block(issue_body: str) -> str:
+    """Return a pre-authorized-scope markdown block, or ``""`` when
+    the re-queue exemption does not apply to *issue_body*.
+
+    Returns ``""`` when:
+
+    * the ``## Confirm re-queue (attempt N)`` marker is absent
+      (ordinary first-attempt PR),
+    * the issue body has no extractable stored plan block,
+    * the stored plan has no ``### Files to change`` section, or
+    * that section contains no backticked ``path/with.ext`` tokens.
+
+    Otherwise returns a markdown block of the form::
+
+        ## Pre-authorized scope expansion
+
+        This issue was re-queued by `cai-confirm` ...
+
+        - `path/to/file_a.py`
+        - `path/to/file_b.py`
+
+        **Treat every file in this list as in-scope for this PR.** ...
+
+    Extracted paths are deduplicated while preserving first-seen
+    order so the injected block stays stable across repeated runs.
+    """
+    if not issue_body or not _REQUEUE_MARKER_RE.search(issue_body):
+        return ""
+
+    plan_text = _extract_stored_plan(issue_body)
+    if not plan_text:
+        return ""
+
+    section = _REQUEUE_FILES_SECTION_RE.search(plan_text)
+    if not section:
+        return ""
+
+    paths = _REQUEUE_FILES_PATH_RE.findall(section.group(1))
+    if not paths:
+        return ""
+
+    seen: set[str] = set()
+    unique_paths: list[str] = []
+    for p in paths:
+        if p not in seen:
+            seen.add(p)
+            unique_paths.append(p)
+
+    bullet_list = "\n".join(f"- `{p}`" for p in unique_paths)
+    return (
+        "## Pre-authorized scope expansion\n\n"
+        "This issue was re-queued by `cai-confirm` after a prior "
+        "merged PR was judged **unsolved**. The plan-selection gate "
+        "has already approved the following expanded file scope for "
+        "this attempt:\n\n"
+        f"{bullet_list}\n\n"
+        "**Treat every file in this list as in-scope for this PR.** "
+        "Do not downgrade confidence for scope-only reasons on these "
+        "files (e.g. \"scope broader than the issue asks\", \"new "
+        "files not mentioned in the issue\", \"PR adds new test "
+        "files or docstrings\"). Correctness, completeness, "
+        "unaddressed review comments, and workflow-file "
+        "(`.github/workflows/`) rules still apply in full.\n\n"
+    )
 
 
 def _assemble_diff(raw_diff: str, max_len: int) -> str:
@@ -373,11 +489,16 @@ def handle_merge(pr: dict) -> int:
         "\n\n---\n\n".join(comment_texts) if comment_texts else "(no comments)"
     )
 
+    requeue_block = _build_requeue_exemption_block(
+        issue_full.get("body") or ""
+    )
+
     user_message = (
         f"## Linked issue\n\n"
         f"### #{issue_full.get('number', issue_number)} \u2014 "
         f"{issue_full.get('title', '')}\n\n"
         f"{issue_full.get('body') or '(no body)'}\n\n"
+        f"{requeue_block}"
         f"## PR changes\n\n"
         f"```diff\n{pr_diff}\n```\n\n"
         f"## PR comments\n\n"
