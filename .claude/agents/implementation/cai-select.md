@@ -59,8 +59,11 @@ downgrade — **soft / non-blocking risks** do not.
 - **Substantive uncertainty** (legitimate grounds to downgrade):
   policy questions the refined issue did not answer, ambiguous
   requirements, unverified external dependencies, missing edge
-  cases, or a concrete risk of regression that the plan has not
-  addressed.
+  cases, a concrete risk of regression that the plan has not
+  addressed, or **unverified structural claims about peer agent
+  outputs** (e.g., literal marker strings, JSON field names, or
+  comment block formats asserted without citing the source file
+  and line — cap such plans at LOW, not MEDIUM).
 - **Soft / non-blocking risks** (NOT grounds to downgrade):
   - Additive JSON schema fields or other strictly
     backwards-compatible extensions to a data contract — downstream

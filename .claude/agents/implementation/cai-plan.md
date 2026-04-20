@@ -49,6 +49,14 @@ The user message contains:
 ## Hard rules
 
 1. **Read-only.** Do not modify any files — only read and plan.
+2. **Verify structural claims before finalizing.** Before finalizing
+   your plan, verify any structural claim about a peer agent's output
+   format (e.g., comment block markers, JSON field names, literal
+   marker strings) by reading the relevant peer agent's `.md` file
+   via `Read` or `Grep`. If a structural claim cannot be verified in
+   this session, explicitly call it out as an unverified assumption
+   — `cai-select` will cap such plans at LOW confidence, forcing a
+   human gate. Verify now to avoid that outcome.
 
 ## Agent-specific efficiency guidance
 
