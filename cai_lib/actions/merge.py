@@ -615,7 +615,7 @@ def handle_merge(pr: dict) -> int:
         return 0
     issue_number = int(m.group(1))
 
-    # Safety filter 4: unmergeable PRs (conflicts).
+    # Safety filter 2: unmergeable PRs (conflicts).
     mergeable = pr.get("mergeable", "")
     if mergeable == "CONFLICTING":
         print(
@@ -627,7 +627,7 @@ def handle_merge(pr: dict) -> int:
                 result="conflicting", exit=0)
         return 0
 
-    # Safety filter 2: linked issue must be in :pr-open state.
+    # Safety filter 3: linked issue must be in :pr-open state.
     try:
         issue = _gh_json([
             "issue", "view", str(issue_number),
@@ -674,7 +674,7 @@ def handle_merge(pr: dict) -> int:
     # the unaddressed-comments / CI / merge-agent gates below catch
     # anything that genuinely needs another look.
 
-    # Safety filter 3: unaddressed review comments → let revise handle.
+    # Safety filter 4: unaddressed review comments → let revise handle.
     # Mirror the revise subcommand's filter logic via the shared helper
     # so a "no additional changes" reply correctly suppresses the loop.
     all_comments = list(pr.get("comments", []))
