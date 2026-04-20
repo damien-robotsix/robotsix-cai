@@ -14,71 +14,133 @@ nav_order: 5
 
 ```mermaid
 stateDiagram-v2
-    RAISED --> REFINING : raise_to_refining [≥HIGH]
-    RAISED --> HUMAN_NEEDED : raise_to_human [≥HIGH]
-    RAISED --> TRIAGING : raise_to_triaging [≥HIGH]
-    TRIAGING --> REFINING : triaging_to_refining [≥HIGH]
-    TRIAGING --> HUMAN_NEEDED : triaging_to_human [≥HIGH]
-    TRIAGING --> PLAN_APPROVED : triaging_to_plan_approved [caller-gated]
-    TRIAGING --> APPLYING : triaging_to_applying [caller-gated]
-    APPLYING --> APPLIED : applying_to_applied [≥HIGH]
-    APPLYING --> APPLIED : applying_to_applied_inferred_ops [≥MEDIUM]
-    APPLYING --> HUMAN_NEEDED : applying_to_human [≥HIGH]
-    APPLIED --> SOLVED : applied_to_solved [≥HIGH]
-    REFINING --> REFINED : refining_to_refined [≥HIGH]
-    REFINING --> NEEDS_EXPLORATION : refining_to_exploration [≥HIGH]
-    REFINING --> HUMAN_NEEDED : refining_to_human [≥HIGH]
-    NEEDS_EXPLORATION --> REFINING : exploration_to_refining [≥HIGH]
-    REFINED --> PLANNING : refined_to_planning [≥HIGH]
-    PLANNING --> PLANNED : planning_to_planned [≥HIGH]
-    PLANNING --> HUMAN_NEEDED : planning_to_human [≥HIGH]
-    PLANNED --> PLAN_APPROVED : planned_to_plan_approved [≥HIGH]
-    PLANNED --> PLAN_APPROVED : planned_to_plan_approved_mitigated [≥MEDIUM]
-    PLANNED --> PLAN_APPROVED : planned_to_plan_approved_docs_only [≥MEDIUM]
-    PLANNED --> PLAN_APPROVED : planned_to_plan_approved_approvable [≥MEDIUM]
-    PLANNED --> HUMAN_NEEDED : planned_to_human [≥HIGH]
-    PLAN_APPROVED --> IN_PROGRESS : approved_to_in_progress [≥HIGH]
-    IN_PROGRESS --> PR : in_progress_to_pr [≥HIGH]
-    IN_PROGRESS --> REFINING : in_progress_to_refining [caller-gated]
-    PR --> MERGED : pr_to_merged [≥HIGH]
-    PR --> REFINED : pr_to_refined [≥HIGH]
-    PR --> HUMAN_NEEDED : pr_to_human_needed [≥HIGH]
-    MERGED --> SOLVED : merged_to_solved [≥HIGH]
-    HUMAN_NEEDED --> RAISED : human_to_raised [≥HIGH]
-    HUMAN_NEEDED --> REFINING : human_to_refining [≥HIGH]
-    HUMAN_NEEDED --> PLAN_APPROVED : human_to_plan_approved [≥HIGH]
-    HUMAN_NEEDED --> NEEDS_EXPLORATION : human_to_exploration [≥HIGH]
-    HUMAN_NEEDED --> SOLVED : human_to_solved [≥HIGH]
+  direction LR
+  classDef s_default fill:white,color:black
+  classDef s_inactive fill:white,color:black
+  classDef s_parallel color:black,fill:white
+  classDef s_active color:red,fill:darksalmon
+  classDef s_previous color:blue,fill:azure
+  
+  state "RAISED" as RAISED
+  Class RAISED s_active
+  state "REFINING" as REFINING
+  Class REFINING s_default
+  state "HUMAN_NEEDED" as HUMAN_NEEDED
+  Class HUMAN_NEEDED s_default
+  state "TRIAGING" as TRIAGING
+  Class TRIAGING s_default
+  state "PLAN_APPROVED" as PLAN_APPROVED
+  Class PLAN_APPROVED s_default
+  state "APPLYING" as APPLYING
+  Class APPLYING s_default
+  state "APPLIED" as APPLIED
+  Class APPLIED s_default
+  state "SOLVED" as SOLVED
+  Class SOLVED s_default
+  state "REFINED" as REFINED
+  Class REFINED s_default
+  state "NEEDS_EXPLORATION" as NEEDS_EXPLORATION
+  Class NEEDS_EXPLORATION s_default
+  state "PLANNING" as PLANNING
+  Class PLANNING s_default
+  state "PLANNED" as PLANNED
+  Class PLANNED s_default
+  state "IN_PROGRESS" as IN_PROGRESS
+  Class IN_PROGRESS s_default
+  state "PR" as PR
+  Class PR s_default
+  state "MERGED" as MERGED
+  Class MERGED s_default
+  
+  RAISED --> REFINING: raise_to_refining [≥HIGH]
+  RAISED --> HUMAN_NEEDED: raise_to_human [≥HIGH]
+  RAISED --> TRIAGING: raise_to_triaging [≥HIGH]
+  TRIAGING --> REFINING: triaging_to_refining [≥HIGH]
+  TRIAGING --> HUMAN_NEEDED: triaging_to_human [≥HIGH]
+  TRIAGING --> PLAN_APPROVED: triaging_to_plan_approved [caller-gated]
+  TRIAGING --> APPLYING: triaging_to_applying [caller-gated]
+  APPLYING --> APPLIED: applying_to_applied [≥HIGH] | applying_to_applied_inferred_ops [≥MEDIUM]
+  APPLYING --> HUMAN_NEEDED: applying_to_human [≥HIGH]
+  APPLIED --> SOLVED: applied_to_solved [≥HIGH]
+  REFINING --> REFINED: refining_to_refined [≥HIGH]
+  REFINING --> NEEDS_EXPLORATION: refining_to_exploration [≥HIGH]
+  REFINING --> HUMAN_NEEDED: refining_to_human [≥HIGH]
+  NEEDS_EXPLORATION --> REFINING: exploration_to_refining [≥HIGH]
+  REFINED --> PLANNING: refined_to_planning [≥HIGH]
+  PLANNING --> PLANNED: planning_to_planned [≥HIGH]
+  PLANNING --> HUMAN_NEEDED: planning_to_human [≥HIGH]
+  PLANNED --> PLAN_APPROVED: planned_to_plan_approved [≥HIGH] | planned_to_plan_approved_mitigated [≥MEDIUM] | planned_to_plan_approved_docs_only [≥MEDIUM] | planned_to_plan_approved_approvable [≥MEDIUM]
+  PLANNED --> HUMAN_NEEDED: planned_to_human [≥HIGH]
+  PLAN_APPROVED --> IN_PROGRESS: approved_to_in_progress [≥HIGH]
+  IN_PROGRESS --> PR: in_progress_to_pr [≥HIGH]
+  IN_PROGRESS --> REFINING: in_progress_to_refining [caller-gated]
+  PR --> MERGED: pr_to_merged [≥HIGH]
+  PR --> REFINED: pr_to_refined [≥HIGH]
+  PR --> HUMAN_NEEDED: pr_to_human_needed [≥HIGH]
+  MERGED --> SOLVED: merged_to_solved [≥HIGH]
+  HUMAN_NEEDED --> RAISED: human_to_raised [≥HIGH]
+  HUMAN_NEEDED --> REFINING: human_to_refining [≥HIGH]
+  HUMAN_NEEDED --> PLAN_APPROVED: human_to_plan_approved [≥HIGH]
+  HUMAN_NEEDED --> NEEDS_EXPLORATION: human_to_exploration [≥HIGH]
+  HUMAN_NEEDED --> SOLVED: human_to_solved [≥HIGH]
+  [*] --> RAISED
 ```
 
 ## PR state machine
 
 ```mermaid
 stateDiagram-v2
-    OPEN --> REVIEWING_CODE : open_to_reviewing_code [≥HIGH]
-    REVIEWING_CODE --> REVISION_PENDING : reviewing_code_to_revision_pending [≥HIGH]
-    REVIEWING_CODE --> REVIEWING_DOCS : reviewing_code_to_reviewing_docs [≥HIGH]
-    REVISION_PENDING --> REVIEWING_CODE : revision_pending_to_reviewing_code [≥HIGH]
-    REVIEWING_DOCS --> REVIEWING_CODE : reviewing_docs_to_reviewing_code [≥HIGH]
-    REVIEWING_DOCS --> APPROVED : reviewing_docs_to_approved [≥HIGH]
-    APPROVED --> MERGED : approved_to_merged [≥HIGH]
-    APPROVED --> REVIEWING_CODE : approved_to_reviewing_code [≥HIGH]
-    REVIEWING_CODE --> CI_FAILING : reviewing_code_to_ci_failing [≥HIGH]
-    REVISION_PENDING --> CI_FAILING : revision_pending_to_ci_failing [≥HIGH]
-    REVIEWING_DOCS --> CI_FAILING : reviewing_docs_to_ci_failing [≥HIGH]
-    APPROVED --> CI_FAILING : approved_to_ci_failing [≥HIGH]
-    CI_FAILING --> REVIEWING_CODE : ci_failing_to_reviewing_code [≥HIGH]
-    REVIEWING_CODE --> REBASING : reviewing_code_to_rebasing [≥HIGH]
-    REVISION_PENDING --> REBASING : revision_pending_to_rebasing [≥HIGH]
-    REVIEWING_DOCS --> REBASING : reviewing_docs_to_rebasing [≥HIGH]
-    APPROVED --> REBASING : approved_to_rebasing [≥HIGH]
-    CI_FAILING --> REBASING : ci_failing_to_rebasing [≥HIGH]
-    REBASING --> REVIEWING_CODE : rebasing_to_reviewing_code [≥HIGH]
-    REVIEWING_CODE --> PR_HUMAN_NEEDED : reviewing_code_to_human [≥HIGH]
-    APPROVED --> PR_HUMAN_NEEDED : approved_to_human [≥HIGH]
-    APPROVED --> REVISION_PENDING : approved_to_revision_pending [≥HIGH]
-    PR_HUMAN_NEEDED --> REVIEWING_CODE : pr_human_to_reviewing_code [≥HIGH]
-    PR_HUMAN_NEEDED --> REVISION_PENDING : pr_human_to_revision_pending [≥HIGH]
-    PR_HUMAN_NEEDED --> REVIEWING_DOCS : pr_human_to_reviewing_docs [≥HIGH]
-    PR_HUMAN_NEEDED --> APPROVED : pr_human_to_approved [≥HIGH]
+  direction LR
+  classDef s_default fill:white,color:black
+  classDef s_inactive fill:white,color:black
+  classDef s_parallel color:black,fill:white
+  classDef s_active color:red,fill:darksalmon
+  classDef s_previous color:blue,fill:azure
+  
+  state "OPEN" as OPEN
+  Class OPEN s_active
+  state "REVIEWING_CODE" as REVIEWING_CODE
+  Class REVIEWING_CODE s_default
+  state "REVISION_PENDING" as REVISION_PENDING
+  Class REVISION_PENDING s_default
+  state "REVIEWING_DOCS" as REVIEWING_DOCS
+  Class REVIEWING_DOCS s_default
+  state "APPROVED" as APPROVED
+  Class APPROVED s_default
+  state "MERGED" as MERGED
+  Class MERGED s_default
+  state "CI_FAILING" as CI_FAILING
+  Class CI_FAILING s_default
+  state "REBASING" as REBASING
+  Class REBASING s_default
+  state "PR_HUMAN_NEEDED" as PR_HUMAN_NEEDED
+  Class PR_HUMAN_NEEDED s_default
+  
+  OPEN --> REVIEWING_CODE: open_to_reviewing_code [≥HIGH]
+  REVIEWING_CODE --> REVISION_PENDING: reviewing_code_to_revision_pending [≥HIGH]
+  REVIEWING_CODE --> REVIEWING_DOCS: reviewing_code_to_reviewing_docs [≥HIGH]
+  REVIEWING_CODE --> CI_FAILING: reviewing_code_to_ci_failing [≥HIGH]
+  REVIEWING_CODE --> REBASING: reviewing_code_to_rebasing [≥HIGH]
+  REVIEWING_CODE --> PR_HUMAN_NEEDED: reviewing_code_to_human [≥HIGH]
+  REVISION_PENDING --> REVIEWING_CODE: revision_pending_to_reviewing_code [≥HIGH]
+  REVISION_PENDING --> CI_FAILING: revision_pending_to_ci_failing [≥HIGH]
+  REVISION_PENDING --> REBASING: revision_pending_to_rebasing [≥HIGH]
+  REVIEWING_DOCS --> REVIEWING_CODE: reviewing_docs_to_reviewing_code [≥HIGH]
+  REVIEWING_DOCS --> APPROVED: reviewing_docs_to_approved [≥HIGH]
+  REVIEWING_DOCS --> CI_FAILING: reviewing_docs_to_ci_failing [≥HIGH]
+  REVIEWING_DOCS --> REBASING: reviewing_docs_to_rebasing [≥HIGH]
+  APPROVED --> MERGED: approved_to_merged [≥HIGH]
+  APPROVED --> REVIEWING_CODE: approved_to_reviewing_code [≥HIGH]
+  APPROVED --> CI_FAILING: approved_to_ci_failing [≥HIGH]
+  APPROVED --> REBASING: approved_to_rebasing [≥HIGH]
+  APPROVED --> PR_HUMAN_NEEDED: approved_to_human [≥HIGH]
+  APPROVED --> REVISION_PENDING: approved_to_revision_pending [≥HIGH]
+  CI_FAILING --> REVIEWING_CODE: ci_failing_to_reviewing_code [≥HIGH]
+  CI_FAILING --> REBASING: ci_failing_to_rebasing [≥HIGH]
+  REBASING --> REVIEWING_CODE: rebasing_to_reviewing_code [≥HIGH]
+  PR_HUMAN_NEEDED --> REVIEWING_CODE: pr_human_to_reviewing_code [≥HIGH]
+  PR_HUMAN_NEEDED --> REVISION_PENDING: pr_human_to_revision_pending [≥HIGH]
+  PR_HUMAN_NEEDED --> REVIEWING_DOCS: pr_human_to_reviewing_docs [≥HIGH]
+  PR_HUMAN_NEEDED --> APPROVED: pr_human_to_approved [≥HIGH]
+  [*] --> OPEN
 ```
