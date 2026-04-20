@@ -94,6 +94,15 @@ Subcommands:
                             become separate GitHub issues. Skips PRs
                             already reviewed at their current HEAD SHA.
 
+    python cai.py review-docs --pr N
+                            CI-mode entry point for the docs-review agent.
+                            Clones the PR branch, runs cai-review-docs
+                            without any FSM state gate, commits any doc
+                            fixes, and pushes them back to the branch.
+                            Intended for use in regenerate-docs.yml as
+                            the auto-retry step before the module-coverage
+                            hard-fail gate.
+
     python cai.py merge     Confidence-gated auto-merge for bot PRs.
                             Evaluates each :pr-open PR against its
                             linked issue, posts a verdict comment, and
