@@ -9,6 +9,7 @@ calling :func:`handle_triage`.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 
@@ -75,6 +76,44 @@ _TRIAGE_JSON_SCHEMA = {
     },
     "required": ["routing_decision", "routing_confidence", "kind", "reasoning"],
 }
+
+
+# ---------------------------------------------------------------------------
+# Maintenance-ops validator
+# ---------------------------------------------------------------------------
+
+# Regex for lines recognised by cai-maintain (see
+# .claude/agents/ops/cai-maintain.md). Valid ops (with optional markdown
+# list bullet):
+#   label add <issue_number> <label>
+#   label remove <issue_number> <label>
+#   close <issue_number>
+#   workflow edit <file_path> <key> <value>
+_MAINTENANCE_OP_LINE_RE = re.compile(
+    r"^\s*(?:[-*+]\s+|\d+[.)]\s+)?"
+    r"(?:label\s+(?:add|remove)\s+\d+"
+    r"|close\s+\d+"
+    r"|workflow\s+edit\s+\S+)",
+    re.IGNORECASE,
+)
+
+
+def _ops_body_has_valid_maintenance_op(ops_body: str | None) -> bool:
+    """Return True when *ops_body* contains at least one line that parses
+    as a cai-maintain op.
+
+    Used by :func:`handle_triage` to reject APPLY verdicts whose ops
+    block is pure prose or implement-style steps — those would divert
+    cai-maintain to ``:human-needed`` on the first "No Ops block found"
+    check (issue #981). When the check fails the triage handler
+    re-routes the issue into the REFINE pathway with ``kind:code``,
+    preventing the structural mismatch at the source.
+    """
+    if not ops_body:
+        return False
+    return any(
+        _MAINTENANCE_OP_LINE_RE.match(line) for line in ops_body.splitlines()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +326,21 @@ def handle_triage(issue: dict) -> int:
             action_taken = "plan_approve"
         else:  # decision == "APPLY"
             ops_body = tool_input.get("ops")
-            if ops_body:
+            if not _ops_body_has_valid_maintenance_op(ops_body):
+                # The triage agent emitted APPLY+maintenance with HIGH
+                # SkipConfidence but the ops body contains no valid
+                # cai-maintain op lines (prose or implement-style
+                # steps). Re-route as kind:code into the REFINE
+                # pathway — otherwise cai-maintain would immediately
+                # divert to :human-needed with "No Ops block found"
+                # (issue #981).
+                kind_label = LABEL_KIND_CODE
+                action_taken = _fallthrough_to_refine(
+                    "with HIGH SkipConfidence but ops body contains no "
+                    "valid cai-maintain operation lines — re-routing as "
+                    "kind:code to the implement pathway"
+                )
+            else:
                 existing_body = issue.get("body") or ""
                 stripped_body = _strip_stored_plan_block(existing_body)
                 ops_section = (
@@ -299,18 +352,18 @@ def handle_triage(issue: dict) -> int:
                      "--repo", REPO, "--body", new_body],
                     capture_output=True, check=True,
                 )
-            apply_transition(
-                issue_number, "triaging_to_applying",
-                current_labels=[LABEL_TRIAGING],
-                log_prefix="cai triage",
-            )
-            _set_labels(issue_number, add=[kind_label], log_prefix="cai triage")
-            print(
-                f"[cai triage] #{issue_number}: APPLY with HIGH SkipConfidence "
-                f"— advancing to applying",
-                flush=True,
-            )
-            action_taken = "applying"
+                apply_transition(
+                    issue_number, "triaging_to_applying",
+                    current_labels=[LABEL_TRIAGING],
+                    log_prefix="cai triage",
+                )
+                _set_labels(issue_number, add=[kind_label], log_prefix="cai triage")
+                print(
+                    f"[cai triage] #{issue_number}: APPLY with HIGH SkipConfidence "
+                    f"— advancing to applying",
+                    flush=True,
+                )
+                action_taken = "applying"
     else:
         # REFINE or any unrecognised decision → fall through to REFINE.
         apply_transition(
