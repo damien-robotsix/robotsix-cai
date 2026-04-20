@@ -160,6 +160,7 @@
 | `tests/test_merge_requeue_exemption.py` | TODO: add description |
 | `tests/test_merge_workflow_review_label.py` | TODO: add description |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
+| `tests/test_open_pr_non_bot_branch.py` | TODO: add description |
 | `tests/test_orphaned_prs.py` | TODO: add description |
 | `tests/test_parse.py` | Tests for parse.py signal extraction |
 | `tests/test_plan.py` | TODO: add description |
