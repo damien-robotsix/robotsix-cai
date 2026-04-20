@@ -14,7 +14,7 @@ Handler registry (issue states):
 | `REFINING` | `cai_lib/actions/refine.py` | Rewrite the issue into a structured plan with steps, verification, and scope guardrails. |
 | `NEEDS_EXPLORATION` | `cai_lib/actions/explore.py` | Run `cai-explore` to investigate an under-specified issue and route back to `:refining`. |
 | `REFINED` / `PLANNING` / `PLANNED` | `cai_lib/actions/plan.py` | Run plan + select, store the plan in the issue body, then apply the confidence gate: HIGH auto-promotes to `:plan-approved`; MEDIUM with explicit anchor-based risk mitigation also auto-promotes; others (MEDIUM without marker, LOW, or missing) divert to `:human-needed` with a pending marker and a comment explaining the confidence reason (e.g., unverified assumptions, ambiguous scope). |
-| `PLAN_APPROVED` / `IN_PROGRESS` | `cai_lib/actions/implement.py` | Run `cai-implement` in a fresh worktree; commit, push, and open a PR. |
+| `PLAN_APPROVED` / `IN_PROGRESS` | `cai_lib/actions/implement.py` | Run `cai-implement` in a fresh worktree; commit, push, and open a PR. On repeated test failures (≥3 consecutive), MEDIUM-confidence plans auto-refine via `in_progress_to_refining` instead of escalating to `:human-needed` (implement-strike auto-refine). |
 | `PR` | `cai_lib/actions/pr_bounce.py` | Bounce to the linked PR's dispatcher. |
 | `MERGED` | `cai_lib/actions/confirm.py` | Verify the merged fix actually resolved the issue; transition to `:solved` (and close the GitHub issue as "completed") or re-queue to `:refined`. |
 
@@ -33,7 +33,7 @@ Terminal / parked states (`SOLVED`, `HUMAN_NEEDED`, `PR_HUMAN_NEEDED`, PR `MERGE
 
 Multi-step sequences (titled `[#N Step X/Y]`) are processed sequentially; Step N+1 is deferred if Step N is still open.
 
-Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai code-audit`, `cai agent-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised`. Low-confidence planner outcomes still park at `:human-needed`; the admin resolves the issue in comments and then applies the `human:solved` label, which `cai unblock` picks up to resume the FSM.
+Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai code-audit`, `cai agent-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised`. Low-confidence planner outcomes park at `:human-needed`; the admin resolves the issue in comments, applies the `human:solved` label, which `cai unblock` picks up to resume the FSM, and optionally proposes plan amendments that are merged into the stored plan. Issues parked at `:human-needed` without admin intervention can optionally be autonomously resumed via `cai rescue` when the divert is mechanically resolvable (e.g., transient infrastructure failures, parser glitches).
 
 ## Lifecycle Labels
 
