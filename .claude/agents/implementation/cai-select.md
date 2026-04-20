@@ -199,6 +199,31 @@ documented, accepted mechanics, not novel risks:
   If the plan asserts literal strings without citing their source,
   that is an unverified assumption and continues to lower
   confidence per criterion 5 and the usual rules.
+- **Narrow runtime premise with an explicit, non-regressing
+  mitigation.** When the chosen plan identifies a **specific,
+  narrow runtime premise** it depends on (e.g. "this CLI flag
+  exists", "this env var is set", "this API returns field X")
+  AND specifies a **concrete mitigating action** to take if the
+  premise fails (e.g. "if `--max-turns` is unavailable, drop the
+  step that sets it and add a comment noting the limitation"; "if
+  the env var is missing, fall back to the previous behaviour"),
+  do **not** downgrade below HIGH on that stated premise alone.
+  Either the premise holds and the main path executes, or the
+  mitigation executes, and in both cases the change is safe. The
+  mitigation must be:
+  1. **Narrow** — bound to one named premise, not a blanket "if
+     anything fails, revert".
+  2. **Concrete** — a specific alternative action stated in the
+     plan, not a TODO or "handle this later".
+  3. **Non-regressing** — leaves the system in a demonstrably
+     non-broken state (the mitigation may scope down the issue's
+     remediation, but must not introduce new problems).
+  If any condition fails, the stated premise is ordinary
+  unverified-assumption risk and continues to lower confidence
+  per criterion 5 and the usual rules. This carve-out addresses
+  stated runtime premises only; it does not cover ambiguous
+  scope, missing edge cases, or disagreements on settled
+  architectural decisions.
 
 Every other risk class (missing verbatim Edit/Write content per
 criterion 5, unverified assumptions, ambiguous scope, contradictions
