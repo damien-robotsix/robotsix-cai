@@ -6,9 +6,15 @@ agent to obtain a confidence-gated verdict and, on a high-enough
 merge verdict, squash-merges via ``gh pr merge``. On new commits
 arriving since the APPROVED label was set, diverts back to code
 review. On low-confidence / refusal / merge failure on a still-open
-PR, transitions the PR out of APPROVED into ``PR_HUMAN_NEEDED``
-(``approved_to_human``) so the dispatcher parks it instead of
-re-routing back to ``handle_merge`` every drain tick.
+PR:
+
+- If the verdict is LOW+hold citing a concrete, mechanically-fixable
+  code bug (e.g., "field-name mismatch", "AttributeError", "typo"),
+  transitions to ``PR_REVISION_PENDING`` (``approved_to_revision_pending``)
+  so ``cai-revise`` can immediately fix it.
+- Otherwise, transitions the PR out of APPROVED into ``PR_HUMAN_NEEDED``
+  (``approved_to_human``) so the dispatcher parks it instead of
+  re-routing back to ``handle_merge`` every drain tick.
 """
 from __future__ import annotations
 
