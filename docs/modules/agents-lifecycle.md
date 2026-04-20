@@ -10,6 +10,6 @@ in `cai_lib/actions/` as issues move through their state machine.
 - `.claude/agents/lifecycle/cai-explore.md` — Exploration / benchmarking.
 - `.claude/agents/lifecycle/cai-propose.md` — Weekly creative proposer.
 - `.claude/agents/lifecycle/cai-propose-review.md` — Proposal reviewer.
-- `.claude/agents/lifecycle/cai-dup-check.md` — Duplicate / resolved check.
+- `.claude/agents/lifecycle/cai-dup-check.md` — Duplicate / resolved check (invoked pre-triage by `handle_triage` and pre-publish by `publish.py`).
 - `.claude/agents/lifecycle/cai-rescue.md` — Parked-state rescuer.
 - `.claude/agents/lifecycle/cai-unblock.md` — Admin-comment classifier.

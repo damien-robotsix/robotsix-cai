@@ -207,3 +207,33 @@ def check_duplicate_or_resolved(issue: dict) -> Optional[DupCheckVerdict]:
         return None
 
     return parse_dup_check_verdict(result.stdout)
+
+
+def check_finding_duplicate(
+    *,
+    title: str,
+    body: str,
+    labels: Optional[list[str]] = None,
+) -> Optional[DupCheckVerdict]:
+    """Run the cai-dup-check pre-step on a *staged finding* before publish.
+
+    Counterpart to :func:`check_duplicate_or_resolved` for callers that
+    want to guard a finding against semantic duplicates BEFORE the
+    corresponding GitHub issue is created. The finding has no issue
+    number yet, so a sentinel ``0`` is used for the context-fetch
+    exclusion (no real issue carries that number).
+
+    Returns the parsed verdict, or ``None`` on agent failure /
+    unparseable output — callers should treat ``None`` as "not a
+    duplicate" and proceed with publishing. Only HIGH-confidence
+    DUPLICATE / RESOLVED verdicts should short-circuit publish; the
+    returned :class:`DupCheckVerdict` exposes ``should_close`` for that
+    gate.
+    """
+    synthetic_issue = {
+        "number": 0,
+        "title": title,
+        "body": body,
+        "labels": [{"name": lb} for lb in (labels or [])],
+    }
+    return check_duplicate_or_resolved(synthetic_issue)
