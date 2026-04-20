@@ -55,11 +55,12 @@ class TestRunSelectAgent(unittest.TestCase):
         out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
 
         self.assertIsNotNone(out)
-        plan, conf, reason, requires_review = out
+        plan, conf, reason, requires_review, approvable = out
         self.assertIn("do X", plan)
         self.assertEqual(conf, Confidence.HIGH)
         self.assertEqual(reason, "both plans converge")
         self.assertFalse(requires_review)
+        self.assertFalse(approvable)
 
     @patch("cai_lib.actions.plan._run_claude_p")
     def test_strips_markdown_code_fence(self, mock_run):
@@ -75,10 +76,11 @@ class TestRunSelectAgent(unittest.TestCase):
         out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
 
         self.assertIsNotNone(out)
-        _, conf, reason, requires_review = out
+        _, conf, reason, requires_review, approvable = out
         self.assertEqual(conf, Confidence.MEDIUM)
         self.assertEqual(reason, "scope unclear")
         self.assertFalse(requires_review)
+        self.assertFalse(approvable)
 
     @patch("cai_lib.actions.plan._run_claude_p")
     def test_parses_requires_human_review_true(self, mock_run):
@@ -93,9 +95,10 @@ class TestRunSelectAgent(unittest.TestCase):
         out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
 
         self.assertIsNotNone(out)
-        _, conf, _, requires_review = out
+        _, conf, _, requires_review, approvable = out
         self.assertEqual(conf, Confidence.MEDIUM)
         self.assertTrue(requires_review)
+        self.assertFalse(approvable)
 
     @patch("cai_lib.actions.plan._run_claude_p")
     def test_requires_human_review_defaults_to_false(self, mock_run):
@@ -109,8 +112,42 @@ class TestRunSelectAgent(unittest.TestCase):
         out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
 
         self.assertIsNotNone(out)
-        _, _, _, requires_review = out
+        _, _, _, requires_review, approvable = out
         self.assertFalse(requires_review)
+        self.assertFalse(approvable)
+
+    @patch("cai_lib.actions.plan._run_claude_p")
+    def test_parses_approvable_at_medium_true(self, mock_run):
+        """cai-select may set approvable_at_medium=true on soft-risk MEDIUM plans (#1008)."""
+        from cai_lib.actions.plan import _run_select_agent
+        mock_run.return_value = self._completed(stdout=(
+            '{"plan":"do X","confidence":"MEDIUM",'
+            '"confidence_reason":"only soft risks: additive JSON field",'
+            '"approvable_at_medium":true}'
+        ))
+
+        out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
+
+        self.assertIsNotNone(out)
+        _, conf, _, requires_review, approvable = out
+        self.assertEqual(conf, Confidence.MEDIUM)
+        self.assertFalse(requires_review)
+        self.assertTrue(approvable)
+
+    @patch("cai_lib.actions.plan._run_claude_p")
+    def test_approvable_at_medium_defaults_to_false(self, mock_run):
+        """Omitting the field yields False — backward-compatible with pre-#1008 payloads."""
+        from cai_lib.actions.plan import _run_select_agent
+        mock_run.return_value = self._completed(stdout=(
+            '{"plan":"ok","confidence":"MEDIUM",'
+            '"confidence_reason":"scope unclear"}'
+        ))
+
+        out = _run_select_agent(self._issue(), ["p1", "p2"], Path("/tmp/x"))
+
+        self.assertIsNotNone(out)
+        _, _, _, _, approvable = out
+        self.assertFalse(approvable)
 
     @patch("cai_lib.actions.plan._run_claude_p")
     def test_logs_stderr_on_nonzero_exit(self, mock_run):
@@ -775,6 +812,209 @@ class TestHandlePlanGateDocsOnly(unittest.TestCase):
         self.assertEqual(rc, 0)
         args = mock_apply.call_args[0]
         self.assertEqual(args[1], "planned_to_plan_approved")
+
+
+class TestHandlePlanGateApprovableAtMedium(unittest.TestCase):
+    """#1008 — handle_plan_gate routes cai-select-flagged MEDIUM plans
+    via the planned_to_plan_approved_approvable MEDIUM-threshold sibling
+    transition when approvable_at_medium is set."""
+
+    _PLAIN_PLAN = (
+        "## Plan\n\n### Summary\nrefactor a helper.\n\n"
+        "### Files to change\n- **`cai_lib/foo.py`**: tighten typing\n\n"
+        "### Detailed steps\n- step 1\n"
+    )
+
+    def _issue(self, *, confidence, approvable, plan_text=None):
+        return {
+            "number": 1008,
+            "title": "t",
+            "body": "",
+            "labels": [{"name": "auto-improve:planned"}],
+            "_cai_plan_confidence": confidence,
+            "_cai_plan_confidence_reason": "only additive soft risks",
+            "_cai_plan_text": plan_text if plan_text is not None else self._PLAIN_PLAN,
+            "_cai_plan_approvable_at_medium": approvable,
+        }
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_medium_approvable_uses_approvable_transition(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            approvable=True,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[0], 1008)
+        self.assertEqual(args[1], "planned_to_plan_approved_approvable")
+        # Reported confidence passes through unchanged — gating is a
+        # property of the selected transition, not a confidence upgrade.
+        self.assertEqual(args[2], Confidence.MEDIUM)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_low_approvable_still_diverts(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, True)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.LOW,
+            approvable=True,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        # Flag picks the approvable transition; LOW < MEDIUM so the
+        # gate still diverts (required=MEDIUM, reported=LOW).
+        self.assertEqual(args[1], "planned_to_plan_approved_approvable")
+        self.assertEqual(args[2], Confidence.LOW)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_medium_not_approvable_falls_through_to_default(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        # Default HIGH transition diverts MEDIUM → (True, True).
+        mock_apply.return_value = (True, True)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            approvable=False,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[1], "planned_to_plan_approved")
+        self.assertEqual(args[2], Confidence.MEDIUM)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_docs_only_takes_precedence_over_approvable(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        # Plan targets only docs/ AND approvable_at_medium is set.
+        # Docs-only must win — its precondition is strictly stronger.
+        docs_plan = (
+            "### Files to change\n"
+            "- **`docs/modules/cli.md`**: expand\n\n"
+            "### Detailed steps\n- step 1\n"
+        )
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            approvable=True,
+            plan_text=docs_plan,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_anchor_mitigation_takes_precedence_over_approvable(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        anchor_plan = (
+            "> **Anchor-based edits:** locate edits by anchor text, "
+            "not by line number.\n\n"
+            + self._PLAIN_PLAN
+        )
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            approvable=True,
+            plan_text=anchor_plan,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[1], "planned_to_plan_approved_mitigated")
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_approvable_reparsed_from_body_when_stash_missing(
+        self, _mock_log, mock_apply
+    ):
+        """When the in-process stash is absent, the flag must be
+        re-parsed from the stored plan block in the issue body."""
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        body = (
+            "<!-- cai-plan-start -->\n"
+            "## Selected Implementation Plan\n\n"
+            "## Plan\n### Files to change\n- **`cai_lib/foo.py`**: x\n\n"
+            "### Detailed steps\n- step 1\n"
+            "Confidence: MEDIUM\n"
+            "Approvable at medium: true\n"
+            "<!-- cai-plan-end -->"
+        )
+        issue = {
+            "number": 1008,
+            "title": "t",
+            "body": body,
+            "labels": [{"name": "auto-improve:planned"}],
+        }
+        rc = handle_plan_gate(issue)
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[1], "planned_to_plan_approved_approvable")
+        self.assertEqual(args[2], Confidence.MEDIUM)
+
+
+class TestParseApprovableAtMedium(unittest.TestCase):
+    """#1008 — parse_approvable_at_medium extracts the plan-block marker."""
+
+    def test_true_marker_returns_true(self):
+        from cai_lib.fsm import parse_approvable_at_medium
+        body = (
+            "## Selected Implementation Plan\n\n"
+            "plan\n"
+            "Confidence: MEDIUM\n"
+            "Approvable at medium: true\n"
+        )
+        self.assertTrue(parse_approvable_at_medium(body))
+
+    def test_false_marker_returns_false(self):
+        from cai_lib.fsm import parse_approvable_at_medium
+        body = (
+            "Confidence: MEDIUM\n"
+            "Approvable at medium: false\n"
+        )
+        self.assertFalse(parse_approvable_at_medium(body))
+
+    def test_missing_marker_returns_false(self):
+        from cai_lib.fsm import parse_approvable_at_medium
+        self.assertFalse(parse_approvable_at_medium(""))
+        self.assertFalse(parse_approvable_at_medium(None))
+        self.assertFalse(parse_approvable_at_medium(
+            "Confidence: MEDIUM\n"
+        ))
+
+    def test_case_insensitive_flag(self):
+        from cai_lib.fsm import parse_approvable_at_medium
+        self.assertTrue(parse_approvable_at_medium(
+            "Approvable at medium: TRUE\n"
+        ))
+        self.assertFalse(parse_approvable_at_medium(
+            "Approvable at medium: FALSE\n"
+        ))
 
 
 if __name__ == "__main__":

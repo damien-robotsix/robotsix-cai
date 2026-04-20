@@ -312,6 +312,23 @@ _SELECT_JSON_SCHEMA = {
                 "flow through the confidence gate."
             ),
         },
+        "approvable_at_medium": {
+            "type": "boolean",
+            "description": (
+                "Set to true when the selected plan's reported confidence is MEDIUM "
+                "but every residual concern falls into the soft / non-blocking bucket "
+                "(line-number-verification-only risks, additive schema fields, "
+                "soft length caps exceeded 'in spirit', divergence from a "
+                "preferred-but-not-required path in the refined issue, etc.). "
+                "When set, the FSM routes the issue through a MEDIUM-threshold "
+                "sibling of planned_to_plan_approved so the plan auto-approves "
+                "without admin review. Omit or set to false when the MEDIUM "
+                "signal reflects genuine substantive uncertainty (ambiguous scope, "
+                "unverified structural assumptions, missing edge cases, etc.) that "
+                "warrants admin intervention. Ignored when confidence is HIGH "
+                "(auto-approves via the default transition) or LOW (always diverts)."
+            ),
+        },
     },
     "required": ["plan", "confidence", "confidence_reason"],
 }
@@ -319,23 +336,26 @@ _SELECT_JSON_SCHEMA = {
 
 def _run_select_agent(
     issue: dict, plans: list[str], work_dir: Path,
-) -> "tuple[str, Confidence, str, bool] | None":
-    """Run the cai-select agent and return ``(plan_text, confidence, reason, requires_human_review)``.
+) -> "tuple[str, Confidence, str, bool, bool] | None":
+    """Run the cai-select agent and return ``(plan_text, confidence, reason, requires_human_review, approvable_at_medium)``.
 
     Invokes the Claude Code subagent with ``--json-schema`` so the final
     output is a structured JSON object ({plan, confidence, confidence_reason,
-    note?, requires_human_review?}) rather than free-form text. Removes the
-    regex-based confidence extraction that previously diverted sound plans
-    to ``:human-needed`` when the model drifted from the ``Confidence: …``
-    trailer format.
+    note?, requires_human_review?, approvable_at_medium?}) rather than
+    free-form text. Removes the regex-based confidence extraction that
+    previously diverted sound plans to ``:human-needed`` when the model
+    drifted from the ``Confidence: …`` trailer format.
 
     Returns ``None`` on subprocess or parse failure; otherwise returns
     the cleaned plan text (with optional ``> **Note:** …`` blockquote
     prepended), the :class:`~cai_lib.fsm.Confidence` enum member, the
-    confidence reason string, and a boolean ``requires_human_review``
+    confidence reason string, a boolean ``requires_human_review``
     flag (defaults to ``False`` when absent from the payload) that
     signals a knowing divergence from the refined-issue's stated
-    preference (#982).
+    preference (#982), and a boolean ``approvable_at_medium`` flag
+    (defaults to ``False`` when absent) that signals the select agent
+    judged the plan's residual risks soft / non-blocking and safe to
+    auto-approve at MEDIUM confidence (#1008).
     """
     import json
 
@@ -396,6 +416,7 @@ def _run_select_agent(
     confidence_reason = (payload.get("confidence_reason") or "").strip()
     note = payload.get("note", "") or ""
     requires_human_review = bool(payload.get("requires_human_review", False))
+    approvable_at_medium = bool(payload.get("approvable_at_medium", False))
 
     if note:
         plan_text = f"> **Note:** {note}\n\n{plan_text}"
@@ -409,12 +430,18 @@ def _run_select_agent(
         )
         return None
 
-    return plan_text.rstrip() + "\n", confidence, confidence_reason, requires_human_review
+    return (
+        plan_text.rstrip() + "\n",
+        confidence,
+        confidence_reason,
+        requires_human_review,
+        approvable_at_medium,
+    )
 
 
 def _run_plan_select_pipeline(
     issue: dict, work_dir: Path, attempt_history_block: str = "",
-) -> "tuple[str, Confidence | None, str, bool] | None":
+) -> "tuple[str, Confidence | None, str, bool, bool] | None":
     """Run the serial 2-plan → select pipeline.
 
     Plan 1 runs first; Plan 2 receives Plan 1's output and is asked
@@ -422,16 +449,21 @@ def _run_plan_select_pipeline(
     best and emits a trailing ``Confidence: HIGH|MEDIUM|LOW`` line
     indicating how sure it is that the chosen plan will succeed.
 
-    Returns ``(plan_text, confidence, confidence_reason, requires_human_review)``
-    — plan text, confidence, reason, and an explicit human-review flag
-    arrive as separate structured fields from the select agent's forced
-    tool-use call. ``confidence`` is a :class:`~cai_lib.fsm.Confidence`
-    enum member, or ``None`` when the select agent fails (treated as
-    below-threshold by the caller). ``requires_human_review`` is
-    ``True`` only when cai-select flagged a knowing divergence from the
-    refined-issue's stated preference (#982); handle_plan_gate uses it
-    to surface a bespoke admin-approval divert message. Returns ``None``
-    if the pipeline fails to produce any output.
+    Returns ``(plan_text, confidence, confidence_reason, requires_human_review, approvable_at_medium)``
+    — plan text, confidence, reason, an explicit human-review flag, and
+    an explicit approvable-at-medium flag all arrive as separate
+    structured fields from the select agent's forced tool-use call.
+    ``confidence`` is a :class:`~cai_lib.fsm.Confidence` enum member, or
+    ``None`` when the select agent fails (treated as below-threshold by
+    the caller). ``requires_human_review`` is ``True`` only when
+    cai-select flagged a knowing divergence from the refined-issue's
+    stated preference (#982); handle_plan_gate uses it to surface a
+    bespoke admin-approval divert message. ``approvable_at_medium`` is
+    ``True`` only when cai-select judged the residual risks soft /
+    non-blocking and safe to auto-approve at MEDIUM confidence (#1008);
+    handle_plan_gate routes the issue through a MEDIUM-threshold
+    sibling transition in that case. Returns ``None`` if the pipeline
+    fails to produce any output.
     """
     issue_number = issue["number"]
 
@@ -454,14 +486,15 @@ def _run_plan_select_pipeline(
         print("[cai plan] select agent produced no output; skipping pipeline", flush=True)
         return None
 
-    plan_text, confidence, confidence_reason, requires_human_review = select_result
+    plan_text, confidence, confidence_reason, requires_human_review, approvable_at_medium = select_result
     conf_name = confidence.name if confidence else "MISSING"
     print(
         f"[cai plan] select agent produced {len(plan_text)} chars "
-        f"(confidence={conf_name}, requires_human_review={requires_human_review})",
+        f"(confidence={conf_name}, requires_human_review={requires_human_review}, "
+        f"approvable_at_medium={approvable_at_medium})",
         flush=True,
     )
-    return plan_text, confidence, confidence_reason, requires_human_review
+    return plan_text, confidence, confidence_reason, requires_human_review, approvable_at_medium
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +595,13 @@ def handle_plan(issue: dict) -> int:
             log_run("plan", repo=REPO, issue=issue_number,
                     duration=dur, result="pipeline_failed", exit=1)
             return 1
-        selected_plan, plan_confidence, plan_confidence_reason, plan_requires_human_review = pipeline_result
+        (
+            selected_plan,
+            plan_confidence,
+            plan_confidence_reason,
+            plan_requires_human_review,
+            plan_approvable_at_medium,
+        ) = pipeline_result
 
         # 5. Store plan in issue body (strip any old plan block first).
         current_body = _strip_stored_plan_block(issue.get("body", "") or "")
@@ -577,6 +616,8 @@ def handle_plan(issue: dict) -> int:
             plan_block += f"Confidence reason: {plan_confidence_reason}\n"
         if plan_requires_human_review:
             plan_block += "Requires human review: true\n"
+        if plan_approvable_at_medium:
+            plan_block += "Approvable at medium: true\n"
         plan_block += "<!-- cai-plan-end -->"
         new_body = f"{plan_block}\n\n{current_body}"
         update = _run(
@@ -597,20 +638,25 @@ def handle_plan(issue: dict) -> int:
                     duration=dur, result="edit_failed", exit=1)
             return 1
 
-        # Stash the confidence, reason, plan text, and human-review flag
-        # on the issue dict so the gate handler (run as a separate
-        # dispatcher step) can read them. This is belt-and-braces — the
-        # gate also reparses from the body if we ever split the two calls
-        # across processes. The plan text is consulted by handle_plan_gate
-        # to pick between the default HIGH-gated and the MEDIUM-gated
-        # mitigated transition (see #918 and _plan_has_anchor_mitigation).
-        # The human-review flag (#982) forces a divert with a bespoke
-        # admin-approval message when cai-select flagged a knowing
-        # divergence from the refined-issue's stated preference.
+        # Stash the confidence, reason, plan text, human-review flag, and
+        # approvable-at-medium flag on the issue dict so the gate handler
+        # (run as a separate dispatcher step) can read them. This is
+        # belt-and-braces — the gate also reparses from the body if we
+        # ever split the two calls across processes. The plan text is
+        # consulted by handle_plan_gate to pick between the default
+        # HIGH-gated and the MEDIUM-gated mitigated transition (see #918
+        # and _plan_has_anchor_mitigation). The human-review flag (#982)
+        # forces a divert with a bespoke admin-approval message when
+        # cai-select flagged a knowing divergence from the refined-issue's
+        # stated preference. The approvable-at-medium flag (#1008) routes
+        # MEDIUM-confidence plans with only soft / non-blocking residual
+        # risks through the planned_to_plan_approved_approvable MEDIUM-
+        # threshold sibling transition.
         issue["_cai_plan_confidence"] = plan_confidence
         issue["_cai_plan_confidence_reason"] = plan_confidence_reason
         issue["_cai_plan_text"] = selected_plan
         issue["_cai_plan_requires_human_review"] = plan_requires_human_review
+        issue["_cai_plan_approvable_at_medium"] = plan_approvable_at_medium
 
         # 6. Transition labels: :planning → :planned (waypoint).
         ok = apply_transition(
@@ -679,6 +725,7 @@ def handle_plan_gate(issue: dict) -> int:
         parse_confidence,
         parse_confidence_reason,
         parse_requires_human_review,
+        parse_approvable_at_medium,
     )
     from cai_lib.cmd_helpers import _extract_stored_plan
 
@@ -715,6 +762,13 @@ def handle_plan_gate(issue: dict) -> int:
     if requires_human_review is None:
         body = issue.get("body", "") or ""
         requires_human_review = parse_requires_human_review(body)
+
+    # Recover the explicit approvable-at-medium flag (#1008). Prefer the
+    # in-process stash; fall back to re-parsing the stored plan block.
+    approvable_at_medium = issue.get("_cai_plan_approvable_at_medium")
+    if approvable_at_medium is None:
+        body = issue.get("body", "") or ""
+        approvable_at_medium = parse_approvable_at_medium(body)
 
     # Human-review override path (#982): if cai-select explicitly
     # flagged the plan, divert unconditionally with a bespoke message
@@ -780,22 +834,26 @@ def handle_plan_gate(issue: dict) -> int:
                 exit=0)
         return 0
 
-    # Pick the transition. All three siblings perform the identical
+    # Pick the transition. All four siblings perform the identical
     # label move PLANNED → PLAN_APPROVED; only the confidence threshold
-    # differs (HIGH for the default, MEDIUM for the two relaxations).
+    # differs (HIGH for the default, MEDIUM for the three relaxations).
     # The divert target (planned_to_human) is inherited from the
     # chosen transition's human_label_if_below, so a below-threshold
     # LOW/MISSING plan still ends up at :human-needed regardless of
     # which transition was selected.
     #
-    # Docs-only structural relaxation (#989) is checked before the
-    # anchor-mitigation relaxation (#918) because its precondition
-    # is strictly stronger: "every listed path is under docs/" bounds
-    # the blast radius absolutely, whereas anchor-mitigation only
-    # promises how edits are located within arbitrary files. If a
-    # plan qualifies for both (e.g. a docs-only plan that also
-    # carries the anchor phrase), the docs-only route wins so the
-    # divert-reason log cites the most specific relaxation.
+    # Precedence (most specific first):
+    #
+    #   1. Docs-only structural relaxation (#989) — every listed path
+    #      is under docs/; blast radius is bounded absolutely.
+    #   2. Anchor-mitigation marker relaxation (#918) — the fix agent
+    #      is instructed to anchor edits on surrounding text.
+    #   3. Approvable-at-medium flag relaxation (#1008) — cai-select
+    #      explicitly judged the plan's residual risks soft /
+    #      non-blocking (most general of the three).
+    #
+    # If a plan qualifies for several, the most specific route wins
+    # so the divert-reason log cites the most specific relaxation.
     if _plan_targets_only_docs(plan_text):
         transition_name = "planned_to_plan_approved_docs_only"
         print(
@@ -808,6 +866,13 @@ def handle_plan_gate(issue: dict) -> int:
         print(
             f"[cai plan] #{issue_number} anchor-mitigation marker present — "
             f"routing through {transition_name} (#918)",
+            flush=True,
+        )
+    elif approvable_at_medium:
+        transition_name = "planned_to_plan_approved_approvable"
+        print(
+            f"[cai plan] #{issue_number} cai-select flagged approvable_at_medium — "
+            f"routing through {transition_name} (#1008)",
             flush=True,
         )
     else:
