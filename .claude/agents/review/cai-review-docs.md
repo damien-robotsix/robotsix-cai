@@ -125,12 +125,22 @@ tracked source file whose status in the stat summary is `A` (added),
   use the new path. If the rename crosses module boundaries, remove
   the entry from the source module and add it to the target module
   (including glob and narrative bullet in each).
-- **Deleted file.** If `docs/modules.yaml` contains an exact-match
-  glob for the deleted path, remove that glob. Remove the bullet
-  from the narrative's `## Entry points` list. If this leaves the
-  module with zero `globs`, emit a `### Finding: stale_docs` block
-  requesting removal of the now-empty module entry and its narrative
-  file — your tool set cannot delete files, so the wrapper / human
+- **Deleted file.** **First verify the file is actually absent
+  from the work directory** by running
+  `Glob("<path>", path="<work_dir>")` (expect zero matches) or
+  `Read("<work_dir>/<path>")` (expect an error). `git diff --stat`
+  showing "N lines removed" is NOT proof of deletion — a file can
+  have all its lines removed-then-readded in the same diff, or the
+  stat may be read incorrectly. If Glob returns a match or Read
+  succeeds, the file still exists: abort the deletion flow, treat
+  the file as status `M`, and make no module-index edits for it.
+  Only if the file is confirmed absent do the following: If
+  `docs/modules.yaml` contains an exact-match glob for the deleted
+  path, remove that glob. Remove the bullet from the narrative's
+  `## Entry points` list. If this leaves the module with zero
+  `globs`, emit a `### Finding: stale_docs` block requesting
+  removal of the now-empty module entry and its narrative file —
+  your tool set cannot delete files, so the wrapper / human
   handles the actual `rm`. Do not attempt workarounds.
 
 Files with status `M` (edited in place, no rename/delete) do NOT
@@ -177,7 +187,11 @@ After each modification, emit a `### Fixed: stale_docs` block whose
    verify `--foo` is documented).
 5. For every rename, `Grep` the full work directory for the old name across
    `.md`, `.py`, `.sh`, `.yml`, and `.yaml` — this catches stale README lines,
-   docstrings, inline comments, help strings, and workflow comments.
+   docstrings, inline comments, help strings, and workflow comments. For any
+   file you believe was **deleted** by the PR, first confirm its absence via
+   `Glob("<path>", path="<work_dir>")` or `Read("<work_dir>/<path>")` before
+   removing any reference to it. If the file still exists, leave its
+   references alone (see Hard rule 9).
 6. Use `Glob("docs/**/*.md", path="<work_dir>")` and read `README.md` to check
    prose against the post-PR code.
 7. For each stale reference, **directly edit the file** using `Edit` or
@@ -279,6 +293,21 @@ them inline — they are automatically converted to separate GitHub issues.
    "Updating `.claude/agents/*.md`" section of the work-directory block above.
    The wrapper will copy it back automatically. Emit a `### Fixed: stale_docs`
    block as usual after staging the fix.
+9. **Verify file existence before acting on deletions.** Before removing
+   any reference to a file you believe was deleted by the PR — whether
+   in prose, docstrings, comments, help strings, `docs/modules.yaml`
+   globs, or module narratives — confirm the file is actually gone
+   from the work directory using `Glob("<path>", path="<work_dir>")`
+   (zero matches) or `Read("<work_dir>/<path>")` (must error). The
+   `git diff --stat` summary listing a file with only `-` lines is NOT
+   conclusive proof of deletion: a diff with all lines removed-and-
+   readded, a misread of the stat column, or a renamed-in-place file
+   can all look like a deletion. If Glob returns a match or Read
+   succeeds, treat the file as still present and make NO deletion-
+   driven edits that assume it is gone. This rule applies globally
+   to every removal of a reference based on the belief that a file
+   was deleted. Violating it caused the out-of-scope edits to
+   `cai_lib/__init__.py` and `scripts/generate-index.sh` in PR #950.
 
 ## Agent-specific efficiency guidance
 
