@@ -155,6 +155,24 @@ ISSUE_TRANSITIONS: list[Transition] = [
     Transition("planned_to_plan_approved_mitigated", IssueState.PLANNED,   IssueState.PLAN_APPROVED,
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_PLAN_APPROVED],
                min_confidence=Confidence.MEDIUM),
+    # Docs-only relaxation (#989): same label move as
+    # planned_to_plan_approved, but accepts MEDIUM confidence.
+    # handle_plan_gate (cai_lib.actions.plan) picks this transition
+    # purely from the structure of the selected plan — specifically,
+    # when every backticked path listed in the plan's
+    # ``### Files to change`` section begins with ``docs/``. No plan-
+    # text marker phrase is required: the planner already declares
+    # its file targets in the standard Files-to-change block, and
+    # that declaration is the trusted structural signal. The blast
+    # radius of a documentation-only pass is low (no Python, YAML,
+    # shell, workflow, or test file is touched), and cai-review-docs
+    # owns the affected files on subsequent PRs. Plans whose
+    # Files-to-change block includes any non-docs path, or whose
+    # block is missing entirely, fall through to the default
+    # HIGH-threshold transition and MEDIUM still diverts them.
+    Transition("planned_to_plan_approved_docs_only", IssueState.PLANNED,   IssueState.PLAN_APPROVED,
+               labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_PLAN_APPROVED],
+               min_confidence=Confidence.MEDIUM),
     Transition("planned_to_human",           IssueState.PLANNED,           IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_HUMAN_NEEDED]),
 

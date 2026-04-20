@@ -91,6 +91,85 @@ def _plan_has_anchor_mitigation(plan_text: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Docs-only structural relaxation (#989).
+#
+# A plan whose ``### Files to change`` section lists only paths under
+# ``docs/`` can safely auto-approve at MEDIUM confidence because:
+#
+#   1. Blast radius is minimal — no Python, YAML, shell, workflow, or
+#      test file is touched;
+#   2. ``cai-review-docs`` owns the affected files on subsequent PRs
+#      and can correct any residual drift;
+#   3. Standard fix-agent behaviour (Grep before Read) already handles
+#      stale-symbol references conservatively without requiring an
+#      explicit in-plan guard phrase.
+#
+# :func:`handle_plan_gate` routes qualifying plans through
+# ``planned_to_plan_approved_docs_only`` instead of the default
+# HIGH-threshold transition — see :mod:`cai_lib.fsm_transitions`.
+#
+# Detection is deliberately **structural** rather than marker-based:
+# the planner already declares its file targets in the canonical
+# Files-to-change block, and that declaration is the trusted signal.
+# Requiring an additional phrase would force a planner-prompt change
+# and create a bypass channel if the phrase ever drifts. Matching the
+# block the planner already emits is strictly stronger.
+#
+# The Files-to-change section must:
+#
+#   * Exist (parsed with a case-insensitive ``^### Files to change$``
+#     header, stopping at the next ``^### `` heading or end-of-body);
+#   * Contain at least one backticked ``path/with.ext`` token so a
+#     plan with only free-form prose cannot accidentally trip the
+#     relaxation;
+#   * Have every such path begin with ``docs/`` (strict prefix — any
+#     non-``docs/`` path disqualifies the plan).
+# ---------------------------------------------------------------------------
+_FILES_TO_CHANGE_SECTION_RE = re.compile(
+    r"^###\s+Files\s+to\s+change\s*$\n(.*?)(?=^###\s|\Z)",
+    re.IGNORECASE | re.DOTALL | re.MULTILINE,
+)
+
+# Match backticked path tokens of the form ``path/with.ext`` — requires
+# at least one ``/`` and an extension, so free-standing symbol names
+# (e.g. ``parse_config``) and extensionless bare names are ignored.
+_FILES_TO_CHANGE_PATH_RE = re.compile(
+    r"`([^`\s]+/[^`\s]*\.[A-Za-z0-9]+)`"
+)
+
+
+def _plan_targets_only_docs(plan_text: str | None) -> bool:
+    """Return ``True`` when every path in *plan_text*'s Files-to-change
+    section sits under ``docs/``.
+
+    The section is located by the case-insensitive header
+    ``### Files to change`` and bounded by the next ``### `` heading
+    or end-of-body. Backticked ``path/with.ext`` tokens are extracted
+    from the section body; bare prose bullets without any backticked
+    path are ignored so a narrative-only block does not accidentally
+    qualify.
+
+    Returns ``False`` for empty or ``None`` input, when the section
+    is missing, when the section contains no backticked paths, or
+    when any extracted path fails the ``docs/`` prefix test.
+
+    Used by :func:`handle_plan_gate` to route qualifying plans
+    through the MEDIUM-threshold ``planned_to_plan_approved_docs_only``
+    transition introduced in #989 — purely from the plan's structural
+    declaration, without requiring any in-plan guard phrase.
+    """
+    if not plan_text:
+        return False
+    section = _FILES_TO_CHANGE_SECTION_RE.search(plan_text)
+    if not section:
+        return False
+    paths = _FILES_TO_CHANGE_PATH_RE.findall(section.group(1))
+    if not paths:
+        return False
+    return all(p.startswith("docs/") for p in paths)
+
+
+# ---------------------------------------------------------------------------
 # Helpers (moved from cai.py — only used by the plan phase).
 # ---------------------------------------------------------------------------
 
@@ -701,13 +780,30 @@ def handle_plan_gate(issue: dict) -> int:
                 exit=0)
         return 0
 
-    # Pick the transition. Both siblings perform the identical label
-    # move PLANNED → PLAN_APPROVED; only the confidence threshold
-    # differs (HIGH vs MEDIUM). The divert target (planned_to_human)
-    # is inherited from the chosen transition's human_label_if_below,
-    # so a below-threshold LOW/MISSING plan still ends up at
-    # :human-needed regardless of which transition was selected.
-    if _plan_has_anchor_mitigation(plan_text):
+    # Pick the transition. All three siblings perform the identical
+    # label move PLANNED → PLAN_APPROVED; only the confidence threshold
+    # differs (HIGH for the default, MEDIUM for the two relaxations).
+    # The divert target (planned_to_human) is inherited from the
+    # chosen transition's human_label_if_below, so a below-threshold
+    # LOW/MISSING plan still ends up at :human-needed regardless of
+    # which transition was selected.
+    #
+    # Docs-only structural relaxation (#989) is checked before the
+    # anchor-mitigation relaxation (#918) because its precondition
+    # is strictly stronger: "every listed path is under docs/" bounds
+    # the blast radius absolutely, whereas anchor-mitigation only
+    # promises how edits are located within arbitrary files. If a
+    # plan qualifies for both (e.g. a docs-only plan that also
+    # carries the anchor phrase), the docs-only route wins so the
+    # divert-reason log cites the most specific relaxation.
+    if _plan_targets_only_docs(plan_text):
+        transition_name = "planned_to_plan_approved_docs_only"
+        print(
+            f"[cai plan] #{issue_number} plan targets only docs/ — "
+            f"routing through {transition_name} (#989)",
+            flush=True,
+        )
+    elif _plan_has_anchor_mitigation(plan_text):
         transition_name = "planned_to_plan_approved_mitigated"
         print(
             f"[cai plan] #{issue_number} anchor-mitigation marker present — "

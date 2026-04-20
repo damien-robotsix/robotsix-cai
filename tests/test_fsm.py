@@ -217,6 +217,43 @@ class TestApplyingToAppliedInferredOps(unittest.TestCase):
         self.assertEqual(default.min_confidence, Confidence.HIGH)
 
 
+class TestPlannedToPlanApprovedDocsOnly(unittest.TestCase):
+    """#989 — MEDIUM-gated sibling of planned_to_plan_approved for
+    documentation-only plans (structural relaxation)."""
+
+    def test_docs_only_transition_accepts_medium(self):
+        t = find_transition("planned_to_plan_approved_docs_only")
+        self.assertEqual(t.min_confidence, Confidence.MEDIUM)
+        self.assertTrue(t.accepts(Confidence.HIGH))
+        self.assertTrue(t.accepts(Confidence.MEDIUM))
+        self.assertFalse(t.accepts(Confidence.LOW))
+        self.assertFalse(t.accepts(None))
+
+    def test_docs_only_shares_label_move(self):
+        default = find_transition("planned_to_plan_approved")
+        docs_only = find_transition("planned_to_plan_approved_docs_only")
+        self.assertEqual(default.from_state, docs_only.from_state)
+        self.assertEqual(default.to_state, docs_only.to_state)
+        self.assertEqual(default.labels_add, docs_only.labels_add)
+        self.assertEqual(default.labels_remove, docs_only.labels_remove)
+        # Only the threshold differs between the two siblings.
+        self.assertEqual(default.min_confidence, Confidence.HIGH)
+        self.assertEqual(docs_only.min_confidence, Confidence.MEDIUM)
+
+    def test_default_and_mitigated_transitions_unchanged(self):
+        # Regression guard: the docs-only sibling must not replace the
+        # HIGH-gated default or the anchor-mitigation sibling — all
+        # three must coexist with their original thresholds.
+        self.assertEqual(
+            find_transition("planned_to_plan_approved").min_confidence,
+            Confidence.HIGH,
+        )
+        self.assertEqual(
+            find_transition("planned_to_plan_approved_mitigated").min_confidence,
+            Confidence.MEDIUM,
+        )
+
+
 class TestApplyTransition(unittest.TestCase):
 
     def _recording_set_labels(self):

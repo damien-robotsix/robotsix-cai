@@ -502,5 +502,280 @@ class TestParseRequiresHumanReview(unittest.TestCase):
         ))
 
 
+class TestPlanTargetsOnlyDocsHelper(unittest.TestCase):
+    """#989 — module-private docs-only structural helper."""
+
+    def test_canonical_docs_only_plan_matches(self):
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "## Plan\n\n"
+            "### Summary\nExpand module narratives.\n\n"
+            "### Files to change\n"
+            "- **`docs/modules/cli.md`**: expand narrative\n"
+            "- **`docs/modules/fsm.md`**: expand narrative\n\n"
+            "### Detailed steps\n- step 1\n"
+        )
+        self.assertTrue(_plan_targets_only_docs(plan))
+
+    def test_single_docs_path_matches(self):
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "### Files to change\n"
+            "- **`docs/modules/cli.md`**: expand narrative\n\n"
+            "### Detailed steps\n"
+        )
+        self.assertTrue(_plan_targets_only_docs(plan))
+
+    def test_missing_files_section_returns_false(self):
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "## Plan\n\n### Summary\nExpand.\n\n"
+            "### Detailed steps\n- step 1\n"
+        )
+        self.assertFalse(_plan_targets_only_docs(plan))
+
+    def test_empty_files_section_returns_false(self):
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "### Files to change\nsee description above\n\n"
+            "### Detailed steps\n- step 1\n"
+        )
+        self.assertFalse(_plan_targets_only_docs(plan))
+
+    def test_non_doc_path_in_files_section_returns_false(self):
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "### Files to change\n"
+            "- **`docs/modules/cli.md`**: expand\n"
+            "- **`cai_lib/foo.py`**: refactor\n\n"
+            "### Detailed steps\n- step 1\n"
+        )
+        self.assertFalse(_plan_targets_only_docs(plan))
+
+    def test_test_file_in_files_section_returns_false(self):
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "### Files to change\n"
+            "- **`docs/modules/cli.md`**: expand\n"
+            "- **`tests/test_foo.py`**: add coverage\n\n"
+            "### Detailed steps\n- step 1\n"
+        )
+        self.assertFalse(_plan_targets_only_docs(plan))
+
+    def test_section_bounded_by_next_heading(self):
+        """Paths mentioned in a later section must not leak into the match."""
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "### Files to change\n"
+            "- **`docs/modules/cli.md`**: expand\n\n"
+            "### Detailed steps\n"
+            "Read `cai_lib/foo.py` for context then edit `docs/modules/cli.md`.\n"
+        )
+        # `cai_lib/foo.py` lives under Detailed steps, not Files-to-change,
+        # so the docs-only relaxation must still apply.
+        self.assertTrue(_plan_targets_only_docs(plan))
+
+    def test_case_insensitive_header(self):
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "### FILES TO CHANGE\n"
+            "- **`docs/modules/cli.md`**: expand\n\n"
+            "### Detailed steps\n"
+        )
+        self.assertTrue(_plan_targets_only_docs(plan))
+
+    def test_none_and_empty_return_false(self):
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        self.assertFalse(_plan_targets_only_docs(None))
+        self.assertFalse(_plan_targets_only_docs(""))
+        self.assertFalse(_plan_targets_only_docs("plan without any file section"))
+
+    def test_bare_symbol_references_ignored(self):
+        """`parse_config` (no slash, no extension) must not count as a path."""
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "### Files to change\n"
+            "- **`docs/modules/cli.md`**: document `parse_config` and `README.md`\n\n"
+            "### Detailed steps\n"
+        )
+        # `parse_config` has no slash; `README.md` has no directory —
+        # both are ignored. Only `docs/modules/cli.md` qualifies.
+        self.assertTrue(_plan_targets_only_docs(plan))
+
+    def test_docs_substring_mid_path_rejected(self):
+        """`cai_lib/docs_helper.py` must NOT qualify even though it contains 'docs'."""
+        from cai_lib.actions.plan import _plan_targets_only_docs
+        plan = (
+            "### Files to change\n"
+            "- **`cai_lib/docs_helper.py`**: refactor\n\n"
+            "### Detailed steps\n"
+        )
+        self.assertFalse(_plan_targets_only_docs(plan))
+
+
+class TestHandlePlanGateDocsOnly(unittest.TestCase):
+    """#989 — handle_plan_gate routes docs-only plans via the
+    MEDIUM-threshold sibling transition instead of the HIGH default.
+
+    The detection is purely structural — no in-plan marker phrase
+    is required. The planner's Files-to-change declaration is the
+    trusted signal.
+    """
+
+    _DOCS_ONLY_PLAN = (
+        "## Plan\n\n"
+        "### Summary\nExpand module narratives.\n\n"
+        "### Files to change\n"
+        "- **`docs/modules/cli.md`**: expand narrative\n"
+        "- **`docs/modules/fsm.md`**: expand narrative\n\n"
+        "### Detailed steps\n- step 1\n"
+    )
+
+    def _issue(self, *, confidence, plan_text):
+        return {
+            "number": 989,
+            "title": "t",
+            "body": "",
+            "labels": [{"name": "auto-improve:planned"}],
+            "_cai_plan_confidence": confidence,
+            "_cai_plan_confidence_reason": "some symbol names unverified",
+            "_cai_plan_text": plan_text,
+        }
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_medium_docs_only_uses_docs_only_transition(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            plan_text=self._DOCS_ONLY_PLAN,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[0], 989)
+        self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
+        # Reported confidence passes through unchanged — gating is a
+        # property of the selected transition, not a confidence upgrade.
+        self.assertEqual(args[2], Confidence.MEDIUM)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_low_docs_only_still_diverts(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, True)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.LOW,
+            plan_text=self._DOCS_ONLY_PLAN,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        # Docs-only transition is picked; LOW < MEDIUM so the gate
+        # still diverts (required=MEDIUM, reported=LOW).
+        self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
+        self.assertEqual(args[2], Confidence.LOW)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_high_docs_only_uses_docs_only_transition(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.HIGH,
+            plan_text=self._DOCS_ONLY_PLAN,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        # HIGH-confidence docs-only plans route through the docs-only
+        # transition too; HIGH >= MEDIUM so the gate passes.
+        self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
+        self.assertEqual(args[2], Confidence.HIGH)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_docs_only_takes_precedence_over_anchor_mitigation(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, False)
+
+        # Plan targets only docs/ AND also carries the anchor-mitigation
+        # marker. Docs-only must win — its precondition is stronger.
+        plan_both = (
+            "> **Anchor-based edits:** locate edits by anchor text, "
+            "not by line number.\n\n"
+            + self._DOCS_ONLY_PLAN
+        )
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            plan_text=plan_both,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_medium_non_docs_falls_through_to_default(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        # Default HIGH transition diverts MEDIUM → (True, True).
+        mock_apply.return_value = (True, True)
+
+        plan_source_change = (
+            "## Plan\n\n### Summary\nrefactor\n\n"
+            "### Files to change\n- **`cai_lib/foo.py`**: refactor\n\n"
+            "### Detailed steps\n- step 1\n"
+        )
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            plan_text=plan_source_change,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[1], "planned_to_plan_approved")
+        self.assertEqual(args[2], Confidence.MEDIUM)
+
+    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_mixed_docs_and_source_uses_default(
+        self, _mock_log, mock_apply
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_apply.return_value = (True, True)
+
+        # One docs path + one source path → NOT docs-only; must route
+        # through the default HIGH-threshold transition and divert.
+        mixed = (
+            "### Files to change\n"
+            "- **`docs/modules/cli.md`**: expand\n"
+            "- **`cai_lib/foo.py`**: refactor\n\n"
+            "### Detailed steps\n- step 1\n"
+        )
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            plan_text=mixed,
+        ))
+
+        self.assertEqual(rc, 0)
+        args = mock_apply.call_args[0]
+        self.assertEqual(args[1], "planned_to_plan_approved")
+
+
 if __name__ == "__main__":
     unittest.main()
