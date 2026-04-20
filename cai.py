@@ -42,8 +42,9 @@ Subcommands:
                             closed-unmerged → `:refined`,
                             no-linked-PR → `:raised`.
 
-    python cai.py audit     Periodic queue/PR consistency audit.
-                            Deterministically rolls back stale
+    python cai.py audit     Dual-mode audit command. With no <kind>
+                            argument: runs legacy queue/PR consistency
+                            audit. Deterministically rolls back stale
                             `:in-progress` (>6h), `:revising` (>1h),
                             and `:applying` (>2h) locks; unsticks stale
                             `:no-action` issues; flags stale `:merged`
@@ -59,6 +60,12 @@ Subcommands:
                             cai-dup-check; survivors are published as
                             `auto-improve:raised` + `audit` issues in
                             the unified label scheme.
+                            With <kind> (e.g., `cost`): runs on-demand
+                            per-module audit dispatching the matching
+                            agent over selected modules (--module <name>
+                            or --all). Module manifests are loaded from
+                            docs/modules.yaml and passed to the audit
+                            agent for focused analysis.
 
     python cai.py audit-triage  Autonomously resolve `auto-improve:raised`
                             + `audit` findings without opening a PR. Calls
