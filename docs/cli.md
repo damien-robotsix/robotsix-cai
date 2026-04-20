@@ -14,9 +14,29 @@ No arguments.
 
 ## audit
 
-Run the periodic queue/PR consistency audit: roll back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks; clean up orphaned branches; migrate open `:no-action` issues (deprecated label) to closed-as-not-planned; recover `:pr-open` issues whose linked PR was closed; retroactively close closed issues lacking terminal labels (as 'not planned'); and invoke the `cai-audit` agent for a full state-machine review. The audit checks for inconsistencies including duplicates, stuck loops, label corruption, and human-needed issues (pipeline jams, abandoned tasks, repeated diversions, missing divert reasons). Findings are pre-screened for duplicates/resolved via `cai-dup-check` before publishing; only survivors create issues.
+**Dual-mode audit command.** Without a `<kind>` argument, runs the periodic queue/PR consistency audit: roll back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks; clean up orphaned branches; migrate open `:no-action` issues (deprecated label) to closed-as-not-planned; recover `:pr-open` issues whose linked PR was closed; retroactively close closed issues lacking terminal labels (as 'not planned'); and invoke the `cai-audit` agent for a full state-machine review. The audit checks for inconsistencies including duplicates, stuck loops, label corruption, and human-needed issues (pipeline jams, abandoned tasks, repeated diversions, missing divert reasons). Findings are pre-screened for duplicates/resolved via `cai-dup-check` before publishing; only survivors create issues.
 
-No arguments.
+With a `<kind>` argument (e.g., `cost`), runs an on-demand per-module audit that dispatches the matching audit agent over selected modules. Module manifests are loaded from `docs/modules.yaml`.
+
+### Legacy mode (no arguments)
+
+```bash
+cai audit
+```
+
+### On-demand mode with `<kind>`
+
+```bash
+cai audit <kind> [--module <name> | --all]
+```
+
+| Option | Type | Description |
+|---|---|---|
+| `<kind>` | required | Audit type (e.g., `cost`, `code`, `workflow`, `external-libs`). Must match a handler in `cai_lib/audit/runner.py`. |
+| `--module <name>` | optional | Run the audit on a single module by name (e.g., `--module cli`). Module must exist in `docs/modules.yaml`. |
+| `--all` | optional | Run the audit on all modules defined in `docs/modules.yaml`. |
+
+If neither `--module` nor `--all` is specified, the command is invalid. Exactly one of these flags is required.
 
 ## code-audit
 

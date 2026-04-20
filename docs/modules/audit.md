@@ -18,6 +18,10 @@ subagents themselves; each is invoked by a `cmd_*` function in
   and `coverage_check(modules, files)`. Drives
   `scripts/check-modules-coverage.py` and (indirectly) the
   `cai-review-docs` pipeline stage.
+- [`cai_lib/audit/runner.py`](../../cai_lib/audit/runner.py) — on-demand
+  per-module audit runner for `cai audit <kind>` subcommand. Dispatches
+  audit agents (cost-reduction, code-reduction, external-libs, etc.)
+  over selected modules; loads manifests from `docs/modules.yaml`.
 - [`cai_lib/audit/__init__.py`](../../cai_lib/audit/__init__.py) —
   package init.
 - [`.claude/agents/audit/cai-audit.md`](../../.claude/agents/audit/cai-audit.md)
