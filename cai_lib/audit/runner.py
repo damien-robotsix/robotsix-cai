@@ -1,4 +1,21 @@
-"""On-demand per-module audit runner."""
+"""On-demand per-module audit runner.
+
+For a given audit kind, iterates every module declared in
+``docs/modules.yaml``, invokes the matching per-module agent, and
+publishes the agent's ``findings.json`` through the existing publish
+pipeline by shelling out to ``publish.py`` — the same pattern every
+other audit caller (``cmd_external_scout``, ``cmd_update_check``,
+``cmd_code_audit``, etc.) already uses.
+
+Each created issue carries a ``<!-- module: <name> -->`` body footer
+(emitted by ``publish.py`` when the runner passes ``--module``) so
+future audit runs can scope dedup by module + fingerprint.
+
+Per-module failures (agent exit != 0, missing findings file, publish
+failure, unexpected exception) are logged to stderr and counted but
+never raised — one failing module must not abort the remaining
+modules in the loop.
+"""
 
 import json
 import shutil
@@ -11,29 +28,36 @@ from cai_lib.config import PUBLISH_SCRIPT
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run, _run_claude_p
 
+
 MODULES_YAML_REL = Path("docs/modules.yaml")
 
+# Map CLI ``--kind`` argument to the on-demand audit agent that must
+# run once per module. Each kind has a matching publish namespace of
+# the form ``audit-<kind>`` registered in :mod:`cai_lib.publish`.
 KIND_TO_AGENT = {
-    "cost": "cai-audit-cost-reduction",
-    # Remaining kinds (code, workflow, best-practices, external-libs) are
-    # added here as their on-demand agents ship in the #3.x issue series.
+    "good-practices":       "cai-audit-good-practices",
+    "code-reduction":       "cai-audit-code-reduction",
+    "cost-reduction":       "cai-audit-cost-reduction",
+    "workflow-enhancement": "cai-audit-workflow-enhancement",
 }
-AUDIT_KINDS = tuple(KIND_TO_AGENT.keys())
 
 
 def _resolve_manifest_path() -> Path:
-    """Return the absolute path to docs/modules.yaml in the repo root.
+    """Return the absolute path to ``docs/modules.yaml`` at the repo root.
 
-    ``cai_lib/audit/runner.py`` → parents[0]=audit, parents[1]=cai_lib,
+    ``cai_lib/audit/runner.py`` -> parents[0]=audit, parents[1]=cai_lib,
     parents[2]=repo root.
     """
     return Path(__file__).resolve().parents[2] / MODULES_YAML_REL
 
 
-def _build_module_message(entry, findings_file: Path) -> str:  # type: ignore[no-untyped-def]
+def _build_module_prompt(entry, findings_file: Path) -> str:  # type: ignore[no-untyped-def]
     """Construct the user message for the on-demand audit agent.
 
-    Format matches the schema declared in cai-audit-cost-reduction.md §What you receive.
+    The four agents under ``.claude/agents/audit/cai-audit-*.md`` all
+    expect a ``## Module`` section (name, summary, globs, optional doc
+    snippet) followed by a ``## Findings file`` section pointing at
+    the absolute path where they must write ``findings.json``.
     """
     globs_block = "\n".join(f"- `{g}`" for g in entry.globs) if entry.globs else "- (none)"
     parts = [
@@ -56,172 +80,139 @@ def _build_module_message(entry, findings_file: Path) -> str:  # type: ignore[no
     return "\n".join(parts)
 
 
-def _run_one_module(kind: str, agent: str, entry) -> tuple[int, list]:  # type: ignore[no-untyped-def]
-    """Run the audit agent for a single module entry.
+def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-untyped-def]
+    """Run the audit agent for one module and publish any findings.
 
-    Returns ``(returncode, findings_list)``.  Always cleans up the temp dir.
+    Returns 0 on success (agent ran and publish succeeded, or the
+    agent wrote no findings), 1 on any failure. Per-module failures
+    must never propagate — the caller uses the return code only to
+    count failures.
     """
     work_dir = Path(f"/tmp/cai-audit-{kind}-{uuid.uuid4().hex[:8]}")
     work_dir.mkdir(parents=True, exist_ok=True)
     findings_file = work_dir / "findings.json"
-    user_message = _build_module_message(entry, findings_file)
 
-    proc = _run_claude_p(
-        [
-            "claude", "-p",
-            "--agent", agent,
-            "--permission-mode", "acceptEdits",
-            "--allowedTools", "Read,Grep,Glob,Agent,Write",
-            "--add-dir", str(work_dir),
-        ],
-        category=f"audit-{kind}",
-        agent=agent,
-        input=user_message,
-        cwd="/app",
-    )
-
-    if proc.stdout:
-        print(proc.stdout)
-
-    if proc.returncode != 0:
-        print(
-            f"[cai audit] agent {agent} exited {proc.returncode} for module {entry.name}",
-            file=sys.stderr,
-            flush=True,
+    try:
+        user_message = _build_module_prompt(entry, findings_file)
+        proc = _run_claude_p(
+            [
+                "claude", "-p",
+                "--agent", agent,
+                "--permission-mode", "acceptEdits",
+                "--allowedTools", "Read,Grep,Glob,Agent,Write",
+                "--add-dir", str(work_dir),
+            ],
+            category=f"audit-{kind}",
+            agent=agent,
+            input=user_message,
+            cwd="/app",
         )
-        shutil.rmtree(work_dir, ignore_errors=True)
-        return (proc.returncode, [])
 
-    findings_list: list = []
-    if findings_file.exists():
+        if proc.stdout:
+            print(proc.stdout)
+
+        if proc.returncode != 0:
+            print(
+                f"[cai audit-{kind}] ERROR: module {entry.name} failed — "
+                f"agent {agent} exited {proc.returncode}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 1
+
+        if not findings_file.exists():
+            # No findings is a valid outcome — nothing to publish.
+            return 0
+
+        # Quick shape check before invoking publish.py. A malformed
+        # findings.json would cause publish.py to sys.exit(1) inside
+        # load_findings_json; catching it here lets the loop count
+        # this module as failed and carry on.
         try:
             data = json.loads(findings_file.read_text())
-            raw = data.get("findings")
-            if isinstance(raw, list):
-                findings_list = raw
-            else:
+            if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
                 print(
-                    f"[cai audit] findings.json for {entry.name} missing 'findings' list",
+                    f"[cai audit-{kind}] ERROR: module {entry.name} failed — "
+                    f"findings.json missing top-level 'findings' list",
                     file=sys.stderr,
                     flush=True,
                 )
+                return 1
         except (json.JSONDecodeError, OSError) as exc:
             print(
-                f"[cai audit] could not read findings.json for {entry.name}: {exc}",
+                f"[cai audit-{kind}] ERROR: module {entry.name} failed — "
+                f"could not read findings.json: {exc}",
                 file=sys.stderr,
                 flush=True,
             )
+            return 1
 
-    shutil.rmtree(work_dir, ignore_errors=True)
-    return (0, findings_list)
-
-
-def cmd_audit_run(args) -> int:  # type: ignore[no-untyped-def]
-    """Dispatcher for ``cai audit <kind> [--module <name>] [--all]``."""
-    # Deferred import so that cai.py can load even before #886 ships
-    # (modules.py is a stub until that PR merges).
-    try:
-        from cai_lib.audit.modules import load_modules
-    except ImportError as exc:
+        namespace = f"audit-{kind}"
+        published = _run(
+            [
+                "python", str(PUBLISH_SCRIPT),
+                "--namespace", namespace,
+                "--module", entry.name,
+                "--findings-file", str(findings_file),
+            ],
+        )
+        if published.returncode != 0:
+            print(
+                f"[cai audit-{kind}] ERROR: module {entry.name} failed — "
+                f"publish.py returned {published.returncode}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 1
+        return 0
+    except Exception as exc:  # noqa: BLE001
         print(
-            f"[cai audit] cannot import load_modules — is issue #886 merged? ({exc})",
+            f"[cai audit-{kind}] ERROR: module {entry.name} failed — "
+            f"unexpected exception: {exc}",
             file=sys.stderr,
             flush=True,
         )
         return 1
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
-    agent = KIND_TO_AGENT.get(args.kind)
-    if not agent:
-        print(f"[cai audit] unknown kind {args.kind!r}; choices: {list(KIND_TO_AGENT)}", file=sys.stderr, flush=True)
-        return 1
 
-    if not args.all and not args.module:
-        print(
-            "[cai audit] supply --module <name> to audit a single module or --all to audit every module",
-            file=sys.stderr,
-            flush=True,
+def run_module_audit(kind: str) -> tuple[int, int]:
+    """Iterate every module from ``docs/modules.yaml`` for the given kind.
+
+    Returns ``(total_modules_run, total_modules_failed)``. Raises
+    ``ValueError`` for an unknown kind and ``FileNotFoundError`` when
+    ``docs/modules.yaml`` is missing — both caught by the CLI
+    wrapper. Per-module failures are logged to stderr, counted, and
+    never propagate out of the loop.
+    """
+    # Deferred import: modules.py pulls in PyYAML, which is always
+    # available in the container, but keeping the import local keeps
+    # cai.py's import chain light when audit-module is never used.
+    from cai_lib.audit.modules import load_modules
+
+    if kind not in KIND_TO_AGENT:
+        raise ValueError(
+            f"unknown audit kind {kind!r}; choices: {list(KIND_TO_AGENT)}"
         )
-        return 1
+
+    agent = KIND_TO_AGENT[kind]
+    manifest = _resolve_manifest_path()
+    modules = load_modules(manifest)
 
     t0 = time.monotonic()
-    manifest = _resolve_manifest_path()
-
-    try:
-        modules = load_modules(manifest)
-    except FileNotFoundError as exc:
-        print(
-            f"[cai audit] {exc} — create docs/modules.yaml (tracked in #886)",
-            file=sys.stderr,
-            flush=True,
-        )
-        log_run(f"audit-{args.kind}", result="no_manifest", exit=1)
-        return 1
-    except (ValueError, OSError) as exc:
-        print(f"[cai audit] failed to parse modules manifest: {exc}", file=sys.stderr, flush=True)
-        log_run(f"audit-{args.kind}", result="parse_error", exit=1)
-        return 1
-
-    if args.module:
-        targets = [m for m in modules if m.name == args.module]
-        if not targets:
-            available = ", ".join(m.name for m in modules)
-            print(
-                f"[cai audit] module {args.module!r} not found; available: {available}",
-                file=sys.stderr,
-                flush=True,
-            )
-            return 1
-    else:
-        targets = modules
-        if not targets:
-            print("[cai audit] docs/modules.yaml has no module entries", file=sys.stderr, flush=True)
-            return 1
-
-    all_findings: list = []
-    failures = 0
-    for entry in targets:
-        rc, found = _run_one_module(args.kind, agent, entry)
-        all_findings.extend(found)
+    total_run = 0
+    total_failed = 0
+    for entry in modules:
+        rc = _run_one_module(kind, agent, entry)
+        total_run += 1
         if rc != 0:
-            failures += 1
+            total_failed += 1
 
     elapsed = time.monotonic() - t0
-
-    if not all_findings:
-        log_run(
-            f"audit-{args.kind}",
-            modules=len(targets),
-            findings=0,
-            failures=failures,
-            elapsed=f"{elapsed:.1f}s",
-        )
-        return 0 if failures == 0 else 1
-
-    # Merge and publish
-    merged_dir = Path(f"/tmp/cai-audit-{args.kind}-merged-{uuid.uuid4().hex[:8]}")
-    merged_dir.mkdir(parents=True, exist_ok=True)
-    merged_file = merged_dir / "findings.json"
-    merged_file.write_text(json.dumps({"findings": all_findings}))
-
-    published = _run(
-        ["python", str(PUBLISH_SCRIPT), "--namespace", "audit", "--findings-file", str(merged_file)]
+    print(
+        f"[cai audit-{kind}] done: modules={total_run} "
+        f"failures={total_failed} elapsed={elapsed:.1f}s",
+        flush=True,
     )
-    shutil.rmtree(merged_dir, ignore_errors=True)
-
-    if published.returncode != 0 and all_findings:
-        print(
-            f"[cai audit] runner produced {len(all_findings)} finding(s) but publish returned "
-            f"{published.returncode} — categories may not be in AUDIT_CATEGORIES (see #903)",
-            file=sys.stderr,
-            flush=True,
-        )
-
-    log_run(
-        f"audit-{args.kind}",
-        modules=len(targets),
-        findings=len(all_findings),
-        failures=failures,
-        published=published.returncode,
-        elapsed=f"{elapsed:.1f}s",
-    )
-    return published.returncode if failures == 0 else max(published.returncode, 1)
+    return (total_run, total_failed)
