@@ -137,6 +137,7 @@
 | `tests/test_agent_staging.py` | TODO: add description |
 | `tests/test_audit_modules.py` | Tests for cai_lib.audit.modules — load_modules + coverage_check |
 | `tests/test_blocked_on.py` | TODO: add description |
+| `tests/test_cmd_misc_label_sweep.py` | TODO: add description |
 | `tests/test_dispatcher.py` | Tests for the FSM dispatcher and state→handler registries |
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
