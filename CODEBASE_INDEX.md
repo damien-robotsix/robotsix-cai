@@ -62,7 +62,7 @@
 | `cai_lib/actions/implement.py` | Handler for IssueState.PLAN_APPROVED / IN_PROGRESS — runs cai-implement |
 | `cai_lib/actions/maintain.py` | Handler for IssueState.APPLYING / APPLIED — runs cai-maintain and handles maintenance ops application |
 | `cai_lib/actions/merge.py` | Handler for PRState.APPROVED — final merge step |
-| `cai_lib/actions/open_pr.py` | Handler for PRState.OPEN — tags a fresh PR into :reviewing-code |
+| `cai_lib/actions/open_pr.py` | Handler for PRState.OPEN — routes fresh PR based on branch (bot branch → :reviewing-code, non-bot branch → :human-needed) |
 | `cai_lib/actions/plan.py` | Handler for IssueState.REFINED / PLANNING / PLANNED — runs cai-plan + confidence gate |
 | `cai_lib/actions/pr_bounce.py` | Handler for IssueState.PR — dispatches the linked PR |
 | `cai_lib/actions/rebase.py` | Handler for PRState.REBASING — runs cai-rebase, posts outcome comment, bounces to REVIEWING_CODE |
@@ -160,6 +160,7 @@
 | `tests/test_merge_requeue_exemption.py` | TODO: add description |
 | `tests/test_merge_workflow_review_label.py` | TODO: add description |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
+| `tests/test_open_pr_non_bot_branch.py` | Regression tests for PR-open-time non-bot-branch detection (issue #1065) |
 | `tests/test_orphaned_prs.py` | TODO: add description |
 | `tests/test_parse.py` | Tests for parse.py signal extraction |
 | `tests/test_plan.py` | TODO: add description |

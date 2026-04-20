@@ -34,6 +34,7 @@ from cai_lib.config import (
     REPO,
     REVIEW_PR_PATTERN_LOG,
 )
+from cai_lib.actions.merge import _BOT_BRANCH_RE
 from cai_lib.fsm import (
     PRState,
     apply_pr_transition,
@@ -311,9 +312,25 @@ def handle_review_pr(pr: dict) -> int:
         # Advance FSM state based on review outcome. PRs entering
         # review without a pipeline label (OPEN) are first bumped
         # to REVIEWING_CODE so the outgoing transition's from_state
-        # check passes.
+        # check passes.  Apply the same branch-name guard as
+        # handle_open_to_review so that a non-bot-branch PR that
+        # somehow reaches review (e.g. handle_open_to_review failed
+        # to transition) is parked correctly instead of being moved
+        # to REVIEWING_CODE.
         current_state = get_pr_state(pr)
         if current_state == PRState.OPEN:
+            branch = pr.get("headRefName", "") or ""
+            if not _BOT_BRANCH_RE.match(branch):
+                apply_pr_transition(
+                    pr_number, "open_to_human",
+                    current_pr=pr,
+                    log_prefix="cai review-pr",
+                    divert_reason=(
+                        f"Non-bot-branch PR (branch={branch!r}) cannot "
+                        f"be auto-merged; requires manual review."
+                    ),
+                )
+                return 1
             apply_pr_transition(
                 pr_number, "open_to_reviewing_code",
                 log_prefix="cai review-pr",

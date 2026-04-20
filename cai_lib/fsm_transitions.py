@@ -244,6 +244,20 @@ PR_TRANSITIONS: list[Transition] = [
                PRState.OPEN, PRState.REVIEWING_CODE,
                labels_add=[LABEL_PR_REVIEWING_CODE],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    # Non-bot-branch park (#1065): when a PR is opened on a branch
+    # that does NOT match ``auto-improve/<N>-…``, ``handle_open_to_review``
+    # applies this transition instead of ``open_to_reviewing_code`` so
+    # the PR parks at ``pr:human-needed`` at PR-open time — before any
+    # review / rebase / docs cycle is spent. Without this sibling the
+    # only park path was ``approved_to_human`` in ``handle_merge``
+    # (``result=not_bot_branch``), reached only after a full pipeline
+    # run. Not FSM-confidence-gated — the handler decides
+    # deterministically from the branch name.
+    Transition("open_to_human",
+               PRState.OPEN, PRState.PR_HUMAN_NEEDED,
+               labels_add=[LABEL_PR_HUMAN_NEEDED],
+               min_confidence=None,
+               human_label_if_below=LABEL_PR_HUMAN_NEEDED),
 
     # Code-review outcomes.
     Transition("reviewing_code_to_revision_pending",

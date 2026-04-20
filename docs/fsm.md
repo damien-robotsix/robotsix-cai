@@ -101,6 +101,8 @@ stateDiagram-v2
   Class OPEN s_active
   state "REVIEWING_CODE" as REVIEWING_CODE
   Class REVIEWING_CODE s_default
+  state "PR_HUMAN_NEEDED" as PR_HUMAN_NEEDED
+  Class PR_HUMAN_NEEDED s_default
   state "REVISION_PENDING" as REVISION_PENDING
   Class REVISION_PENDING s_default
   state "REVIEWING_DOCS" as REVIEWING_DOCS
@@ -113,10 +115,9 @@ stateDiagram-v2
   Class CI_FAILING s_default
   state "REBASING" as REBASING
   Class REBASING s_default
-  state "PR_HUMAN_NEEDED" as PR_HUMAN_NEEDED
-  Class PR_HUMAN_NEEDED s_default
   
   OPEN --> REVIEWING_CODE: open_to_reviewing_code [≥HIGH]
+  OPEN --> PR_HUMAN_NEEDED: open_to_human [caller-gated]
   REVIEWING_CODE --> REVISION_PENDING: reviewing_code_to_revision_pending [≥HIGH]
   REVIEWING_CODE --> REVIEWING_DOCS: reviewing_code_to_reviewing_docs [≥HIGH]
   REVIEWING_CODE --> CI_FAILING: reviewing_code_to_ci_failing [≥HIGH]
