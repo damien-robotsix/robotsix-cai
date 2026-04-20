@@ -79,7 +79,7 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 # escalate to :human-needed instead of rolling back. Prevents the
 # implement loop from monopolising cycles on an unresolvable issue
 # (see issues #748 / #695).
-_MAX_TESTS_FAILED_RETRIES = 3
+_MAX_TESTS_FAILED_RETRIES = 2
 
 
 def _slugify(text: str, max_len: int = 50) -> str:
@@ -389,14 +389,14 @@ def _count_consecutive_tests_failed(issue_number: int) -> int:
         lines = LOG_PATH.read_text().splitlines()
     except OSError:
         return 0
-    issue_tag = f"issue={issue_number}"
+    issue_tag = f" issue={issue_number} "
     relevant = [
         ln for ln in lines
-        if "[implement]" in ln and issue_tag in ln and "result=" in ln
+        if "[implement]" in ln and issue_tag in (ln + " ") and "result=" in ln
     ]
     count = 0
     for ln in reversed(relevant):
-        if "result=tests_failed" in ln:
+        if " result=tests_failed " in f" {ln} ":
             count += 1
         else:
             break
@@ -469,6 +469,69 @@ def handle_implement(issue: dict) -> int:
     # is also done in entrypoint.sh, but redoing it here is cheap and
     # idempotent and lets ad-hoc `docker run` invocations work too.
     _run(["gh", "auth", "setup-git"], capture_output=True)
+
+    opus_escalation = LABEL_OPUS_ATTEMPTED in label_names
+
+    # Early-abort guard: if this issue has already burned through
+    # _MAX_TESTS_FAILED_RETRIES consecutive `tests_failed` runs at
+    # the Sonnet tier, skip the expensive clone + subagent call and
+    # escalate to :human-needed now. The rescue loop will pick it up
+    # and re-enter with LABEL_OPUS_ATTEMPTED if appropriate. The
+    # Opus one-shot itself is never pre-empted (it's the last resort).
+    if not opus_escalation:
+        prior_fails = _count_consecutive_tests_failed(issue_number)
+        if prior_fails >= _MAX_TESTS_FAILED_RETRIES:
+            print(
+                f"[cai implement] #{issue_number} has {prior_fails} "
+                f"consecutive tests_failed runs "
+                f"(>= {_MAX_TESTS_FAILED_RETRIES}); skipping subagent "
+                f"and escalating to auto-improve:human-needed",
+                flush=True,
+            )
+            comment_body = (
+                "## Implement subagent: pre-empted after repeated "
+                "test failures\n\n"
+                f"This issue already has {prior_fails} consecutive "
+                "`tests_failed` implement runs in the run log. "
+                "Skipping the Sonnet subagent call to avoid burning "
+                "another 60+ turns on a plan the test suite cannot "
+                "pass. Escalating to human review (rescue may "
+                "re-enter with Opus).\n\n"
+                "---\n"
+                f"_Pre-empted by `cai implement` early-abort guard. "
+                f"Re-label to `{LABEL_PLAN_APPROVED}` once the "
+                "underlying problem is resolved to retry._"
+            )
+            _run(
+                ["gh", "issue", "comment", str(issue_number),
+                 "--repo", REPO,
+                 "--body", comment_body],
+                capture_output=True,
+            )
+            terminal_remove = [LABEL_IN_PROGRESS]
+            if not _set_labels(
+                issue_number,
+                add=[LABEL_HUMAN_NEEDED],
+                remove=terminal_remove,
+            ):
+                if not _set_labels(
+                    issue_number,
+                    add=[LABEL_HUMAN_NEEDED],
+                    remove=terminal_remove,
+                ):
+                    print(
+                        f"[cai implement] WARNING: label transition "
+                        f"to auto-improve:human-needed failed twice "
+                        f"for #{issue_number} — issue may be stuck",
+                        file=sys.stderr, flush=True,
+                    )
+                    log_run("implement", repo=REPO,
+                            issue=issue_number,
+                            result="label_transition_failed", exit=1)
+                    return 1
+            log_run("implement", repo=REPO, issue=issue_number,
+                    result="tests_failed_escalated_early", exit=0)
+            return 0
 
     # Pre-screen: cheap Haiku call to triage obvious non-actionable issues
     # before the expensive clone + plan-select pipeline.
@@ -629,7 +692,6 @@ def handle_implement(issue: dict) -> int:
                 + "---\n\n"
                 + _build_implement_user_message(issue, attempt_history_block)
             )
-        opus_escalation = LABEL_OPUS_ATTEMPTED in label_names
         claude_cmd = ["claude", "-p", "--agent", "cai-implement"]
         if opus_escalation:
             claude_cmd += ["--model", _OPUS_MODEL_ID]
@@ -639,6 +701,8 @@ def handle_implement(issue: dict) -> int:
                 f"--model {_OPUS_MODEL_ID}",
                 flush=True,
             )
+        else:
+            claude_cmd += ["--max-turns", "60"]
         claude_cmd += ["--dangerously-skip-permissions",
                        "--add-dir", str(work_dir)]
         print(f"[cai implement] running cai-implement subagent for {work_dir}", flush=True)
