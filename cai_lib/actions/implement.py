@@ -61,6 +61,10 @@ from cai_lib.cmd_helpers import (
     _build_attempt_history_block,
     _extract_stored_plan,
 )
+from cai_lib.actions.plan import (
+    _FILES_TO_CHANGE_SECTION_RE,
+    _FILES_TO_CHANGE_PATH_RE,
+)
 from cai_lib.fsm import (
     apply_transition,
     Confidence,
@@ -513,6 +517,274 @@ def _count_consecutive_tests_failed(issue_number: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Plan-scope enforcement (issue #1074).
+#
+# When ``cai-implement`` writes files the stored plan did not list, those
+# out-of-scope edits can silently sink the PR. Issue #1065 is the
+# canonical failure: the agent wrote an unrelated test module that
+# referenced real git operations, causing two consecutive
+# ``tests_failed`` runs and a divert.
+#
+# We detect scope violations **structurally in Python** from the untruncated
+# plan text and the working-tree ``git status`` — mirroring the
+# wrapper-driven scope guard pattern established in
+# ``merge.py::_detect_unauthorized_agent_deletions`` (and documented in
+# the shared memory entry ``merge-wrapper-driven-scope-exemptions.md``).
+#
+# Authoritative scope is the union of:
+#
+#   1. Every backticked ``path/with.ext`` token inside the plan's
+#      ``### Files to change`` section (parsed via the same
+#      ``_FILES_TO_CHANGE_SECTION_RE`` / ``_FILES_TO_CHANGE_PATH_RE``
+#      already used by ``merge.py``).
+#   2. Every backticked path in a ``#### Step N — Edit <path>`` or
+#      ``#### Step N — Write <path>`` header (parsed via
+#      ``_STEP_HEADER_RE`` below).
+#   3. Always-in-scope paths in ``_ALWAYS_IN_SCOPE`` — currently the
+#      PR-context dossier ``.cai/pr-context.md`` which the agent is
+#      expected to write before exiting.
+#
+# Path normalisation strips any ``/tmp/cai-<kind>-<N>-<uid>/`` prefix
+# so plans that reference clone-absolute paths from the plan phase's
+# work directory align with the implement phase's ``git status``
+# output. Staging-path canonicalisation expands each
+# ``.cai-staging/...`` entry to its live-path alias (so a plan listing
+# ``.cai-staging/agents/foo.md`` also authorises ``.claude/agents/foo.md``
+# and vice versa).
+#
+# Out-of-scope paths are reverted:
+#   - Tracked modifications / deletions → ``git checkout HEAD -- <path>``.
+#   - Untracked additions → ``os.unlink`` (or ``shutil.rmtree`` for
+#     directories; untracked dirs are vanishingly rare).
+# A single summary comment is posted on the issue so the reviewer can
+# see what was omitted.
+#
+# The guard is a no-op when the stored plan is missing or contains no
+# ``### Files to change`` section — we refuse to build an empty scope
+# set that would nuke every legitimate diff.
+# ---------------------------------------------------------------------------
+
+_STEP_HEADER_RE = re.compile(
+    r"^####\s+Step\s+\d+\s+[\u2014\u2013\-]\s+(?:Edit|Write)\s+`([^`]+)`",
+    re.MULTILINE,
+)
+
+# Strip ``/tmp/cai-<kind>-<N>-<uid>/`` prefix from plan-referenced
+# absolute paths so they collate with relative ``git status`` paths.
+# Anchored at start of string; only strips the first matching prefix.
+_WORK_DIR_PREFIX_RE = re.compile(r"^/tmp/cai-[^/]+/")
+
+# Paths always treated as in-scope regardless of plan contents.
+# The PR-context dossier is written by ``cai-implement`` as part of its
+# protocol (see ``cai-implement.md`` "Before you exit: write the PR
+# context dossier") and must never be reverted by the scope guard.
+_ALWAYS_IN_SCOPE: frozenset[str] = frozenset({
+    ".cai/pr-context.md",
+})
+
+
+def _normalize_plan_path(path: str) -> str:
+    """Return *path* as a relative clone-side path.
+
+    Strips any leading ``/tmp/cai-<kind>-<N>-<uid>/`` work-directory
+    prefix so a plan-phase absolute path such as
+    ``/tmp/cai-plan-1065-a5338f84/cai_lib/foo.py`` normalises to
+    ``cai_lib/foo.py``. Purely-relative paths pass through unchanged
+    (with any leading slash stripped defensively).
+    """
+    stripped = _WORK_DIR_PREFIX_RE.sub("", path or "")
+    return stripped.lstrip("/")
+
+
+def _canonical_staging_aliases(rel: str) -> list[str]:
+    """Return the live-path alias(es) a staging-dir plan entry
+    authorises, or ``[]`` when *rel* does not point into
+    ``.cai-staging/``.
+
+    The wrapper's ``_apply_agent_edit_staging`` copies files under
+    ``.cai-staging/agents/``, ``.cai-staging/agents-delete/``,
+    ``.cai-staging/plugins/``, ``.cai-staging/claudemd/``, and
+    ``.cai-staging/files-delete/`` to their live counterparts, so a
+    plan listing the staging form must also authorise the live form
+    (and vice versa, handled by the caller adding both to the scope
+    set).
+    """
+    if rel.startswith(".cai-staging/agents/"):
+        return [".claude/agents/" + rel[len(".cai-staging/agents/"):]]
+    if rel.startswith(".cai-staging/agents-delete/"):
+        return [".claude/agents/" + rel[len(".cai-staging/agents-delete/"):]]
+    if rel.startswith(".cai-staging/plugins/"):
+        return [".claude/plugins/" + rel[len(".cai-staging/plugins/"):]]
+    if rel.startswith(".cai-staging/claudemd/"):
+        return [rel[len(".cai-staging/claudemd/"):]]
+    if rel.startswith(".cai-staging/files-delete/"):
+        return [rel[len(".cai-staging/files-delete/"):]]
+    return []
+
+
+def _parse_plan_scope(plan_text: str) -> set[str]:
+    """Return the set of relative clone-paths the plan declares in
+    scope.
+
+    Parses two sections:
+
+      * ``### Files to change`` — backticked ``path/with.ext`` tokens
+        via :data:`_FILES_TO_CHANGE_PATH_RE` (imported from
+        ``cai_lib.actions.plan``).
+      * ``#### Step N — Edit \`<path>\``` / ``#### Step N — Write
+        \`<path>\``` — the backticked path in the step header via
+        :data:`_STEP_HEADER_RE`.
+
+    Each extracted path is normalised by :func:`_normalize_plan_path`
+    and expanded with :func:`_canonical_staging_aliases` so the scope
+    set accepts either the staging form or the live form. Always-in-
+    scope entries from :data:`_ALWAYS_IN_SCOPE` are added
+    unconditionally.
+
+    Returns an empty set on empty/None input.
+    """
+    scope: set[str] = set(_ALWAYS_IN_SCOPE)
+    if not plan_text:
+        return scope
+
+    section = _FILES_TO_CHANGE_SECTION_RE.search(plan_text)
+    if section:
+        for raw in _FILES_TO_CHANGE_PATH_RE.findall(section.group(1)):
+            rel = _normalize_plan_path(raw)
+            if not rel:
+                continue
+            scope.add(rel)
+            for alias in _canonical_staging_aliases(rel):
+                scope.add(alias)
+
+    for m in _STEP_HEADER_RE.finditer(plan_text):
+        rel = _normalize_plan_path(m.group(1))
+        if not rel:
+            continue
+        scope.add(rel)
+        for alias in _canonical_staging_aliases(rel):
+            scope.add(alias)
+
+    return scope
+
+
+def _list_changed_paths(work_dir: Path) -> list[str]:
+    """Return every path that differs from ``HEAD`` in *work_dir*.
+
+    Combines two queries so both tracked changes (modifications,
+    staged additions, deletions, renames) and untracked files are
+    covered without having to parse ``git status --porcelain``
+    status codes:
+
+      * ``git diff --name-only HEAD`` — tracked mutations vs. HEAD.
+      * ``git ls-files --others --exclude-standard`` — untracked
+        files (respecting ``.gitignore``).
+
+    Duplicates are removed while preserving first-seen order.
+    Returns ``[]`` on any subprocess failure — the scope guard must
+    fail open rather than blocking legitimate diffs.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for args in (
+        ("diff", "--name-only", "HEAD"),
+        ("ls-files", "--others", "--exclude-standard"),
+    ):
+        proc = _git(work_dir, *args, check=False)
+        if proc.returncode != 0:
+            continue
+        for line in (proc.stdout or "").splitlines():
+            rel = line.strip()
+            if not rel or rel in seen:
+                continue
+            seen.add(rel)
+            out.append(rel)
+    return out
+
+
+def _enforce_plan_scope(
+    work_dir: Path, plan_text: str, issue_number: int,
+) -> list[str]:
+    """Revert files outside the plan's declared scope and return the
+    reverted paths.
+
+    Called immediately after :func:`_apply_agent_edit_staging` and
+    before the main ``git status`` capture in
+    :func:`handle_implement`. Returns ``[]`` (no-op) when:
+
+      * *plan_text* is empty or ``None``;
+      * the plan has no ``### Files to change`` section — we refuse
+        to build a pathologically empty scope set;
+      * every changed path is in scope.
+
+    Otherwise, each out-of-scope path is reverted:
+
+      * Tracked modifications / deletions → ``git checkout HEAD --
+        <path>`` restores the indexed version.
+      * Untracked additions → :meth:`Path.unlink` (or
+        :func:`shutil.rmtree` for directory-shaped entries, which are
+        rare — the agent's tools emit files, not directories).
+
+    A summary comment is posted to the issue so the reviewer can see
+    what was omitted and, if the omission was legitimate, either
+    add the path to the plan or re-file the work as a separate issue.
+    """
+    if not plan_text:
+        return []
+    if not _FILES_TO_CHANGE_SECTION_RE.search(plan_text):
+        return []
+
+    scope = _parse_plan_scope(plan_text)
+    changed = _list_changed_paths(work_dir)
+    out_of_scope = [p for p in changed if p not in scope]
+    if not out_of_scope:
+        return []
+
+    reverted: list[str] = []
+    for rel in out_of_scope:
+        abs_path = work_dir / rel
+        checkout = _git(
+            work_dir, "checkout", "HEAD", "--", rel, check=False,
+        )
+        if checkout.returncode == 0:
+            reverted.append(rel)
+            continue
+        try:
+            if abs_path.is_dir() and not abs_path.is_symlink():
+                shutil.rmtree(abs_path, ignore_errors=True)
+            else:
+                abs_path.unlink(missing_ok=True)
+            reverted.append(rel)
+        except OSError:
+            continue
+
+    if reverted:
+        bullet_list = "\n".join(f"- `{p}`" for p in reverted)
+        comment_body = (
+            "## Implement subagent: out-of-scope files omitted\n\n"
+            "The implement agent wrote the following file(s) that "
+            "were NOT listed in the stored plan's "
+            "`### Files to change` section or any "
+            "`#### Step N — Edit/Write` header:\n\n"
+            f"{bullet_list}\n\n"
+            "These paths were reverted before commit to keep the PR "
+            "limited to the plan's declared scope. If any of them "
+            "genuinely needed editing, re-plan the issue so the path "
+            "is in scope, or raise a follow-up issue.\n\n"
+            "---\n"
+            "_Set by `cai implement` plan-scope enforcer (issue #1074)._"
+        )
+        _run(
+            ["gh", "issue", "comment", str(issue_number),
+             "--repo", REPO,
+             "--body", comment_body],
+            capture_output=True,
+        )
+
+    return reverted
+
+
+# ---------------------------------------------------------------------------
 # Handler.
 # ---------------------------------------------------------------------------
 
@@ -852,6 +1124,25 @@ def handle_implement(issue: dict) -> int:
                 f".claude/agents/**/*.md update(s)",
                 flush=True,
             )
+
+        # 5d. Plan-scope gate (issue #1074) — revert any files the
+        #     agent wrote that are not listed in the stored plan's
+        #     declared scope (`### Files to change` + `#### Step N —
+        #     Edit/Write` headers). Prevents out-of-scope files from
+        #     causing wasted test runs (#1065 wrote an unrelated test
+        #     that referenced real git operations, triggering two
+        #     consecutive `tests_failed` diverts).
+        if selected_plan:
+            reverted = _enforce_plan_scope(
+                work_dir, selected_plan, issue_number,
+            )
+            if reverted:
+                print(
+                    f"[cai implement] scope gate reverted "
+                    f"{len(reverted)} out-of-scope file(s): "
+                    f"{', '.join(reverted)}",
+                    flush=True,
+                )
 
         # 6. Inspect the working tree. Empty diff = deliberate
         #    no-action OR a spike-shaped bail-out.
