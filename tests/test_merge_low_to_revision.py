@@ -180,9 +180,12 @@ class TestHandleMergeLowHoldRouting(unittest.TestCase):
         transition_mock = MagicMock(return_value=True)
         log_mock = MagicMock()
 
+        git_mock = MagicMock()
+
         with patch.object(merge_mod, "_run", run_mock), \
              patch.object(merge_mod, "_run_claude_p", claude_mock), \
              patch.object(merge_mod, "_gh_json", gh_json_mock), \
+             patch.object(merge_mod, "_git", git_mock), \
              patch.object(merge_mod, "_filter_comments_with_haiku",
                           filter_mock), \
              patch.object(merge_mod, "_fetch_review_comments",

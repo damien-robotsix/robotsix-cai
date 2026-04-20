@@ -58,7 +58,8 @@ You must emit exactly one of three confidence levels:
 
 - PR scope is broader than the issue asks for
 - PR introduces new files not mentioned in the issue
-- PR modifies workflow files (`.github/workflows/`)
+- PR modifies workflow files (`.github/workflows/`) **except** when
+  covered by the "additive pip-install-only" exemption below
 - PR modifies files the issue explicitly says not to touch
 - PR adds new test files or docstrings unless the issue asked for them
    (updating *existing* test files to keep the suite green is
@@ -291,6 +292,60 @@ in the user message:
   between the PR and a **high** verdict, emit **high** — do not
   downgrade to **medium** on a scope concern that the pipeline
   itself introduced.
+
+### Exemption: additive pip-install-only workflow changes
+
+A PR that **only** modifies `.github/workflows/` files and whose
+**only** diff content in those files is one or more newly added
+`pip install <package>` steps (or `pip install <package>==<version>`,
+`pip install '<package>>=<version>'`, etc.) qualifies for a `high`
+verdict **if and only if** all of the following hold:
+
+1. **Purely additive:** Every diff hunk touching a workflow file
+   consists exclusively of added lines (`+`). No existing lines are
+   removed or modified (no `-` lines other than the unified-diff
+   context prefix lines).
+2. **Only pip install additions:** Each added line that is a shell
+   command is a `pip install` invocation. Added YAML structural
+   lines (e.g. `- name: Install <pkg>`, `run: |`, indentation) that
+   exist solely to introduce a `pip install` step are acceptable.
+   No other shell commands, environment variable changes, new job
+   definitions, or trigger changes are present in the added hunks.
+3. **All packages already declared in `pyproject.toml`:** For each
+   package named in a new `pip install` command, strip any version
+   specifier (e.g. `requests>=2.28` → `requests`) and confirm that
+   the base package name (case-insensitive) appears in
+   `pyproject.toml` under `[project] dependencies` or
+   `[project.optional-dependencies]`. You have access to the
+   `pyproject.toml` content in the PR diff or can read it with the
+   `Read` tool if needed. If **any** new `pip install` package is
+   not declared in `pyproject.toml`, the exemption does not apply.
+4. **No other files changed** (outside the other exemptions for
+   `.cai/pr-context.md`, `docs/**`, `CODEBASE_INDEX.md`, etc.).
+
+**Rationale:** Adding a `pip install` step for a package that is
+already a declared project dependency is a low-risk CI-maintenance
+change — it cannot introduce a new dependency, change runtime
+behavior, or break anything that was previously working. The
+`pyproject.toml` cross-reference ensures the package is already
+vetted; the purely-additive constraint ensures no existing CI
+step is removed or altered.
+
+**When this exemption applies:** Override the "PR modifies workflow
+files" hard rule and emit **high** confidence if the above criteria
+are all satisfied and the issue remediation is otherwise fully
+implemented.
+
+**Edge cases:**
+- Multiple new `pip install` lines in one workflow change: all
+  named packages must be in `pyproject.toml`; if any one is not,
+  the exemption does not apply.
+- `pip install -r requirements.txt` or similar indirect installs:
+  the exemption does **not** apply — only explicitly named packages
+  can be cross-referenced against `pyproject.toml`.
+- Other workflow changes in the same file alongside pip-install
+  additions: the exemption does **not** apply if any non-pip-install
+  changes are present in the workflow diff.
 
 ## Output format
 

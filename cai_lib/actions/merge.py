@@ -21,9 +21,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
+import uuid
+from pathlib import Path
 
 from cai_lib.config import (
     REPO,
@@ -43,6 +46,7 @@ from cai_lib.cmd_helpers import (
     _is_bot_comment,
     _fetch_review_comments,
     _extract_stored_plan,
+    _git,
 )
 from cai_lib.actions.plan import (
     _FILES_TO_CHANGE_SECTION_RE,
@@ -937,14 +941,43 @@ def handle_merge(pr: dict) -> int:
         f"{comments_section}\n"
     )
 
-    result = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-merge",
-         "--dangerously-skip-permissions",
-         "--json-schema", json.dumps(_MERGE_JSON_SCHEMA)],
-        category="merge",
-        agent="cai-merge",
-        input=user_message,
-    )
+    # Clone the PR branch so the merge agent can read files from it
+    # (e.g. pyproject.toml for the pip-install exemption check).
+    _merge_uid = uuid.uuid4().hex[:8]
+    work_dir = Path(f"/tmp/cai-merge-{pr_number}-{_merge_uid}")
+    try:
+        if work_dir.exists():
+            shutil.rmtree(work_dir)
+        clone_result = _run(
+            ["gh", "repo", "clone", REPO, str(work_dir)],
+            capture_output=True,
+        )
+        if clone_result.returncode == 0:
+            _git(work_dir, "fetch", "origin", branch)
+            _git(work_dir, "checkout", branch)
+            add_dir_argv: list[str] = ["--add-dir", str(work_dir)]
+        else:
+            print(
+                f"[cai merge] PR #{pr_number}: clone failed (non-fatal); "
+                f"merge agent will proceed without repo access:\n"
+                f"{clone_result.stderr}",
+                file=sys.stderr,
+            )
+            add_dir_argv = []
+
+        result = _run_claude_p(
+            ["claude", "-p", "--agent", "cai-merge",
+             "--dangerously-skip-permissions",
+             "--json-schema", json.dumps(_MERGE_JSON_SCHEMA)]
+            + add_dir_argv,
+            category="merge",
+            agent="cai-merge",
+            input=user_message,
+        )
+    finally:
+        if work_dir.exists():
+            shutil.rmtree(work_dir, ignore_errors=True)
+
     if result.returncode != 0:
         print(
             f"[cai merge] model failed for PR #{pr_number} "
