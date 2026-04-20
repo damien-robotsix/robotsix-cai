@@ -545,7 +545,7 @@ def create_issue(
         source_file = ".claude/agents/cai-code-audit.md"
     elif namespace == "update-check":
         source_note = "cai update-check agent"
-        source_file = ".claude/agents/cai-update-check.md"
+        source_file = ".claude/agents/ops/cai-update-check.md"
     elif namespace == "check-workflows":
         source_note = "cai check-workflows agent"
         source_file = ".claude/agents/cai-check-workflows.md"
