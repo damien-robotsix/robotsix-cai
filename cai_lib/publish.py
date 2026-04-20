@@ -96,6 +96,12 @@ EXTERNAL_SCOUT_CATEGORIES = {
     "external_solution",
 }
 
+AUDIT_EXTERNAL_LIBS_CATEGORIES = {
+    "library_replacement",
+    "vendored_dependency",
+    "reinvented_stdlib",
+}
+
 # Labels we ensure exist before creating issues. These include FSM/lifecycle
 # state labels (auto-improve:*), PR state labels (pr:*), and kind labels (kind:*).
 # Category information is now stored in the issue body, not as labels. Idempotent —
@@ -212,6 +218,11 @@ AGENT_AUDIT_LABELS = [
 ]
 
 EXTERNAL_SCOUT_LABELS = [
+    ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
+]
+
+AUDIT_EXTERNAL_LIBS_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
 ]
@@ -343,6 +354,8 @@ def _label_set_for(namespace: str):
         return AGENT_AUDIT_LABELS
     if namespace == "external-scout":
         return EXTERNAL_SCOUT_LABELS
+    if namespace == "audit-external-libs":
+        return AUDIT_EXTERNAL_LIBS_LABELS
     return LABELS
 
 
@@ -370,7 +383,7 @@ def ensure_all_labels() -> None:
     and CODE_AUDIT_LABELS).
     """
     seen: set[str] = set()
-    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS, AGENT_AUDIT_LABELS, EXTERNAL_SCOUT_LABELS):
+    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS, AGENT_AUDIT_LABELS, EXTERNAL_SCOUT_LABELS, AUDIT_EXTERNAL_LIBS_LABELS):
         for name, color, description in label_set:
             if name in seen:
                 continue
@@ -499,7 +512,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
     parser.add_argument(
         "--namespace", default="auto-improve",
-        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit", "external-scout"],
+        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit", "external-scout", "audit-external-libs"],
         help="Label namespace to use (default: auto-improve)",
     )
     parser.add_argument(
@@ -521,6 +534,8 @@ def main() -> int:
         valid_cats = AGENT_AUDIT_CATEGORIES
     elif namespace == "external-scout":
         valid_cats = EXTERNAL_SCOUT_CATEGORIES
+    elif namespace == "audit-external-libs":
+        valid_cats = AUDIT_EXTERNAL_LIBS_CATEGORIES
     else:
         valid_cats = VALID_CATEGORIES
 
