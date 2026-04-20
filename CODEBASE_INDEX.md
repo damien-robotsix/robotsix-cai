@@ -5,7 +5,7 @@
 
 | File | Purpose |
 |------|---------|
-| `.claude/agents/audit/cai-agent-audit.md` | Agent: weekly audit of .claude/agents/**/*.md for best-practice violations and unused agents |
+| `.claude/agents/audit/cai-agent-audit.md` | Agent: weekly Opus audit of .claude/agents/*.md for Claude Code best-practice violations, unused agents, and near-duplicate purposes. Read-only; writes findings to findings.json plus a memory update. |
 | `.claude/agents/audit/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
 | `.claude/agents/audit/cai-audit-code-reduction.md` | Agent: on-demand code-reduction audit for a module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers, and writes findings to findings.json |
 | `.claude/agents/audit/cai-audit-cost-reduction.md` | Agent: on-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings |
@@ -24,7 +24,7 @@
 | `.claude/agents/lifecycle/cai-explore.md` | Agent: autonomous exploration and benchmarking |
 | `.claude/agents/lifecycle/cai-propose-review.md` | Agent: review creative proposals for feasibility |
 | `.claude/agents/lifecycle/cai-propose.md` | Agent: weekly creative improvement proposals |
-| `.claude/agents/lifecycle/cai-refine.md` | Agent: rewrite human-filed issues into structured plans |
+| `.claude/agents/lifecycle/cai-refine.md` | Agent: rewrite human-filed issues into structured auto-improve plans with problem, steps, verification, scope guardrails, and likely files. |
 | `.claude/agents/lifecycle/cai-rescue.md` | Agent: autonomously resume :human-needed issues without admin input (Opus); optionally proposes a prevention finding |
 | `.claude/agents/lifecycle/cai-triage.md` | Agent: triage `auto-improve:raised` issues one at a time — classify as REFINE, PLAN_APPROVE, APPLY, or HUMAN. Inline-only — full issue body is provided in the user message. No tool use needed. |
 | `.claude/agents/lifecycle/cai-unblock.md` | Agent: classify admin comments on :human-needed issues into FSM resume targets |
