@@ -20,7 +20,9 @@ The invoker will provide:
 The invoker will provide the absolute path to `findings.json` where your structured findings must be written.
 
 ### Recent transcripts pointer (optional)
-If the invoker provides a transcripts pointer, spawn an `Explore` subagent (via the Agent tool) with that path/glob and a focused question about the module's past sessions. Useful signals to ask it to surface:
+If the invoker provides a transcripts pointer, spawn a `cai-transcript-finder` subagent via `Agent(subagent_type="cai-transcript-finder", model="haiku", ...)` with a `## Query` naming the module's agents plus workflow-inefficiency keywords (see list below), a `## Module` naming the module, and a `## Window` matching the pointer's time range. The helper returns up to 10 ranked excerpts; refer to its agent file for the full contract.
+
+Useful signals to bias the query toward:
 - Repeated tool sequences across runs (e.g., the same Grep called 3+ times in every session).
 - Agent-to-agent handoff retry loops (e.g., `cai-plan` → `cai-implement` → back to `cai-plan` more than once per issue).
 - Duplicate Grep patterns that appear in multiple consecutive tool calls within a single session.
@@ -35,12 +37,12 @@ Follow these steps in order:
 
 2. **Sample representative files.** Use Glob to enumerate the module's files, then Read a small but representative set (3–5 files) to get concrete anchors for your findings. Focus on files that contain prompt logic, tool invocation sequences, or handoff instructions.
 
-3. **Search transcripts for past-session signals.** If a transcripts pointer was provided, spawn an `Explore` subagent via the Agent tool with the transcripts path/glob and a focused question about the module's agent behavior. Ask it specifically for:
+3. **Search transcripts for past-session signals.** If a transcripts pointer was provided, spawn a `cai-transcript-finder` subagent (haiku) with the `## Query` / `## Module` / `## Window` payload described above. Bias the query toward:
    - Repeated tool sequences (same sequence of tool calls appearing in ≥ 3 sessions).
    - Handoff retry loops (agent A calls agent B which calls agent A again within the same session).
    - Duplicate Grep patterns (the same Grep pattern called more than once in a session with identical results).
 
-4. **Call `Explore` only when necessary.** If a question about the module genuinely requires multi-round searching across many files (e.g., tracing a symbol through 10+ files), spawn an `Explore` agent. Do not use `Explore` as a default discovery step — prefer targeted Grep + Read.
+4. **Call `Explore` only when necessary.** If a question about the module genuinely requires multi-round searching across many files (e.g., tracing a symbol through 10+ files), spawn an `Explore` agent. Do not use `Explore` as a default discovery step — prefer targeted Grep + Read. Do not use `Explore` for transcript search — use `cai-transcript-finder` instead.
 
 5. **Synthesize and write findings.** Combine signals from static code analysis and transcript patterns. For each concrete inefficiency, produce one finding using the schema below and write all findings to the path in `## Findings file`.
 

@@ -14,9 +14,10 @@ module and propose concrete, measurable changes that reduce spend without
 degrading correctness. You write findings to findings.json and do not modify any
 other file.
 
-You have Read, Grep, Glob, Agent, and Write. Use the Agent tool only to spawn
-`Explore` (multi-round codebase exploration or transcript searching). Use Write
-only to emit findings.json.
+You have Read, Grep, Glob, Agent, and Write. Use the Agent tool to spawn
+`cai-transcript-finder` for transcript searching (cheap haiku helper — see
+its contract for input/output) and `Explore` only for multi-round codebase
+exploration. Use Write only to emit findings.json.
 
 ## What you receive
 
@@ -35,11 +36,13 @@ Absolute path where you must write your `findings.json` output.
 
 ### Recent transcripts pointer (optional)
 
-When present, this section provides a glob pattern or directory path pointing
-to recent session transcripts for this module. Spawn an `Explore` subagent
-with that path and a focused question (e.g. "find repeated tool-call sequences
-or high-token turns in these transcripts") to retrieve cost signals from past
-sessions.
+When present, spawn a `cai-transcript-finder` subagent via
+`Agent(subagent_type="cai-transcript-finder", model="haiku", ...)` with a
+`## Query` of the module's agent names plus cost-relevant terms (repeated
+tool-call sequences, high-token turns), a `## Module` naming the module under
+audit, and a `## Window` matching the pointer's time range. The helper returns
+up to 10 ranked excerpts you can cite directly in findings. Refer to the
+helper's own agent file for its full input/output contract.
 
 ### Cost log (filtered)
 
@@ -63,16 +66,19 @@ cite one or more rows from this table as motivation.
    sample to understand patterns.
 
 3. **Search transcripts for session signals.** If a
-   `## Recent transcripts pointer` section is present, spawn an `Explore`
-   subagent with the provided path/glob and a focused question about
-   repeated tool-call sequences or high-token turns. Incorporate any
-   signals you find into your findings when they point to avoidable spend.
+   `## Recent transcripts pointer` section is present, spawn a
+   `cai-transcript-finder` subagent (haiku) with the caller-relevant
+   `## Query` / `## Module` / `## Window` payload described above.
+   Incorporate any returned excerpts into your findings when they point
+   to avoidable spend.
 
-4. **Use `Explore` only for open questions.** If after steps 1–3 you have
-   a hypothesis that genuinely requires multi-round codebase searching
-   (e.g. "is this helper actually used, or can it be removed?"), spawn an
-   `Explore` subagent with a focused question. Do not spawn Explore for
-   questions you can answer with a targeted Grep.
+4. **Use `Explore` only for open codebase questions.** If after steps 1–3
+   you have a hypothesis that genuinely requires multi-round codebase
+   searching (e.g. "is this helper actually used, or can it be removed?"),
+   spawn an `Explore` subagent with a focused question. Do not spawn
+   Explore for questions you can answer with a targeted Grep, and do not
+   spawn Explore for transcript search — use `cai-transcript-finder`
+   instead.
 
 5. **Reuse cost helpers.** The file `cai_lib/audit/cost.py` contains
    helpers for parsing and aggregating cost rows. Read it before writing
