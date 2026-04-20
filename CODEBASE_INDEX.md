@@ -19,6 +19,7 @@
 | `.claude/agents/implementation/cai-plan.md` | Agent: generate detailed fix plan for an issue |
 | `.claude/agents/implementation/cai-rebase.md` | Agent: rebase-only conflict resolution |
 | `.claude/agents/implementation/cai-revise.md` | Agent: handle review comments on auto-improve PRs |
+| `.claude/agents/implementation/cai-select.md` | Agent: evaluate and select best fix plan |
 | `.claude/agents/lifecycle/cai-dup-check.md` | Agent: cheap haiku pre-check for duplicate / already-resolved issues |
 | `.claude/agents/lifecycle/cai-explore.md` | Agent: autonomous exploration and benchmarking |
 | `.claude/agents/lifecycle/cai-propose-review.md` | Agent: review creative proposals for feasibility |
