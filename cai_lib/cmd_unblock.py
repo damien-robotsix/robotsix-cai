@@ -39,6 +39,10 @@ from cai_lib.fsm import (
     resume_transition_for,
     resume_pr_transition_for,
 )
+from cai_lib.cmd_helpers_issues import (
+    _extract_stored_plan,
+    _strip_stored_plan_block,
+)
 from cai_lib.github import (
     _gh_json,
     _set_pr_labels,
@@ -47,7 +51,7 @@ from cai_lib.github import (
     open_blockers,
 )
 from cai_lib.logging_utils import log_run
-from cai_lib.subprocess_utils import _run_claude_p
+from cai_lib.subprocess_utils import _run, _run_claude_p
 
 
 # JSON schema for structured unblock verdict (forced tool-use via --json-schema).
@@ -173,6 +177,92 @@ def _build_unblock_message(*, kind: str, issue: dict) -> str:
     )
 
 
+# Minimum comment length to treat as a "substantive" admin amendment.
+# Short acknowledgments ("ok", "approved", "lgtm") are noise — skip them
+# so the stored plan block stays useful. Empirically, anything a human
+# takes the time to write with specifics runs well over this threshold.
+_AMENDMENT_MIN_CHARS = 50
+
+
+def _collect_amendment_comments(admin_comments: list[dict]) -> list[dict]:
+    """Return admin comments whose body text is long enough to be treated
+    as a plan amendment rather than a short acknowledgement.
+
+    Filters out entries shorter than ``_AMENDMENT_MIN_CHARS`` (whitespace-
+    stripped) so ``ok``, ``approved``, ``lgtm``-style replies do not leak
+    into the stored plan.
+    """
+    out: list[dict] = []
+    for c in admin_comments:
+        text = (c.get("body") or "").strip()
+        if len(text) >= _AMENDMENT_MIN_CHARS:
+            out.append(c)
+    return out
+
+
+def _append_admin_amendments_to_plan(
+    issue_number: int, body: str, amendments: list[dict],
+) -> bool:
+    """Append *amendments* into the stored ``<!-- cai-plan-start -->`` block.
+
+    Reads the existing plan body, appends an ``## Admin Amendments``
+    section that enumerates each amendment verbatim, then rewrites the
+    issue body via ``gh issue edit``. No-op and returns ``False`` when
+    the issue has no stored plan block or *amendments* is empty. Returns
+    ``True`` on a successful edit.
+
+    The amendments survive as part of the stored plan block, so the
+    next ``cai implement`` tick reads them through the existing
+    ``_extract_stored_plan`` path — no agent changes required.
+    """
+    if not amendments:
+        return False
+    existing_plan_body = _extract_stored_plan(body)
+    if existing_plan_body is None:
+        # No stored plan — nothing to amend. Resume transitions that do
+        # not require a stored plan (e.g. REFINING) are unaffected.
+        return False
+
+    amendments_section = "## Admin Amendments\n\n"
+    for c in amendments:
+        author = (c.get("author") or {}).get("login") or "unknown"
+        created = c.get("createdAt", "") or c.get("created_at", "")
+        text = (c.get("body") or "").strip()
+        amendments_section += (
+            f"### {author} ({created})\n\n{text}\n\n"
+        )
+
+    new_plan_body = existing_plan_body.rstrip() + "\n\n" + amendments_section
+    stripped_body = _strip_stored_plan_block(body)
+    new_block = (
+        "<!-- cai-plan-start -->\n"
+        "## Selected Implementation Plan\n\n"
+        f"{new_plan_body}"
+        "<!-- cai-plan-end -->"
+    )
+    new_body = f"{new_block}\n\n{stripped_body}"
+
+    result = _run(
+        ["gh", "issue", "edit", str(issue_number),
+         "--repo", REPO, "--body", new_body],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"[cai unblock] #{issue_number} failed to append admin amendments "
+            f"to stored plan:\n{result.stderr}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return False
+    print(
+        f"[cai unblock] #{issue_number} appended {len(amendments)} admin "
+        f"amendment comment(s) to stored plan",
+        flush=True,
+    )
+    return True
+
+
 def _try_unblock_issue(issue: dict) -> Optional[str]:
     """Attempt to resume *issue* from :human-needed. Returns the result tag.
 
@@ -254,6 +344,19 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
             flush=True,
         )
         return "no_target"
+
+    # Amendment-aware plan refinement (#923). When the admin greenlights
+    # the stored plan via resume_to=PLAN_APPROVED, merge any substantive
+    # admin comments into the stored plan block so they reach
+    # cai-implement on the next tick. Without this step, admin comments
+    # that propose plan amendments are advisory-only and the stored
+    # plan silently drifts from admin intent.
+    if transition.name == "human_to_plan_approved":
+        amendments = _collect_amendment_comments(admin_comments)
+        if amendments:
+            _append_admin_amendments_to_plan(
+                issue_number, issue.get("body", "") or "", amendments,
+            )
 
     current_labels = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
     # The transition already clears :human-needed; also drop the

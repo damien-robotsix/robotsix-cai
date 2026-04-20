@@ -62,8 +62,10 @@ from cai_lib.cmd_helpers import (
 )
 from cai_lib.fsm import (
     apply_transition,
+    Confidence,
     IssueState,
     get_issue_state,
+    parse_confidence,
 )
 
 
@@ -808,12 +810,71 @@ def handle_implement(issue: dict) -> int:
 
             consecutive = _count_consecutive_tests_failed(issue_number)
             if consecutive >= _MAX_TESTS_FAILED_RETRIES:
-                # Escalate to :human-needed instead of looping. Comment first
-                # (matches the spike branch ordering), then transition labels
-                # with the same double-retry guard so a transient GitHub
-                # failure does not leave the issue stuck without a lifecycle
-                # label.
+                # Escalate out of the implement loop. Two exit paths:
+                #
+                # 1. MEDIUM plan (#923) — the stored plan already tripped a
+                #    confidence gate (admin approved it after a divert, or
+                #    the anchor-mitigated gate let it through at MEDIUM).
+                #    Three failures on top of that are strong evidence the
+                #    plan itself is wrong, so re-plan autonomously via
+                #    in_progress_to_refining rather than parking at
+                #    :human-needed. cai-refine will strip the stale plan
+                #    block when it runs.
+                # 2. HIGH / MISSING plan — fall through to the established
+                #    human-needed escalation so an admin can investigate.
+                stored_plan_confidence = parse_confidence(
+                    issue.get("body", "") or ""
+                )
                 failure_summary = _extract_test_failures(failure_output)
+
+                if stored_plan_confidence == Confidence.MEDIUM:
+                    comment_body = (
+                        "## Implement subagent: re-planning after repeated test failures\n\n"
+                        f"Regression tests failed {consecutive} consecutive "
+                        f"times for this issue. The stored plan was approved "
+                        f"at `MEDIUM` confidence (it already tripped a gate), "
+                        f"so three strikes are strong evidence the plan "
+                        f"itself is wrong. Routing back to `:refining` for "
+                        f"autonomous re-planning instead of human review.\n\n"
+                        "### Failing tests\n\n"
+                        f"```\n{failure_summary}\n```\n\n"
+                        "---\n"
+                        "_Set by `cai implement` after "
+                        f"{_MAX_TESTS_FAILED_RETRIES} consecutive "
+                        f"`tests_failed` log entries on a MEDIUM-confidence "
+                        "plan. Issue #923._"
+                    )
+                    print(
+                        f"[cai implement] {consecutive} consecutive "
+                        f"tests_failed for #{issue_number} on MEDIUM plan; "
+                        f"routing to :refining via in_progress_to_refining",
+                        flush=True,
+                    )
+                    _run(
+                        ["gh", "issue", "comment", str(issue_number),
+                         "--repo", REPO,
+                         "--body", comment_body],
+                        capture_output=True,
+                    )
+                    if not apply_transition(
+                        issue_number, "in_progress_to_refining",
+                        log_prefix="cai implement",
+                    ):
+                        print(
+                            f"[cai implement] WARNING: in_progress_to_refining "
+                            f"failed for #{issue_number} — falling back to "
+                            f"auto-improve:human-needed",
+                            file=sys.stderr, flush=True,
+                        )
+                        # Fall through to the human-needed path as a safety
+                        # net rather than leaving the issue stuck at
+                        # :in-progress.
+                    else:
+                        locked = False
+                        log_run("implement", repo=REPO, issue=issue_number,
+                                result="tests_failed_auto_refine", exit=0)
+                        return 0
+
                 comment_body = (
                     "## Implement subagent: repeated test failures\n\n"
                     f"Regression tests failed {consecutive} consecutive times "
