@@ -194,6 +194,136 @@ def _build_requeue_exemption_block(issue_body: str) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Unauthorized agent-file deletion guard (issue #1024).
+#
+# When ``cai-review-docs`` co-edits follow a rename/consolidation it
+# sometimes tombstones an ``.claude/agents/<name>.md`` file that was
+# never listed in the stored plan's ``### Files to change`` section.
+# PR #1017 demonstrated this failure mode: a rescue-prevention edit
+# to ``cai-rescue.md`` led the docs-reviewer to also delete
+# ``cai-select.md`` because the narrative no longer referenced it,
+# even though the plan only authorized edits to ``cai-rescue.md`` and
+# ``cai_lib/cmd_rescue.py``. The merge agent caught it after the fact
+# with a ``low`` verdict, but the scope creep had already consumed an
+# Opus merge-agent call.
+#
+# This guard detects the condition **structurally, in Python**, from
+# the untruncated PR diff and the stored plan's file list:
+#
+#   1. Parse ``diff --git a/<path> b/<path>`` headers followed by a
+#      ``deleted file mode`` line to find files the PR removes.
+#   2. Filter to paths under ``.claude/agents/`` with an ``.md``
+#      suffix.
+#   3. Extract the stored plan's ``### Files to change`` paths via
+#      ``_FILES_TO_CHANGE_SECTION_RE`` / ``_FILES_TO_CHANGE_PATH_RE``.
+#      Canonicalize each path: the plan expresses agent-file
+#      deletions via ``.cai-staging/agents-delete/<rel>.md``
+#      tombstones; only the tombstone form (or a direct
+#      ``.claude/agents/<rel>.md`` reference) authorizes a live
+#      deletion. ``.cai-staging/agents/<rel>.md`` edit-intent entries
+#      do NOT authorize a deletion.
+#   4. Return the deletion paths that lack such authorization.
+#
+# The merge handler uses the returned list to short-circuit the PR
+# to ``approved_to_human`` without invoking the merge agent. Failing
+# closed is safe: a return of ``[]`` (no deletions, or all deletions
+# authorized) leaves ordinary PRs completely unaffected.
+# ---------------------------------------------------------------------------
+_DELETED_AGENT_FILE_RE = re.compile(
+    r"^diff --git a/(\.claude/agents/\S+\.md) b/\S+\s*$\n"
+    r"deleted file mode ",
+    re.MULTILINE,
+)
+
+
+def _parse_deleted_agent_files_from_diff(raw_diff: str) -> list[str]:
+    """Return the list of ``.claude/agents/**/*.md`` paths this diff
+    deletes.
+
+    Scans *raw_diff* for ``diff --git a/<path> b/<path>`` headers
+    immediately followed by ``deleted file mode ...``. Only paths
+    under ``.claude/agents/`` with an ``.md`` suffix are returned.
+    Order is preserved and duplicates are removed. Returns ``[]`` for
+    an empty or mismatched diff.
+    """
+    if not raw_diff:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _DELETED_AGENT_FILE_RE.finditer(raw_diff):
+        path = m.group(1)
+        if path not in seen:
+            seen.add(path)
+            out.append(path)
+    return out
+
+
+def _canonicalize_agent_plan_path(path: str) -> str | None:
+    """Map a plan-listed path onto the ``.claude/agents/<rel>.md``
+    form it authorizes a deletion on, or return ``None`` when the
+    path does not authorize a live agent-file deletion.
+
+    The planner expresses agent-file deletions with
+    ``.cai-staging/agents-delete/<rel>.md`` tombstone entries; direct
+    ``.claude/agents/<rel>.md`` entries are also honored as deletion
+    authorizations. ``.cai-staging/agents/<rel>.md`` edit-intent
+    entries are **not** authorizations — an edit plan does not grant
+    the implementer permission to delete the file.
+    """
+    if not path:
+        return None
+    if path.startswith(".cai-staging/agents-delete/"):
+        return ".claude/agents/" + path[len(".cai-staging/agents-delete/"):]
+    if path.startswith(".claude/agents/"):
+        return path
+    return None
+
+
+def _detect_unauthorized_agent_deletions(
+    raw_diff: str, issue_body: str,
+) -> list[str]:
+    """Return the list of ``.claude/agents/**/*.md`` deletions in
+    *raw_diff* that are NOT authorized by *issue_body*'s stored plan.
+
+    A deletion is authorized when the stored plan's
+    ``### Files to change`` section lists either the live path
+    ``.claude/agents/<rel>.md`` or the tombstone path
+    ``.cai-staging/agents-delete/<rel>.md`` (see
+    :func:`_canonicalize_agent_plan_path`). Edit-intent paths
+    (``.cai-staging/agents/<rel>.md``) do not authorize a deletion.
+
+    Returns ``[]`` when the diff contains no agent-file deletions.
+    When the issue body has no stored plan or no ``### Files to
+    change`` section, **every** agent-file deletion is treated as
+    unauthorized so the guard still fires — an agent-file deletion
+    with no plan record is exactly the failure mode this guard
+    exists to catch.
+
+    Order and de-duplication follow
+    :func:`_parse_deleted_agent_files_from_diff`.
+    """
+    deletions = _parse_deleted_agent_files_from_diff(raw_diff)
+    if not deletions:
+        return []
+
+    plan_text = _extract_stored_plan(issue_body or "")
+    if not plan_text:
+        return deletions
+
+    section = _FILES_TO_CHANGE_SECTION_RE.search(plan_text)
+    if not section:
+        return deletions
+
+    authorized: set[str] = set()
+    for p in _FILES_TO_CHANGE_PATH_RE.findall(section.group(1)):
+        canonical = _canonicalize_agent_plan_path(p)
+        if canonical:
+            authorized.add(canonical)
+
+    return [p for p in deletions if p not in authorized]
+
+
 def _assemble_diff(raw_diff: str, max_len: int) -> str:
     """Assemble a diff string within *max_len* characters.
 
@@ -472,6 +602,61 @@ def handle_merge(pr: dict) -> int:
         log_run("merge", repo=REPO, pr=pr_number,
                 result="diff_failed", exit=0)
         return 0
+
+    # Safety filter 7: unauthorized agent-file deletions (issue #1024).
+    # If the PR deletes any .claude/agents/**/*.md file that is NOT
+    # authorized by the stored plan's `### Files to change` section
+    # (either as a direct `.claude/agents/<rel>.md` entry or as a
+    # `.cai-staging/agents-delete/<rel>.md` tombstone entry), park the
+    # PR to human-needed without invoking the merge agent. This
+    # catches cai-review-docs co-edits that silently delete agent
+    # definitions as collateral damage of a rename/consolidation,
+    # as observed on PR #1017. Runs on the untruncated diff_result.stdout
+    # so a large PR cannot evade the guard via _assemble_diff truncation.
+    unauthorized_deletions = _detect_unauthorized_agent_deletions(
+        diff_result.stdout, issue_full.get("body") or ""
+    )
+    if unauthorized_deletions:
+        bullets = "\n".join(f"- `{p}`" for p in unauthorized_deletions)
+        comment_body = (
+            f"## cai merge pre-gate \u2014 unauthorized agent-file "
+            f"deletions \u2014 {head_sha}\n\n"
+            f"This PR deletes the following `.claude/agents/**/*.md` "
+            f"file(s) that are **not** listed in the stored plan's "
+            f"`### Files to change` section (neither as a direct "
+            f"`.claude/agents/...` entry nor as a "
+            f"`.cai-staging/agents-delete/...` tombstone):\n\n"
+            f"{bullets}\n\n"
+            f"Deleting agent definitions is a significant architectural "
+            f"change and must be explicitly authorized by the plan. "
+            f"Parking for human review. Admin: either update the plan "
+            f"to list the deletion, revert the deletion on the PR "
+            f"branch, or close the PR.\n\n"
+            f"---\n"
+            f"_Pre-merge guard by `cai merge`. Wrapper-side filter \u2014 "
+            f"the merge agent was not invoked._"
+        )
+        _run(
+            ["gh", "pr", "comment", str(pr_number),
+             "--repo", REPO, "--body", comment_body],
+            capture_output=True,
+        )
+        print(
+            f"[cai merge] PR #{pr_number}: unauthorized agent-file "
+            f"deletions ({len(unauthorized_deletions)}); parking to "
+            f"human-needed",
+            flush=True,
+        )
+        apply_pr_transition(
+            pr_number, "approved_to_human",
+            log_prefix="cai merge",
+        )
+        dur_tag = f"{int(time.monotonic() - t0)}s"
+        log_run("merge", repo=REPO, pr=pr_number,
+                duration=dur_tag,
+                result="unauthorized_agent_deletions", exit=0)
+        return 0
+
     pr_diff = _assemble_diff(diff_result.stdout, _MERGE_MAX_DIFF_LEN)
 
     # Gather PR comments for context.
