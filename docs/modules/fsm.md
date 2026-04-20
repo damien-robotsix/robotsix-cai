@@ -20,7 +20,10 @@ import from `cai_lib.fsm` rather than the split modules directly.
   `apply_transition`, `apply_transition_with_confidence`,
   `resume_transition_for`, `apply_pr_transition`,
   `apply_pr_transition_with_confidence`, `resume_pr_transition_for`,
-  `render_fsm_mermaid`.
+  `render_fsm_mermaid` (library-backed via
+  `transitions.extensions.GraphMachine`; the Mermaid source is
+  post-processed to strip the library's YAML front matter and restore
+  the `≥HIGH` / `caller-gated` display labels).
 - [`cai_lib/fsm_confidence.py`](../../cai_lib/fsm_confidence.py) —
   `Confidence` enum (HIGH, MEDIUM, LOW, STOP);
   `parse_confidence`, `parse_confidence_reason`,

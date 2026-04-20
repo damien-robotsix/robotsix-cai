@@ -7,9 +7,12 @@ confidence parsing lives in :mod:`cai_lib.fsm_confidence`.
 """
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import Optional, Sequence
+
+from transitions.extensions import GraphMachine
 
 from cai_lib.config import (
     LABEL_RAISED, LABEL_REFINING, LABEL_REFINED, LABEL_PLANNING,
@@ -797,13 +800,81 @@ def resume_pr_transition_for(target_state_name: str) -> Optional[Transition]:
     return None
 
 
+class _SentinelModel:
+    """Empty model passed to :class:`GraphMachine` for diagram-only use.
+
+    ``transitions`` requires a model object to bind triggers to, but
+    ``render_fsm_mermaid`` never fires them — the machine exists solely
+    to emit a Mermaid source string. The sanitised condition names
+    (``ge_HIGH`` / ``ge_MEDIUM`` / ``ge_LOW`` / ``caller_gated``) are
+    display-only labels; they are never resolved at runtime because
+    nothing ever calls ``.trigger(...)`` on this model.
+    """
+    pass
+
+
+def _build_mermaid_machine(transitions_list: list[Transition]) -> GraphMachine:
+    """Construct a :class:`GraphMachine` for Mermaid rendering.
+
+    Condition labels are sanitised to valid Python identifiers
+    (``ge_HIGH`` / ``ge_MEDIUM`` / ``ge_LOW`` / ``caller_gated``) so
+    ``transitions`` accepts them as ``conditions``; :func:`render_fsm_mermaid`
+    restores the display form (``≥HIGH`` / ``caller-gated``) via regex
+    after rendering. No runtime FSM semantics are wired — the machine
+    is a diagram-only construct.
+    """
+    states: list[str] = []
+    for t in transitions_list:
+        for name in (t.from_state.name, t.to_state.name):
+            if name not in states:
+                states.append(name)
+    trans_defs = [
+        {
+            "trigger": t.name,
+            "source": t.from_state.name,
+            "dest":   t.to_state.name,
+            "conditions": (
+                f"ge_{t.min_confidence.name}"
+                if t.min_confidence is not None
+                else "caller_gated"
+            ),
+        }
+        for t in transitions_list
+    ]
+    return GraphMachine(
+        model=_SentinelModel(),
+        states=states,
+        initial=states[0],
+        transitions=trans_defs,
+        graph_engine="mermaid",
+        show_conditions=True,
+        show_auto_transitions=False,
+    )
+
+
 def render_fsm_mermaid(transitions: list[Transition], title: str = "FSM") -> str:
-    """Render *transitions* as a Mermaid stateDiagram-v2 block."""
-    lines = ["stateDiagram-v2"]
-    for t in transitions:
-        from_name = t.from_state.name if hasattr(t.from_state, "name") else str(t.from_state)
-        to_name   = t.to_state.name   if hasattr(t.to_state,   "name") else str(t.to_state)
-        gate = f"≥{t.min_confidence.name}" if t.min_confidence is not None else "caller-gated"
-        label = f"{t.name} [{gate}]"
-        lines.append(f"    {from_name} --> {to_name} : {label}")
-    return "\n".join(lines)
+    """Render *transitions* as a Mermaid stateDiagram-v2 block.
+
+    Backed by :class:`transitions.extensions.GraphMachine` (the
+    ``pytransitions/transitions`` library). The raw
+    ``get_combined_graph().source`` string is post-processed to:
+
+    * strip the library's ``---\\nState Machine\\n---`` YAML front
+      matter (the wrapper page in ``docs/fsm.md`` supplies its own
+      title);
+    * restore the display form of the confidence-gate labels
+      (``[ge_HIGH]`` → ``[≥HIGH]``, ``[caller_gated]`` → ``[caller-gated]``)
+      that had to be sanitised to valid Python identifiers for the
+      machine's ``conditions`` field.
+
+    The ``title`` parameter is retained for backward compatibility
+    with the pre-library signature but is not interpolated — the
+    library's default header is stripped and the caller supplies its
+    own heading in the surrounding Markdown page.
+    """
+    machine = _build_mermaid_machine(transitions)
+    source = machine.get_combined_graph().source
+    source = re.sub(r"^---.*?---\n", "", source, flags=re.DOTALL)
+    source = re.sub(r"\[ge_(\w+)\]", lambda m: f"[≥{m.group(1)}]", source)
+    source = source.replace("[caller_gated]", "[caller-gated]")
+    return source.strip()
