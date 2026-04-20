@@ -581,19 +581,41 @@ def handle_merge(pr: dict) -> int:
     branch = pr.get("headRefName", "")
     title = pr["title"]
 
-    # Safety filter 1: only bot PRs.
+    # Safety filter 1: only bot PRs. Park non-bot branches as
+    # PR_HUMAN_NEEDED (via ``approved_to_human``) so the dispatcher
+    # stops re-routing them to ``handle_merge`` every drain tick —
+    # a human admin must merge manually. Without this transition a
+    # human-authored PR carrying ``pr:approved`` would be picked up
+    # forever, logging ``result=not_bot_branch`` once per tick
+    # (see issue #1013).
     m = _BOT_BRANCH_RE.match(branch)
     if not m:
         print(
-            f"[cai merge] PR #{pr_number}: non-bot branch {branch!r}; skipping",
+            f"[cai merge] PR #{pr_number}: non-bot branch {branch!r}; "
+            f"parking as PR_HUMAN_NEEDED",
             flush=True,
+        )
+        _run(
+            ["gh", "pr", "comment", str(pr_number),
+             "--repo", REPO, "--body",
+             f"This PR is on branch `{branch}`, which is not an "
+             f"`auto-improve/<issue>-…` bot branch, so the `cai merge` "
+             f"worker cannot auto-merge it. Moving to "
+             f"`pr:human-needed` — a human admin must merge this PR "
+             f"manually. Re-applying `pr:approved` will just re-enter "
+             f"this state."],
+            capture_output=True,
+        )
+        apply_pr_transition(
+            pr_number, "approved_to_human",
+            log_prefix="cai merge",
         )
         log_run("merge", repo=REPO, pr=pr_number,
                 result="not_bot_branch", exit=0)
         return 0
     issue_number = int(m.group(1))
 
-    # Safety filter 4: unmergeable PRs (conflicts).
+    # Safety filter 2: unmergeable PRs (conflicts).
     mergeable = pr.get("mergeable", "")
     if mergeable == "CONFLICTING":
         print(
@@ -605,7 +627,7 @@ def handle_merge(pr: dict) -> int:
                 result="conflicting", exit=0)
         return 0
 
-    # Safety filter 2: linked issue must be in :pr-open state.
+    # Safety filter 3: linked issue must be in :pr-open state.
     try:
         issue = _gh_json([
             "issue", "view", str(issue_number),
@@ -652,7 +674,7 @@ def handle_merge(pr: dict) -> int:
     # the unaddressed-comments / CI / merge-agent gates below catch
     # anything that genuinely needs another look.
 
-    # Safety filter 3: unaddressed review comments → let revise handle.
+    # Safety filter 4: unaddressed review comments → let revise handle.
     # Mirror the revise subcommand's filter logic via the shared helper
     # so a "no additional changes" reply correctly suppresses the loop.
     all_comments = list(pr.get("comments", []))
