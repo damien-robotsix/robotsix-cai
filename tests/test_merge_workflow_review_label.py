@@ -153,6 +153,8 @@ class TestHandleMergeWorkflowReviewLabel(unittest.TestCase):
                           MagicMock(return_value=True)), \
              patch.object(merge_mod, "apply_pr_transition",
                           MagicMock(return_value=True)), \
+             patch.object(merge_mod, "_git",
+                          MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))), \
              patch.object(merge_mod, "log_run", log_mock):
             rc = merge_mod.handle_merge(pr)
 
