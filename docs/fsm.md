@@ -76,6 +76,7 @@ stateDiagram-v2
   IN_PROGRESS --> REFINING: in_progress_to_refining [caller-gated]
   PR --> MERGED: pr_to_merged [≥HIGH]
   PR --> REFINED: pr_to_refined [≥HIGH]
+  PR --> PLAN_APPROVED: pr_to_plan_approved [caller-gated]
   PR --> HUMAN_NEEDED: pr_to_human_needed [≥HIGH]
   MERGED --> SOLVED: merged_to_solved [≥HIGH]
   HUMAN_NEEDED --> RAISED: human_to_raised [≥HIGH]
