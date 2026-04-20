@@ -35,7 +35,7 @@ def _build_module_message(entry, findings_file: Path) -> str:  # type: ignore[no
 
     Format matches the schema declared in cai-audit-cost-reduction.md §What you receive.
     """
-    globs_block = "\n".join(f"- `{g}`" for g in entry.file_globs) if entry.file_globs else "- (none)"
+    globs_block = "\n".join(f"- `{g}`" for g in entry.globs) if entry.globs else "- (none)"
     parts = [
         "## Module",
         "",
