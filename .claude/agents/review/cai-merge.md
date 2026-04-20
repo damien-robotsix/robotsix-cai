@@ -204,6 +204,45 @@ and the latest `## cai docs review` comment is either `(clean) —
 do not downgrade to **medium** on a scope concern that the pipeline
 itself introduced.
 
+### Exemption: wrapper-injected pre-authorized scope
+
+The merge wrapper (`cai_lib/actions/merge.py`) sometimes prepends a
+`## Pre-authorized scope expansion` section to the user message,
+**between the issue body and the PR changes**. The wrapper emits
+that section only when it has deterministically detected that the
+issue was re-queued by `cai-confirm` after a prior merged PR was
+judged **unsolved**, and has extracted the replacement plan's
+authorized file list from the stored `<!-- cai-plan-start -->`
+block's `### Files to change`. You do **not** need to detect any
+marker, parse the plan, or reason about re-queue attempts
+yourself — if the section is absent, no re-queue exemption applies.
+
+When a `## Pre-authorized scope expansion` section is present in
+the user message:
+
+- Treat every file listed there as in-scope for this PR. Do not
+  downgrade confidence for scope-only reasons on those files —
+  including "scope broader than the issue asks for", "new files
+  not mentioned in the issue", and "PR adds new test files or
+  docstrings". The plan-selection gate already approved the
+  broadening as a direct response to the prior unsolved verdict.
+- The exemption covers **scope only**. Correctness, completeness,
+  unaddressed review comments, and workflow-file
+  (`.github/workflows/`) rules still apply in full. A re-queue PR
+  that expands scope but fails to address the original remediation
+  should still `hold` on completeness grounds, not on scope
+  grounds. A re-queue PR that edits a file under
+  `.github/workflows/` is still disqualifying.
+- Files not listed in the pre-authorized block AND not covered by
+  one of the other exemptions above (`.cai/pr-context.md`,
+  `docs/**`, `CODEBASE_INDEX.md`, reviewer-recommended co-changes,
+  docs-reviewer co-edits) are still scope creep and disqualify a
+  `high` verdict.
+- If a pre-authorized scope expansion is the *only* soft concern
+  standing between the PR and a **high** verdict, emit **high** —
+  do not downgrade to **medium** on a scope concern that the
+  wrapper itself pre-approved.
+
 ## Output format
 
 Emit exactly this structured block — nothing else:

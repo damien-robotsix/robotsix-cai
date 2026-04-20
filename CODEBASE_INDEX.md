@@ -147,6 +147,7 @@
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
 | `tests/test_maintain.py` | Tests for cai_lib.actions.maintain — handle_maintain confidence routing and FSM transitions |
 | `tests/test_merge_diff.py` | TODO: add description |
+| `tests/test_merge_requeue_exemption.py` | TODO: add description |
 | `tests/test_multistep.py` | Tests for multi-step plan support |
 | `tests/test_orphaned_prs.py` | TODO: add description |
 | `tests/test_parse.py` | Tests for parse.py signal extraction |
