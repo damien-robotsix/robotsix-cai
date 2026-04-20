@@ -36,6 +36,7 @@ from cai_lib.config import (
     LABEL_REVISING,
     LABEL_PLAN_APPROVED,
     LABEL_PR_NEEDS_HUMAN,
+    LABEL_PR_NEEDS_WORKFLOW_REVIEW,
 )
 from cai_lib.fsm import apply_pr_transition, get_pr_state, PRState
 from cai_lib.github import _gh_json, _set_labels, _issue_has_label, close_issue_not_planned
@@ -574,6 +575,50 @@ def _assemble_diff(raw_diff: str, max_len: int) -> str:
         assembled += f"\n... ({len(omitted)} file(s) omitted: {', '.join(omitted)})"
 
     return assembled
+
+
+# ---------------------------------------------------------------------------
+# Workflow-file review routing (issue #1064).
+#
+# The ``cai-merge`` agent's "never high" rule disqualifies PRs that
+# touch ``.github/workflows/`` from a high verdict; ``medium + hold``
+# is the best possible outcome, which then parks at
+# ``pr:human-needed`` alongside any other medium-held PR. Admins have
+# no cheap way to distinguish "this PR needs someone with
+# workflow-review authority" from the generic human-needed queue
+# (observed on PR #1057: a CI-fix commit touched
+# ``.github/workflows/regenerate-docs.yml`` and the merge agent
+# correctly held at medium, but the admin had to dig through the
+# verdict comment to understand why).
+#
+# We detect ``.github/workflows/**`` file changes **structurally, in
+# Python**, on the untruncated ``gh pr diff`` output and add a
+# PR-level ``needs-workflow-review`` label whenever a ``medium + hold``
+# verdict lands on a workflow-touching PR. The label supplements (does
+# not replace) ``pr:human-needed`` — the FSM park behaviour via
+# ``approved_to_human`` is unchanged. Gating on ``medium`` specifically
+# avoids labelling ``low + hold`` verdicts, which are caused by actual
+# bugs (the fixable-bug path above already routes those cases).
+# ---------------------------------------------------------------------------
+_WORKFLOW_DIFF_HEADER_RE = re.compile(
+    r"^diff --git a/(\.github/workflows/\S+)",
+    re.MULTILINE,
+)
+
+
+def _pr_touches_workflow_files(raw_diff: str) -> bool:
+    """Return ``True`` when *raw_diff* modifies any
+    ``.github/workflows/`` file.
+
+    Matches ``diff --git a/.github/workflows/<name>`` headers at the
+    start of any diff chunk. Returns ``False`` for empty / ``None``
+    input or diffs that touch only other paths. Paired with
+    :func:`handle_merge`'s held-else branch to decide whether to apply
+    the ``needs-workflow-review`` PR label.
+    """
+    if not raw_diff:
+        return False
+    return bool(_WORKFLOW_DIFF_HEADER_RE.search(raw_diff))
 
 
 def handle_merge(pr: dict) -> int:
@@ -1233,10 +1278,43 @@ def handle_merge(pr: dict) -> int:
                     f"label to #{issue_number} for held PR #{pr_number}",
                     file=sys.stderr, flush=True,
                 )
+        # Issue #1064: when a `medium + hold` verdict lands on a PR
+        # whose diff touches any `.github/workflows/` file, add the
+        # PR-level `needs-workflow-review` label so admins can filter
+        # workflow-review-required holds out of the generic
+        # `pr:human-needed` queue. Purely informational — the FSM park
+        # via `approved_to_human` below is unchanged.
+        held_result_tag = "held"
+        if (
+            action == "hold"
+            and confidence == "medium"
+            and _pr_touches_workflow_files(diff_result.stdout)
+        ):
+            label_add = _run(
+                ["gh", "pr", "edit", str(pr_number),
+                 "--repo", REPO,
+                 "--add-label", LABEL_PR_NEEDS_WORKFLOW_REVIEW],
+                capture_output=True,
+            )
+            if label_add.returncode != 0:
+                print(
+                    f"[cai merge] PR #{pr_number}: could not add "
+                    f"`{LABEL_PR_NEEDS_WORKFLOW_REVIEW}` label:\n"
+                    f"{label_add.stderr}",
+                    file=sys.stderr, flush=True,
+                )
+            else:
+                print(
+                    f"[cai merge] PR #{pr_number}: added "
+                    f"`{LABEL_PR_NEEDS_WORKFLOW_REVIEW}` (medium+hold "
+                    f"on workflow-touching PR)",
+                    flush=True,
+                )
+                held_result_tag = "held_workflow_review"
         apply_pr_transition(
             pr_number, "approved_to_human",
             log_prefix="cai merge",
         )
         log_run("merge", repo=REPO, pr=pr_number,
-                duration=dur(), result="held", exit=0)
+                duration=dur(), result=held_result_tag, exit=0)
         return 0

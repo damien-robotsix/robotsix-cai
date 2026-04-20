@@ -55,6 +55,7 @@ _MANAGED_ISSUE_PREFIXES: tuple[str, ...] = (
     "kind",           # matches kind:code, kind:maintenance
     "pr",             # pr:* labels are PR-only; stale if found on an issue
     "needs-human-review",
+    "needs-workflow-review",  # PR-only; stale if found on an issue
 )
 
 

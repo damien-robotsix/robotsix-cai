@@ -59,6 +59,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 | `audit` | Source tag indicating an audit-originated finding (combined with `auto-improve:raised` in unified FSM) |
 | `merge-blocked` | PR has a blocking review finding; will not auto-merge |
 | `needs-human-review` | Issue or PR requires human attention |
+| `needs-workflow-review` | PR held on a workflow-file concern (supplement to `pr:human-needed`, set alongside it); allows admins to filter workflow-review-required holds separately. Set when a `medium + hold` verdict lands on a PR that modifies `.github/workflows/` files (issue #1064) |
 | `human:solved` | Admin-applied signal to resume FSM for parked issues/PRs (unblocking) |
 | `blocked-on:<N>` | Suppresses dispatch and rescue on this issue/PR while issue `#<N>` is open. Multiple blockers may be declared by applying the label once per blocker. The label is a hint, not a state change — it never clears itself. (Self-blocking cycles result in both issues staying skipped; no cycle detection is performed.) |
 | `kind:code` | Issue is a code fix (vs. kind:maintenance) |
