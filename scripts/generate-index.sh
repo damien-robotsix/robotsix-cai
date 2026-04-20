@@ -155,6 +155,7 @@ declare -A DESCRIPTIONS=(
   ["tests/test_publish.py"]="Tests for publish.py issue publishing"
   ["tests/test_rollback.py"]="Tests for rollback functionality"
   ["tests/test_transcript_sync.py"]="Tests for cai_lib.transcript_sync — no-op path, parse_source fallback, repo slug"
+  ["tests/test_open_pr_non_bot_branch.py"]="Regression tests for PR-open-time non-bot-branch detection (issue #1065)"
 )
 
 # ---------------------------------------------------------------------------
