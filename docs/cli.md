@@ -4,13 +4,9 @@
 
 Run inside the container: `docker compose exec cai python /app/cai.py <subcommand>`
 
+Subcommands group into three categories: **pipeline drivers** (`cycle`, `dispatch`) drain the auto-improve FSM queue; **audit subcommands** (`audit`, `audit-module`) file findings into the loop; **utility commands** (`cost-report`, `init`, `test`, `unblock`, `verify`) are operational helpers.
+
 ---
-
-## analyze
-
-Parse prior Claude Code transcripts, invoke the `cai-analyze` agent, and publish findings as GitHub issues labeled `auto-improve:raised`.
-
-No arguments.
 
 ## audit
 
@@ -24,7 +20,7 @@ No arguments.
 
 ## audit-module
 
-Run an on-demand per-module audit that dispatches the matching audit agent over selected modules. Module manifests are loaded from `docs/modules.yaml`.
+Run an on-demand per-module audit. For the supplied `--kind`, the runner iterates every module declared in `docs/modules.yaml`, invokes the matching audit agent on each module in turn, and publishes each agent's `findings.json` through the existing dedup/dup-check pipeline. Each created issue carries a `<!-- module: <name> -->` body footer so future audit runs can scope dedup by module + fingerprint. Per-module failures (agent exit non-zero, missing findings file, publish failure) are logged to stderr and counted but never abort the loop.
 
 ```bash
 cai audit-module --kind <kind>
@@ -34,31 +30,14 @@ cai audit-module --kind <kind>
 |---|---|---|
 | `--kind` | required | Audit type. Choices: `good-practices`, `code-reduction`, `cost-reduction`, `workflow-enhancement`. |
 
-The command iterates over all modules defined in `docs/modules.yaml` and publishes findings via the existing dedup/dup-check pipeline.
+One example per supported kind:
 
-## code-audit
-
-Clone the repo and run `cai-code-audit` to find concrete inconsistencies, dead code, and missing cross-file references.
-
-No arguments.
-
-## agent-audit
-
-Run the weekly agent inventory audit to check `.claude/agents/**/*.md` files for Claude Code best-practice violations, unused agents, and near-duplicate purposes.
-
-No arguments.
-
-## check-workflows
-
-Monitor GitHub Actions for recent workflow failures and publish findings as issues. Fetches recent failed workflow runs (last 24 hours), filters out bot branches, and runs a Haiku agent to identify and group related failures. Findings are published with the `check-workflows` namespace and integrated into the unified auto-improve pipeline.
-
-No arguments.
-
-## cost-optimize
-
-Run the weekly `cai-cost-optimize` agent to analyze spending trends and propose one cost-reduction optimization.
-
-No arguments.
+```bash
+cai audit-module --kind good-practices
+cai audit-module --kind code-reduction
+cai audit-module --kind cost-reduction
+cai audit-module --kind workflow-enhancement
+```
 
 ## cost-report
 
@@ -69,12 +48,6 @@ Print a human-readable cost report from `/var/log/cai/cai-cost.jsonl`.
 | `--days INT` | optional | 7 | Window in days to include |
 | `--top INT` | optional | 10 | Number of most-expensive invocations to list |
 | `--by {category,agent,day}` | optional | category | Aggregation grouping |
-
-## external-scout
-
-Clone the repo and run `cai-external-scout` to scout for mature open-source libraries that could replace in-house plumbing. The agent walks the codebase, picks one category of in-house utility per run, searches the open-source ecosystem for mature alternatives, and emits a single adoption proposal (or `No findings.` if no candidate passes the fit check). Uses project-scope memory to avoid re-proposing the same category or library.
-
-No arguments.
 
 ## cycle
 
@@ -96,23 +69,9 @@ Three modes:
 
 Terminal or parked states (SOLVED, HUMAN_NEEDED, PR_HUMAN_NEEDED, PR MERGED) have no handler — the dispatcher returns without doing anything. Issues reaching the SOLVED state are automatically closed in GitHub as "completed".
 
-## health-report
-
-Generate an automated pipeline health report with anomaly detection: cost trends, issue throughput, pipeline stalls, and fix quality metrics. Posts the report as a GitHub issue.
-
-| Argument | Type | Description |
-|---|---|---|
-| `--dry-run` | flag | Print report to stdout without posting a GitHub issue |
-
 ## init
 
 Seed the loop with a smoke test, but only if no prior transcripts exist. If transcripts already exist, exits immediately.
-
-No arguments.
-
-## propose
-
-Clone the repo and run `cai-propose` (creative improvements) followed by `cai-propose-review` to evaluate feasibility before filing issues.
 
 No arguments.
 
@@ -127,12 +86,6 @@ No arguments.
 Scan open issues parked at `auto-improve:human-needed` that an admin has explicitly marked ready for resume by applying the `human:solved` label. For each such issue with a pending-transition marker in its body and at least one comment from an admin login (`CAI_ADMIN_LOGINS`), invokes the `cai-unblock` Haiku agent to classify the comment into a `ResumeTo:` target, then fires the matching `human_to_<state>` transition, strips the marker, and removes the `human:solved` label. Confidence below `HIGH` leaves the issue parked (label stays on so the admin can iterate). Issues without `human:solved` are ignored entirely — the admin is free to discuss or ask questions without waking the classifier.
 
 PR-side (`auto-improve:pr-human-needed`) is not yet wired — follow-up.
-
-No arguments.
-
-## update-check
-
-Clone the repo and run `cai-update-check` to compare the current pinned Claude Code version against latest releases and emit findings for new versions or deprecations.
 
 No arguments.
 

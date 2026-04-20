@@ -78,17 +78,8 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | One dispatcher tick: restart-recovery + `dispatch_oldest_actionable()` (runs the handler for whatever state the oldest actionable issue or PR is in). A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
 | `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — removes deprecated cai-managed labels from open issues, then keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
-| `cai.py analyze` | `0 0 * * *` (daily 00:00 UTC) | Parses transcripts, asks claude to produce structured findings, publishes them as issues with fingerprint dedup |
 | `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, migrates open `:no-action` issues (deprecated label) to closed-as-not-planned, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, retroactively closes closed issues lacking terminal labels (as 'not planned'), then flags duplicates, stuck loops, label corruption, and human-needed issues (pipeline jams, abandoned issues, repeated diversions, missing divert reasons) as `auto-improve:raised` + `audit` findings (Opus). |
 | `cai.py audit-module` | _(manual/on-demand)_ | On-demand per-module audit: takes `--kind` (one of: good-practices, code-reduction, cost-reduction, workflow-enhancement) and iterates every module in `docs/modules.yaml`, dispatching the matching on-demand audit agent for each module and publishing findings via the existing dedup/dup-check pipeline. |
-| `cai.py code-audit` | `0 3 * * 0` (weekly Sunday 03:00 UTC) | Source-code consistency audit — clones the repo read-only, runs an Opus agent to flag cross-file inconsistencies, dead code, missing references, duplicated logic, hardcoded drift, config mismatches, and registration mismatches; publishes findings as `code-audit` namespace issues |
-| `cai.py propose` | `0 4 * * 0` (weekly Sunday 04:00 UTC) | Creative improvement proposals — clones the repo read-only, runs a creative agent to propose an ambitious improvement, then a review agent to evaluate feasibility; approved proposals are filed as `auto-improve:raised` issues so they flow through the triage → (optionally skip to `:plan-approved` / `:applying`) → refine → plan → implement pipeline |
-| `cai.py update-check` | `0 4 * * 1` (weekly Monday 04:00 UTC) | Claude Code release check — clones the repo, fetches the latest Claude Code releases from GitHub, and runs a Sonnet agent that compares the current pinned version against the latest releases; findings (new versions, feature adoptions, deprecated flags, best practices) are published as `update-check` namespace issues |
-| `cai.py external-scout` | `0 6 * * 1` (weekly Monday 06:00 UTC) | Weekly scout for open-source libraries that could replace in-house plumbing. Clones the repo read-only, runs an Opus agent that walks the codebase, picks one category of in-house utility, searches the open-source ecosystem for mature alternatives, and emits a single adoption proposal (or `No findings.`). Findings are published as `external-scout` namespace issues. Uses project-scope memory to avoid re-proposing the same category or library. |
-| `cai.py health-report` | `0 7 * * 1` (weekly Monday 07:00 UTC) | Automated pipeline health report with anomaly detection. Aggregates cost trends (last 7d vs prior 7d WoW delta), issue queue counts per label state, pipeline stalls, and fix quality metrics. Posts a GitHub-flavored markdown report with 🔴/🟡/🟢 traffic-light indicators as a `health-report` labelled issue. Use `--dry-run` to print to stdout without posting. |
-| `cai.py cost-optimize` | `0 5 * * 0` (weekly Sunday 05:00 UTC) | Weekly cost-reduction agent — loads 14 days of cost data, computes per-agent WoW deltas and cache hit rates, and proposes one concrete optimization targeting the most expensive agent or workflow. Alternates with evaluating previous proposals to track effectiveness. Files proposals as `auto-improve:raised` issues. |
-| `cai.py check-workflows` | `0 */6 * * *` (every 6 hours) | GitHub Actions failure monitor — fetches recent failed workflow runs (last 24 h), filters out bot branches, and runs a Haiku agent to group related failures and identify root causes; findings are published as `check-workflows` namespace issues. |
-| `cai.py agent-audit` | `0 6 * * 0` (weekly Sunday 06:00 UTC) | Weekly audit of `.claude/agents/**/*.md` for Claude Code best-practice violations, unused agents (not invoked via `--agent` anywhere), and near-duplicate agents; runs on Opus and publishes findings as `agent-audit` namespace issues. |
 | `cai.py verify` / `audit` / `unblock` | _(own cron schedules; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, maintain, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
@@ -99,10 +90,9 @@ the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_ANALYZER_SCHEDULE`,
 `CAI_COST_OPTIMIZE_SCHEDULE`, `CAI_CHECK_WORKFLOWS_SCHEDULE`, `CAI_AGENT_AUDIT_SCHEDULE`, `CAI_VERIFY_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. Orthogonal tasks
-(analyze, audit, propose, update-check, external-scout, health-report, cost-optimize,
-check-workflows, code-audit, agent-audit) are **not** run at startup — they wait
-for their own cron ticks so container restarts don't re-trigger
-token-heavy analysis passes.
+(`audit`, `audit-module`) are **not** run at startup — they wait
+for their own cron ticks (or for an admin to invoke them) so
+container restarts don't re-trigger token-heavy analysis passes.
 
 **Multi-workspace support:** The container can optionally maintain additional
 repositories alongside the primary one. Create a `workspaces.json` file listing
@@ -111,6 +101,28 @@ to point to it. The entrypoint will generate independent cron lines for each
 workspace and run initial cycles on startup. See
 [docs/configuration.md](docs/configuration.md#multi-workspace-configuration) for
 details.
+
+### Running an audit
+
+Two complementary audit entry points feed into the same auto-improve
+loop. `cai audit` runs the periodic queue/PR consistency audit
+(stale-lock rollback, orphaned-branch cleanup, plus an Opus-driven
+sweep for duplicates and stuck loops). `cai audit-module --kind <kind>`
+iterates every module declared in `docs/modules.yaml`, dispatches
+the matching on-demand audit agent per module, and publishes
+findings through the existing dedup/dup-check pipeline.
+
+```bash
+cai audit
+cai audit-module --kind good-practices
+cai audit-module --kind code-reduction
+cai audit-module --kind cost-reduction
+cai audit-module --kind workflow-enhancement
+```
+
+See [`docs/cli.md`](docs/cli.md#audit) for the full reference,
+including the supported `--kind` choices, their matching per-module
+audit agents, and per-command option tables.
 
 ### Issue lifecycle
 
@@ -403,12 +415,12 @@ running container. This is what GitHub Actions, host cron jobs, or
 just-trying-things-out from the terminal would use:
 
 ```bash
-docker compose exec cai python /app/cai.py analyze
 docker compose exec cai python /app/cai.py dispatch             # oldest actionable
 docker compose exec cai python /app/cai.py dispatch --issue 12  # specific issue
 docker compose exec cai python /app/cai.py dispatch --pr 45     # specific PR
 docker compose exec cai python /app/cai.py verify
 docker compose exec cai python /app/cai.py audit
+docker compose exec cai python /app/cai.py audit-module --kind good-practices
 ```
 
 A short alias makes this trivial:
@@ -520,7 +532,7 @@ docker compose logs -f cai     # watch the first cycle
 
 Expected output: the templated crontab, the initial `cai.py init` (a
 greeting on the very first run, otherwise skipped), the initial
-`cai.py analyze`, then supercronic standing by for the next cron tick.
+`cai.py cycle`, then supercronic standing by for the next cron tick.
 
 ### Changing the schedule
 
@@ -539,7 +551,7 @@ invoked directly against the running container, which is what
 GitHub Actions or a host cron job would use to kick off a task:
 
 ```bash
-docker compose exec cai python /app/cai.py analyze
+docker compose exec cai python /app/cai.py dispatch
 ```
 
 ### One-shot smoke test (no install)
@@ -663,8 +675,9 @@ docker run --rm -v cai_home:/data alpine ls -R /data
 ```
 
 A **run log** is written to `/var/log/cai/cai.log` inside the container
-(persisted in the `cai_logs` named volume). Each `init`, `analyze`,
-`implement`, `review-pr`, `review-docs`, `revise`, `verify`, `audit`, `code-audit`, `propose`, `confirm`, `merge`, `agent-audit`, and `health-report` invocation appends one key=value line so you can
+(persisted in the `cai_logs` named volume). Each `init`, `dispatch`,
+`verify`, `audit`, `audit-module`, `confirm`, `merge`, `review-pr`,
+`review-docs`, and `revise` invocation appends one key=value line so you can
 watch cycle activity:
 
 ```bash
