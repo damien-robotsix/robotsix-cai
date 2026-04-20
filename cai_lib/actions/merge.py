@@ -38,6 +38,10 @@ from cai_lib.cmd_helpers import (
     _fetch_review_comments,
     _extract_stored_plan,
 )
+from cai_lib.actions.plan import (
+    _FILES_TO_CHANGE_SECTION_RE,
+    _FILES_TO_CHANGE_PATH_RE,
+)
 from cai_lib.actions.revise import _filter_comments_with_haiku
 from cai_lib.logging_utils import log_run
 
@@ -104,8 +108,9 @@ _MERGE_JSON_SCHEMA = {
 #      ``cai_lib/actions/confirm.py`` — see ``_requeue_block``).
 #   2. Extract the stored plan body via ``_extract_stored_plan``.
 #   3. Pull the backticked ``path/with.ext`` tokens out of the plan's
-#      ``### Files to change`` section (same regex shape used by
-#      ``_plan_targets_only_docs`` in ``cai_lib/actions/plan.py``).
+#      ``### Files to change`` section using ``_FILES_TO_CHANGE_SECTION_RE``
+#      and ``_FILES_TO_CHANGE_PATH_RE`` imported from
+#      ``cai_lib/actions/plan.py`` (shared with ``_plan_targets_only_docs``).
 #   4. Emit a ``## Pre-authorized scope expansion`` markdown block
 #      naming those files. The block is injected into the merge
 #      agent's ``user_message`` between the issue body and the PR
@@ -122,16 +127,6 @@ _MERGE_JSON_SCHEMA = {
 _REQUEUE_MARKER_RE = re.compile(
     r"^## Confirm re-queue \(attempt \d+\)", re.MULTILINE
 )
-
-_REQUEUE_FILES_SECTION_RE = re.compile(
-    r"^###\s+Files\s+to\s+change\s*$\n(.*?)(?=^###\s|\Z)",
-    re.IGNORECASE | re.DOTALL | re.MULTILINE,
-)
-
-_REQUEUE_FILES_PATH_RE = re.compile(
-    r"`([^`\s]+/[^`\s]*\.[A-Za-z0-9]+)`"
-)
-
 
 def _build_requeue_exemption_block(issue_body: str) -> str:
     """Return a pre-authorized-scope markdown block, or ``""`` when
@@ -166,11 +161,11 @@ def _build_requeue_exemption_block(issue_body: str) -> str:
     if not plan_text:
         return ""
 
-    section = _REQUEUE_FILES_SECTION_RE.search(plan_text)
+    section = _FILES_TO_CHANGE_SECTION_RE.search(plan_text)
     if not section:
         return ""
 
-    paths = _REQUEUE_FILES_PATH_RE.findall(section.group(1))
+    paths = _FILES_TO_CHANGE_PATH_RE.findall(section.group(1))
     if not paths:
         return ""
 
