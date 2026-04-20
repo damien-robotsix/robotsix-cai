@@ -10,6 +10,7 @@ publish, rescue, and transcript sync. Also enforces lint hygiene.
 - `tests/test_dup_check.py` — Duplicate-check pre-triage.
 - `tests/test_fsm.py` — States, transitions, Confidence, divert helpers.
 - `tests/test_implement_consecutive_failures.py` — Implement-agent retry bookkeeping.
+- `tests/test_implement_helper_extract.py` — Helper-function extraction from test tracebacks (issue #987).
 - `tests/test_lint.py` — Ruff hygiene check.
 - `tests/test_maintain.py` — `cai-maintain` handler routing.
 - `tests/test_merge_diff.py` — Merge-diff helpers.
