@@ -564,6 +564,12 @@ def handle_plan(issue: dict) -> int:
                 issue_number, "planning_to_human",
                 current_labels=[LABEL_PLANNING],
                 log_prefix="cai plan",
+                divert_reason=(
+                    "`cai plan` could not clone the repository to run "
+                    "the plan-select pipeline. Inspect the container's "
+                    "network or gh auth state and resume once the clone "
+                    "can succeed."
+                ),
             )
             log_run("plan", repo=REPO, issue=issue_number,
                     result="clone_failed", exit=1)
@@ -590,6 +596,12 @@ def handle_plan(issue: dict) -> int:
                 issue_number, "planning_to_human",
                 current_labels=[LABEL_PLANNING],
                 log_prefix="cai plan",
+                divert_reason=(
+                    "The plan → select pipeline produced no usable "
+                    "output (one of the plan agents or cai-select "
+                    "failed). No plan was stored; re-run the planning "
+                    "step after resolving the underlying failure."
+                ),
             )
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("plan", repo=REPO, issue=issue_number,
@@ -632,6 +644,12 @@ def handle_plan(issue: dict) -> int:
                 issue_number, "planning_to_human",
                 current_labels=[LABEL_PLANNING],
                 log_prefix="cai plan",
+                divert_reason=(
+                    "`gh issue edit` refused to persist the newly-"
+                    "generated plan block into this issue body. "
+                    "Inspect gh auth / rate limits and resume planning "
+                    "once writes succeed."
+                ),
             )
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("plan", repo=REPO, issue=issue_number,
@@ -781,30 +799,18 @@ def handle_plan_gate(issue: dict) -> int:
             f"diverting to :human-needed via planned_to_human (#982)",
             flush=True,
         )
+        reason_lines = [
+            "Plan diverges from refined-issue preference — admin "
+            "approval required before the fix agent proceeds.",
+        ]
+        if plan_confidence_reason:
+            reason_lines.extend(["", plan_confidence_reason.rstrip()])
         ok = apply_transition(
             issue_number, "planned_to_human",
             current_labels=[LABEL_PLANNED],
             log_prefix="cai plan",
+            divert_reason="\n".join(reason_lines),
         )
-        if ok:
-            lines = [
-                "**🙋 Human attention needed**",
-                "",
-                "Plan diverges from refined-issue preference — admin "
-                "approval required before the fix agent proceeds.",
-            ]
-            if plan_confidence_reason:
-                lines.extend(["", plan_confidence_reason.rstrip()])
-            lines.extend([
-                "",
-                "Apply the `human:solved` label after leaving a comment "
-                "to signal the divert is resolved and have the FSM resume.",
-            ])
-            _post_issue_comment(
-                issue_number,
-                "\n".join(lines),
-                log_prefix="cai plan",
-            )
         dur = f"{int(time.monotonic() - t0)}s"
         conf_name = plan_confidence.name if plan_confidence else "MISSING"
         if not ok:

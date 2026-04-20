@@ -365,26 +365,20 @@ def handle_refine(issue: dict) -> int:
     contradictions = _detect_guardrail_contradictions(refined_body)
     if contradictions:
         bullet_list = "\n".join(f"- `{p}`" for p in contradictions)
-        comment_body = (
-            "**🙋 Human attention needed**\n\n"
-            "Automation paused refinement because the proposed scope "
+        divert_reason = (
+            "Refinement was paused because the proposed scope "
             "contradicts itself: the following file(s) are listed under "
             "**Files to change** *and* under **Scope guardrails**.\n\n"
             f"{bullet_list}\n\n"
-            "Either drop the guardrail (the file genuinely needs editing) "
-            "or split the forbidden work into a predecessor issue and "
-            "drop it from **Files to change** here.\n\n"
-            "Apply the `human:solved` label after leaving a comment to "
-            "signal the contradiction is resolved and have the FSM "
-            "resume (the refine agent will re-run with your input)."
-        )
-        _post_issue_comment(
-            issue_number, comment_body, log_prefix="cai refine"
+            "Either drop the guardrail (the file genuinely needs "
+            "editing) or split the forbidden work into a predecessor "
+            "issue and drop it from **Files to change** here."
         )
         apply_transition(
             issue_number, "refining_to_human",
             current_labels=[LABEL_REFINING],
             log_prefix="cai refine",
+            divert_reason=divert_reason,
         )
         dur = f"{int(time.monotonic() - t0)}s"
         print(

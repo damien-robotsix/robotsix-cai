@@ -614,6 +614,13 @@ def handle_merge(pr: dict) -> int:
         apply_pr_transition(
             pr["number"], "approved_to_human",
             log_prefix="cai merge",
+            divert_reason=(
+                f"PR still carries the legacy "
+                f"`{LABEL_PR_NEEDS_HUMAN}` flag while at "
+                f"`:pr-approved`. Migrating the park to the canonical "
+                f"`pr:human-needed` state so the dispatcher stops "
+                f"re-routing to handle_merge."
+            ),
         )
         log_run("merge", repo=REPO, pr=pr["number"],
                 result="legacy_park_migration", exit=0)
@@ -671,6 +678,12 @@ def handle_merge(pr: dict) -> int:
         apply_pr_transition(
             pr_number, "approved_to_human",
             log_prefix="cai merge",
+            divert_reason=(
+                f"PR is on branch `{branch}`, which is not an "
+                f"`auto-improve/<issue>-…` bot branch. The cai merge "
+                f"worker cannot auto-merge non-bot branches; a human "
+                f"admin must merge this PR manually."
+            ),
         )
         log_run("merge", repo=REPO, pr=pr_number,
                 result="not_bot_branch", exit=0)
@@ -902,6 +915,13 @@ def handle_merge(pr: dict) -> int:
         apply_pr_transition(
             pr_number, "approved_to_human",
             log_prefix="cai merge",
+            divert_reason=(
+                f"PR contains {len(unauthorized_deletions)} unauthorized "
+                f"agent-file deletion(s). Bot PRs must not delete "
+                f"`.claude/agents/` files without an explicit tombstone "
+                f"in `.cai-staging/agents-delete/`. A human must review "
+                f"the deletions and decide next steps."
+            ),
         )
         dur_tag = f"{int(time.monotonic() - t0)}s"
         log_run("merge", repo=REPO, pr=pr_number,
@@ -1066,6 +1086,12 @@ def handle_merge(pr: dict) -> int:
                 apply_pr_transition(
                     pr_number, "approved_to_human",
                     log_prefix="cai merge",
+                    divert_reason=(
+                        "cai-merge closed this PR as a high-confidence "
+                        "reject, but relabelling the linked issue as "
+                        "`not planned` failed. Parking the PR so a "
+                        "human can clean up the issue label state."
+                    ),
                 )
                 log_run("merge", repo=REPO, pr=pr_number,
                         duration=dur(), result="close_label_failed",
@@ -1095,6 +1121,12 @@ def handle_merge(pr: dict) -> int:
             apply_pr_transition(
                 pr_number, "approved_to_human",
                 log_prefix="cai merge",
+                divert_reason=(
+                    "cai-merge tried to close this PR as a high-"
+                    "confidence reject, but `gh pr close` failed. The "
+                    "linked issue has been flagged `:merge-blocked`. "
+                    "A human must close the PR manually."
+                ),
             )
             log_run("merge", repo=REPO, pr=pr_number,
                     duration=dur(), result="close_failed", exit=0)
@@ -1166,6 +1198,12 @@ def handle_merge(pr: dict) -> int:
             apply_pr_transition(
                 pr_number, "approved_to_human",
                 log_prefix="cai merge",
+                divert_reason=(
+                    "cai-merge verdict was to merge, but `gh pr merge` "
+                    "failed. The PR is still open; a human must "
+                    "diagnose the merge refusal and either merge "
+                    "manually or revise the PR."
+                ),
             )
             log_run("merge", repo=REPO, pr=pr_number,
                     duration=dur(), result="merge_failed", exit=0)
@@ -1236,6 +1274,12 @@ def handle_merge(pr: dict) -> int:
         apply_pr_transition(
             pr_number, "approved_to_human",
             log_prefix="cai merge",
+            divert_reason=(
+                f"cai-merge verdict was `{confidence}` (below the "
+                f"configured threshold `{_MERGE_THRESHOLD}`). Holding "
+                f"the PR at `:pr-human-needed` so a human reviews the "
+                f"merge verdict comment and decides next steps."
+            ),
         )
         log_run("merge", repo=REPO, pr=pr_number,
                 duration=dur(), result="held", exit=0)

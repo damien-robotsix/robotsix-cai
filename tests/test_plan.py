@@ -410,17 +410,18 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         # The confidence-gated transition must NOT have been called.
         mock_gated.assert_not_called()
         # Instead, the direct planned_to_human transition must fire.
-        args, _ = mock_apply.call_args
+        args, kwargs = mock_apply.call_args
         self.assertEqual(args[0], 982)
         self.assertEqual(args[1], "planned_to_human")
-        # And a bespoke divert comment must be posted.
-        post_args, _ = mock_post.call_args
-        self.assertEqual(post_args[0], 982)
+        # The divert reason must be passed as a kwarg to apply_transition
+        # (which now posts the MARKER comment itself — no direct _post_issue_comment).
+        divert_reason = kwargs.get("divert_reason", "")
         self.assertIn(
             "Plan diverges from refined-issue preference",
-            post_args[1],
+            divert_reason,
         )
-        self.assertIn("admin approval required", post_args[1])
+        self.assertIn("admin approval required", divert_reason)
+        mock_post.assert_not_called()
 
     @patch("cai_lib.actions.plan._post_issue_comment")
     @patch("cai_lib.actions.plan.apply_transition")
@@ -494,10 +495,12 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         mock_gated.assert_not_called()
-        args, _ = mock_apply.call_args
+        args, kwargs = mock_apply.call_args
         self.assertEqual(args[1], "planned_to_human")
-        post_args, _ = mock_post.call_args
-        self.assertIn("admin approval required", post_args[1])
+        # divert_reason kwarg must carry the admin-approval message
+        divert_reason = kwargs.get("divert_reason", "")
+        self.assertIn("admin approval required", divert_reason)
+        mock_post.assert_not_called()
 
 
 class TestParseRequiresHumanReview(unittest.TestCase):

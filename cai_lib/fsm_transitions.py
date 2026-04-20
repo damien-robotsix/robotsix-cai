@@ -486,6 +486,8 @@ def apply_transition(
     extra_remove: Sequence[str] = (),
     log_prefix: str = "cai",
     set_labels=None,
+    divert_reason: Optional[str] = None,
+    post_comment=None,
 ) -> bool:
     """Apply a named issue FSM transition via ``_set_labels``.
 
@@ -499,8 +501,31 @@ def apply_transition(
 
     *set_labels* is injectable for tests; defaults to
     ``cai_lib.github._set_labels``.
+
+    **HUMAN_NEEDED invariant (#1009).** When ``transition.to_state`` is
+    :attr:`IssueState.HUMAN_NEEDED`, the caller MUST pass a non-empty
+    *divert_reason*. The helper then both applies the label AND posts a
+    ``_render_human_divert_reason``-rendered MARKER comment on the issue
+    — guaranteeing every park at ``:human-needed`` has a parseable audit
+    trail for ``_fetch_human_needed_issues`` and ``cai unblock``. Silent
+    diverts (reason missing) are refused with a log and ``return False``
+    so the gap is load-bearing rather than hidden. *post_comment* is
+    injectable for tests; defaults to
+    ``cai_lib.github._post_issue_comment``.
     """
     transition = find_transition(transition_name, ISSUE_TRANSITIONS)
+
+    if transition.to_state == IssueState.HUMAN_NEEDED and not (
+        divert_reason and divert_reason.strip()
+    ):
+        print(
+            f"[{log_prefix}] refusing silent HUMAN_NEEDED divert "
+            f"{transition_name!r} on #{issue_number}: caller must pass "
+            f"a non-empty divert_reason so the divert-reason comment "
+            f"can be posted (see cai_lib.fsm_transitions invariant)",
+            file=sys.stderr,
+        )
+        return False
 
     if current_labels is not None:
         current = get_issue_state(current_labels)
@@ -516,12 +541,26 @@ def apply_transition(
     if set_labels is None:
         from cai_lib.github import _set_labels as set_labels  # local import — avoids cycle at module load
 
-    return set_labels(
+    ok = set_labels(
         issue_number,
         add=list(transition.labels_add),
         remove=list(transition.labels_remove) + list(extra_remove),
         log_prefix=log_prefix,
     )
+    if ok and transition.to_state == IssueState.HUMAN_NEEDED:
+        if post_comment is None:
+            from cai_lib.github import _post_issue_comment as post_comment  # local import — avoids cycle
+        post_comment(
+            issue_number,
+            _render_human_divert_reason(
+                transition_name=transition_name,
+                transition=transition,
+                confidence=None,
+                extra=divert_reason or "",
+            ),
+            log_prefix=log_prefix,
+        )
+    return ok
 
 
 def _render_human_divert_reason(
@@ -669,6 +708,8 @@ def apply_pr_transition(
     current_pr: Optional[dict] = None,
     log_prefix: str = "cai",
     set_pr_labels=None,
+    divert_reason: Optional[str] = None,
+    post_comment=None,
 ) -> bool:
     """Apply a named PR FSM transition via ``_set_pr_labels``.
 
@@ -678,8 +719,29 @@ def apply_pr_transition(
 
     *set_pr_labels* is injectable for tests; defaults to
     ``cai_lib.github._set_pr_labels``.
+
+    **PR_HUMAN_NEEDED invariant (#1009).** Mirrors the issue-side
+    ``apply_transition``: when ``transition.to_state`` is
+    :attr:`PRState.PR_HUMAN_NEEDED`, the caller MUST pass a non-empty
+    *divert_reason*, and on success a MARKER-bearing comment rendered
+    by :func:`_render_human_divert_reason` is posted on the PR so
+    ``_fetch_human_needed_issues`` can parse the reason and
+    ``cai unblock`` has context. *post_comment* is injectable for
+    tests; defaults to ``cai_lib.github._post_pr_comment``.
     """
     transition = find_transition(transition_name, PR_TRANSITIONS)
+
+    if transition.to_state == PRState.PR_HUMAN_NEEDED and not (
+        divert_reason and divert_reason.strip()
+    ):
+        print(
+            f"[{log_prefix}] refusing silent PR_HUMAN_NEEDED divert "
+            f"{transition_name!r} on #{pr_number}: caller must pass "
+            f"a non-empty divert_reason so the divert-reason comment "
+            f"can be posted (see cai_lib.fsm_transitions invariant)",
+            file=sys.stderr,
+        )
+        return False
 
     if current_pr is not None:
         current = get_pr_state(current_pr)
@@ -695,12 +757,26 @@ def apply_pr_transition(
     if set_pr_labels is None:
         from cai_lib.github import _set_pr_labels as set_pr_labels  # local import — avoids cycle at module load
 
-    return set_pr_labels(
+    ok = set_pr_labels(
         pr_number,
         add=list(transition.labels_add),
         remove=list(transition.labels_remove),
         log_prefix=log_prefix,
     )
+    if ok and transition.to_state == PRState.PR_HUMAN_NEEDED:
+        if post_comment is None:
+            from cai_lib.github import _post_pr_comment as post_comment  # local import — avoids cycle
+        post_comment(
+            pr_number,
+            _render_human_divert_reason(
+                transition_name=transition_name,
+                transition=transition,
+                confidence=None,
+                extra=divert_reason or "",
+            ),
+            log_prefix=log_prefix,
+        )
+    return ok
 
 
 def apply_pr_transition_with_confidence(
@@ -850,6 +926,102 @@ def _build_mermaid_machine(transitions_list: list[Transition]) -> GraphMachine:
         show_conditions=True,
         show_auto_transitions=False,
     )
+
+
+def backfill_silent_human_needed_comments(
+    *,
+    gh_json=None,
+    post_issue_comment=None,
+    post_pr_comment=None,
+    log_prefix: str = "cai cycle",
+) -> list[tuple[str, int]]:
+    """Scan open issues/PRs parked at HUMAN_NEEDED / PR_HUMAN_NEEDED and
+    post a retroactive MARKER-bearing backfill comment on any entry that
+    has no MARKER comment in its history.
+
+    This is the self-healing counterpart to the ``apply_transition``
+    invariant added for issue #1009. The invariant guarantees *future*
+    diverts carry a MARKER comment; the backfill sweep closes the gap
+    for issues parked before the fix (e.g. #932) so the audit agent's
+    ``human_needed_reason_missing`` finder and ``cai unblock`` have
+    context on pre-existing silent diverts. Returns the list of
+    ``(kind, number)`` tuples that were backfilled (empty when nothing
+    was missing). The caller is responsible for logging the result.
+
+    All dependencies (``gh_json``, the two comment posters) are
+    injectable for tests; defaults read from ``cai_lib.github``.
+    """
+    MARKER = "🙋 Human attention needed"
+    from cai_lib.config import LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED, REPO
+
+    if gh_json is None:
+        from cai_lib.github import _gh_json as gh_json
+    if post_issue_comment is None:
+        from cai_lib.github import _post_issue_comment as post_issue_comment
+    if post_pr_comment is None:
+        from cai_lib.github import _post_pr_comment as post_pr_comment
+
+    backfilled: list[tuple[str, int]] = []
+    checks = [
+        ("issue", LABEL_HUMAN_NEEDED, post_issue_comment),
+        ("pr", LABEL_PR_HUMAN_NEEDED, post_pr_comment),
+    ]
+    for kind, label, poster in checks:
+        try:
+            items = gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", label,
+                "--state", "open",
+                "--json", "number,labels,comments",
+                "--limit", "100",
+            ]) or []
+        except Exception as exc:
+            print(
+                f"[{log_prefix}] backfill: gh issue list --label {label} failed: {exc}",
+                file=sys.stderr,
+            )
+            continue
+        for it in items:
+            number = it.get("number")
+            if number is None:
+                continue
+            comments = it.get("comments") or []
+            if any(MARKER in (c.get("body") or "") for c in comments):
+                continue
+            body = (
+                f"**{MARKER}**\n\n"
+                f"Automation paused `(unknown)` — this {kind} was parked "
+                f"at `{label}` without a divert-reason comment. The "
+                f"original divert pre-dates the #1009 invariant, so the "
+                f"failing transition and confidence values cannot be "
+                f"recovered from the code path.\n\n"
+                f"- Required confidence: `(unknown)`\n"
+                f"- Reported confidence: `(unknown)`\n"
+                f"\n"
+                f"Review the issue/PR body and recent logs to decide "
+                f"next steps. Apply the `human:solved` label after "
+                f"leaving a comment to signal the divert is resolved "
+                f"and have the FSM resume.\n"
+                f"\n"
+                f"_Retroactively posted by `cai cycle` self-heal "
+                f"(issue #1009)._"
+            )
+            try:
+                poster(number, body, log_prefix=log_prefix)
+                backfilled.append((kind, number))
+                print(
+                    f"[{log_prefix}] backfilled silent divert on "
+                    f"{kind} #{number}",
+                    flush=True,
+                )
+            except Exception as exc:
+                print(
+                    f"[{log_prefix}] backfill failed for {kind} "
+                    f"#{number}: {exc}",
+                    file=sys.stderr,
+                )
+    return backfilled
 
 
 def render_fsm_mermaid(transitions: list[Transition], title: str = "FSM") -> str:

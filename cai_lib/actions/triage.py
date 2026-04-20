@@ -299,17 +299,15 @@ def handle_triage(issue: dict) -> int:
 
     # 6. Execute verdict.
     if decision == "HUMAN":
-        _post_issue_comment(
-            issue_number,
-            f"cai-triage routed this issue to `:human-needed` "
-            f"(confidence={confidence or 'MISSING'}).\n\n"
-            f"**Reasoning:** {reasoning}",
-            log_prefix="cai triage",
-        )
         apply_transition(
             issue_number, "triaging_to_human",
             current_labels=[LABEL_TRIAGING],
             log_prefix="cai triage",
+            divert_reason=(
+                f"cai-triage routed this issue to `:human-needed` "
+                f"(routing_confidence={confidence or 'MISSING'}).\n\n"
+                f"**Reasoning:** {reasoning}"
+            ),
         )
         action_taken = "human"
     elif decision in ("PLAN_APPROVE", "APPLY"):
