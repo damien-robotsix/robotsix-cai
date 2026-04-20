@@ -42,6 +42,81 @@ class TestCheckWorkflowsLabels(unittest.TestCase):
         self.assertIn("check-workflows:raised", LABELS_TO_DELETE)
 
 
+class TestUpdateCheckKindCodePrelabel(unittest.TestCase):
+    """cai-update-check findings always require source-file edits,
+    so kind:code is pre-applied at create_issue time and guaranteed
+    to exist via UPDATE_CHECK_LABELS. Prevents the #980 divert
+    class where an update-check finding got mis-classified as
+    kind:maintenance and routed to cai-maintain (issue #991).
+    """
+
+    def test_kind_code_in_update_check_labels(self):
+        from cai_lib.publish import UPDATE_CHECK_LABELS
+        names = [name for name, _, _ in UPDATE_CHECK_LABELS]
+        self.assertIn("kind:code", names)
+
+    def test_create_issue_passes_kind_code_for_update_check(self):
+        from cai_lib import publish as pub
+        captured = {}
+
+        class FakeResult:
+            returncode = 0
+
+        def fake_run(argv, check=False, capture_output=False):
+            captured["argv"] = list(argv)
+            return FakeResult()
+
+        f = pub.Finding(
+            title="Bump CLAUDE_CODE_VERSION to 2.1.114",
+            category="version_update",
+            key="update-check-2.1.114",
+            confidence="high",
+            evidence="Release notes mention a relevant fix.",
+            remediation="Edit Dockerfile line 12.",
+        )
+        with mock.patch.object(pub.subprocess, "run", side_effect=fake_run):
+            rc = pub.create_issue(f, namespace="update-check")
+        self.assertEqual(rc, 0)
+        # Extract the --label argument value from the captured argv.
+        argv = captured["argv"]
+        idx = argv.index("--label")
+        label_arg = argv[idx + 1]
+        labels = label_arg.split(",")
+        self.assertIn("kind:code", labels)
+        self.assertIn("auto-improve", labels)
+        self.assertIn("auto-improve:raised", labels)
+
+    def test_create_issue_does_not_pass_kind_code_for_other_namespaces(self):
+        """Only update-check should pre-apply kind:code; other namespaces
+        still rely on cai-triage's haiku classifier to set kind."""
+        from cai_lib import publish as pub
+        captured = {}
+
+        class FakeResult:
+            returncode = 0
+
+        def fake_run(argv, check=False, capture_output=False):
+            captured["argv"] = list(argv)
+            return FakeResult()
+
+        f = pub.Finding(
+            title="Some finding",
+            category="reliability",
+            key="analyzer-1",
+            confidence="high",
+            evidence="ev",
+            remediation="rm",
+        )
+        with mock.patch.object(pub.subprocess, "run", side_effect=fake_run):
+            rc = pub.create_issue(f, namespace="auto-improve")
+        self.assertEqual(rc, 0)
+        argv = captured["argv"]
+        idx = argv.index("--label")
+        label_arg = argv[idx + 1]
+        labels = label_arg.split(",")
+        self.assertNotIn("kind:code", labels)
+
+
 class TestFindingBodyForDupCheck(unittest.TestCase):
 
     def test_body_contains_evidence_and_remediation(self):

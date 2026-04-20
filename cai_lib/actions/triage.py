@@ -117,6 +117,37 @@ def _ops_body_has_valid_maintenance_op(ops_body: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Pre-applied kind label detection
+# ---------------------------------------------------------------------------
+
+
+def _prelabeled_kind(label_names: list[str]) -> str | None:
+    """Return ``"code"`` / ``"maintenance"`` / ``None`` based on any
+    ``kind:code`` or ``kind:maintenance`` already present on the issue.
+
+    Raising agents with a narrow remit (e.g. cai-update-check whose
+    findings are always source-file edits) pre-apply a ``kind:*``
+    label at issue creation time via ``cai_lib.publish.create_issue``.
+    The triage handler treats that pre-applied label as authoritative
+    and overrides the haiku classifier's own ``kind`` verdict —
+    preventing the #980-class divert where a source-edit finding
+    got classified ``kind:maintenance`` and routed to cai-maintain
+    (issue #991).
+
+    If both labels are somehow present, ``"code"`` wins — it is the
+    safer default because a mis-labelled ``code`` finding walks
+    through the normal implement pipeline (which handles both
+    edit-shaped and ops-shaped remediations), while a mis-labelled
+    ``maintenance`` finding diverts cai-maintain to ``:human-needed``.
+    """
+    if LABEL_KIND_CODE in label_names:
+        return "code"
+    if LABEL_KIND_MAINTENANCE in label_names:
+        return "maintenance"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Handler
 # ---------------------------------------------------------------------------
 
@@ -240,6 +271,23 @@ def handle_triage(issue: dict) -> int:
     confidence = tool_input.get("routing_confidence", "")
     kind       = tool_input.get("kind", "code")
     reasoning  = tool_input.get("reasoning", "(no reasoning)")
+
+    # A pre-applied kind:code / kind:maintenance label on the issue
+    # at triage entry is authoritative and overrides the haiku
+    # classifier's own ``kind`` judgement. cai-update-check uses
+    # this mechanism (via cai_lib.publish.create_issue for the
+    # ``update-check`` namespace) to guarantee its source-file-edit
+    # findings are never flipped to ``kind:maintenance`` / cai-maintain
+    # (issue #991; prevents the #980 divert class).
+    prelabel_kind = _prelabeled_kind(issue_labels)
+    if prelabel_kind is not None and prelabel_kind != kind:
+        print(
+            f"[cai triage] #{issue_number}: overriding agent kind "
+            f"'{kind}' with pre-applied label kind '{prelabel_kind}' "
+            f"(found on issue labels at triage entry)",
+            flush=True,
+        )
+        kind = prelabel_kind
 
     print(
         f"[cai triage] verdict: decision={decision} confidence={confidence} "

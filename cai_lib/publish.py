@@ -234,6 +234,13 @@ CODE_AUDIT_LABELS = [
 UPDATE_CHECK_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
+    # cai-update-check findings are 100% source-file edits
+    # (Dockerfile/settings.json/cai.py/agent-prompt) — never
+    # declarative gh-CLI ops expressible in a cai-maintain block.
+    # We attach kind:code at create_issue time so triage never
+    # mis-routes an update-check issue to kind:maintenance /
+    # cai-maintain (issue #991; prevents the #980 divert class).
+    ("kind:code", "0075ca", "Triage: issue requires a code change"),
 ]
 
 CHECK_WORKFLOWS_LABELS = [
@@ -538,7 +545,7 @@ def create_issue(
         source_file = ".claude/agents/cai-code-audit.md"
     elif namespace == "update-check":
         source_note = "cai update-check agent"
-        source_file = ".claude/agents/cai-update-check.md"
+        source_file = ".claude/agents/ops/cai-update-check.md"
     elif namespace == "check-workflows":
         source_note = "cai check-workflows agent"
         source_file = ".claude/agents/cai-check-workflows.md"
@@ -596,6 +603,18 @@ def create_issue(
             "auto-improve",
             "auto-improve:raised",
             "check-workflows",
+        ])
+    elif namespace == "update-check":
+        # cai-update-check findings always require a source-file
+        # edit (Dockerfile bump, .claude/settings.json flag,
+        # cai.py/cai_lib invocation change, agent-prompt update).
+        # Pre-apply kind:code at creation time so cai-triage honors
+        # it as authoritative and never flips the issue to
+        # kind:maintenance / cai-maintain (issue #991).
+        labels = ",".join([
+            "auto-improve",
+            "auto-improve:raised",
+            "kind:code",
         ])
     else:
         labels = ",".join([

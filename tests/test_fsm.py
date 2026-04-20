@@ -1057,5 +1057,87 @@ class TestTriagingHandlerOpsValidation(unittest.TestCase):
         self.assertNotIn(LABEL_KIND_CODE, labels_added)
 
 
+class TestTriagingPrelabeledKindOverride(unittest.TestCase):
+    """_prelabeled_kind() + handle_triage() override logic: a
+    kind:code / kind:maintenance label already present on the
+    issue at triage entry is authoritative and overrides the
+    haiku classifier's ``kind`` verdict (issue #991).
+    """
+
+    def test_prelabeled_kind_returns_code_when_kind_code_present(self):
+        from cai_lib.actions.triage import _prelabeled_kind
+        self.assertEqual(
+            _prelabeled_kind([LABEL_TRIAGING, LABEL_KIND_CODE]),
+            "code",
+        )
+
+    def test_prelabeled_kind_returns_maintenance_when_kind_maintenance_present(self):
+        from cai_lib.actions.triage import _prelabeled_kind
+        self.assertEqual(
+            _prelabeled_kind([LABEL_KIND_MAINTENANCE]),
+            "maintenance",
+        )
+
+    def test_prelabeled_kind_returns_none_when_absent(self):
+        from cai_lib.actions.triage import _prelabeled_kind
+        self.assertIsNone(_prelabeled_kind([LABEL_TRIAGING]))
+        self.assertIsNone(_prelabeled_kind([]))
+
+    def test_prelabel_overrides_agent_maintenance_verdict(self):
+        """A pre-applied kind:code label must force handle_triage to
+        re-route an APPLY+maintenance+HIGH verdict through REFINE as
+        kind:code (the pair_ok check fails once kind is overridden)."""
+        import json
+        import subprocess
+        from unittest import mock
+        import cai_lib.actions.triage as T
+
+        issue = {
+            "number": 991,
+            "title": "Bump claude-code version",
+            "body": "Release notes mention a relevant fix.",
+            "labels": [
+                {"name": LABEL_TRIAGING},
+                {"name": LABEL_KIND_CODE},
+            ],
+        }
+        verdict = {
+            "routing_decision": "APPLY",
+            "routing_confidence": "HIGH",
+            "kind": "maintenance",
+            "skip_confidence": "HIGH",
+            "reasoning": "looks ops-shaped to the classifier",
+            "ops": "1. label add 991 kind:maintenance\n2. close 991\n",
+        }
+        fake_result = subprocess.CompletedProcess(
+            args=["claude"], returncode=0,
+            stdout=json.dumps(verdict), stderr="",
+        )
+        transitions_called = []
+
+        def fake_apply_transition(issue_number, transition_name, **kwargs):
+            transitions_called.append(transition_name)
+            return True
+
+        labels_added = []
+
+        def fake_set_labels(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            labels_added.extend(add)
+            return True
+
+        with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
+             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
+             mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
+             mock.patch.object(T, "log_run"):
+            rc = T.handle_triage(issue)
+
+        self.assertEqual(rc, 0)
+        self.assertIn("triaging_to_refining", transitions_called)
+        self.assertNotIn("triaging_to_applying", transitions_called)
+        self.assertIn(LABEL_KIND_CODE, labels_added)
+        self.assertNotIn(LABEL_KIND_MAINTENANCE, labels_added)
+
+
 if __name__ == "__main__":
     unittest.main()
