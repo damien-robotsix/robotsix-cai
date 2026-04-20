@@ -30,8 +30,9 @@ subagents themselves; each is invoked by a `cmd_*` function in
   — weekly audit of `.claude/agents/*.md` definitions.
 - [`.claude/agents/audit/cai-audit-code-reduction.md`](../../.claude/agents/audit/cai-audit-code-reduction.md),
   [`cai-audit-cost-reduction.md`](../../.claude/agents/audit/cai-audit-cost-reduction.md),
+  [`cai-audit-external-libs.md`](../../.claude/agents/audit/cai-audit-external-libs.md),
   [`cai-audit-workflow-enhancement.md`](../../.claude/agents/audit/cai-audit-workflow-enhancement.md)
-  — on-demand per-module audits (code shrink, spend, workflow).
+  — on-demand per-module audits (code shrink, spend, external libraries, workflow).
 - [`.claude/agents/audit/cai-confirm.md`](../../.claude/agents/audit/cai-confirm.md)
   — verifies merged PRs resolved their issues.
 
