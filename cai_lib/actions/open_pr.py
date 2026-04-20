@@ -74,6 +74,10 @@ def handle_open_to_review(pr: dict) -> int:
             pr_number, "open_to_human",
             current_pr=pr,
             log_prefix="cai dispatch",
+            divert_reason=(
+                f"Non-bot-branch PR (branch={branch!r}) cannot be "
+                f"auto-merged; requires manual review."
+            ),
         )
         log_run("dispatch", repo=REPO, pr=pr_number,
                 result="not_bot_branch_open", exit=0)
