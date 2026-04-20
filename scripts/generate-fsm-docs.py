@@ -16,11 +16,40 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from transitions import Machine  # noqa: E402
+
 from cai_lib.fsm import (  # noqa: E402
     ISSUE_TRANSITIONS, PR_TRANSITIONS, render_fsm_mermaid,
 )
+from cai_lib.fsm_states import IssueState, PRState  # noqa: E402
 
 OUTPUT = REPO_ROOT / "docs" / "fsm.md"
+
+
+def _validate_catalog(state_enum, transition_list, name: str) -> None:
+    """Build a :class:`transitions.Machine` from the catalog; raise on drift.
+
+    Surfaces unknown state references as ``ValueError`` at CI time so
+    catalog typos can never sneak into the Mermaid output. ``name`` is
+    the catalog identifier used for error context if the call raises.
+    """
+    states = [s.name for s in state_enum]
+    transitions_spec = [
+        {
+            "trigger": t.name,
+            "source": t.from_state.name,
+            "dest": t.to_state.name,
+        }
+        for t in transition_list
+    ]
+    Machine(
+        model=None,
+        states=states,
+        transitions=transitions_spec,
+        initial=states[0],
+        auto_transitions=False,
+        ignore_invalid_triggers=True,
+    )
 
 PAGE = """---
 title: Lifecycle FSM
@@ -49,6 +78,8 @@ nav_order: 5
 
 
 def main() -> int:
+    _validate_catalog(IssueState, ISSUE_TRANSITIONS, "ISSUE_TRANSITIONS")
+    _validate_catalog(PRState, PR_TRANSITIONS, "PR_TRANSITIONS")
     issue_diagram = render_fsm_mermaid(ISSUE_TRANSITIONS)
     pr_diagram = render_fsm_mermaid(PR_TRANSITIONS)
     OUTPUT.write_text(PAGE.format(
