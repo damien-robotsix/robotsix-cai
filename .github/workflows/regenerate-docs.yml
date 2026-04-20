@@ -28,6 +28,9 @@ jobs:
       - name: Regenerate CODEBASE_INDEX.md
         run: bash scripts/generate-index.sh
 
+      - name: Install script dependencies
+        run: pip install transitions>=0.9.3
+
       - name: Regenerate docs/fsm.md
         run: python scripts/generate-fsm-docs.py
 
