@@ -154,8 +154,8 @@ converge on the same minimal change with no ambiguity", or "Plan 1
 aligns with all settled architectural decisions in the refined issue
 and is concrete and minimal").
 
-**Do NOT cite either of the following as a weakness, and do NOT
-lower confidence below HIGH on these grounds alone** — both are
+**Do NOT cite any of the following as a weakness, and do NOT
+lower confidence below HIGH on these grounds alone** — all are
 documented, accepted mechanics, not novel risks:
 
 - **Staged full-file overwrite under `<work_dir>/.cai-staging/`** for
@@ -176,6 +176,28 @@ documented, accepted mechanics, not novel risks:
   correctness risk. Hard, numeric, or normative caps ("must not
   exceed N", "exactly N lines") are not soft caps and continue to
   lower confidence when violated.
+- **Prompt-only changes whose sole residual concern is LLM
+  compliance or nested-fence fragility.** When the chosen plan
+  modifies only agent prompts (`.claude/agents/**`, staged via
+  `.cai-staging/agents/`) or `CLAUDE.md` (staged via
+  `.cai-staging/claudemd/`) — no Python, shell, or other executable
+  source touched — and the only remaining worries are (a) whether
+  the implementing LLM will reliably apply the new instruction at
+  runtime, and/or (b) whether a nested triple-backtick code fence
+  inside the inserted block may collide with the surrounding
+  markdown, do **not** downgrade below HIGH on those grounds alone.
+  Both are implementation-detail risks the fix agent can mitigate
+  (escape inner fences with indented code or tilde `~~~`
+  delimiters; restate instructions as short imperatives). This
+  carve-out applies only when the plan has **independently verified
+  its structural assumptions against the source** — i.e., for any
+  literal marker, heading, JSON field, or constant the new
+  instruction tells an agent to match, the plan cites the exact
+  file and line/constant from which it derived the string (e.g.,
+  naming the Python constant in `cai_lib/` that emits the marker).
+  If the plan asserts literal strings without citing their source,
+  that is an unverified assumption and continues to lower
+  confidence per criterion 5 and the usual rules.
 
 Every other risk class (missing verbatim Edit/Write content per
 criterion 5, unverified assumptions, ambiguous scope, contradictions
