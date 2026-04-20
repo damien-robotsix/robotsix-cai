@@ -10,4 +10,4 @@ themselves.
 ## Entry points
 - `cai_lib/audit/cost.py` — Token/cost audit helpers.
 - `cai_lib/audit/modules.py` — `docs/modules.yaml` schema loader + coverage check.
-- `.claude/agents/audit/*.md` — Audit subagents (cai-audit, cai-analyze, cai-code-audit, cai-audit-code-reduction, cai-audit-cost-reduction, cai-audit-workflow-enhancement, cai-agent-audit, cai-confirm).
+- `.claude/agents/audit/*.md` — Audit subagents (cai-agent-audit, cai-analyze, cai-audit, cai-audit-code-reduction, cai-audit-cost-reduction, cai-audit-good-practices, cai-audit-workflow-enhancement, cai-code-audit, cai-confirm).
