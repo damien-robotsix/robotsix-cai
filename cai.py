@@ -298,10 +298,10 @@ from cai_lib.cmd_misc import (  # noqa: E402
 from cai_lib.cmd_agents import (  # noqa: E402
     cmd_analyze, cmd_audit, cmd_propose, cmd_code_audit,
     cmd_agent_audit, cmd_update_check, cmd_cost_optimize, cmd_external_scout,
+    cmd_audit_module,
 )
 from cai_lib.cmd_cycle import cmd_cycle, cmd_dispatch  # noqa: E402
 from cai_lib.transcript_sync import cmd_transcript_sync  # noqa: E402
-from cai_lib.audit.runner import cmd_audit_run, AUDIT_KINDS  # noqa: E402
 
 
 
@@ -322,29 +322,24 @@ def main() -> int:
     dispatch_parser.add_argument("--pr", type=int, default=None, help="Dispatch a specific PR by number")
 
     sub.add_parser("verify", help="Update labels based on PR merge state")
-    audit_p = sub.add_parser(
+    sub.add_parser(
         "audit",
+        help="Queue/PR consistency audit (legacy single-mode)",
+    )
+    audit_module_p = sub.add_parser(
+        "audit-module",
         help=(
-            "Queue/PR consistency audit (no kind) or on-demand per-module "
-            "audit (with <kind>)"
+            "On-demand per-module audit: iterate every module in "
+            "docs/modules.yaml and dispatch the matching on-demand "
+            "audit agent, publishing findings via the existing "
+            "dedup/dup-check pipeline."
         ),
     )
-    audit_p.add_argument(
-        "kind", nargs="?", default=None,
-        choices=list(AUDIT_KINDS),
-        help=(
-            "On-demand audit kind. Omit to run the legacy queue/PR consistency "
-            "audit; pass a kind to dispatch the matching on-demand agent over "
-            "modules declared in docs/modules.yaml."
-        ),
-    )
-    audit_p.add_argument(
-        "--module", default=None,
-        help="Audit only this module name from docs/modules.yaml",
-    )
-    audit_p.add_argument(
-        "--all", action="store_true", default=False,
-        help="Audit every module declared in docs/modules.yaml",
+    audit_module_p.add_argument(
+        "--kind",
+        required=True,
+        choices=["good-practices", "code-reduction", "cost-reduction", "workflow-enhancement"],
+        help="Per-module audit kind to dispatch",
     )
     sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
     sub.add_parser("agent-audit", help="Weekly audit of .claude/agents/ for consistency and usage")
@@ -416,7 +411,8 @@ def main() -> int:
         "analyze": cmd_analyze,
         "dispatch": cmd_dispatch,
         "verify": cmd_verify,
-        "audit": lambda args: cmd_audit_run(args) if args.kind else cmd_audit(args),
+        "audit": cmd_audit,
+        "audit-module": cmd_audit_module,
         "code-audit": cmd_code_audit,
         "agent-audit": cmd_agent_audit,
         "propose": cmd_propose,

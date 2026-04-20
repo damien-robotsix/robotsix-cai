@@ -102,6 +102,36 @@ AUDIT_EXTERNAL_LIBS_CATEGORIES = {
     "reinvented_stdlib",
 }
 
+AUDIT_GOOD_PRACTICES_CATEGORIES = {
+    "claude_best_practice",
+    "doc_drift",
+    "tool_misuse",
+    "model_tier_mismatch",
+}
+
+AUDIT_CODE_REDUCTION_CATEGORIES = {
+    "dead_code",
+    "duplicated_logic",
+    "over_abstraction",
+    "inline_helper",
+}
+
+AUDIT_COST_REDUCTION_CATEGORIES = {
+    "model_downgrade",
+    "prompt_cache_restructure",
+    "read_window_reduction",
+    "redundant_subagent",
+    "tool_list_bloat",
+    "loop_overhead",
+}
+
+AUDIT_WORKFLOW_ENHANCEMENT_CATEGORIES = {
+    "redundant_call",
+    "prompt_inefficiency",
+    "handoff_loop",
+    "deterministic_replacement",
+}
+
 # Labels we ensure exist before creating issues. These include FSM/lifecycle
 # state labels (auto-improve:*), PR state labels (pr:*), and kind labels (kind:*).
 # Category information is now stored in the issue body, not as labels. Idempotent —
@@ -226,6 +256,21 @@ AUDIT_EXTERNAL_LIBS_LABELS = [
     ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
     ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
 ]
+
+# Shared label list for the per-module on-demand audit namespaces
+# (good-practices, code-reduction, cost-reduction, workflow-enhancement).
+# Each of the four namespaces only needs the generic auto-improve entry
+# points — no source tag — so they all alias this one list to avoid
+# copy-pasting the same two rows four times.
+_AUTO_IMPROVE_RAISED_ONLY = [
+    ("auto-improve", "ededed", "Self-improvement finding raised by the analyzer"),
+    ("auto-improve:raised", "0e8a16", "Awaiting structured refinement before implement subagent picks it up"),
+]
+
+AUDIT_GOOD_PRACTICES_LABELS = _AUTO_IMPROVE_RAISED_ONLY
+AUDIT_CODE_REDUCTION_LABELS = _AUTO_IMPROVE_RAISED_ONLY
+AUDIT_COST_REDUCTION_LABELS = _AUTO_IMPROVE_RAISED_ONLY
+AUDIT_WORKFLOW_ENHANCEMENT_LABELS = _AUTO_IMPROVE_RAISED_ONLY
 
 
 @dataclass
@@ -356,7 +401,42 @@ def _label_set_for(namespace: str):
         return EXTERNAL_SCOUT_LABELS
     if namespace == "audit-external-libs":
         return AUDIT_EXTERNAL_LIBS_LABELS
+    if namespace == "audit-good-practices":
+        return AUDIT_GOOD_PRACTICES_LABELS
+    if namespace == "audit-code-reduction":
+        return AUDIT_CODE_REDUCTION_LABELS
+    if namespace == "audit-cost-reduction":
+        return AUDIT_COST_REDUCTION_LABELS
+    if namespace == "audit-workflow-enhancement":
+        return AUDIT_WORKFLOW_ENHANCEMENT_LABELS
     return LABELS
+
+
+def _category_set_for(namespace: str) -> set[str]:
+    """Return the valid-category set for the given namespace."""
+    if namespace == "audit":
+        return AUDIT_CATEGORIES
+    if namespace == "code-audit":
+        return CODE_AUDIT_CATEGORIES
+    if namespace == "update-check":
+        return UPDATE_CHECK_CATEGORIES
+    if namespace == "check-workflows":
+        return CHECK_WORKFLOWS_CATEGORIES
+    if namespace == "agent-audit":
+        return AGENT_AUDIT_CATEGORIES
+    if namespace == "external-scout":
+        return EXTERNAL_SCOUT_CATEGORIES
+    if namespace == "audit-external-libs":
+        return AUDIT_EXTERNAL_LIBS_CATEGORIES
+    if namespace == "audit-good-practices":
+        return AUDIT_GOOD_PRACTICES_CATEGORIES
+    if namespace == "audit-code-reduction":
+        return AUDIT_CODE_REDUCTION_CATEGORIES
+    if namespace == "audit-cost-reduction":
+        return AUDIT_COST_REDUCTION_CATEGORIES
+    if namespace == "audit-workflow-enhancement":
+        return AUDIT_WORKFLOW_ENHANCEMENT_CATEGORIES
+    return VALID_CATEGORIES
 
 
 def ensure_labels(namespace: str = "auto-improve") -> None:
@@ -383,7 +463,7 @@ def ensure_all_labels() -> None:
     and CODE_AUDIT_LABELS).
     """
     seen: set[str] = set()
-    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS, AGENT_AUDIT_LABELS, EXTERNAL_SCOUT_LABELS, AUDIT_EXTERNAL_LIBS_LABELS):
+    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS, AGENT_AUDIT_LABELS, EXTERNAL_SCOUT_LABELS, AUDIT_EXTERNAL_LIBS_LABELS, AUDIT_GOOD_PRACTICES_LABELS, AUDIT_CODE_REDUCTION_LABELS, AUDIT_COST_REDUCTION_LABELS, AUDIT_WORKFLOW_ENHANCEMENT_LABELS):
         for name, color, description in label_set:
             if name in seen:
                 continue
@@ -437,8 +517,19 @@ def issue_exists(key: str) -> bool:
     return bool(result.stdout.strip() and result.stdout.strip() != "[]")
 
 
-def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
-    """Create one issue. Returns gh's exit code."""
+def create_issue(
+    f: Finding,
+    namespace: str = "auto-improve",
+    *,
+    module_name: str | None = None,
+) -> int:
+    """Create one issue. Returns gh's exit code.
+
+    When ``module_name`` is set, a ``<!-- module: {name} -->`` HTML
+    comment is appended on its own line just before the closing
+    ``---`` separator. Future per-module audit runs can scope their
+    dedup search by both fingerprint and module footer.
+    """
     if namespace == "audit":
         source_note = "cai audit agent"
         source_file = ".claude/agents/cai-audit.md"
@@ -460,9 +551,22 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     elif namespace == "audit-external-libs":
         source_note = "cai external-libs audit agent"
         source_file = ".claude/agents/audit/cai-audit-external-libs.md"
+    elif namespace == "audit-good-practices":
+        source_note = "cai good-practices audit agent"
+        source_file = ".claude/agents/audit/cai-audit-good-practices.md"
+    elif namespace == "audit-code-reduction":
+        source_note = "cai code-reduction audit agent"
+        source_file = ".claude/agents/audit/cai-audit-code-reduction.md"
+    elif namespace == "audit-cost-reduction":
+        source_note = "cai cost-reduction audit agent"
+        source_file = ".claude/agents/audit/cai-audit-cost-reduction.md"
+    elif namespace == "audit-workflow-enhancement":
+        source_note = "cai workflow-enhancement audit agent"
+        source_file = ".claude/agents/audit/cai-audit-workflow-enhancement.md"
     else:
         source_note = "cai self-analyzer"
         source_file = ".claude/agents/cai-analyze.md"
+    module_footer = f"<!-- module: {module_name} -->\n" if module_name else ""
     body = (
         f"<!-- fingerprint: {f.key} -->\n"
         f"**Category:** `{f.category}`  \n"
@@ -476,6 +580,7 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
         f"\n"
         f"{f.remediation}\n"
         f"\n"
+        f"{module_footer}"
         f"---\n"
         f"_Raised automatically by the {source_note}. "
         f"See `{source_file}`._\n"
@@ -511,46 +616,50 @@ def create_issue(f: Finding, namespace: str = "auto-improve") -> int:
     return result.returncode
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
-    parser.add_argument(
-        "--namespace", default="auto-improve",
-        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit", "external-scout", "audit-external-libs"],
-        help="Label namespace to use (default: auto-improve)",
-    )
-    parser.add_argument(
-        "--findings-file",
-        required=True,
-        help="Path to a JSON file with {\"findings\": [...]}.",
-    )
-    args = parser.parse_args()
-    namespace = args.namespace
-    if namespace == "audit":
-        valid_cats = AUDIT_CATEGORIES
-    elif namespace == "code-audit":
-        valid_cats = CODE_AUDIT_CATEGORIES
-    elif namespace == "update-check":
-        valid_cats = UPDATE_CHECK_CATEGORIES
-    elif namespace == "check-workflows":
-        valid_cats = CHECK_WORKFLOWS_CATEGORIES
-    elif namespace == "agent-audit":
-        valid_cats = AGENT_AUDIT_CATEGORIES
-    elif namespace == "external-scout":
-        valid_cats = EXTERNAL_SCOUT_CATEGORIES
-    elif namespace == "audit-external-libs":
-        valid_cats = AUDIT_EXTERNAL_LIBS_CATEGORIES
-    else:
-        valid_cats = VALID_CATEGORIES
+def publish_findings(
+    findings_path: str,
+    namespace: str = "auto-improve",
+    module_name: str | None = None,
+) -> int:
+    """Load, dup-check, and publish findings as GitHub issues.
 
-    findings = load_findings_json(args.findings_file, valid_cats)
+    This is the shared implementation used by both the ``python
+    publish.py`` CLI (via :func:`main`) and the in-process callers
+    (e.g. the per-module audit runner which shells out with
+    ``--module`` and may also invoke this directly in future).
+
+    Parameters
+    ----------
+    findings_path:
+        Path to a JSON file shaped ``{"findings": [...]}``.
+    namespace:
+        Label / category namespace. Must be registered in
+        :func:`_category_set_for` and :func:`_label_set_for`.
+    module_name:
+        Optional module identifier. When set, each created issue
+        carries a ``<!-- module: {name} -->`` footer so future audit
+        runs can scope their dedup search by module.
+
+    Returns
+    -------
+    int
+        0 on full success (including zero valid findings — an empty
+        findings file from a per-module audit run is not an error).
+        1 if any ``gh issue create`` call returned non-zero.
+    """
+    valid_cats = _category_set_for(namespace)
+    findings = load_findings_json(findings_path, valid_cats)
 
     if not findings:
+        # Empty findings is a valid per-module outcome (module looks
+        # healthy). main() historically treated this as an error;
+        # keep the message but return 0 so per-module loops don't
+        # spuriously count "clean" modules as failures.
         print(
-            "[publish] ERROR: findings file produced 0 valid findings — "
-            "all entries were rejected due to missing or invalid fields.",
-            file=sys.stderr,
+            f"[publish] no valid findings in {findings_path!r} for namespace "
+            f"{namespace!r} (module={module_name!r})"
         )
-        return 1
+        return 0
 
     print(f"[publish] parsed {len(findings)} finding(s)")
     ensure_labels(namespace)
@@ -587,7 +696,7 @@ def main() -> int:
                 )
                 skipped_duplicate += 1
                 continue
-        rc = create_issue(f, namespace)
+        rc = create_issue(f, namespace, module_name=module_name)
         if rc == 0:
             print(f"[publish] created: {f.key}")
             created += 1
@@ -596,10 +705,39 @@ def main() -> int:
             failed += 1
 
     print(
-        f"[publish] done. created={created} skipped={skipped} "
+        f"[publish] done. namespace={namespace} module={module_name} "
+        f"created={created} skipped={skipped} "
         f"skipped_duplicate={skipped_duplicate} failed={failed}"
     )
     return 1 if failed else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
+    parser.add_argument(
+        "--namespace", default="auto-improve",
+        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit", "external-scout", "audit-external-libs", "audit-good-practices", "audit-code-reduction", "audit-cost-reduction", "audit-workflow-enhancement"],
+        help="Label namespace to use (default: auto-improve)",
+    )
+    parser.add_argument(
+        "--findings-file",
+        required=True,
+        help="Path to a JSON file with {\"findings\": [...]}.",
+    )
+    parser.add_argument(
+        "--module", default=None,
+        help=(
+            "Optional module name. When set, every created issue "
+            "carries a <!-- module: NAME --> body footer so future "
+            "audit runs can scope dedup by module."
+        ),
+    )
+    args = parser.parse_args()
+    return publish_findings(
+        findings_path=args.findings_file,
+        namespace=args.namespace,
+        module_name=args.module,
+    )
 
 
 if __name__ == "__main__":
