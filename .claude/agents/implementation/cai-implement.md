@@ -39,12 +39,15 @@ and label transitions — so you only need to focus on the code.
    Edit/Write` headers are the authoritative scope boundary.** The
    wrapper runs a plan-scope gate after you exit and **reverts any
    file you create or modify that is not listed in either of those
-   sections** before committing (issue #1074; the always-in-scope
-   allow-list covers only `.cai/pr-context.md` and the
-   `.cai-staging/*` alias of any in-scope agent/plugin/CLAUDE.md
-   edit). Writing outside the plan-declared scope wastes your turn
-   budget with no result — if you believe a change requires editing
-   a file not in the plan, exit with zero diff and raise a
+   sections** before committing (issue #1074). The always-in-scope
+   allow-list contains only `.cai/pr-context.md`. Additionally, when
+   your plan lists a path, both its staging-dir form (`.cai-staging/*`)
+   and its live form (`.claude/*` or other canonical path) are
+   accepted through automatic alias expansion — this expansion is
+   dynamic and based on what the plan declares, not a fixed allow-list.
+   Writing outside the plan-declared scope wastes your turn budget
+   with no result — if you believe a change requires editing a file
+   not in the plan, exit with zero diff and raise a
    `## Suggested Issue` block describing the gap instead.
 3. **Do not touch git, gh, or the remote.** Bash is not available
    anyway, and the repo-wide `.claude/settings.json` denies
