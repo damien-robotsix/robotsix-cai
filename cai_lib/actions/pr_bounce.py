@@ -215,6 +215,14 @@ def handle_pr_bounce(issue: dict) -> int:
                 issue_number, "pr_to_human_needed",
                 current_labels=label_names,
                 log_prefix="cai dispatch",
+                divert_reason=(
+                    f"Linked PR #{closed_pr['number']} was closed "
+                    f"unmerged by `{actor_str}` (our login: "
+                    f"`{our_login or 'unknown'}`). Because the closer "
+                    f"is not this container, the close was a deliberate "
+                    f"human decision — a human must decide the next "
+                    f"move for this issue."
+                ),
             )
         return 0 if ok else 1
 
@@ -229,5 +237,12 @@ def handle_pr_bounce(issue: dict) -> int:
         issue_number, "pr_to_human_needed",
         current_labels=label_names,
         log_prefix="cai dispatch",
+        divert_reason=(
+            f"Issue was at `:pr-open` but no PR (open or recently "
+            f"closed) could be found for branch "
+            f"`auto-improve/{issue_number}-*`. The label was applied "
+            f"without provenance — a human must decide whether to "
+            f"reopen a PR or revert the issue to a pre-PR state."
+        ),
     )
     return 0 if ok else 1

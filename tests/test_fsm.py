@@ -358,6 +358,123 @@ class TestApplyTransition(unittest.TestCase):
         self.assertEqual(t.from_state, IssueState.RAISED)
         self.assertEqual(t.to_state, IssueState.REFINING)
 
+    def test_human_needed_requires_divert_reason(self):
+        """apply_transition refuses a HUMAN_NEEDED divert without a reason (#1009)."""
+        calls, fake = self._recording_set_labels()
+        posted = []
+
+        def _fake_post(n, body, *, log_prefix="cai"):
+            posted.append({"n": n, "body": body})
+            return True
+
+        ok = apply_transition(
+            55, "triaging_to_human",
+            current_labels=[LABEL_TRIAGING],
+            set_labels=fake,
+            post_comment=_fake_post,
+        )
+        self.assertFalse(ok)
+        self.assertEqual(calls, [])
+        self.assertEqual(posted, [])
+
+    def test_human_needed_with_reason_posts_marker_comment(self):
+        """Successful HUMAN_NEEDED divert posts the MARKER-bearing comment (#1009)."""
+        calls, fake = self._recording_set_labels()
+        posted = []
+
+        def _fake_post(n, body, *, log_prefix="cai"):
+            posted.append({"n": n, "body": body})
+            return True
+
+        ok = apply_transition(
+            77, "triaging_to_human",
+            current_labels=[LABEL_TRIAGING],
+            set_labels=fake,
+            post_comment=_fake_post,
+            divert_reason="Triage verdict: HUMAN.",
+        )
+        self.assertTrue(ok)
+        self.assertEqual(len(calls), 1)
+        self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
+        self.assertEqual(len(posted), 1)
+        body = posted[0]["body"]
+        self.assertIn("🙋 Human attention needed", body)
+        self.assertIn("Automation paused `triaging_to_human`", body)
+        self.assertIn("Required confidence:", body)
+        self.assertIn("Reported confidence:", body)
+        self.assertIn("Triage verdict: HUMAN.", body)
+
+    def test_non_human_transition_ignores_reason_kwarg(self):
+        """Non-HUMAN transitions don't require or post a reason."""
+        calls, fake = self._recording_set_labels()
+        posted = []
+
+        def _fake_post(n, body, *, log_prefix="cai"):
+            posted.append({"n": n, "body": body})
+            return True
+
+        ok = apply_transition(
+            11, "raise_to_refining",
+            current_labels=[LABEL_RAISED],
+            set_labels=fake,
+            post_comment=_fake_post,
+        )
+        self.assertTrue(ok)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(posted, [])
+
+
+class TestBackfillSilentHumanNeeded(unittest.TestCase):
+    """Pins the self-healing backfill sweep (#1009, #932)."""
+
+    def test_backfills_issues_without_marker_comment(self):
+        from cai_lib.fsm import backfill_silent_human_needed_comments
+
+        # Simulate two parked issues: one silent (no MARKER comment),
+        # one already has a MARKER comment and must be skipped.
+        issue_lists = {
+            LABEL_HUMAN_NEEDED: [
+                {
+                    "number": 932,
+                    "labels": [{"name": LABEL_HUMAN_NEEDED}],
+                    "comments": [{"body": "some unrelated comment"}],
+                },
+                {
+                    "number": 980,
+                    "labels": [{"name": LABEL_HUMAN_NEEDED}],
+                    "comments": [
+                        {"body": "**🙋 Human attention needed**\n\n..."}
+                    ],
+                },
+            ],
+        }
+
+        def _fake_gh_json(argv):
+            # argv like: ["issue","list","--repo",REPO,"--label",LBL,...]
+            for i, tok in enumerate(argv):
+                if tok == "--label" and i + 1 < len(argv):
+                    return issue_lists.get(argv[i + 1], [])
+            return []
+
+        posted = []
+
+        def _fake_post_issue(n, body, *, log_prefix="cai"):
+            posted.append({"n": n, "body": body})
+
+        def _fake_post_pr(n, body, *, log_prefix="cai"):
+            posted.append({"n": n, "body": body})
+
+        backfilled = backfill_silent_human_needed_comments(
+            gh_json=_fake_gh_json,
+            post_issue_comment=_fake_post_issue,
+            post_pr_comment=_fake_post_pr,
+        )
+
+        self.assertEqual(backfilled, [("issue", 932)])
+        self.assertEqual(len(posted), 1)
+        self.assertEqual(posted[0]["n"], 932)
+        self.assertIn("🙋 Human attention needed", posted[0]["body"])
+
 
 class TestApplyTransitionWithConfidence(unittest.TestCase):
 

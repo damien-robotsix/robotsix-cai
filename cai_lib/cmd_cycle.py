@@ -92,6 +92,29 @@ def cmd_cycle(args) -> int:
             flush=True,
         )
 
+    # Phase 0.6: self-heal silent HUMAN_NEEDED diverts (issue #1009).
+    # Any issue/PR parked at :human-needed / :pr-human-needed without a
+    # MARKER-bearing divert-reason comment is invisible to the audit
+    # agent's human_needed_reason_missing parser and cannot be resumed
+    # by `cai unblock` (the classifier needs the divert context).
+    # Post a retroactive backfill comment so the pipeline recovers
+    # without an admin hand-crafting a comment.
+    try:
+        from cai_lib.fsm import backfill_silent_human_needed_comments
+        backfilled = backfill_silent_human_needed_comments()
+        if backfilled:
+            nums = ", ".join(f"{k} #{n}" for k, n in backfilled)
+            print(
+                f"[cai cycle] backfilled silent HUMAN_NEEDED divert "
+                f"comments on {len(backfilled)} target(s): {nums}",
+                flush=True,
+            )
+    except Exception as exc:
+        print(
+            f"[cai cycle] Phase 0.6 backfill raised {exc!r} — continuing",
+            file=sys.stderr, flush=True,
+        )
+
     # Phase 1: TTL-based stale-lock sweep — rolls back only locks that
     # have exceeded their configured TTL (_STALE_LOCKED_HOURS etc.).
     # NOTE: immediate=True is NOT used here; that path bypasses TTLs and
