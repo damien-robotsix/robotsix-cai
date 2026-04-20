@@ -155,6 +155,7 @@
 | `tests/test_remote_lock.py` | TODO: add description |
 | `tests/test_rescue_opus.py` | Tests for cai_lib.cmd_rescue — Opus-escalation verdict plumbing, schema, and one-shot label guard |
 | `tests/test_retroactive_sweep.py` | TODO: add description |
+| `tests/test_review_docs_manifest.py` | TODO: add description |
 | `tests/test_revise_filter.py` | TODO: add description |
 | `tests/test_rollback.py` | Tests for rollback functionality |
 | `tests/test_subprocess_utils.py` | TODO: add description |

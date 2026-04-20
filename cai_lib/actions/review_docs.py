@@ -38,6 +38,55 @@ _DOCS_REVIEW_COMMENT_HEADING_CLEAN = "## cai docs review (clean)"
 _DOCS_REVIEW_COMMENT_HEADING_APPLIED = "## cai docs review (applied)"
 
 
+def _build_deletion_manifest_block(work_dir: Path) -> str:
+    """Return the authoritative deletion manifest block for the
+    ``cai-review-docs`` user message.
+
+    Computes the set of files this PR removes vs ``origin/main``
+    using ``git diff --name-only --diff-filter=D``, cross-verifies
+    that each reported path is actually absent from ``work_dir``
+    (guarding against pathological `diff` output), and renders a
+    Markdown block the agent consumes as the single source of
+    truth for deletions.
+
+    Established by issue #960 / PR #950: without a deterministic
+    manifest, the agent inferred deletions from ``git diff --stat``
+    and removed live references to still-present files.
+    """
+    del_result = _git(
+        work_dir, "diff", "origin/main..HEAD",
+        "--name-only", "--diff-filter=D",
+        check=False,
+    )
+    raw_paths = [
+        line.strip()
+        for line in (del_result.stdout or "").splitlines()
+        if line.strip()
+    ]
+    verified_deleted = [p for p in raw_paths if not (work_dir / p).exists()]
+    if verified_deleted:
+        manifest_lines = "\n".join(f"- `{p}`" for p in verified_deleted)
+        return (
+            "## Authoritative deletion manifest\n\n"
+            "The following files are deleted by this PR vs "
+            "`origin/main` (verified by "
+            "`git diff --name-only --diff-filter=D` **and** confirmed "
+            "absent from the work directory). This list is the "
+            "**single source of truth** for deletions — do NOT infer "
+            "deletions from the stat summary above; any file NOT in "
+            "this list is still present in the work directory and "
+            "must be treated as status `M`:\n\n"
+            f"{manifest_lines}\n\n"
+        )
+    return (
+        "## Authoritative deletion manifest\n\n"
+        "This PR deletes no files vs `origin/main`. Do NOT remove "
+        "any reference on the assumption that a file was deleted — "
+        "the `--stat` summary above only shows line-count deltas, "
+        "not deletions.\n\n"
+    )
+
+
 def handle_review_docs(pr: dict) -> int:
     """Run cai-review-docs on *pr* (already at PRState.REVIEWING_DOCS)."""
     t0 = time.monotonic()
@@ -148,6 +197,15 @@ def handle_review_docs(pr: dict) -> int:
             "(no changes vs origin/main)"
         )
 
+        # Authoritative deletion manifest (issue #960): the exact set
+        # of files this PR actually removes vs origin/main, determined
+        # by `git diff --name-only --diff-filter=D` and cross-verified
+        # against the work directory. The agent consumes this list as
+        # the single source of truth for deletions, instead of guessing
+        # from the --stat summary (which was the false-premise failure
+        # mode in PR #950).
+        deletion_manifest_block = _build_deletion_manifest_block(work_dir)
+
         author_login = pr.get("author", {}).get("login", "unknown")
         issue_block = _fetch_linked_issue_block(pr.get("body", ""))
         user_message = (
@@ -162,6 +220,7 @@ def handle_review_docs(pr: dict) -> int:
             + issue_block
             + "## PR changes (stat summary)\n\n"
             + f"```\n{pr_stat}\n```\n\n"
+            + deletion_manifest_block
             + "The full unified diff is **not** included — it is a "
             + "large token sink. The PR branch is checked out in the "
             + f"work directory at `{work_dir}`. Use `Read`, `Grep`, "
