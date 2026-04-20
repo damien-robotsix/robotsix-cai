@@ -5,7 +5,7 @@
 
 | File | Purpose |
 |------|---------|
-| `.claude/agents/audit/cai-agent-audit.md` | Agent: weekly audit of .claude/agents/*.md for best-practice violations and unused agents |
+| `.claude/agents/audit/cai-agent-audit.md` | Agent: weekly audit of .claude/agents/**/*.md for best-practice violations and unused agents |
 | `.claude/agents/audit/cai-analyze.md` | Agent: parse transcript signals and raise auto-improve findings |
 | `.claude/agents/audit/cai-audit-code-reduction.md` | Agent: on-demand code-reduction audit for a module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers, and writes findings to findings.json |
 | `.claude/agents/audit/cai-audit-cost-reduction.md` | Agent: on-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings |

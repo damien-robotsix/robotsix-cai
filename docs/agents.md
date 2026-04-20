@@ -5,7 +5,7 @@ nav_order: 4
 
 # Agents
 
-Agents are defined in `.claude/agents/*.md` with YAML frontmatter (`name`, `description`, `tools`, `model`). The FSM dispatcher (`cai dispatch`) selects the appropriate agent based on the current lifecycle state of an issue or PR: each state has one handler in `cai_lib/actions/<name>.py` that invokes the matching subagent and passes context via the prompt.
+Agents are defined in `.claude/agents/**/*.md` (organized into six subfolders) with YAML frontmatter (`name`, `description`, `tools`, `model`). The FSM dispatcher (`cai dispatch`) selects the appropriate agent based on the current lifecycle state of an issue or PR: each state has one handler in `cai_lib/actions/<name>.py` that invokes the matching subagent and passes context via the prompt.
 
 ## When each agent runs
 
@@ -57,7 +57,7 @@ except `cai-confirm` (MERGED).
 
 | Agent | Trigger | Description |
 |---|---|---|
-| `cai-agent-audit` | Weekly cron | Audits `.claude/agents/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. |
+| `cai-agent-audit` | Weekly cron | Audits `.claude/agents/**/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. |
 | `cai-analyze` | Cron | Analyzes parsed signals from the cai container's own Claude Code session transcripts and raises code/prompt/workflow findings. |
 | `cai-audit` | Cron | Audits the GitHub issue queue, recent PRs, and log tail for inconsistencies in the auto-improve FSM. Findings are duplicate-filtered via `cai-dup-check` at publish time. |
 | `cai-audit-code-reduction` | On-demand | Runs a code-reduction audit on a single `robotsix-cai` module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers. |
@@ -71,7 +71,7 @@ except `cai-confirm` (MERGED).
 | Agent | Description | Tools | Model | Lifecycle trigger | Mode |
 |---|---|---|---|---|---|
 | `cai-analyze` | Analyze parsed signals from the cai container's own Claude Code session transcripts and raise auto-improve findings for code, prompt, or workflow issues; writes findings to findings.json | Read, Grep, Glob, Skill, Write | sonnet | Scheduled (cron) | Read-only |
-| `cai-agent-audit` | Weekly Opus audit of `.claude/agents/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. Read-only; writes findings to findings.json plus a memory update | Read, Grep, Glob, Write | opus | Scheduled (weekly, cron) | Read-only |
+| `cai-agent-audit` | Weekly Opus audit of `.claude/agents/**/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. Read-only; writes findings to findings.json plus a memory update | Read, Grep, Glob, Write | opus | Scheduled (weekly, cron) | Read-only |
 | `cai-audit` | Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Findings are pre-screened for duplicates/resolved at publish time via cai-dup-check; survivors enter the standard auto-improve:raised cycle. Writes findings to findings.json | Read, Grep, Glob, Write | opus | Scheduled (cron) | Read-only |
 | `cai-audit-cost-reduction` | On-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings | Read, Grep, Glob, Agent, Write | opus | On-demand | Worktree |
 | `cai-audit-workflow-enhancement` | On-demand workflow-enhancement audit for a module — identifies recurring inefficiencies in agent workflows and proposes targeted remediations | Read, Grep, Glob, Agent, Write | opus | On-demand | Worktree |

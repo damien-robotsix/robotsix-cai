@@ -26,7 +26,7 @@ No arguments.
 
 ## agent-audit
 
-Run the weekly agent inventory audit to check `.claude/agents/*.md` files for Claude Code best-practice violations, unused agents, and near-duplicate purposes.
+Run the weekly agent inventory audit to check `.claude/agents/**/*.md` files for Claude Code best-practice violations, unused agents, and near-duplicate purposes.
 
 No arguments.
 
