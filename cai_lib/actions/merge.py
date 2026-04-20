@@ -195,6 +195,164 @@ def _build_requeue_exemption_block(issue_body: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pipeline co-edits scope exemption (wrapper-driven, issue #990).
+#
+# When the pre-merge pipeline runs, ``cai-review-pr`` and
+# ``cai-review-docs`` may identify files outside the issue's stated
+# scope that nonetheless need to be edited as ripple effects (e.g.
+# ``README.md`` help text, ``cai.py`` docstrings,
+# ``scripts/generate-index.sh``). The pipeline either commits those
+# edits directly (``cai-review-docs``) or asks the revise agent to
+# apply them (``cai-review-pr``). Either way, by the time the merge
+# agent runs, those files appear in the PR diff and would naively be
+# flagged as scope creep.
+#
+# The agent prompt has soft exemptions for both cases (see
+# ``cai-merge.md``: ``Exemption: reviewer-recommended co-changes``
+# and ``Exemption: docs-reviewer co-edits``), but the agent applied
+# them inconsistently — most visibly on issue #928, which parked
+# three times in a row at MEDIUM despite the merger's own reasoning
+# calling the changes "legitimate pipeline work" each time. Each
+# park burnt a rescue cycle and a re-evaluation Opus call.
+#
+# We detect the condition **structurally, in Python**, mirroring the
+# requeue exemption above:
+#
+#   1. Walk every PR comment looking for the two pipeline review
+#      headings: ``## cai docs review (applied) - <sha>`` and
+#      ``## cai pre-merge review - <sha>`` (the non-clean variant —
+#      ``(clean)`` headings have no findings to extract).
+#   2. Inside each matching comment body, find every ``**File(s):**``
+#      line and split its value on commas, stripping ``(lines X-Y)``
+#      decorations and surrounding backticks.
+#   3. Emit a ``## Pre-authorized pipeline co-edits`` markdown block
+#      naming the deduplicated path list (first-seen order) so the
+#      merge agent receives an explicit authoritative list of
+#      pipeline-approved files instead of having to scan comment
+#      history itself.
+#
+# When no qualifying comments or paths are found the helper returns
+# the empty string, leaving ``user_message`` byte-identical to the
+# pre-#990 form for ordinary PRs. See the ``Exemption: wrapper-
+# injected pre-authorized pipeline co-edits`` section in
+# ``cai-merge.md`` for the complementary agent-side rule.
+# ---------------------------------------------------------------------------
+_PIPELINE_REVIEW_HEADING_DOCS_APPLIED = "## cai docs review (applied)"
+_PIPELINE_REVIEW_HEADING_PRE_MERGE = "## cai pre-merge review"
+_PIPELINE_REVIEW_HEADING_PRE_MERGE_CLEAN = "## cai pre-merge review (clean)"
+
+_FILES_LINE_RE = re.compile(
+    r"^\*\*File\(s\):\*\*\s+(.+)$", re.MULTILINE
+)
+_FILES_LINE_PARENTHETICAL_TAIL_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def _is_pipeline_coedit_comment_body(body: str) -> bool:
+    """Return ``True`` when *body*'s first line is a pipeline review
+    heading whose contents may carry ``**File(s):**`` paths.
+
+    Matches::
+
+        ## cai docs review (applied) - <sha>
+        ## cai pre-merge review - <sha>
+
+    Excludes::
+
+        ## cai docs review (clean) - <sha>
+        ## cai pre-merge review (clean) - <sha>
+
+    Clean review comments have no ``### Finding:`` or ``### Fixed:``
+    blocks so they cannot contribute paths.
+    """
+    if not body:
+        return False
+    first_line = body.lstrip().split("\n", 1)[0]
+    if first_line.startswith(_PIPELINE_REVIEW_HEADING_DOCS_APPLIED):
+        return True
+    if (
+        first_line.startswith(_PIPELINE_REVIEW_HEADING_PRE_MERGE)
+        and not first_line.startswith(
+            _PIPELINE_REVIEW_HEADING_PRE_MERGE_CLEAN
+        )
+    ):
+        return True
+    return False
+
+
+def _extract_paths_from_files_line(value: str) -> list[str]:
+    """Parse a ``**File(s):**`` value into a list of clean paths.
+
+    Splits *value* on commas, strips trailing parenthetical
+    decorations like ``(lines 35-37)``, removes surrounding
+    backticks, and discards empty tokens. Order is preserved.
+    """
+    out: list[str] = []
+    for raw in value.split(","):
+        token = raw.strip()
+        token = _FILES_LINE_PARENTHETICAL_TAIL_RE.sub("", token).strip()
+        token = token.strip("`").strip()
+        if token:
+            out.append(token)
+    return out
+
+
+def _build_pipeline_coedits_exemption_block(
+    all_comments: list[dict],
+) -> str:
+    """Return a pre-authorized pipeline-coedits markdown block, or
+    ``""`` when no qualifying paths are found in *all_comments*.
+
+    Walks every comment in *all_comments*, keeps only those whose
+    body starts with a qualifying pipeline review heading (see
+    :func:`_is_pipeline_coedit_comment_body`), extracts every
+    ``**File(s):**`` line, and concatenates the per-line path
+    lists. The combined list is deduplicated while preserving
+    first-seen order so repeated runs produce a stable block.
+
+    Returns ``""`` when *all_comments* is empty, no comment
+    qualifies, or no qualifying comment yields any path. In that
+    case the merge ``user_message`` is byte-identical to the
+    pre-#990 form for ordinary first-attempt PRs.
+    """
+    if not all_comments:
+        return ""
+
+    seen: set[str] = set()
+    unique_paths: list[str] = []
+    for comment in all_comments:
+        body = comment.get("body") or ""
+        if not _is_pipeline_coedit_comment_body(body):
+            continue
+        for match in _FILES_LINE_RE.finditer(body):
+            for path in _extract_paths_from_files_line(match.group(1)):
+                if path not in seen:
+                    seen.add(path)
+                    unique_paths.append(path)
+
+    if not unique_paths:
+        return ""
+
+    bullet_list = "\n".join(f"- `{p}`" for p in unique_paths)
+    return (
+        "## Pre-authorized pipeline co-edits\n\n"
+        "The pre-merge pipeline (`cai-review-pr` and "
+        "`cai-review-docs`) has already cited the following files "
+        "as in-scope for this PR — either as `### Finding:` blocks "
+        "asking the revise agent to update them, or as "
+        "`### Fixed: stale_docs` blocks where `cai-review-docs` "
+        "directly committed the edit:\n\n"
+        f"{bullet_list}\n\n"
+        "**Treat every file in this list as in-scope for this PR.** "
+        "Do not downgrade confidence for scope-only reasons on these "
+        "files (e.g. \"scope broader than the issue asks\", \"new "
+        "files not mentioned in the issue\", \"PR adds new test "
+        "files or docstrings\"). Correctness, completeness, "
+        "unaddressed review comments, and workflow-file "
+        "(`.github/workflows/`) rules still apply in full.\n\n"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Unauthorized agent-file deletion guard (issue #1024).
 #
 # When ``cai-review-docs`` co-edits follow a rename/consolidation it
@@ -672,6 +830,9 @@ def handle_merge(pr: dict) -> int:
     requeue_block = _build_requeue_exemption_block(
         issue_full.get("body") or ""
     )
+    pipeline_coedits_block = _build_pipeline_coedits_exemption_block(
+        all_comments
+    )
 
     user_message = (
         f"## Linked issue\n\n"
@@ -679,6 +840,7 @@ def handle_merge(pr: dict) -> int:
         f"{issue_full.get('title', '')}\n\n"
         f"{issue_full.get('body') or '(no body)'}\n\n"
         f"{requeue_block}"
+        f"{pipeline_coedits_block}"
         f"## PR changes\n\n"
         f"```diff\n{pr_diff}\n```\n\n"
         f"## PR comments\n\n"
