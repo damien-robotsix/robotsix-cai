@@ -19,7 +19,7 @@ from cai_lib.github import (
     _gh_json, _set_labels, _transcript_dir_is_empty,
     _find_linked_pr, _recover_stale_pr_open,
 )
-from cai_lib.issues import all_sub_issues_closed
+from cai_lib.issues import close_completed_parents
 
 
 # ---------------------------------------------------------------------------
@@ -227,47 +227,7 @@ def cmd_verify(args) -> int:
 
     # Check parent issues for completion: close parents whose
     # sub-issues are all closed.
-    try:
-        parent_issues = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_PARENT,
-            "--state", "open",
-            "--json", "number",
-            "--limit", "50",
-        ]) or []
-    except subprocess.CalledProcessError:
-        parent_issues = []
-
-    for _pass in range(2):
-        for parent in parent_issues:
-            if all_sub_issues_closed(parent["number"]) is True:
-                _run(
-                    ["gh", "issue", "close", str(parent["number"]),
-                     "--repo", REPO,
-                     "--comment",
-                     "All sub-issues completed. Closing parent."],
-                    capture_output=True,
-                )
-                print(
-                    f"[cai verify] parent #{parent['number']}: "
-                    f"all sub-issues done — closed",
-                    flush=True,
-                )
-        # Re-fetch before second pass: parents closed in pass 1
-        # should not be re-attempted.
-        if _pass == 0:
-            try:
-                parent_issues = _gh_json([
-                    "issue", "list",
-                    "--repo", REPO,
-                    "--label", LABEL_PARENT,
-                    "--state", "open",
-                    "--json", "number",
-                    "--limit", "50",
-                ]) or []
-            except subprocess.CalledProcessError:
-                parent_issues = []
+    close_completed_parents(log_prefix="cai verify")
 
     print(f"[cai verify] done ({transitioned} transitioned)", flush=True)
     log_run("verify", repo=REPO, checked=len(issues), transitioned=transitioned, exit=0)

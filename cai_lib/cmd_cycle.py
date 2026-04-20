@@ -9,6 +9,7 @@ from cai_lib.watchdog import (
     _rollback_stale_pr_locks,
 )
 from cai_lib.dispatcher import dispatch_drain
+from cai_lib.issues import close_completed_parents
 from cai_lib.logging_utils import log_run
 
 
@@ -77,6 +78,19 @@ def cmd_cycle(args) -> int:
                         flush=True,
                     )
                 _healed.add(_num)
+
+    # Phase 0.5: close parent issues whose sub-issues are all closed.
+    # The dispatcher's ordering gate in `_build_ordering_gate` treats an
+    # open parent as a still-open prior sibling, blocking later siblings
+    # under the grandparent. If all of a parent's sub-issues closed
+    # between verify ticks, we must close it here or the queue stalls
+    # until the next verify run.
+    closed_parents = close_completed_parents(log_prefix="cai cycle")
+    if closed_parents:
+        print(
+            f"[cai cycle] closed {closed_parents} completed parent(s)",
+            flush=True,
+        )
 
     # Phase 1: TTL-based stale-lock sweep — rolls back only locks that
     # have exceeded their configured TTL (_STALE_LOCKED_HOURS etc.).
