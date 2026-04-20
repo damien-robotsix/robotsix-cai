@@ -254,6 +254,47 @@ class TestPlannedToPlanApprovedDocsOnly(unittest.TestCase):
         )
 
 
+class TestPlannedToPlanApprovedApprovable(unittest.TestCase):
+    """#1008 — MEDIUM-gated sibling of planned_to_plan_approved for
+    cai-select-flagged soft-risk plans (approvable_at_medium=true)."""
+
+    def test_approvable_transition_accepts_medium(self):
+        t = find_transition("planned_to_plan_approved_approvable")
+        self.assertEqual(t.min_confidence, Confidence.MEDIUM)
+        self.assertTrue(t.accepts(Confidence.HIGH))
+        self.assertTrue(t.accepts(Confidence.MEDIUM))
+        self.assertFalse(t.accepts(Confidence.LOW))
+        self.assertFalse(t.accepts(None))
+
+    def test_approvable_shares_label_move(self):
+        default = find_transition("planned_to_plan_approved")
+        approvable = find_transition("planned_to_plan_approved_approvable")
+        self.assertEqual(default.from_state, approvable.from_state)
+        self.assertEqual(default.to_state, approvable.to_state)
+        self.assertEqual(default.labels_add, approvable.labels_add)
+        self.assertEqual(default.labels_remove, approvable.labels_remove)
+        # Only the threshold differs between the two siblings.
+        self.assertEqual(default.min_confidence, Confidence.HIGH)
+        self.assertEqual(approvable.min_confidence, Confidence.MEDIUM)
+
+    def test_all_planned_siblings_coexist(self):
+        # Regression guard: the approvable sibling must not replace the
+        # HIGH-gated default or either of the existing MEDIUM siblings —
+        # all four must coexist with their original thresholds.
+        self.assertEqual(
+            find_transition("planned_to_plan_approved").min_confidence,
+            Confidence.HIGH,
+        )
+        self.assertEqual(
+            find_transition("planned_to_plan_approved_mitigated").min_confidence,
+            Confidence.MEDIUM,
+        )
+        self.assertEqual(
+            find_transition("planned_to_plan_approved_docs_only").min_confidence,
+            Confidence.MEDIUM,
+        )
+
+
 class TestApplyTransition(unittest.TestCase):
 
     def _recording_set_labels(self):

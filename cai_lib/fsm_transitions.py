@@ -173,6 +173,20 @@ ISSUE_TRANSITIONS: list[Transition] = [
     Transition("planned_to_plan_approved_docs_only", IssueState.PLANNED,   IssueState.PLAN_APPROVED,
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_PLAN_APPROVED],
                min_confidence=Confidence.MEDIUM),
+    # Approvable-at-medium relaxation (#1008): same label move as
+    # planned_to_plan_approved, but accepts MEDIUM confidence.
+    # handle_plan_gate (cai_lib.actions.plan) picks this transition
+    # when cai-select's structured JSON output set
+    # ``approvable_at_medium: true`` — i.e. the selecting agent judged
+    # that the plan's only residual risks are soft / non-blocking
+    # (line-number-verification-only, additive schema fields, soft
+    # length caps, preferred-but-not-required path divergence) and do
+    # not warrant admin intervention. Plans without the flag fall
+    # through to the default HIGH-threshold transition; MEDIUM still
+    # diverts them so the flag is the sole bypass channel.
+    Transition("planned_to_plan_approved_approvable", IssueState.PLANNED,  IssueState.PLAN_APPROVED,
+               labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_PLAN_APPROVED],
+               min_confidence=Confidence.MEDIUM),
     Transition("planned_to_human",           IssueState.PLANNED,           IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_HUMAN_NEEDED]),
 

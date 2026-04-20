@@ -57,6 +57,11 @@ _REQUIRES_HUMAN_REVIEW_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+_APPROVABLE_AT_MEDIUM_RE = re.compile(
+    r"^Approvable at medium:\s*(true|false)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 
 def parse_confidence(text: str) -> Optional[Confidence]:
     """Extract ``Confidence: LOW|MEDIUM|HIGH`` from agent structured output.
@@ -103,6 +108,28 @@ def parse_requires_human_review(text: str) -> bool:
     if not text:
         return False
     m = _REQUIRES_HUMAN_REVIEW_RE.search(text)
+    if not m:
+        return False
+    return m.group(1).lower() == "true"
+
+
+def parse_approvable_at_medium(text: str) -> bool:
+    """Extract ``Approvable at medium: true|false`` from a plan block body.
+
+    Returns ``True`` only when a well-formed ``Approvable at medium: true``
+    line is present (case-insensitive). Any other case — the line absent,
+    explicitly ``false``, or malformed — returns ``False`` so the gate
+    falls through to the default HIGH-threshold routing.
+
+    Used by :func:`cai_lib.actions.plan.handle_plan_gate` to route a
+    MEDIUM-confidence plan through the relaxed
+    ``planned_to_plan_approved_approvable`` transition when ``cai-select``
+    explicitly flagged the plan's residual risks as soft / non-blocking
+    (#1008).
+    """
+    if not text:
+        return False
+    m = _APPROVABLE_AT_MEDIUM_RE.search(text)
     if not m:
         return False
     return m.group(1).lower() == "true"

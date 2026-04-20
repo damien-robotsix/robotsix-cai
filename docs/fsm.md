@@ -35,6 +35,7 @@ stateDiagram-v2
     PLANNED --> PLAN_APPROVED : planned_to_plan_approved [≥HIGH]
     PLANNED --> PLAN_APPROVED : planned_to_plan_approved_mitigated [≥MEDIUM]
     PLANNED --> PLAN_APPROVED : planned_to_plan_approved_docs_only [≥MEDIUM]
+    PLANNED --> PLAN_APPROVED : planned_to_plan_approved_approvable [≥MEDIUM]
     PLANNED --> HUMAN_NEEDED : planned_to_human [≥HIGH]
     PLAN_APPROVED --> IN_PROGRESS : approved_to_in_progress [≥HIGH]
     IN_PROGRESS --> PR : in_progress_to_pr [≥HIGH]

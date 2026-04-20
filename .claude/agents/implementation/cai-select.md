@@ -77,6 +77,18 @@ downgrade — **soft / non-blocking risks** do not.
   - Cosmetic or implementation-detail risks already covered by
     the anchor-mitigation marker (line-number drift, fence
     escaping, wording tweaks).
+  - **Line-number-verification-only risks** — when the plan's only
+    residual worry is that absolute line numbers cited in the plan
+    body may have drifted, and the fix agent's standard Read-first
+    behaviour (or the anchor-mitigation marker when present) will
+    catch the drift. Not a correctness concern for the plan itself.
+  - **Divergence from a preferred-but-not-required path** in the
+    refined issue. When the refined issue lists several acceptable
+    approaches and the selected plan picks one that is not the
+    author's first preference but is still explicitly listed, that
+    is a stylistic choice, not a correctness risk. Hard directives
+    ("must use X", "the right fix is to remove Y") are not soft
+    preferences — those fall under `requires_human_review`.
 
 If every concern you can articulate about the selected plan falls
 into the "soft / non-blocking" bucket, that is a HIGH-confidence
@@ -128,15 +140,16 @@ The wrapper invokes you with a JSON schema (Claude Code's
 `--json-schema` flag), so your final output MUST be a single JSON
 object — no prose, no code fences, no preamble. The schema is:
 
-```json
+~~~json
 {
   "plan":                    "string   — full text of the chosen plan, pasted exactly as provided",
   "confidence":              "string   — one of HIGH, MEDIUM, LOW",
   "confidence_reason":       "string   — 1-3 sentences explaining the confidence level (required)",
   "note":                    "string   — OPTIONAL; one-sentence flag for the fix agent",
-  "requires_human_review":   "boolean  — OPTIONAL; set true when the chosen plan knowingly diverges from the refined issue's explicit stated preference"
+  "requires_human_review":   "boolean  — OPTIONAL; set true when the chosen plan knowingly diverges from the refined issue's explicit stated preference",
+  "approvable_at_medium":    "boolean  — OPTIONAL; set true when confidence is MEDIUM but every residual concern is soft / non-blocking (see section below)"
 }
-```
+~~~
 
 Pick exactly one of `HIGH`, `MEDIUM`, or `LOW` for confidence.
 
@@ -262,6 +275,50 @@ Those are still routed through the confidence gate in the normal way;
 the flag is reserved specifically for knowing divergences from
 explicit refined-issue preferences. Omitting the field (or setting it
 to `false`) preserves the existing behaviour.
+
+## `approvable_at_medium` — soft-risk MEDIUM auto-approval (#1008)
+
+Set `"approvable_at_medium": true` in the output **only** when:
+
+1. `confidence` is `MEDIUM`, AND
+2. **Every** concern driving that MEDIUM rating falls into the
+   "soft / non-blocking" bucket listed above (additive schema
+   fields, opinionated-but-correct recipes, cross-agent consistency
+   scoped to a separate issue, cosmetic implementation-detail
+   risks, line-number-verification-only risks, or divergence from
+   a preferred-but-not-required path explicitly listed in the
+   refined issue as one of several acceptable options).
+
+When set, the FSM routes the issue through the MEDIUM-threshold
+sibling transition `planned_to_plan_approved_approvable` instead of
+the default HIGH-gated `planned_to_plan_approved`, so the plan
+auto-approves without admin intervention. `confidence_reason` must
+itemise which soft-risk categories apply so the divert-reason log
+(and any later audit) stays reviewable.
+
+Do **not** set this flag when:
+
+- `confidence` is `HIGH` — the default transition already
+  auto-approves; the flag is ignored.
+- `confidence` is `LOW` — MEDIUM-threshold transitions still
+  reject LOW, so the flag cannot bypass the gate; leave it
+  false and rely on the admin-review path.
+- Any residual concern reflects **substantive uncertainty**
+  (missing verbatim Edit/Write content per criterion 5, unverified
+  structural assumptions, ambiguous scope, missing edge cases,
+  contradictions on unsettled implementation choices, hard
+  divergence from a refined-issue directive, etc.). Those
+  continue to warrant admin review via the default HIGH gate.
+
+If you would otherwise set `requires_human_review: true`, do not
+also set `approvable_at_medium: true` — the two are mutually
+exclusive in intent (one forces a divert, the other bypasses it).
+`requires_human_review` takes precedence in `handle_plan_gate` when
+both are set.
+
+Omitting the field (or setting it to `false`) preserves the existing
+behaviour — MEDIUM plans continue to divert to `auto-improve:human-needed`
+via the HIGH-gated default transition.
 
 If all plans are equally bad or none correctly addresses the issue,
 pick the least-bad option and emit `"confidence": "LOW"`. Use the
