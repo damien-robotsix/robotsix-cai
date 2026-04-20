@@ -82,6 +82,16 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 # (see issues #748 / #695).
 _MAX_TESTS_FAILED_RETRIES = 2
 
+# Divert-reason marker prepended to every comment this module posts
+# alongside a direct `_set_labels(add=[LABEL_HUMAN_NEEDED])` call.
+# `cmd_agents.py` (see `MARKER` at line 126) scans for this literal
+# substring when compiling the `human_needed_reason_missing` audit
+# finding — comments that omit it are treated as missing a reason.
+# Format matches the `**🙋 Human attention needed**\n\n` convention
+# used by `cai_lib/fsm_transitions.py`, `actions/plan.py`, and
+# `actions/refine.py`.
+_HUMAN_NEEDED_MARKER = "**🙋 Human attention needed**\n\n"
+
 
 def _slugify(text: str, max_len: int = 50) -> str:
     """Branch-friendly slug — lowercase ascii, dashes, no leading/trailing."""
@@ -588,6 +598,7 @@ def handle_implement(issue: dict) -> int:
                 flush=True,
             )
             comment_body = (
+                f"{_HUMAN_NEEDED_MARKER}"
                 "## Implement subagent: pre-empted after repeated "
                 "test failures\n\n"
                 f"This issue already has {prior_fails} consecutive "
@@ -647,6 +658,7 @@ def handle_implement(issue: dict) -> int:
             ["gh", "issue", "comment", str(issue_number),
              "--repo", REPO,
              "--body",
+             f"{_HUMAN_NEEDED_MARKER}"
              f"## Pre-screen: spike-shaped\n\n"
              f"{ps_reason}\n\n---\n"
              f"_Flagged by `cai implement` pre-screen (Haiku) as "
@@ -859,6 +871,7 @@ def handle_implement(issue: dict) -> int:
 
             if is_spike:
                 comment_body = (
+                    f"{_HUMAN_NEEDED_MARKER}"
                     "## Implement subagent: needs human review\n\n"
                     f"{reasoning}\n\n"
                     "---\n"
@@ -1047,6 +1060,7 @@ def handle_implement(issue: dict) -> int:
                         return 0
 
                 comment_body = (
+                    f"{_HUMAN_NEEDED_MARKER}"
                     "## Implement subagent: repeated test failures\n\n"
                     f"Regression tests failed {consecutive} consecutive times "
                     f"for this issue. Escalating to human review to avoid "
