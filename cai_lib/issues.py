@@ -23,9 +23,10 @@ Note — staged migration:
 """
 
 import json
+import subprocess
 import sys
 
-from cai_lib.config import REPO
+from cai_lib.config import LABEL_PARENT, REPO
 from cai_lib.github import _gh_json
 from cai_lib.subprocess_utils import _run
 
@@ -68,8 +69,6 @@ def link_sub_issue(parent_number: int, child_id: int) -> bool:
 
     Returns True on success, False on failure.
     """
-    import subprocess  # local — only needed for the except clause
-
     try:
         _gh_json([
             "api", "--method", "POST",
@@ -92,8 +91,6 @@ def list_sub_issues(parent_number: int) -> list[dict]:
     Each entry is a dict with at least ``number``, ``title``, ``state``,
     and ``id``.  Returns an empty list on failure or if there are none.
     """
-    import subprocess  # local — only needed for the except clause
-
     try:
         result = _gh_json([
             "api", "--paginate",
@@ -114,3 +111,49 @@ def all_sub_issues_closed(parent_number: int) -> bool | None:
     if not subs:
         return None
     return all(si.get("state") == "closed" for si in subs)
+
+
+def close_completed_parents(log_prefix: str = "cai") -> int:
+    """Close parent issues whose sub-issues are all closed.
+
+    Iterates every open ``auto-improve:parent`` issue, and for each one
+    whose native sub-issues are all closed, runs ``gh issue close`` with a
+    standard comment. Runs two passes so that a parent whose only
+    remaining open child was itself a completed parent (closed during
+    pass 1) is also closed in pass 2. Returns the number of parents
+    closed.
+
+    This is called from both ``cai verify`` (as part of its routine
+    sweep) and ``cai cycle`` (every tick, before the dispatcher's
+    ordering gate is built) — keeping the gate unstuck when a parent's
+    sub-issues complete between verify runs.
+    """
+    closed = 0
+    for _pass in range(2):
+        try:
+            parents = _gh_json([
+                "issue", "list",
+                "--repo", REPO,
+                "--label", LABEL_PARENT,
+                "--state", "open",
+                "--json", "number",
+                "--limit", "50",
+            ]) or []
+        except subprocess.CalledProcessError:
+            parents = []
+        for parent in parents:
+            if all_sub_issues_closed(parent["number"]) is True:
+                _run(
+                    ["gh", "issue", "close", str(parent["number"]),
+                     "--repo", REPO,
+                     "--comment",
+                     "All sub-issues completed. Closing parent."],
+                    capture_output=True,
+                )
+                print(
+                    f"[{log_prefix}] parent #{parent['number']}: "
+                    f"all sub-issues done — closed",
+                    flush=True,
+                )
+                closed += 1
+    return closed
