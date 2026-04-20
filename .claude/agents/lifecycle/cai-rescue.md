@@ -66,7 +66,7 @@ Only emit this when ALL of the following hold:
   re-running the upstream agent will fix. A confidence-gate trip
   (LOW/MEDIUM) is only autonomously resolvable when the evidence
   points to a parser or transcription glitch that prevented a
-  correct HIGH assignment — under the current `cai-select` guidance,
+  correct HIGH assignment — under plan-approval guidance,
   a genuine LOW/MEDIUM indicates substantive uncertainty and is
   **NOT** mechanically resolvable.
 - The path forward is unambiguous — there is exactly one obvious

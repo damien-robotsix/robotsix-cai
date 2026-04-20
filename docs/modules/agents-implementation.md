@@ -7,7 +7,6 @@ agents that handle review-comment addressing and CI recovery.
 
 ## Entry points
 - `.claude/agents/implementation/cai-plan.md` — Plan generator.
-- `.claude/agents/implementation/cai-select.md` — Plan selector.
 - `.claude/agents/implementation/cai-implement.md` — Code edit agent.
 - `.claude/agents/implementation/cai-revise.md` — Review-comment addresser.
 - `.claude/agents/implementation/cai-rebase.md` — Rebase-only conflict resolver.

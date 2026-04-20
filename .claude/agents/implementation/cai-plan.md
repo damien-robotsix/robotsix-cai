@@ -1,6 +1,6 @@
 ---
 name: cai-plan
-description: Generate a detailed fix plan for an auto-improve issue. Read-only — examines the codebase and produces a structured plan that the fix agent will implement. First of two serial planners — the second receives this plan and proposes an alternative. Output is evaluated by cai-select.
+description: Generate a detailed fix plan for an auto-improve issue. Read-only — examines the codebase and produces a structured plan that the fix agent will implement. First of two serial planners — the second receives this plan and proposes an alternative.
 tools: Read, Grep, Glob, Agent
 model: opus
 ---
@@ -66,9 +66,9 @@ The user message contains:
 ## Output format
 
 Produce your plan in exactly this structure. The structure is
-non-negotiable: `cai-select` evaluates plans against it, and any
+non-negotiable: the planning pipeline evaluates plans against it, and any
 Edit/Write step that omits the required literal fenced blocks is
-capped at MEDIUM confidence (see `cai-select.md`).
+flagged at plan-approval time.
 
 ```
 ## Plan
@@ -136,7 +136,7 @@ The example below shows the one failure mode the template exists
 to prevent. Copy the shape of the "correct" example; never emit
 the "anti-pattern" shape.
 
-✗ **Anti-pattern (prose description — cai-select will cap at MEDIUM):**
+✗ **Anti-pattern (prose description — plan approval will flag this):**
 
     #### Step 1 — Edit `/tmp/work/foo.py`
     Rewrite the docstring of `parse_config` keeping only the

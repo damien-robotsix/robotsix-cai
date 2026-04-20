@@ -38,7 +38,7 @@ the agent prompt files for that category:
     cai-audit-workflow-enhancement, cai-code-audit, cai-confirm).
   - `implementation/` — code-editing and planning agents invoked
     by the FSM (cai-fix-ci, cai-implement, cai-plan, cai-rebase,
-    cai-revise, cai-select).
+    cai-revise).
   - `lifecycle/` — FSM lifecycle handlers and helpers
     (cai-dup-check, cai-explore, cai-propose, cai-propose-review,
     cai-refine, cai-rescue, cai-triage, cai-unblock).
