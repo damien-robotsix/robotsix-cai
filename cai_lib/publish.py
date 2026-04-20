@@ -29,6 +29,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
+from cai_lib.dup_check import check_finding_duplicate
+
 
 # Lane 1 target — the backend improves itself. When Lane 2 lands, this
 # will be parameterized per workspace.
@@ -312,6 +314,21 @@ def load_findings_json(path: str, valid_categories: set[str]) -> list[Finding]:
     return findings
 
 
+def _finding_body_for_dupcheck(f: Finding) -> str:
+    """Render a staged finding as the ``body`` text fed to cai-dup-check.
+
+    The haiku agent only sees this text plus the title when deciding
+    whether a finding duplicates an already-open issue, so include the
+    two sections that carry the semantic content — evidence and
+    remediation.
+    """
+    return (
+        f"**Category:** `{f.category}`\n\n"
+        f"## Evidence\n\n{f.evidence}\n\n"
+        f"## Remediation\n\n{f.remediation}\n"
+    )
+
+
 def _label_set_for(namespace: str):
     """Return the label set for the given namespace."""
     if namespace == "audit":
@@ -520,14 +537,38 @@ def main() -> int:
     print(f"[publish] parsed {len(findings)} finding(s)")
     ensure_labels(namespace)
 
+    # Setting CAI_SKIP_DUPCHECK_ON_PUBLISH=1 disables the semantic
+    # pre-publish dup-check — useful for offline test runs or when the
+    # haiku agent is unavailable.
+    semantic_dupcheck_enabled = (
+        os.environ.get("CAI_SKIP_DUPCHECK_ON_PUBLISH", "").strip() not in ("1", "true", "yes")
+    )
+
     created = 0
     skipped = 0
+    skipped_duplicate = 0
     failed = 0
     for f in findings:
         if issue_exists(f.key):
             print(f"[publish] skip (already exists): {f.key}")
             skipped += 1
             continue
+        if semantic_dupcheck_enabled:
+            verdict = check_finding_duplicate(
+                title=f.title,
+                body=_finding_body_for_dupcheck(f),
+            )
+            if verdict is not None and verdict.should_close:
+                ref = (
+                    f"#{verdict.target}" if verdict.verdict == "DUPLICATE"
+                    else (verdict.commit_sha or "(unspecified)")
+                )
+                print(
+                    f"[publish] skip (semantic duplicate of {ref}): {f.key} "
+                    f"— {verdict.reasoning}"
+                )
+                skipped_duplicate += 1
+                continue
         rc = create_issue(f, namespace)
         if rc == 0:
             print(f"[publish] created: {f.key}")
@@ -537,7 +578,8 @@ def main() -> int:
             failed += 1
 
     print(
-        f"[publish] done. created={created} skipped={skipped} failed={failed}"
+        f"[publish] done. created={created} skipped={skipped} "
+        f"skipped_duplicate={skipped_duplicate} failed={failed}"
     )
     return 1 if failed else 0
 

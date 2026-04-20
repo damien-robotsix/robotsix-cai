@@ -19,7 +19,7 @@
 | `.claude/agents/implementation/cai-rebase.md` | Agent: rebase-only conflict resolution |
 | `.claude/agents/implementation/cai-revise.md` | Agent: handle review comments on auto-improve PRs |
 | `.claude/agents/implementation/cai-select.md` | Agent: evaluate and select best fix plan |
-| `.claude/agents/lifecycle/cai-dup-check.md` | Agent: cheap haiku pre-check for duplicate / already-resolved issues |
+| `.claude/agents/lifecycle/cai-dup-check.md` | Agent: cheap haiku pre-check for duplicate / already-resolved issues (runs both pre-triage and pre-publish) |
 | `.claude/agents/lifecycle/cai-explore.md` | Agent: autonomous exploration and benchmarking |
 | `.claude/agents/lifecycle/cai-propose-review.md` | Agent: review creative proposals for feasibility |
 | `.claude/agents/lifecycle/cai-propose.md` | Agent: weekly creative improvement proposals |
@@ -83,7 +83,7 @@
 | `cai_lib/cmd_unblock.py` | Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock) |
 | `cai_lib/config.py` | Shared constants and path definitions |
 | `cai_lib/dispatcher.py` | FSM dispatcher — routes issues/PRs to the handler registered for their state |
-| `cai_lib/dup_check.py` | Pre-triage duplicate / already-resolved check (calls cai-dup-check haiku subagent) |
+| `cai_lib/dup_check.py` | Pre-triage and pre-publish duplicate / already-resolved check (calls cai-dup-check haiku subagent) |
 | `cai_lib/fsm.py` | FSM re-exporter — states, transitions, confidence parsing (implementation split into fsm_states, fsm_transitions, fsm_confidence) |
 | `cai_lib/fsm_confidence.py` | FSM confidence parsing — Confidence enum and helpers for extracting confidence signals from agent output |
 | `cai_lib/fsm_states.py` | FSM state enums — IssueState and PRState that represent the auto-improve pipeline states |

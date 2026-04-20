@@ -10,8 +10,11 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from unittest import mock  # noqa: E402
+
 from cai_lib.dup_check import (  # noqa: E402
     build_dup_check_message,
+    check_finding_duplicate,
     parse_dup_check_verdict,
 )
 
@@ -152,6 +155,49 @@ class TestBuildDupCheckMessage(unittest.TestCase):
         msg = build_dup_check_message(target, [], prs)
         self.assertIn("PR #2", msg)
         self.assertNotIn("PR #1", msg)
+
+
+class TestCheckFindingDuplicate(unittest.TestCase):
+    """Pre-publish helper — builds a synthetic issue from title/body."""
+
+    def test_passes_synthetic_issue_with_sentinel_number(self):
+        captured: dict = {}
+
+        def _fake_check(issue):
+            captured["issue"] = issue
+            return None
+
+        with mock.patch(
+            "cai_lib.dup_check.check_duplicate_or_resolved", new=_fake_check,
+        ):
+            check_finding_duplicate(
+                title="Watchdog races on startup",
+                body="Evidence: log snippet\n\nRemediation: add a lock.",
+                labels=["auto-improve", "auto-improve:raised"],
+            )
+
+        issue = captured["issue"]
+        self.assertEqual(issue["number"], 0)
+        self.assertEqual(issue["title"], "Watchdog races on startup")
+        self.assertIn("Remediation", issue["body"])
+        self.assertEqual(
+            sorted(lb["name"] for lb in issue["labels"]),
+            ["auto-improve", "auto-improve:raised"],
+        )
+
+    def test_labels_default_to_empty(self):
+        captured: dict = {}
+
+        def _fake_check(issue):
+            captured["issue"] = issue
+            return None
+
+        with mock.patch(
+            "cai_lib.dup_check.check_duplicate_or_resolved", new=_fake_check,
+        ):
+            check_finding_duplicate(title="t", body="b")
+
+        self.assertEqual(captured["issue"]["labels"], [])
 
 
 if __name__ == "__main__":
