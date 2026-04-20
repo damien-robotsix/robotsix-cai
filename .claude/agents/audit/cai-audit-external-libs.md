@@ -26,7 +26,7 @@ Absolute path where you must write your `findings.json` output.
 
 ### Recent transcripts pointer (optional)
 
-When present, this section provides a glob pattern or directory path pointing to recent session transcripts for this module. Call `cai-transcript-finder` via the Agent tool with that path and a focused question (e.g. *'find mentions of third-party library alternatives, reinvented utilities, or vendored code in these transcripts'*) to surface replacement signals from past sessions.
+When present, this section provides a glob pattern or directory path pointing to recent session transcripts for this module. Use this to surface replacement signals from past sessions that could inform candidate library selection.
 
 ## Strategy
 
@@ -34,7 +34,7 @@ When present, this section provides a glob pattern or directory path pointing to
 
 2. **Sample a small set of source files.** Read 3–5 representative files from the module's globs to understand the implementation patterns and identify non-trivial utilities that could be library candidates.
 
-3. **Check transcripts for signals.** If a `## Recent transcripts pointer` section is present, spawn a `cai-transcript-finder` subagent via the Agent tool to surface signals from past sessions about past replacement proposals or library discussions.
+3. **Check transcripts for signals.** If a `## Recent transcripts pointer` section is present, use the provided path to inform your candidate library selection with signals from past sessions about replacement proposals or library discussions.
 
 4. **Spawn `Explore` only when needed.** Call `Explore` only when a question genuinely requires multi-round searching (e.g. assessing how widely a custom utility is used before proposing its replacement). Do not spawn Explore for questions you can answer with a single targeted Grep.
 
