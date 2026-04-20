@@ -38,6 +38,7 @@ declare -A DESCRIPTIONS=(
   [".claude/agents/audit/cai-audit-good-practices.md"]="Agent: on-demand auditor for Claude Code best practices and documentation-vs-implementation drift in a declared module scope"
   [".claude/agents/audit/cai-code-audit.md"]="Agent: read-only source tree audit for inconsistencies and dead code"
   [".claude/agents/audit/cai-confirm.md"]="Agent: verify merged PRs actually resolved their issues"
+  [".claude/agents/audit/cai-transcript-finder.md"]="Agent: haiku helper that searches Claude Code session transcripts for a module-scoped query and returns ranked excerpts"
   [".claude/agents/implementation/cai-fix-ci.md"]="Agent: diagnose and fix failing CI checks on auto-improve PRs"
   [".claude/agents/implementation/cai-implement.md"]="Agent: autonomous code-editing subagent for code-editing tasks"
   [".claude/agents/implementation/cai-plan.md"]="Agent: generate detailed fix plan for an issue"

@@ -35,6 +35,8 @@ subagents themselves; each is invoked by a `cmd_*` function in
   — on-demand per-module audits (code shrink, spend, external libraries, workflow).
 - [`.claude/agents/audit/cai-confirm.md`](../../.claude/agents/audit/cai-confirm.md)
   — verifies merged PRs resolved their issues.
+- [`.claude/agents/audit/cai-transcript-finder.md`](../../.claude/agents/audit/cai-transcript-finder.md)
+  — haiku helper that searches Claude Code session transcripts for a module-scoped query and returns ranked excerpts.
 
 ## Inter-module dependencies
 - Imports from **config** — `COST_LOG_PATH`, `OUTCOME_LOG_PATH`,
