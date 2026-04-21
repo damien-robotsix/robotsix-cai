@@ -42,8 +42,10 @@ under `docs/modules/`.
 - Owned by **agents-review** — `cai-review-docs` keeps `docs/**`,
   `docs/modules.yaml`, and `docs/modules/<name>.md` in sync on
   every PR that adds/renames/deletes tracked files.
-- Touched by **workflows** — `regenerate-docs.yml` auto-commits
-  drift in `CODEBASE_INDEX.md` and `docs/fsm.md`.
+- Touched by **actions** — the `PRState.REVIEWING_DOCS` FSM
+  handler (`cai_lib/actions/review_docs.py`) runs the doc
+  generators and `scripts/check-modules-coverage.py` on the PR
+  branch and bundles any drift into its pre-merge docs commit.
 
 ## Operational notes
 - **Write protection.** `CLAUDE.md` files are hardcoded as
@@ -53,9 +55,9 @@ under `docs/modules/`.
 - **Auto-generated invariants.** `CODEBASE_INDEX.md` must not be
   edited by hand (description comments live in the generator
   script); `docs/fsm.md` is regenerated from transition tables.
-  Both drifts are auto-committed by the regenerate-docs
-  workflow, but PRs should regenerate locally to avoid bounce-back
-  commits.
+  Both drifts are auto-committed by the `REVIEWING_DOCS` FSM
+  handler (`cai_lib/actions/review_docs.py`), but PRs should
+  regenerate locally to avoid bounce-back commits.
 - **Module registry contract.** Adding, renaming, or deleting a
   tracked source file requires a matched update to
   `docs/modules.yaml` AND the relevant `docs/modules/<name>.md`;
@@ -63,6 +65,9 @@ under `docs/modules/`.
 - **Cost sensitivity.** Zero for the files themselves;
   `CLAUDE.md` size directly inflates every subagent token count —
   keep it terse.
-- **CI implications.** `regenerate-docs.yml` + `docs-coverage`
-  script enforce drift; Jekyll builds run on GitHub Pages and
-  fail softly (rendering is best-effort).
+- **CI implications.** Doc drift and module-coverage gaps are
+  enforced by the `REVIEWING_DOCS` FSM step inside the cycle —
+  `handle_review_docs` runs the generators and
+  `scripts/check-modules-coverage.py` on every PR before merge.
+  Jekyll builds run on GitHub Pages and fail softly (rendering
+  is best-effort).

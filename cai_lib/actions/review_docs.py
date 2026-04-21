@@ -87,6 +87,87 @@ def _build_deletion_manifest_block(work_dir: Path) -> str:
     )
 
 
+def _run_generated_docs(work_dir: Path) -> str:
+    """Run the deterministic doc generators on the PR working tree.
+
+    Replaces the former ``.github/workflows/regenerate-docs.yml`` job
+    by running the generators inside the docs-review FSM step. Drift
+    lands uncommitted in ``work_dir`` and is picked up by the caller's
+    final ``git add -A && git commit``.
+
+    Returns a Markdown block describing what ran and, if applicable,
+    which files drifted — so the agent knows the working tree is
+    ahead of the PR HEAD.
+    """
+    scripts = [
+        ("CODEBASE_INDEX.md", ["bash", "scripts/generate-index.sh"]),
+        ("docs/fsm.md", ["python", "scripts/generate-fsm-docs.py"]),
+    ]
+    failures: list[str] = []
+    for label, cmd in scripts:
+        res = _run(cmd, cwd=str(work_dir), capture_output=True)
+        if res.returncode != 0:
+            failures.append(
+                f"- `{' '.join(cmd)}` (target: {label}) exited "
+                f"{res.returncode}: {(res.stderr or '').strip()[:200]}"
+            )
+
+    status = _git(work_dir, "status", "--porcelain", check=False)
+    drift_lines = [
+        line for line in (status.stdout or "").splitlines() if line.strip()
+    ]
+
+    lines = ["## Generated-docs regeneration\n"]
+    lines.append(
+        "The deterministic generators have been run against the PR "
+        "branch. Any drift listed below is uncommitted in the work "
+        "directory and will be bundled into your final docs-update "
+        "commit.\n"
+    )
+    if failures:
+        lines.append("**Generator errors (investigate):**\n")
+        lines.extend(failures)
+        lines.append("")
+    if drift_lines:
+        lines.append("**Working-directory drift after generators:**\n")
+        lines.append("```")
+        lines.extend(drift_lines)
+        lines.append("```\n")
+    else:
+        lines.append("Generators produced no drift.\n")
+    return "\n".join(lines) + "\n"
+
+
+def _run_module_coverage_check(work_dir: Path) -> str:
+    """Run ``scripts/check-modules-coverage.py`` against the PR tree.
+
+    Returns a Markdown block that either reports a clean pass or
+    embeds the diagnostic output so the ``cai-review-docs`` agent
+    can update ``docs/modules.yaml`` (and add any missing
+    ``docs/modules/<name>.md``) in-place.
+    """
+    res = _run(
+        ["python", "scripts/check-modules-coverage.py"],
+        cwd=str(work_dir),
+        capture_output=True,
+    )
+    out = ((res.stdout or "") + (res.stderr or "")).strip()
+    if res.returncode == 0:
+        return (
+            "## Module coverage\n\n"
+            f"`scripts/check-modules-coverage.py` passed: {out}\n\n"
+        )
+    return (
+        "## Module coverage — FAILED\n\n"
+        "`scripts/check-modules-coverage.py` exited non-zero. "
+        "Update `docs/modules.yaml` so every tracked file is matched "
+        "by exactly one module. If you add a new module, also write "
+        "the corresponding `docs/modules/<name>.md` narrative. Diagnostic "
+        "output:\n\n"
+        f"```\n{out}\n```\n\n"
+    )
+
+
 def handle_review_docs(pr: dict) -> int:
     """Run cai-review-docs on *pr* (already at PRState.REVIEWING_DOCS)."""
     t0 = time.monotonic()
@@ -187,6 +268,19 @@ def handle_review_docs(pr: dict) -> int:
         _git(work_dir, "config", "user.email", email)
         _setup_agent_edit_staging(work_dir)
 
+        # Regenerate deterministic docs on the PR branch. Folded in
+        # from the former .github/workflows/regenerate-docs.yml so all
+        # doc upkeep happens in one FSM pass (issue #907). Any drift
+        # lands as uncommitted changes in work_dir and is bundled into
+        # the final docs-update commit below.
+        generator_block = _run_generated_docs(work_dir)
+
+        # Module-coverage gate (docs/modules.yaml). If the registry no
+        # longer covers every tracked file, we surface the diagnostic
+        # to the agent so it can update the registry and add any
+        # missing per-module narrative.
+        coverage_block = _run_module_coverage_check(work_dir)
+
         # --stat summary serves as the file-level map for the agent;
         # the full diff is intentionally omitted (token sink).
         stat_result = _git(
@@ -221,6 +315,8 @@ def handle_review_docs(pr: dict) -> int:
             + "## PR changes (stat summary)\n\n"
             + f"```\n{pr_stat}\n```\n\n"
             + deletion_manifest_block
+            + generator_block
+            + coverage_block
             + "The full unified diff is **not** included — it is a "
             + "large token sink. The PR branch is checked out in the "
             + f"work directory at `{work_dir}`. Use `Read`, `Grep`, "
