@@ -26,6 +26,10 @@ issues move through their state machine.
   escalate implement-phase to opus one-shot.
 - [`.claude/agents/lifecycle/cai-unblock.md`](../../.claude/agents/lifecycle/cai-unblock.md)
   — admin-comment → FSM-resume-target classifier.
+- [`.claude/agents/lifecycle/cai-resume-locator.md`](../../.claude/agents/lifecycle/cai-resume-locator.md)
+  — inline haiku resume-step locator; reads an issue/PR's labels,
+  body, and recent comments and returns the step at which the
+  single-handling drive should resume (or `FIRST` on ambiguity).
 
 ## Inter-module dependencies
 - Invoked by **actions** — `handle_triage` (cai-triage),
