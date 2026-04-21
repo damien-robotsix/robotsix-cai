@@ -137,6 +137,7 @@
 | `scripts/server-cleanup.sh` | Server-side age/size cleanup for the transcript-sync store (runs on the OVH box, not in the container) |
 | `tests/__init__.py` | Test package init |
 | `tests/test_agent_staging.py` | TODO: add description |
+| `tests/test_audit_cost.py` | TODO: add description |
 | `tests/test_audit_modules.py` | Tests for cai_lib.audit.modules — load_modules + coverage_check |
 | `tests/test_blocked_on.py` | TODO: add description |
 | `tests/test_close_completed_parents.py` | TODO: add description |

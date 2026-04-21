@@ -102,7 +102,7 @@ def _primary_model(row: dict) -> str:
     models = row.get("models")
     if not models or not isinstance(models, dict):
         return ""
-    best = max(models.items(), key=lambda kv: kv[1].get("output_tokens", 0))
+    best = max(models.items(), key=lambda kv: kv[1].get("outputTokens", 0))
     return best[0] if best else ""
 
 
