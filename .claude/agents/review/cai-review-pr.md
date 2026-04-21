@@ -150,9 +150,23 @@ GitHub issue will be created automatically instead.
    authorizes, emit an `## Out-of-scope Issue` block (see Output
    format) rather than a `### Finding:` block. Do not block the PR
    on work that belongs in a separate issue.
-9. **Do not use Bash.** You have `Read`, `Grep`, and `Glob` — use
-   them exclusively. Bash is not available and all Bash calls will be
-   rejected by the sandbox.
+9. **Do not use Bash or run any `git` command.** You have `Read`,
+   `Grep`, and `Glob` — use them exclusively. Bash is not
+   allowlisted for this agent (`--allowedTools Read,Grep,Glob` in
+   `cai_lib/actions/review_pr.py`). Even when the model attempts
+   a shell-out anyway, any `Bash("git -C <work_dir> diff ...")`,
+   `Bash("git -C <work_dir> log ...")`, or other
+   `git -C <path> ...` call is further refused by the sandbox
+   with "This command changes directory before running git,
+   which can execute untrusted hooks from the target directory"
+   — each such refusal wastes a turn. The `## PR changes (stat
+   summary)` block in the user message is pre-computed from
+   `git diff origin/main..HEAD --stat` by the wrapper; treat it
+   as the final, authoritative file-level diff map and do NOT
+   try to re-run `git diff`, `git log`, or any other `git`
+   command. For the contents of individual changed files, open
+   them directly from the work directory with `Read` (the PR
+   branch is already checked out there).
 
 ## Agent-specific efficiency guidance
 
