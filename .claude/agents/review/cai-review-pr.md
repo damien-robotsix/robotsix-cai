@@ -188,3 +188,10 @@ GitHub issue will be created automatically instead.
    in parallel rather than sequentially. Use Glob first to narrow
    the file set, then Grep the results, instead of running
    exploratory Grep calls one at a time.
+5. **Read tool parameter types.** The `offset` and `limit` parameters
+   on the Read tool must be raw integers — e.g., `offset: 200`, never
+   `offset: "200"`. Passing a quoted string causes an
+   `InputValidationError: The parameter 'offset' type is expected as
+   'number' but provided as 'string'` validation failure that wastes
+   the turn and forces a retry. Always emit bare numbers for these
+   parameters.
