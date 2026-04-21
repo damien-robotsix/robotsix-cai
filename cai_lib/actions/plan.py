@@ -175,6 +175,152 @@ def _plan_targets_only_docs(plan_text: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Admin-flagged scale / complexity persistence (#1131).
+#
+# Complements the cai-select ``requires_human_review=true`` flag
+# (#982) with a deterministic Python-side auto-flag. The select
+# agent's flag only fires when the selected plan knowingly diverges
+# from an explicit refined-issue preference; it does NOT fire for
+# the "plan is simply too large to auto-approve" case that motivates
+# #1131 (issue #1124 took 22 files at LOW confidence — 4-hourly
+# `cai rescue` passes kept burning a fresh autonomous-resume attempt
+# each tick instead of respecting the earlier admin flag).
+#
+# ``handle_plan_gate`` therefore also promotes the human-review
+# divert on two Python-detected signals at LOW / MISSING confidence:
+#
+#   (a) Large-scope cap — the issue body's first ``### Files to
+#       change`` section lists >= ``_LARGE_SCOPE_FILE_THRESHOLD``
+#       unique backticked ``path/with.ext`` tokens. 15 matches the
+#       empirical scale of #1124 with headroom for smaller but
+#       still-broad reworks. (In practice the first such section
+#       in a PLANNED issue body is the refined-issue scope list;
+#       the plan block appended below inside ``<!-- cai-plan-start
+#       --> / <!-- cai-plan-end -->`` markers contains its own
+#       section that ``re.search`` does NOT see first, so the
+#       signal is effectively 'declared refined-issue scale'.)
+#
+#   (b) Sticky scale/complexity phrase — any earlier MARKER divert
+#       comment on this issue (``🙋 Human attention needed``) carries
+#       one of the ``_SCALE_COMPLEXITY_PHRASES`` tokens. Makes the
+#       concern persist across subsequent plan iterations without
+#       requiring cai-select to rediscover it from scratch.
+#
+# Both signals route through the same divert branch as the #982
+# flag: ``fire_trigger("planned_to_human", divert_reason=...)`` + a
+# follow-up ``_set_labels(add=[LABEL_PLAN_NEEDS_REVIEW])`` so
+# ``cai rescue``'s ``_list_unresolved_human_needed_issues`` skips
+# the issue until an admin explicitly resumes it via
+# ``cai unblock`` or ``human:solved``. HIGH- and MEDIUM-confidence
+# plans are unaffected — the triggers never fire above LOW,
+# preserving the existing fast path for trusted plans.
+# ---------------------------------------------------------------------------
+_LARGE_SCOPE_FILE_THRESHOLD = 15
+
+_SCALE_COMPLEXITY_PHRASES = (
+    "scale alone warrants",
+    "warrants admin review",
+    "complexity warrants",
+    "too large to approve autonomously",
+    "warranting review beyond what",
+    "scale/complexity",
+)
+
+_HUMAN_REVIEW_MARKER_PHRASE = "🙋 Human attention needed"
+
+
+def _count_files_to_change(issue_body):
+    """Return the count of unique backticked path tokens in *issue_body*'s
+    first ``### Files to change`` section.
+
+    Uses the same regexes as :func:`_plan_targets_only_docs`
+    (``_FILES_TO_CHANGE_SECTION_RE`` bounds the section; only
+    backticked ``path/with.ext`` tokens with at least one ``/`` and
+    an extension count). Returns ``0`` when the section is missing,
+    contains no backticked paths, or the input is empty / ``None``.
+    """
+    if not issue_body:
+        return 0
+    section = _FILES_TO_CHANGE_SECTION_RE.search(issue_body)
+    if not section:
+        return 0
+    paths = set(_FILES_TO_CHANGE_PATH_RE.findall(section.group(1)))
+    return len(paths)
+
+
+def _prior_divert_cites_scale_complexity(comments):
+    """Return ``True`` if any MARKER comment on the issue cites a
+    scale/complexity phrase from ``_SCALE_COMPLEXITY_PHRASES``.
+
+    Matches case-insensitively and only against comment bodies that
+    also carry the ``🙋 Human attention needed`` marker, so an
+    unrelated admin comment that happens to contain one of the
+    phrases cannot trip the sticky signal. Returns ``False`` for
+    empty or ``None`` input.
+    """
+    if not comments:
+        return False
+    marker_lc = _HUMAN_REVIEW_MARKER_PHRASE.lower()
+    for c in comments:
+        body = (c.get("body") or "").lower()
+        if marker_lc not in body:
+            continue
+        if any(phrase in body for phrase in _SCALE_COMPLEXITY_PHRASES):
+            return True
+    return False
+
+
+def _auto_flagged_human_review_reason(issue, plan_confidence):
+    """Return a bespoke divert reason string when #1131's auto-flag
+    triggers fire, else ``None``.
+
+    Fires only when *plan_confidence* is ``Confidence.LOW`` or
+    ``None`` (MISSING). HIGH- and MEDIUM-confidence plans continue
+    through the ordinary confidence gate unaffected.
+
+    Fires when either:
+
+      (a) ``_count_files_to_change(issue["body"])`` >=
+          ``_LARGE_SCOPE_FILE_THRESHOLD``; or
+      (b) ``_prior_divert_cites_scale_complexity(issue["comments"])``
+          is ``True``.
+
+    The returned reason will be forwarded to
+    ``fire_trigger("planned_to_human", divert_reason=...)`` and
+    logged alongside the ``LABEL_PLAN_NEEDS_REVIEW`` application
+    in :func:`handle_plan_gate`.
+    """
+    from cai_lib.fsm import Confidence
+    if plan_confidence is not None and plan_confidence != Confidence.LOW:
+        return None
+    file_count = _count_files_to_change(issue.get("body", "") or "")
+    prior_scale = _prior_divert_cites_scale_complexity(
+        issue.get("comments") or []
+    )
+    if file_count < _LARGE_SCOPE_FILE_THRESHOLD and not prior_scale:
+        return None
+    signals = []
+    if file_count >= _LARGE_SCOPE_FILE_THRESHOLD:
+        signals.append(
+            f"the stored plan lists {file_count} files to change "
+            f"(\u2265 {_LARGE_SCOPE_FILE_THRESHOLD})"
+        )
+    if prior_scale:
+        signals.append(
+            "a prior divert on this issue flagged scale or complexity "
+            "as warranting admin review"
+        )
+    joined = "; ".join(signals)
+    return (
+        "Auto-flagged scale/complexity checkpoint (#1131): "
+        f"{joined}. Admin approval is required at each plan "
+        "iteration; while `auto-improve:plan-needs-review` is "
+        "applied, `cai rescue`'s autonomous resume pass will skip "
+        "this issue."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helpers (moved from cai.py — only used by the plan phase).
 # ---------------------------------------------------------------------------
 
@@ -793,21 +939,46 @@ def handle_plan_gate(issue: dict) -> int:
         body = issue.get("body", "") or ""
         approvable_at_medium = parse_approvable_at_medium(body)
 
-    # Human-review override path (#982): if cai-select explicitly
-    # flagged the plan, divert unconditionally with a bespoke message
-    # rather than letting the confidence gate emit a generic "gate not
-    # met" comment. Independent of confidence level and of the
+    # Deterministic scale/complexity auto-flag (#1131). Promotes
+    # requires_human_review to True when the stored plan is LOW
+    # confidence AND either (a) lists >= _LARGE_SCOPE_FILE_THRESHOLD
+    # files to change or (b) a prior MARKER divert on this issue
+    # already cited scale/complexity. Only runs when cai-select did
+    # NOT already set requires_human_review=true (#982) — that
+    # branch owns its own bespoke reason. The promoted signal
+    # reuses the existing divert code path below (fire_trigger +
+    # _set_labels + log_run) so only the reason text differs.
+    auto_flagged_reason = None
+    if not requires_human_review:
+        auto_flagged_reason = _auto_flagged_human_review_reason(
+            issue, plan_confidence,
+        )
+        if auto_flagged_reason is not None:
+            requires_human_review = True
+
+    # Human-review override path (#982 + #1131): cai-select flagged
+    # the plan OR the Python-side scale/complexity auto-flag fired.
+    # Divert unconditionally with a bespoke message rather than
+    # letting the confidence gate emit a generic "gate not met"
+    # comment. Independent of confidence level and of the
     # anchor-mitigation marker.
     if requires_human_review:
+        divert_signal = (
+            "scale_complexity" if auto_flagged_reason is not None
+            else "refined_preference"
+        )
         print(
-            f"[cai plan] #{issue_number} requires_human_review=true — "
-            f"diverting to :human-needed via planned_to_human (#982)",
+            f"[cai plan] #{issue_number} human-review divert "
+            f"({divert_signal}) — routing via planned_to_human",
             flush=True,
         )
-        reason_lines = [
-            "Plan diverges from refined-issue preference — admin "
-            "approval required before the fix agent proceeds.",
-        ]
+        if auto_flagged_reason is not None:
+            reason_lines = [auto_flagged_reason]
+        else:
+            reason_lines = [
+                "Plan diverges from refined-issue preference \u2014 admin "
+                "approval required before the fix agent proceeds.",
+            ]
         if plan_confidence_reason:
             reason_lines.extend(["", plan_confidence_reason.rstrip()])
         ok, _ = fire_trigger(
