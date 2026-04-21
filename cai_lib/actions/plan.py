@@ -966,28 +966,45 @@ def handle_plan_gate(issue: dict) -> int:
     diverts to :human-needed (`planned_to_human`) so an admin can
     review.
 
+    The gate also handles several confidence-relaxation paths and
+    post-approval Opus escalation:
+
+    **Docs-only structural relaxation (#989):** when every path in the
+    plan's ``### Files to change`` section targets only ``docs/``, the
+    gate routes through ``planned_to_plan_approved_docs_only`` — a
+    MEDIUM-threshold sibling that auto-approves because blast radius
+    is minimal and residual drift can be corrected by ``cai-review-docs``.
+
     **Anchor-mitigation relaxation (#918):** when the selected plan
     text contains the marker phrase ``locate edits by anchor text ...
     not by line number``, the gate routes through
-    ``planned_to_plan_approved_mitigated`` instead — a sibling
-    transition that performs the same label move but accepts
-    :attr:`Confidence.MEDIUM`. This lets plans whose only residual
-    risk is implementation-detail (line-number drift, fence escaping,
-    cosmetic wording) auto-approve because the fix agent is
-    explicitly instructed to anchor on surrounding text. Plans
-    without the marker continue to require HIGH via the default
-    transition.
+    ``planned_to_plan_approved_mitigated`` — a MEDIUM-threshold sibling
+    that auto-approves because the fix agent is instructed to anchor on
+    surrounding text rather than line numbers.
+
+    **Approvable-at-medium relaxation (#1008):** when ``cai-select`` set
+    ``approvable_at_medium=true`` in its structured output, the gate
+    routes through ``planned_to_plan_approved_approvable`` — a MEDIUM-
+    threshold sibling that auto-approves when the residual risks are
+    soft / non-blocking.
 
     **Human-review override (#982):** when ``cai-select`` set
-    ``requires_human_review=true`` in its structured output (stashed
-    under ``_cai_plan_requires_human_review`` or re-parsed from the
-    ``Requires human review: true`` marker in the stored plan block),
-    the gate diverts directly to ``:human-needed`` via
-    ``planned_to_human`` with a bespoke admin-approval message —
-    independent of the reported confidence and of the anchor-mitigation
-    marker. This surfaces a clearer divert reason than the generic
-    confidence-gate trip when the selected plan knowingly diverges
-    from the refined-issue's stated preference.
+    ``requires_human_review=true`` in its structured output, the gate
+    diverts directly to ``:human-needed`` via ``planned_to_human`` with
+    a bespoke admin-approval message independent of confidence level.
+
+    **Scale/complexity auto-flag (#1131):** when a LOW-confidence plan
+    lists ≥15 files in ``### Files to change`` or a prior divert on
+    this issue cited scale/complexity concerns, the gate diverts to
+    ``:human-needed`` with a reason explaining the auto-flag.
+
+    **Large-refactor Opus pre-escalation (#1139):** after a successful
+    confidence-gated transition to ``:plan-approved``, when the plan
+    qualifies as a large mechanical refactor (≥8 files AND ≥50 edit
+    steps), the gate applies :data:`LABEL_OPUS_ATTEMPTED` so
+    :func:`cai_lib.actions.implement.handle_implement` routes the
+    implementation to Opus from the start, avoiding the Sonnet-retry
+    loop on large-scale refactoring.
     """
     from cai_lib.fsm import (
         parse_confidence,
