@@ -90,7 +90,7 @@ class TestScheduleOpusAttempt(unittest.TestCase):
             {"name": LABEL_OPUS_ATTEMPTED},
         ])
         with mock.patch.object(R, "_set_labels") as set_labels, \
-             mock.patch.object(R, "apply_transition") as apply_t, \
+             mock.patch.object(R, "fire_trigger") as apply_t, \
              mock.patch.object(R, "_post_opus_escalation_comment") as cmt:
             tag = R._schedule_opus_attempt(issue, reasoning="r")
         self.assertEqual(tag, "opus_already_attempted")
@@ -101,7 +101,7 @@ class TestScheduleOpusAttempt(unittest.TestCase):
     def test_refuses_when_no_stored_plan(self):
         issue = self._issue(body="no plan block here")
         with mock.patch.object(R, "_set_labels") as set_labels, \
-             mock.patch.object(R, "apply_transition") as apply_t, \
+             mock.patch.object(R, "fire_trigger") as apply_t, \
              mock.patch.object(R, "_post_opus_escalation_comment") as cmt:
             tag = R._schedule_opus_attempt(issue, reasoning="r")
         self.assertEqual(tag, "opus_no_plan")
@@ -112,7 +112,7 @@ class TestScheduleOpusAttempt(unittest.TestCase):
     def test_happy_path_stamps_label_and_fires_transition(self):
         issue = self._issue()
         with mock.patch.object(R, "_set_labels", return_value=True) as set_labels, \
-             mock.patch.object(R, "apply_transition", return_value=True) as apply_t, \
+             mock.patch.object(R, "fire_trigger", return_value=(True, False)) as apply_t, \
              mock.patch.object(R, "_post_opus_escalation_comment", return_value=True) as cmt:
             tag = R._schedule_opus_attempt(issue, reasoning="plan looks sound")
         self.assertEqual(tag, "opus_attempt_scheduled")
@@ -132,7 +132,7 @@ class TestScheduleOpusAttempt(unittest.TestCase):
     def test_propagates_label_apply_failure(self):
         issue = self._issue()
         with mock.patch.object(R, "_set_labels", return_value=False), \
-             mock.patch.object(R, "apply_transition") as apply_t, \
+             mock.patch.object(R, "fire_trigger") as apply_t, \
              mock.patch.object(R, "_post_opus_escalation_comment", return_value=True):
             tag = R._schedule_opus_attempt(issue, reasoning="r")
         self.assertEqual(tag, "agent_failed")
@@ -228,7 +228,7 @@ class TestTryRescuePr(unittest.TestCase):
         with mock.patch.object(
             R, "_run_claude_p", return_value=self._claude_reply(claude_payload)
         ), mock.patch.object(
-            R, "apply_pr_transition", return_value=True
+            R, "fire_trigger", return_value=(True, False)
         ) as apply_pr, mock.patch.object(
             R, "_post_pr_rescue_comment", return_value=True
         ) as cmt:
@@ -248,7 +248,7 @@ class TestTryRescuePr(unittest.TestCase):
         }
         with mock.patch.object(
             R, "_run_claude_p", return_value=self._claude_reply(claude_payload)
-        ), mock.patch.object(R, "apply_pr_transition") as apply_pr, \
+        ), mock.patch.object(R, "fire_trigger") as apply_pr, \
              mock.patch.object(R, "_schedule_opus_attempt") as sched:
             tag = R._try_rescue_pr(pr, prevention_findings=[])
         self.assertEqual(tag, "truly_human_needed")
@@ -265,7 +265,7 @@ class TestTryRescuePr(unittest.TestCase):
         }
         with mock.patch.object(
             R, "_run_claude_p", return_value=self._claude_reply(claude_payload)
-        ), mock.patch.object(R, "apply_pr_transition") as apply_pr:
+        ), mock.patch.object(R, "fire_trigger") as apply_pr:
             tag = R._try_rescue_pr(pr, prevention_findings=[])
         self.assertEqual(tag, "low_confidence")
         apply_pr.assert_not_called()

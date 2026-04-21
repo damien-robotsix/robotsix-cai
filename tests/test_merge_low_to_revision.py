@@ -192,7 +192,7 @@ class TestHandleMergeLowHoldRouting(unittest.TestCase):
                           fetch_review_mock), \
              patch.object(merge_mod, "_issue_has_label", has_label_mock), \
              patch.object(merge_mod, "_set_labels", set_labels_mock), \
-             patch.object(merge_mod, "apply_pr_transition",
+             patch.object(merge_mod, "fire_trigger",
                           transition_mock), \
              patch.object(merge_mod, "log_run", log_mock):
             rc = merge_mod.handle_merge(pr)

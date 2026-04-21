@@ -25,7 +25,7 @@ from cai_lib.config import (
 )
 from cai_lib.fsm import (
     PRState,
-    apply_pr_transition,
+    fire_trigger,
     get_pr_state,
 )
 from cai_lib.github import _gh_json, _set_labels
@@ -941,18 +941,21 @@ def handle_revise(pr: dict) -> int:
                 pr_now = {}
             current_state = get_pr_state(pr_now) if pr_now else None
             if current_state == PRState.REVISION_PENDING:
-                apply_pr_transition(
+                fire_trigger(
                     pr_number, "revision_pending_to_reviewing_code",
+                    is_pr=True,
                     log_prefix="cai revise",
                 )
             elif current_state == PRState.CI_FAILING:
-                apply_pr_transition(
+                fire_trigger(
                     pr_number, "ci_failing_to_reviewing_code",
+                    is_pr=True,
                     log_prefix="cai revise",
                 )
             elif current_state == PRState.REVIEWING_DOCS:
-                apply_pr_transition(
+                fire_trigger(
                     pr_number, "reviewing_docs_to_reviewing_code",
+                    is_pr=True,
                     log_prefix="cai revise",
                 )
             # REVIEWING_CODE is already correct; OPEN / PR_HUMAN_NEEDED

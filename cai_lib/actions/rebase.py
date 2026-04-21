@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 
 from cai_lib.config import REPO
-from cai_lib.fsm import apply_pr_transition
+from cai_lib.fsm import fire_trigger
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import _git, _gh_user_identity, _work_directory_block
 from cai_lib.logging_utils import log_run
@@ -63,8 +63,9 @@ def _post_pr_comment(pr_number: int, body: str) -> None:
 
 def _exit_to_review(pr_number: int) -> None:
     """Apply rebasing_to_reviewing_code so the next tick re-reviews."""
-    apply_pr_transition(
+    fire_trigger(
         pr_number, "rebasing_to_reviewing_code",
+        is_pr=True,
         log_prefix="cai rebase",
     )
 

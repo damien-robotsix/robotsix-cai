@@ -174,10 +174,10 @@ class TestResumeStripsHumanSolvedLabel(unittest.TestCase):
             captured["issue_number"] = issue_number
             captured["transition_name"] = transition_name
             captured["kwargs"] = kwargs
-            return True
+            return (True, False)
 
         with mock.patch.object(U, "_run_claude_p", return_value=fake_agent), \
-             mock.patch.object(U, "apply_transition", side_effect=fake_apply):
+             mock.patch.object(U, "fire_trigger", side_effect=fake_apply):
             result = U._try_unblock_issue(issue)
 
         self.assertEqual(result, "resumed")
@@ -284,7 +284,7 @@ class TestTryUnblockPrSkips(unittest.TestCase):
 
         def fake_pr_transition(pr_number, transition_name, **kwargs):
             transitions.append(transition_name)
-            return True
+            return (True, False)
 
         set_label_calls: list[dict] = []
 
@@ -293,7 +293,7 @@ class TestTryUnblockPrSkips(unittest.TestCase):
             return True
 
         with mock.patch.object(U, "_run_claude_p", return_value=fake_agent), \
-             mock.patch.object(U, "apply_pr_transition", side_effect=fake_pr_transition), \
+             mock.patch.object(U, "fire_trigger", side_effect=fake_pr_transition), \
              mock.patch.object(U, "_set_pr_labels", side_effect=fake_set_pr_labels):
             result = U._try_unblock_pr(pr)
 
@@ -473,14 +473,14 @@ class TestTryUnblockIssueAppendsAmendmentsForPlanApproved(unittest.TestCase):
 
         def fake_apply(issue_number, transition_name, **kwargs):
             calls["transition"].append(transition_name)
-            return True
+            return (True, False)
 
         issue = self._issue_with_plan()
 
         with mock.patch.object(U, "_run_claude_p", return_value=fake_agent), \
              mock.patch.object(U, "_append_admin_amendments_to_plan",
                                side_effect=fake_append), \
-             mock.patch.object(U, "apply_transition", side_effect=fake_apply):
+             mock.patch.object(U, "fire_trigger", side_effect=fake_apply):
             result = U._try_unblock_issue(issue)
         return result, calls
 

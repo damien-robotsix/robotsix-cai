@@ -28,7 +28,7 @@ from cai_lib.config import (
 )
 from cai_lib import transcript_sync
 from cai_lib.cmd_helpers import _fetch_previous_fix_attempts
-from cai_lib.fsm import apply_transition
+from cai_lib.fsm import fire_trigger
 from cai_lib.github import _gh_json, _set_labels, close_issue_completed
 from cai_lib.logging_utils import (
     _get_issue_category,
@@ -207,7 +207,7 @@ def handle_confirm(issue: dict) -> int:
             prior_attempts = len(_fetch_previous_fix_attempts(issue_num))
             _log_outcome(issue_num, cat, "solved", prior_attempts)
             current_labels = [lbl["name"] for lbl in mi.get("labels", [])]
-            apply_transition(
+            fire_trigger(
                 issue_num, "merged_to_solved",
                 current_labels=current_labels,
                 log_prefix="cai confirm",

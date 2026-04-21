@@ -37,7 +37,7 @@ from cai_lib.config import (
 from cai_lib.actions.merge import _BOT_BRANCH_RE
 from cai_lib.fsm import (
     PRState,
-    apply_pr_transition,
+    fire_trigger,
     get_pr_state,
 )
 from cai_lib.github import _fetch_linked_issue_block
@@ -321,8 +321,9 @@ def handle_review_pr(pr: dict) -> int:
         if current_state == PRState.OPEN:
             branch = pr.get("headRefName", "") or ""
             if not _BOT_BRANCH_RE.match(branch):
-                apply_pr_transition(
+                fire_trigger(
                     pr_number, "open_to_human",
+                    is_pr=True,
                     current_pr=pr,
                     log_prefix="cai review-pr",
                     divert_reason=(
@@ -331,18 +332,21 @@ def handle_review_pr(pr: dict) -> int:
                     ),
                 )
                 return 1
-            apply_pr_transition(
+            fire_trigger(
                 pr_number, "open_to_reviewing_code",
+                is_pr=True,
                 log_prefix="cai review-pr",
             )
         if has_findings:
-            apply_pr_transition(
+            fire_trigger(
                 pr_number, "reviewing_code_to_revision_pending",
+                is_pr=True,
                 log_prefix="cai review-pr",
             )
         else:
-            apply_pr_transition(
+            fire_trigger(
                 pr_number, "reviewing_code_to_reviewing_docs",
+                is_pr=True,
                 log_prefix="cai review-pr",
             )
 

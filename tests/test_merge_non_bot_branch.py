@@ -48,7 +48,7 @@ class TestHandleMergeNonBotBranch(unittest.TestCase):
         log_mock = MagicMock()
 
         with patch.object(merge_mod, "_run", run_mock), \
-             patch.object(merge_mod, "apply_pr_transition", transition_mock), \
+             patch.object(merge_mod, "fire_trigger", transition_mock), \
              patch.object(merge_mod, "log_run", log_mock):
             rc = merge_mod.handle_merge(pr)
 
@@ -83,7 +83,7 @@ class TestHandleMergeNonBotBranch(unittest.TestCase):
 
         with patch.object(merge_mod, "_run", run_mock), \
              patch.object(merge_mod, "_run_claude_p", claude_mock), \
-             patch.object(merge_mod, "apply_pr_transition",
+             patch.object(merge_mod, "fire_trigger",
                           MagicMock(return_value=True)), \
              patch.object(merge_mod, "log_run", MagicMock()):
             merge_mod.handle_merge(pr)

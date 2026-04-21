@@ -33,7 +33,7 @@ class TestHandlePrBounce(unittest.TestCase):
         open_pr = {"number": 643, "headRefName": "auto-improve/620-foo"}
         with patch.object(pr_bounce, "_find_open_linked_pr", return_value=open_pr), \
              patch.object(pr_bounce, "_find_recent_closed_linked_pr") as closed_lookup, \
-             patch.object(pr_bounce, "apply_transition") as apply_t, \
+             patch.object(pr_bounce, "fire_trigger") as apply_t, \
              patch("cai_lib.dispatcher.dispatch_pr", return_value=0) as dpr:
             rc = pr_bounce.handle_pr_bounce(issue)
         self.assertEqual(rc, 0)
@@ -51,7 +51,7 @@ class TestHandlePrBounce(unittest.TestCase):
         with patch.object(pr_bounce, "_find_open_linked_pr", return_value=None), \
              patch.object(pr_bounce, "_find_recent_closed_linked_pr",
                           return_value=closed_pr), \
-             patch.object(pr_bounce, "apply_transition", return_value=True) as apply_t, \
+             patch.object(pr_bounce, "fire_trigger", return_value=(True, False)) as apply_t, \
              patch("cai_lib.dispatcher.dispatch_pr") as dpr:
             rc = pr_bounce.handle_pr_bounce(issue)
         self.assertEqual(rc, 0)
@@ -73,7 +73,7 @@ class TestHandlePrBounce(unittest.TestCase):
                           return_value=closed_pr), \
              patch.object(pr_bounce, "_pr_close_actor", return_value="cai-bot"), \
              patch.object(pr_bounce, "_our_gh_login", return_value="cai-bot"), \
-             patch.object(pr_bounce, "apply_transition", return_value=True) as apply_t, \
+             patch.object(pr_bounce, "fire_trigger", return_value=(True, False)) as apply_t, \
              patch("cai_lib.dispatcher.dispatch_pr") as dpr:
             rc = pr_bounce.handle_pr_bounce(issue)
         self.assertEqual(rc, 0)
@@ -94,7 +94,7 @@ class TestHandlePrBounce(unittest.TestCase):
              patch.object(pr_bounce, "_pr_close_actor",
                           return_value="damien-robotsix"), \
              patch.object(pr_bounce, "_our_gh_login", return_value="cai-bot"), \
-             patch.object(pr_bounce, "apply_transition", return_value=True) as apply_t, \
+             patch.object(pr_bounce, "fire_trigger", return_value=(True, False)) as apply_t, \
              patch("cai_lib.dispatcher.dispatch_pr") as dpr:
             rc = pr_bounce.handle_pr_bounce(issue)
         self.assertEqual(rc, 0)
@@ -115,7 +115,7 @@ class TestHandlePrBounce(unittest.TestCase):
                           return_value=closed_pr), \
              patch.object(pr_bounce, "_pr_close_actor", return_value=None), \
              patch.object(pr_bounce, "_our_gh_login", return_value="cai-bot"), \
-             patch.object(pr_bounce, "apply_transition", return_value=True) as apply_t, \
+             patch.object(pr_bounce, "fire_trigger", return_value=(True, False)) as apply_t, \
              patch("cai_lib.dispatcher.dispatch_pr") as dpr:
             rc = pr_bounce.handle_pr_bounce(issue)
         self.assertEqual(rc, 0)
@@ -126,7 +126,7 @@ class TestHandlePrBounce(unittest.TestCase):
         with patch.object(pr_bounce, "_find_open_linked_pr", return_value=None), \
              patch.object(pr_bounce, "_find_recent_closed_linked_pr",
                           return_value=None), \
-             patch.object(pr_bounce, "apply_transition", return_value=True) as apply_t, \
+             patch.object(pr_bounce, "fire_trigger", return_value=(True, False)) as apply_t, \
              patch("cai_lib.dispatcher.dispatch_pr") as dpr:
             rc = pr_bounce.handle_pr_bounce(issue)
         self.assertEqual(rc, 0)
@@ -139,7 +139,7 @@ class TestHandlePrBounce(unittest.TestCase):
         with patch.object(pr_bounce, "_find_open_linked_pr", return_value=None), \
              patch.object(pr_bounce, "_find_recent_closed_linked_pr",
                           return_value=None), \
-             patch.object(pr_bounce, "apply_transition", return_value=False):
+             patch.object(pr_bounce, "fire_trigger", return_value=(False, False)):
             rc = pr_bounce.handle_pr_bounce(issue)
         self.assertEqual(rc, 1)
 

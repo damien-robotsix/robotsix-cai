@@ -929,42 +929,6 @@ def fire_trigger(
         return False, False
 
 
-def apply_transition(
-    issue_number: int,
-    transition_name: str,
-    *,
-    current_labels: Optional[list[str]] = None,
-    extra_remove: Sequence[str] = (),
-    log_prefix: str = "cai",
-    set_labels=None,
-    divert_reason: Optional[str] = None,
-    post_comment=None,
-) -> bool:
-    """Shim: delegates to :func:`fire_trigger` (issue side, no confidence gate).
-
-    Preserves the full public signature of the original implementation so all
-    19 call-site files remain unchanged.  The HUMAN_NEEDED invariant
-    (*divert_reason* required), state-mismatch refusal, and label-change /
-    comment posting are enforced inside ``fire_trigger`` via the Machine
-    callbacks.
-
-    *set_labels* and *post_comment* are injectable for tests (forwarded to
-    ``fire_trigger``).
-    """
-    ok, _ = fire_trigger(
-        issue_number, transition_name,
-        is_pr=False,
-        _confidence_gated=False,
-        log_prefix=log_prefix,
-        current_labels=current_labels,
-        extra_remove=extra_remove,
-        divert_reason=divert_reason or "",
-        set_labels=set_labels,
-        post_comment=post_comment,
-    )
-    return ok
-
-
 def _render_human_divert_reason(
     *,
     transition_name: str,
@@ -1002,40 +966,6 @@ def _render_human_divert_reason(
     return "\n".join(lines)
 
 
-def apply_transition_with_confidence(
-    issue_number: int,
-    transition_name: str,
-    confidence: Optional[Confidence],
-    *,
-    current_labels: Optional[list[str]] = None,
-    extra_remove: Sequence[str] = (),
-    log_prefix: str = "cai",
-    set_labels=None,
-    post_comment=None,
-    reason_extra: str = "",
-) -> tuple[bool, bool]:
-    """Shim: delegates to :func:`fire_trigger` with confidence gating enabled.
-
-    Returns ``(ok, diverted)``.  When *confidence* is ``None`` or below the
-    transition's ``min_confidence``, the issue is moved to HUMAN_NEEDED
-    (diverted=True); otherwise the primary destination is applied
-    (diverted=False).  *set_labels* and *post_comment* are injectable for
-    tests.
-    """
-    return fire_trigger(
-        issue_number, transition_name,
-        is_pr=False,
-        confidence=confidence,
-        _confidence_gated=True,
-        log_prefix=log_prefix,
-        current_labels=current_labels,
-        extra_remove=extra_remove,
-        reason_extra=reason_extra,
-        set_labels=set_labels,
-        post_comment=post_comment,
-    )
-
-
 def resume_transition_for(target_state_name: str) -> Optional[Transition]:
     """Map a ``ResumeTo: <STATE>`` token to the matching ``human_to_<state>`` transition.
 
@@ -1053,68 +983,6 @@ def resume_transition_for(target_state_name: str) -> Optional[Transition]:
         if t.from_state == IssueState.HUMAN_NEEDED and t.to_state == target:
             return t
     return None
-
-
-def apply_pr_transition(
-    pr_number: int,
-    transition_name: str,
-    *,
-    current_pr: Optional[dict] = None,
-    log_prefix: str = "cai",
-    set_pr_labels=None,
-    divert_reason: Optional[str] = None,
-    post_comment=None,
-) -> bool:
-    """Shim: delegates to :func:`fire_trigger` (PR side, no confidence gate).
-
-    Preserves the full public signature of the original implementation.  The
-    PR_HUMAN_NEEDED invariant (*divert_reason* required), state-mismatch
-    refusal, and label-change / comment posting are enforced inside
-    ``fire_trigger`` via the Machine callbacks.
-
-    *set_pr_labels* and *post_comment* are injectable for tests.
-    """
-    ok, _ = fire_trigger(
-        pr_number, transition_name,
-        is_pr=True,
-        _confidence_gated=False,
-        log_prefix=log_prefix,
-        current_pr=current_pr,
-        divert_reason=divert_reason or "",
-        set_pr_labels=set_pr_labels,
-        post_comment=post_comment,
-    )
-    return ok
-
-
-def apply_pr_transition_with_confidence(
-    pr_number: int,
-    transition_name: str,
-    confidence: Optional[Confidence],
-    *,
-    current_pr: Optional[dict] = None,
-    log_prefix: str = "cai",
-    set_pr_labels=None,
-    post_comment=None,
-    reason_extra: str = "",
-) -> tuple[bool, bool]:
-    """Shim: delegates to :func:`fire_trigger` with confidence gating (PR side).
-
-    Returns ``(ok, diverted)``.  Mirrors :func:`apply_transition_with_confidence`
-    for the PR submachine.  *set_pr_labels* and *post_comment* are injectable
-    for tests.
-    """
-    return fire_trigger(
-        pr_number, transition_name,
-        is_pr=True,
-        confidence=confidence,
-        _confidence_gated=True,
-        log_prefix=log_prefix,
-        current_pr=current_pr,
-        reason_extra=reason_extra,
-        set_pr_labels=set_pr_labels,
-        post_comment=post_comment,
-    )
 
 
 def resume_pr_transition_for(target_state_name: str) -> Optional[Transition]:

@@ -107,8 +107,7 @@ class TestHandleMergeApproachMismatchRouting(unittest.TestCase):
         fetch_review_mock = MagicMock(return_value=[])
         has_label_mock = MagicMock(return_value=False)
         set_labels_mock = MagicMock(return_value=True)
-        pr_transition_mock = MagicMock(return_value=True)
-        issue_transition_mock = MagicMock(return_value=True)
+        fire_trigger_mock = MagicMock(return_value=(True, False))
         log_mock = MagicMock()
         git_mock = MagicMock()
 
@@ -123,31 +122,31 @@ class TestHandleMergeApproachMismatchRouting(unittest.TestCase):
              patch.object(merge_mod, "_issue_has_label",
                           has_label_mock), \
              patch.object(merge_mod, "_set_labels", set_labels_mock), \
-             patch.object(merge_mod, "apply_pr_transition",
-                          pr_transition_mock), \
-             patch.object(merge_mod, "apply_transition",
-                          issue_transition_mock), \
+             patch.object(merge_mod, "fire_trigger",
+                          fire_trigger_mock), \
              patch.object(merge_mod, "log_run", log_mock):
             rc = merge_mod.handle_merge(pr)
 
         self.assertEqual(rc, 0)
         return {
-            "pr_transition": pr_transition_mock,
-            "issue_transition": issue_transition_mock,
+            "pr_transition": fire_trigger_mock,
+            "issue_transition": fire_trigger_mock,
             "set_labels": set_labels_mock,
             "run": run_mock,
         }
 
-    def _pr_transition_names(self, pr_transition_mock) -> list:
+    def _pr_transition_names(self, fire_trigger_mock) -> list:
         return [
-            c.args[1] for c in pr_transition_mock.call_args_list
+            c.args[1] for c in fire_trigger_mock.call_args_list
             if len(c.args) >= 2 and isinstance(c.args[1], str)
+            and c.kwargs.get("is_pr", False)
         ]
 
-    def _issue_transition_names(self, issue_transition_mock) -> list:
+    def _issue_transition_names(self, fire_trigger_mock) -> list:
         return [
-            c.args[1] for c in issue_transition_mock.call_args_list
+            c.args[1] for c in fire_trigger_mock.call_args_list
             if len(c.args) >= 2 and isinstance(c.args[1], str)
+            and not c.kwargs.get("is_pr", False)
         ]
 
     def test_hold_with_approach_mismatch_closes_and_transitions(self):

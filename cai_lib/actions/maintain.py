@@ -25,8 +25,7 @@ from pathlib import Path
 from cai_lib.config import REPO
 from cai_lib.cmd_helpers import _work_directory_block
 from cai_lib.fsm import (
-    apply_transition,
-    apply_transition_with_confidence,
+    fire_trigger,
     parse_confidence,
     parse_confidence_reason,
 )
@@ -141,10 +140,11 @@ def handle_maintain(issue: dict) -> int:
             flush=True,
         )
 
-    ok, diverted = apply_transition_with_confidence(
+    ok, diverted = fire_trigger(
         issue_number,
         transition_name,
-        confidence,
+        confidence=confidence,
+        _confidence_gated=True,
         current_labels=issue_labels,
         log_prefix="cai maintain",
         reason_extra=confidence_reason or "",
@@ -171,7 +171,7 @@ def handle_applied(issue: dict) -> int:
 
     print(f"[cai maintain] advancing #{issue_number} :applied → :solved",
           flush=True)
-    apply_transition(
+    fire_trigger(
         issue_number, "applied_to_solved",
         current_labels=issue_labels,
         log_prefix="cai maintain",

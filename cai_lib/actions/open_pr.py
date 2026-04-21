@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from cai_lib.actions.merge import _BOT_BRANCH_RE
 from cai_lib.config import REPO
-from cai_lib.fsm import apply_pr_transition
+from cai_lib.fsm import fire_trigger
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run
 
@@ -61,8 +61,9 @@ def handle_open_to_review(pr: dict) -> int:
              f"just re-enter this state."],
             capture_output=True,
         )
-        ok = apply_pr_transition(
+        ok, _ = fire_trigger(
             pr_number, "open_to_human",
+            is_pr=True,
             current_pr=pr,
             log_prefix="cai dispatch",
             divert_reason=(
@@ -74,8 +75,9 @@ def handle_open_to_review(pr: dict) -> int:
                 result="not_bot_branch_open", exit=0)
         return 0 if ok else 1
 
-    ok = apply_pr_transition(
+    ok, _ = fire_trigger(
         pr_number, "open_to_reviewing_code",
+        is_pr=True,
         current_pr=pr,
         log_prefix="cai dispatch",
     )

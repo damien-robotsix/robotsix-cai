@@ -10,7 +10,7 @@ from cai_lib.fsm import (
     IssueState, PRState, Transition, Confidence,
     ISSUE_TRANSITIONS, PR_TRANSITIONS,
     get_issue_state, render_fsm_mermaid,
-    apply_transition, apply_transition_with_confidence, find_transition,
+    find_transition,
     parse_confidence, parse_confidence_reason, parse_resume_target,
     resume_transition_for, resume_pr_transition_for,
     fire_trigger,
@@ -296,135 +296,6 @@ class TestPlannedToPlanApprovedApprovable(unittest.TestCase):
         )
 
 
-class TestApplyTransition(unittest.TestCase):
-
-    def _recording_set_labels(self):
-        calls = []
-        def _fake(issue_number, *, add=(), remove=(), log_prefix="cai"):
-            calls.append({
-                "issue_number": issue_number,
-                "add": list(add),
-                "remove": list(remove),
-                "log_prefix": log_prefix,
-            })
-            return True
-        return calls, _fake
-
-    def test_happy_path_applies_labels(self):
-        calls, fake = self._recording_set_labels()
-        ok = apply_transition(
-            42, "raise_to_refining",
-            current_labels=[LABEL_RAISED],
-            set_labels=fake,
-        )
-        self.assertTrue(ok)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0]["issue_number"], 42)
-        self.assertIn(LABEL_REFINING, calls[0]["add"])
-        self.assertIn(LABEL_RAISED, calls[0]["remove"])
-
-    def test_extra_remove_is_forwarded(self):
-        calls, fake = self._recording_set_labels()
-        apply_transition(
-            7, "raise_to_refining",
-            current_labels=[LABEL_RAISED],
-            extra_remove=[LABEL_PARENT],
-            set_labels=fake,
-        )
-        self.assertIn(LABEL_PARENT, calls[0]["remove"])
-        self.assertIn(LABEL_RAISED, calls[0]["remove"])
-
-    def test_state_mismatch_refuses(self):
-        calls, fake = self._recording_set_labels()
-        ok = apply_transition(
-            9, "raise_to_refining",
-            current_labels=[LABEL_REFINED],
-            set_labels=fake,
-        )
-        self.assertFalse(ok)
-        self.assertEqual(calls, [])
-
-    def test_unknown_transition_raises(self):
-        with self.assertRaises(KeyError):
-            apply_transition(1, "not_a_real_transition", current_labels=[LABEL_RAISED])
-
-    def test_skip_validation_when_no_current_labels(self):
-        calls, fake = self._recording_set_labels()
-        ok = apply_transition(1, "raise_to_refining", set_labels=fake)
-        self.assertTrue(ok)
-        self.assertEqual(len(calls), 1)
-
-    def test_find_transition_roundtrip(self):
-        t = find_transition("raise_to_refining")
-        self.assertEqual(t.from_state, IssueState.RAISED)
-        self.assertEqual(t.to_state, IssueState.REFINING)
-
-    def test_human_needed_requires_divert_reason(self):
-        """apply_transition refuses a HUMAN_NEEDED divert without a reason (#1009)."""
-        calls, fake = self._recording_set_labels()
-        posted = []
-
-        def _fake_post(n, body, *, log_prefix="cai"):
-            posted.append({"n": n, "body": body})
-            return True
-
-        ok = apply_transition(
-            55, "triaging_to_human",
-            current_labels=[LABEL_TRIAGING],
-            set_labels=fake,
-            post_comment=_fake_post,
-        )
-        self.assertFalse(ok)
-        self.assertEqual(calls, [])
-        self.assertEqual(posted, [])
-
-    def test_human_needed_with_reason_posts_marker_comment(self):
-        """Successful HUMAN_NEEDED divert posts the MARKER-bearing comment (#1009)."""
-        calls, fake = self._recording_set_labels()
-        posted = []
-
-        def _fake_post(n, body, *, log_prefix="cai"):
-            posted.append({"n": n, "body": body})
-            return True
-
-        ok = apply_transition(
-            77, "triaging_to_human",
-            current_labels=[LABEL_TRIAGING],
-            set_labels=fake,
-            post_comment=_fake_post,
-            divert_reason="Triage verdict: HUMAN.",
-        )
-        self.assertTrue(ok)
-        self.assertEqual(len(calls), 1)
-        self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
-        self.assertEqual(len(posted), 1)
-        body = posted[0]["body"]
-        self.assertIn("🙋 Human attention needed", body)
-        self.assertIn("Automation paused `triaging_to_human`", body)
-        self.assertIn("Required confidence:", body)
-        self.assertIn("Reported confidence:", body)
-        self.assertIn("Triage verdict: HUMAN.", body)
-
-    def test_non_human_transition_ignores_reason_kwarg(self):
-        """Non-HUMAN transitions don't require or post a reason."""
-        calls, fake = self._recording_set_labels()
-        posted = []
-
-        def _fake_post(n, body, *, log_prefix="cai"):
-            posted.append({"n": n, "body": body})
-            return True
-
-        ok = apply_transition(
-            11, "raise_to_refining",
-            current_labels=[LABEL_RAISED],
-            set_labels=fake,
-            post_comment=_fake_post,
-        )
-        self.assertTrue(ok)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(posted, [])
-
-
 class TestBackfillSilentHumanNeeded(unittest.TestCase):
     """Pins the self-healing backfill sweep (#1009, #932)."""
 
@@ -475,99 +346,6 @@ class TestBackfillSilentHumanNeeded(unittest.TestCase):
         self.assertEqual(len(posted), 1)
         self.assertEqual(posted[0]["n"], 932)
         self.assertIn("🙋 Human attention needed", posted[0]["body"])
-
-
-class TestApplyTransitionWithConfidence(unittest.TestCase):
-
-    def _recording_set_labels(self):
-        calls = []
-        def _fake(issue_number, *, add=(), remove=(), log_prefix="cai"):
-            calls.append({
-                "issue_number": issue_number,
-                "add": list(add),
-                "remove": list(remove),
-                "log_prefix": log_prefix,
-            })
-            return True
-        return calls, _fake
-
-    def _recording_post_comment(self):
-        calls = []
-        def _fake(issue_number, body, *, log_prefix="cai"):
-            calls.append({
-                "issue_number": issue_number,
-                "body": body,
-                "log_prefix": log_prefix,
-            })
-            return True
-        return calls, _fake
-
-    def test_high_confidence_applies_nominal_transition(self):
-        calls, fake = self._recording_set_labels()
-        comments, fake_comment = self._recording_post_comment()
-        ok, diverted = apply_transition_with_confidence(
-            11, "refining_to_refined", Confidence.HIGH,
-            current_labels=[LABEL_REFINING],
-            set_labels=fake,
-            post_comment=fake_comment,
-        )
-        self.assertTrue(ok)
-        self.assertFalse(diverted)
-        self.assertIn(LABEL_REFINED, calls[0]["add"])
-        # No divert → no human-needed comment should be posted.
-        self.assertEqual(comments, [])
-
-    def test_medium_confidence_diverts_to_human(self):
-        calls, fake = self._recording_set_labels()
-        comments, fake_comment = self._recording_post_comment()
-        ok, diverted = apply_transition_with_confidence(
-            12, "refining_to_refined", Confidence.MEDIUM,
-            current_labels=[LABEL_REFINING],
-            set_labels=fake,
-            post_comment=fake_comment,
-        )
-        self.assertTrue(ok)
-        self.assertTrue(diverted)
-        self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
-        self.assertIn(LABEL_REFINING, calls[0]["remove"])
-        self.assertNotIn(LABEL_REFINED, calls[0]["add"])
-        # Divert → a reason comment must be posted with the failing transition
-        # and confidence values so the admin knows why they were summoned.
-        self.assertEqual(len(comments), 1)
-        body = comments[0]["body"]
-        self.assertIn("refining_to_refined", body)
-        self.assertIn("MEDIUM", body)
-        self.assertIn("HIGH", body)
-
-    def test_missing_confidence_diverts_to_human(self):
-        calls, fake = self._recording_set_labels()
-        comments, fake_comment = self._recording_post_comment()
-        ok, diverted = apply_transition_with_confidence(
-            13, "refining_to_refined", None,
-            current_labels=[LABEL_REFINING],
-            set_labels=fake,
-            post_comment=fake_comment,
-        )
-        self.assertTrue(ok)
-        self.assertTrue(diverted)
-        self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
-        self.assertEqual(len(comments), 1)
-        self.assertIn("MISSING", comments[0]["body"])
-
-    def test_divert_respects_from_state_mismatch(self):
-        calls, fake = self._recording_set_labels()
-        comments, fake_comment = self._recording_post_comment()
-        ok, diverted = apply_transition_with_confidence(
-            14, "refining_to_refined", None,
-            current_labels=[LABEL_REFINED],  # wrong state
-            set_labels=fake,
-            post_comment=fake_comment,
-        )
-        self.assertFalse(ok)
-        self.assertFalse(diverted)
-        self.assertEqual(calls, [])
-        # State mismatch aborts before the divert → no comment either.
-        self.assertEqual(comments, [])
 
 
 class TestResumeFromHuman(unittest.TestCase):
@@ -982,9 +760,9 @@ class TestTriagingHandlerPairCheck(unittest.TestCase):
         )
         transitions_called = []
 
-        def fake_apply_transition(issue_number, transition_name, **kwargs):
-            transitions_called.append(transition_name)
-            return True
+        def fake_apply_transition(issue_number, trigger_name, **kwargs):
+            transitions_called.append(trigger_name)
+            return True, False
 
         labels_added = []
 
@@ -993,7 +771,7 @@ class TestTriagingHandlerPairCheck(unittest.TestCase):
             return True
 
         with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
-             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "fire_trigger", side_effect=fake_apply_transition), \
              mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
              mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
              mock.patch.object(T, "log_run"):
@@ -1023,9 +801,9 @@ class TestTriagingHandlerPairCheck(unittest.TestCase):
         )
         transitions_called = []
 
-        def fake_apply_transition(issue_number, transition_name, **kwargs):
-            transitions_called.append(transition_name)
-            return True
+        def fake_apply_transition(issue_number, trigger_name, **kwargs):
+            transitions_called.append(trigger_name)
+            return True, False
 
         labels_added = []
 
@@ -1034,7 +812,7 @@ class TestTriagingHandlerPairCheck(unittest.TestCase):
             return True
 
         with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
-             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "fire_trigger", side_effect=fake_apply_transition), \
              mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
              mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
              mock.patch.object(T, "log_run"):
@@ -1102,9 +880,9 @@ class TestTriagingHandlerOpsValidation(unittest.TestCase):
         )
         transitions_called = []
 
-        def fake_apply_transition(issue_number, transition_name, **kwargs):
-            transitions_called.append(transition_name)
-            return True
+        def fake_apply_transition(issue_number, trigger_name, **kwargs):
+            transitions_called.append(trigger_name)
+            return True, False
 
         labels_added = []
 
@@ -1113,7 +891,7 @@ class TestTriagingHandlerOpsValidation(unittest.TestCase):
             return True
 
         with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
-             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "fire_trigger", side_effect=fake_apply_transition), \
              mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
              mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
              mock.patch.object(T, "log_run"):
@@ -1150,9 +928,9 @@ class TestTriagingHandlerOpsValidation(unittest.TestCase):
         )
         transitions_called = []
 
-        def fake_apply_transition(issue_number, transition_name, **kwargs):
-            transitions_called.append(transition_name)
-            return True
+        def fake_apply_transition(issue_number, trigger_name, **kwargs):
+            transitions_called.append(trigger_name)
+            return True, False
 
         labels_added = []
 
@@ -1162,7 +940,7 @@ class TestTriagingHandlerOpsValidation(unittest.TestCase):
 
         with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
              mock.patch.object(T, "_run", return_value=fake_run), \
-             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "fire_trigger", side_effect=fake_apply_transition), \
              mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
              mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
              mock.patch.object(T, "log_run"):
@@ -1233,9 +1011,9 @@ class TestTriagingPrelabeledKindOverride(unittest.TestCase):
         )
         transitions_called = []
 
-        def fake_apply_transition(issue_number, transition_name, **kwargs):
-            transitions_called.append(transition_name)
-            return True
+        def fake_apply_transition(issue_number, trigger_name, **kwargs):
+            transitions_called.append(trigger_name)
+            return True, False
 
         labels_added = []
 
@@ -1244,7 +1022,7 @@ class TestTriagingPrelabeledKindOverride(unittest.TestCase):
             return True
 
         with mock.patch.object(T, "_run_claude_p", return_value=fake_result), \
-             mock.patch.object(T, "apply_transition", side_effect=fake_apply_transition), \
+             mock.patch.object(T, "fire_trigger", side_effect=fake_apply_transition), \
              mock.patch.object(T, "_set_labels", side_effect=fake_set_labels), \
              mock.patch.object(T, "check_duplicate_or_resolved", return_value=None), \
              mock.patch.object(T, "log_run"):

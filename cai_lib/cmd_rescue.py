@@ -35,8 +35,7 @@ from cai_lib.config import (
 )
 from cai_lib.fsm import (
     Confidence,
-    apply_pr_transition,
-    apply_transition,
+    fire_trigger,
     resume_pr_transition_for,
     resume_transition_for,
 )
@@ -340,7 +339,7 @@ def _schedule_opus_attempt(
         (lb.get("name") if isinstance(lb, dict) else lb)
         for lb in issue.get("labels", []) or []
     ]
-    ok = apply_transition(
+    ok, _ = fire_trigger(
         issue_number, "human_to_plan_approved",
         current_labels=current_labels,
         log_prefix="cai rescue",
@@ -549,7 +548,7 @@ def _try_rescue_issue(
     )
 
     current_labels = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
-    ok = apply_transition(
+    ok, _ = fire_trigger(
         issue_number, transition.name,
         current_labels=current_labels,
         log_prefix="cai rescue",
@@ -681,8 +680,9 @@ def _try_rescue_pr(
         reasoning=reasoning,
     )
 
-    ok = apply_pr_transition(
+    ok, _ = fire_trigger(
         pr_number, transition.name,
+        is_pr=True,
         log_prefix="cai rescue",
     )
     if not ok:
