@@ -48,7 +48,7 @@ through this module.
 - Imported by **actions** — every handler uses
   `_set_labels`/`_post_*_comment`/`_gh_json`.
 - Imported by **cli** — the `cmd_*` functions (especially
-  `cmd_publish`, `cmd_audit`, `cmd_analyze`) call
+  `cmd_audit_module`, `cmd_analyze`) call
   `publish.create_issue` and `github.*` helpers.
 - Imported by **tests** — `tests/test_publish.py`,
   `tests/test_dup_check.py`, `tests/test_orphaned_prs.py`,

@@ -21,9 +21,7 @@ lifecycle FSM.
   (full audit → publish → dispatch loop) and `cmd_dispatch`
   (single-target step).
 - [`cai_lib/cmd_agents.py`](../../cai_lib/cmd_agents.py) —
-  `cmd_analyze`, `cmd_audit`, `cmd_propose`, `cmd_code_audit`,
-  `cmd_agent_audit`, `cmd_update_check`, `cmd_cost_optimize`,
-  `cmd_external_scout`; every audit-flavoured subcommand.
+  `cmd_audit_module`; on-demand per-module audit dispatcher.
 - [`cai_lib/cmd_misc.py`](../../cai_lib/cmd_misc.py) — `cmd_init`,
   `cmd_verify`, `cmd_cost_report`, `cmd_health_report`,
   `cmd_check_workflows`, `cmd_test`.
@@ -54,8 +52,8 @@ lifecycle FSM.
   `_post_issue_comment`, remote-lock helpers.
 - Imports from **transcripts** — `cmd_analyze` drives the parse
   pipeline; `transcript_sync.cmd_transcript_sync` is a subcommand.
-- Imports from **audit** — `cmd_cost_report`, `cmd_audit`, and
-  friends call `cai_lib.audit.cost` helpers.
+- Imports from **audit** — `cmd_cost_report` and related audit
+  commands call `cai_lib.audit.cost` helpers.
 - Imported by **tests** — `tests/test_dispatcher.py`,
   `tests/test_rescue_opus.py`, `tests/test_unblock.py`, and the
   multistep/plan/publish suites exercise these entry points.
@@ -63,13 +61,11 @@ lifecycle FSM.
   and cron, which invoke `python cai.py <subcommand>`.
 
 ## Operational notes
-- **Cost sensitivity — HIGH for audit subcommands.** `cmd_audit`,
-  `cmd_analyze`, `cmd_propose`, `cmd_cost_optimize`,
-  `cmd_external_scout`, `cmd_update_check`, `cmd_agent_audit`,
-  `cmd_code_audit` each invoke a Claude subagent and are among
-  the largest single-invocation token spenders; they are
-  cron-scheduled, so changes to frequency or prompt size move the
-  weekly bill directly.
+- **Cost sensitivity — HIGH for audit subcommands.** `cmd_analyze`,
+  `cmd_propose`, `cmd_cost_optimize`, `cmd_external_scout`,
+  `cmd_update_check`, `cmd_agent_audit`, `cmd_code_audit`,
+  and the agents they call (cai-analyze, cai-propose, etc.) are
+  among the largest single-invocation token spenders.
 - **FSM invariant.** `cmd_dispatch` is the only production path
   that advances FSM state outside a handler; anything else that
   flips labels bypasses the watchdog rollback and remote lock.

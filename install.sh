@@ -358,7 +358,6 @@ services:
       CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on auto-improve:plan-approved
       CAI_VERIFY_SCHEDULE: "15 * * * *"     # hourly @15 — label-state reconciliation (cmd_verify)
       CAI_RESCUE_SCHEDULE: "30 */4 * * *"  # every 4h at :30 — autonomously resume :human-needed issues
-      CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_MERGE_MAX_DIFF_LEN: "200000"      # max chars of PR diff passed to merge agent
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
@@ -434,7 +433,6 @@ services:
       CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on auto-improve:plan-approved
       CAI_VERIFY_SCHEDULE: "15 * * * *"     # hourly @15 — label-state reconciliation (cmd_verify)
       CAI_RESCUE_SCHEDULE: "30 */4 * * *"  # every 4h at :30 — autonomously resume :human-needed issues
-      CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_MERGE_MAX_DIFF_LEN: "200000"      # max chars of PR diff passed to merge agent
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
