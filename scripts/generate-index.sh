@@ -156,6 +156,10 @@ declare -A DESCRIPTIONS=(
   ["tests/test_rollback.py"]="Tests for rollback functionality"
   ["tests/test_transcript_sync.py"]="Tests for cai_lib.transcript_sync — no-op path, parse_source fallback, repo slug"
   ["tests/test_open_pr_non_bot_branch.py"]="Regression tests for PR-open-time non-bot-branch detection (issue #1065)"
+  ["tests/test_implement_consecutive_failures.py"]="Tests for cai_lib.actions.implement._count_consecutive_tests_failed — validates counting of consecutive test failures for early-abort guard"
+  ["tests/test_implement_helper_extract.py"]="Tests for cai_lib.actions.implement._extract_referenced_helpers and _enclosing_function_source (issue #987) — validates helper function source extraction from test output"
+  ["tests/test_implement_human_needed_reason.py"]="Regression tests for implement-side human-needed parks (issue #1083) — validates in_progress_to_human_needed transition and _park_in_progress_at_human_needed helper ensure divert-reason comments carry structured fields"
+  ["tests/test_implement_test_failure_extract.py"]="Tests for cai_lib.actions.implement._extract_test_failures — validates parsing of test failure output from unittest discovery"
 )
 
 # ---------------------------------------------------------------------------

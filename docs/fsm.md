@@ -74,6 +74,7 @@ stateDiagram-v2
   PLAN_APPROVED --> IN_PROGRESS: approved_to_in_progress [≥HIGH]
   IN_PROGRESS --> PR: in_progress_to_pr [≥HIGH]
   IN_PROGRESS --> REFINING: in_progress_to_refining [caller-gated]
+  IN_PROGRESS --> HUMAN_NEEDED: in_progress_to_human_needed [caller-gated]
   PR --> MERGED: pr_to_merged [≥HIGH]
   PR --> REFINED: pr_to_refined [≥HIGH]
   PR --> PLAN_APPROVED: pr_to_plan_approved [caller-gated]
