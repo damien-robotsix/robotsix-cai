@@ -359,15 +359,9 @@ services:
       # schedules are for orthogonal tasks that run independently.
       CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on auto-improve:plan-approved
       CAI_PLAN_ALL_SCHEDULE: "30 * * * *"   # hourly @30 — drain :raised/:refined into :planned
-      CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
+      CAI_VERIFY_SCHEDULE: "15 * * * *"     # hourly @15 — label-state reconciliation (cmd_verify)
+      CAI_RESCUE_SCHEDULE: "30 */4 * * *"  # every 4h at :30 — autonomously resume :human-needed issues
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
-      CAI_CODE_AUDIT_SCHEDULE: "0 3 * * 0"  # weekly Sunday 03:00 UTC (Sonnet, code consistency)
-      CAI_PROPOSE_SCHEDULE: "0 4 * * 0"    # weekly Sunday 04:00 UTC (creative improvement proposals)
-      CAI_UPDATE_CHECK_SCHEDULE: "0 4 * * 1" # weekly Monday 04:00 UTC (Claude Code release check)
-      CAI_EXTERNAL_SCOUT_SCHEDULE: "0 6 * * 1" # weekly Monday 06:00 UTC (scout for external libraries)
-      CAI_HEALTH_REPORT_SCHEDULE: "0 7 * * 1" # weekly Monday 07:00 UTC (pipeline health report)
-      CAI_COST_OPTIMIZE_SCHEDULE: "0 5 * * 0" # weekly Sunday 05:00 UTC (cost-reduction analysis)
-      CAI_CHECK_WORKFLOWS_SCHEDULE: "0 */6 * * *" # every 6h (check for CI workflow failures)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_MERGE_MAX_DIFF_LEN: "200000"      # max chars of PR diff passed to merge agent
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
@@ -444,15 +438,9 @@ services:
       # schedules are for orthogonal tasks that run independently.
       CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on auto-improve:plan-approved
       CAI_PLAN_ALL_SCHEDULE: "30 * * * *"   # hourly @30 — drain :raised/:refined into :planned
-      CAI_ANALYZER_SCHEDULE: "0 0 * * *"   # daily 00:00 UTC (LLM call)
+      CAI_VERIFY_SCHEDULE: "15 * * * *"     # hourly @15 — label-state reconciliation (cmd_verify)
+      CAI_RESCUE_SCHEDULE: "30 */4 * * *"  # every 4h at :30 — autonomously resume :human-needed issues
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
-      CAI_CODE_AUDIT_SCHEDULE: "0 3 * * 0"  # weekly Sunday 03:00 UTC (Sonnet, code consistency)
-      CAI_PROPOSE_SCHEDULE: "0 4 * * 0"    # weekly Sunday 04:00 UTC (creative improvement proposals)
-      CAI_UPDATE_CHECK_SCHEDULE: "0 4 * * 1" # weekly Monday 04:00 UTC (Claude Code release check)
-      CAI_EXTERNAL_SCOUT_SCHEDULE: "0 6 * * 1" # weekly Monday 06:00 UTC (scout for external libraries)
-      CAI_HEALTH_REPORT_SCHEDULE: "0 7 * * 1" # weekly Monday 07:00 UTC (pipeline health report)
-      CAI_COST_OPTIMIZE_SCHEDULE: "0 5 * * 0" # weekly Sunday 05:00 UTC (cost-reduction analysis)
-      CAI_CHECK_WORKFLOWS_SCHEDULE: "0 */6 * * *" # every 6h (check for CI workflow failures)
       CAI_MERGE_CONFIDENCE_THRESHOLD: "high" # high | medium | disabled
       CAI_MERGE_MAX_DIFF_LEN: "200000"      # max chars of PR diff passed to merge agent
       CAI_TRANSCRIPT_WINDOW_DAYS: "7"       # only parse sessions from last N days
@@ -705,7 +693,7 @@ ALIASES
   echo "  docker compose logs -f cai              # watch the first cycle"
   echo
   echo "Override the schedule by editing docker-compose.yml's"
-  echo "CAI_ANALYZER_SCHEDULE env var (any valid cron expression)."
+  echo "CAI_CYCLE_SCHEDULE (or other *_SCHEDULE) env vars (any valid cron expression)."
   echo
   echo "Trigger an ad-hoc analyzer run without waiting for the tick:"
   echo "  docker compose exec --user cai cai python /app/cai.py analyze"
