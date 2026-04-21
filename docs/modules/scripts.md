@@ -33,8 +33,10 @@ verifies every tracked file is matched by exactly one module in
   `ISSUE_TRANSITIONS` / `PR_TRANSITIONS` tables.
 - Writes **docs** — the two generator scripts own
   `CODEBASE_INDEX.md` and `docs/fsm.md`.
-- Run by **workflows** — `regenerate-docs.yml` invokes both
-  generators on every PR and auto-commits drift.
+- Run by **actions** — the `REVIEWING_DOCS` FSM handler
+  (`cai_lib/actions/review_docs.py`) invokes both generators and
+  `check-modules-coverage.py` on every PR that reaches pre-merge
+  docs review; drift is bundled into the handler's final commit.
 - No reverse imports from pipeline code.
 
 ## Operational notes
@@ -42,7 +44,7 @@ verifies every tracked file is matched by exactly one module in
   hand-edited; descriptions for `CODEBASE_INDEX.md` live in
   `generate-index.sh`, and `docs/fsm.md` is pure-render. PRs that
   hand-edit these files will see their changes overwritten by
-  the next workflow run.
+  the next `REVIEWING_DOCS` FSM pass.
 - **Server-cleanup scope.** `server-cleanup.sh` runs outside the
   container on the SSH endpoint; adjusting its schedule requires
   changes on the host, not in this repo.
@@ -51,6 +53,9 @@ verifies every tracked file is matched by exactly one module in
   break `check-modules-coverage.py` and the `cai-review-docs`
   stage.
 - **Cost sensitivity.** Zero — pure shell / Python.
-- **CI implications.** `regenerate-docs.yml` depends on both
-  generators staying idempotent; `check-modules-coverage.py` is
-  an optional gate that maintainers can wire into CI if desired.
+- **CI implications.** The `REVIEWING_DOCS` FSM handler depends
+  on both generators staying idempotent and on
+  `check-modules-coverage.py` exiting 0 on a valid tree;
+  non-idempotent generator output produces phantom drift commits
+  every PR, and an overly strict coverage check blocks every PR
+  until module narratives catch up.

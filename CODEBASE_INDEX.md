@@ -46,7 +46,6 @@
 | `.github/workflows/admin-only-label.yml` | CI: restrict auto-improve:requested label to admins |
 | `.github/workflows/cleanup-pr-context.yml` | CI: clean up PR context on close |
 | `.github/workflows/docker-publish.yml` | CI: build and publish Docker image to Docker Hub |
-| `.github/workflows/regenerate-docs.yml` | CI: regenerate CODEBASE_INDEX.md and docs/fsm.md, auto-commit drift |
 | `.gitignore` | Git ignore rules |
 | `CLAUDE.md` | Shared efficiency guidance loaded by all subagents |
 | `CODEBASE_INDEX.md` | This file — static file-level index for fast agent orientation |

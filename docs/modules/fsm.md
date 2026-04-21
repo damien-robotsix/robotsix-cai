@@ -68,8 +68,8 @@ import from `cai_lib.fsm` rather than the split modules directly.
   `:human-needed`. Preserve this safe default.
 - **CI implications.** Whenever a transition is added or renamed,
   `scripts/generate-fsm-docs.py` must re-run (handled
-  automatically by the `regenerate-docs.yml` workflow on PRs).
-  `tests/test_fsm.py` will fail if a transition reference goes
-  stale.
+  automatically by the `REVIEWING_DOCS` FSM handler in
+  `cai_lib/actions/review_docs.py` on PRs). `tests/test_fsm.py`
+  will fail if a transition reference goes stale.
 - **Cost sensitivity.** Zero — pure Python with no Claude
   invocations.

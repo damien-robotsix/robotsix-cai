@@ -67,7 +67,6 @@ declare -A DESCRIPTIONS=(
   [".github/workflows/admin-only-label.yml"]="CI: restrict auto-improve:requested label to admins"
   [".github/workflows/cleanup-pr-context.yml"]="CI: clean up PR context on close"
   [".github/workflows/docker-publish.yml"]="CI: build and publish Docker image to Docker Hub"
-  [".github/workflows/regenerate-docs.yml"]="CI: regenerate CODEBASE_INDEX.md and docs/fsm.md, auto-commit drift"
   ["cai_lib/__init__.py"]="Package init for cai_lib library modules"
   ["cai_lib/audit/__init__.py"]="Package init for cai_lib.audit sub-package"
   ["cai_lib/audit/modules.py"]="YAML loader + coverage validator for docs/modules.yaml — parses module registry and checks file coverage"
