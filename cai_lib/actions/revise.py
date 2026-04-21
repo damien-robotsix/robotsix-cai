@@ -391,7 +391,7 @@ def handle_revise(pr: dict) -> int:
     """
     print("[cai revise] checking for PRs with unaddressed comments", flush=True)
 
-    # Orphaned-PR sweep is now owned by `cmd_audit` (Step 1g) so
+    # Orphaned-PR sweep is now owned by the queue audit (Step 1g) so
     # PRs parked at any non-revision state (e.g. :pr-human-needed)
     # are also covered. See issue #869.
 

@@ -14,16 +14,6 @@
 #    Orthogonal (independent) tasks — not part of the fix pipeline,
 #    so they keep their own schedules:
 #      - verify:         label-state reconciliation with GitHub (hourly at :15)
-#      - analyze:        parse own transcripts, raise findings as issues (daily at midnight)
-#      - audit:          periodic queue/PR consistency checks (every 6 hours)
-#      - code-audit:     periodic source code consistency checks (weekly, Sundays 03:00)
-#      - propose:        weekly creative improvement proposals (Sundays 04:00)
-#      - update-check:   periodic Claude Code release checks (weekly, Mondays 04:00)
-#      - health-report:  automated pipeline health report (weekly, Mondays 07:00)
-#      - cost-optimize:  weekly cost-reduction proposal or evaluation (Sundays 05:00)
-#      - check-workflows: monitor GitHub Actions for failures (every 6 hours)
-#      - agent-audit:    weekly audit of .claude/agents/ for consistency and usage (Sundays 06:00)
-#      - external-scout: weekly scout for open-source libraries that could replace in-house plumbing (Mondays 06:00)
 #      - rescue:         autonomous resume of :human-needed issues without human:solved (every 4 hours at :30)
 #
 # Environment variables:
@@ -71,16 +61,6 @@ fi
 
 CAI_CYCLE_SCHEDULE="${CAI_CYCLE_SCHEDULE:-0 * * * *}"
 CAI_VERIFY_SCHEDULE="${CAI_VERIFY_SCHEDULE:-15 * * * *}"
-CAI_ANALYZER_SCHEDULE="${CAI_ANALYZER_SCHEDULE:-0 0 * * *}"
-CAI_AUDIT_SCHEDULE="${CAI_AUDIT_SCHEDULE:-0 */6 * * *}"
-CAI_CODE_AUDIT_SCHEDULE="${CAI_CODE_AUDIT_SCHEDULE:-0 3 * * 0}"
-CAI_PROPOSE_SCHEDULE="${CAI_PROPOSE_SCHEDULE:-0 4 * * 0}"
-CAI_UPDATE_CHECK_SCHEDULE="${CAI_UPDATE_CHECK_SCHEDULE:-0 4 * * 1}"
-CAI_HEALTH_REPORT_SCHEDULE="${CAI_HEALTH_REPORT_SCHEDULE:-0 7 * * 1}"
-CAI_COST_OPTIMIZE_SCHEDULE="${CAI_COST_OPTIMIZE_SCHEDULE:-0 5 * * 0}"
-CAI_CHECK_WORKFLOWS_SCHEDULE="${CAI_CHECK_WORKFLOWS_SCHEDULE:-0 */6 * * *}"
-CAI_AGENT_AUDIT_SCHEDULE="${CAI_AGENT_AUDIT_SCHEDULE:-0 6 * * 0}"
-CAI_EXTERNAL_SCOUT_SCHEDULE="${CAI_EXTERNAL_SCOUT_SCHEDULE:-0 6 * * 1}"
 CAI_RESCUE_SCHEDULE="${CAI_RESCUE_SCHEDULE:-30 */4 * * *}"
 CAI_TRANSCRIPT_SYNC_SCHEDULE="${CAI_TRANSCRIPT_SYNC_SCHEDULE:-*/15 * * * *}"
 CAI_TRANSCRIPT_SYNC_URL="${CAI_TRANSCRIPT_SYNC_URL:-}"
@@ -94,16 +74,6 @@ cat > "$CRONTAB_PATH" <<CRONTAB
 # other lines are orthogonal tasks with their own cadence.
 $CAI_CYCLE_SCHEDULE python /app/cai.py cycle
 $CAI_VERIFY_SCHEDULE python /app/cai.py verify
-$CAI_ANALYZER_SCHEDULE python /app/cai.py analyze
-$CAI_AUDIT_SCHEDULE python /app/cai.py audit
-$CAI_CODE_AUDIT_SCHEDULE python /app/cai.py code-audit
-$CAI_PROPOSE_SCHEDULE python /app/cai.py propose
-$CAI_UPDATE_CHECK_SCHEDULE python /app/cai.py update-check
-$CAI_HEALTH_REPORT_SCHEDULE python /app/cai.py health-report
-$CAI_COST_OPTIMIZE_SCHEDULE python /app/cai.py cost-optimize
-$CAI_CHECK_WORKFLOWS_SCHEDULE python /app/cai.py check-workflows
-$CAI_AGENT_AUDIT_SCHEDULE python /app/cai.py agent-audit
-$CAI_EXTERNAL_SCOUT_SCHEDULE python /app/cai.py external-scout
 $CAI_RESCUE_SCHEDULE python /app/cai.py rescue
 CRONTAB
 

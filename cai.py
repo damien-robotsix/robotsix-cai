@@ -294,14 +294,9 @@ from cai_lib.cmd_helpers import _work_directory_block  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.cmd_rescue import cmd_rescue  # noqa: E402
 from cai_lib.cmd_misc import (  # noqa: E402
-    cmd_init, cmd_verify, cmd_test,
-    cmd_cost_report, cmd_health_report, cmd_check_workflows,
+    cmd_init, cmd_verify, cmd_test, cmd_cost_report,
 )
-from cai_lib.cmd_agents import (  # noqa: E402
-    cmd_analyze, cmd_audit, cmd_propose, cmd_code_audit,
-    cmd_agent_audit, cmd_update_check, cmd_cost_optimize, cmd_external_scout,
-    cmd_audit_module,
-)
+from cai_lib.cmd_agents import cmd_audit_module  # noqa: E402
 from cai_lib.cmd_cycle import cmd_cycle, cmd_dispatch  # noqa: E402
 from cai_lib.transcript_sync import cmd_transcript_sync  # noqa: E402
 
@@ -317,17 +312,12 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="Smoke test if no transcripts exist")
-    sub.add_parser("analyze", help="Run the analyzer + publish findings")
 
     dispatch_parser = sub.add_parser("dispatch", help="Dispatch FSM action (oldest actionable by default)")
     dispatch_parser.add_argument("--issue", type=int, default=None, help="Dispatch a specific issue by number")
     dispatch_parser.add_argument("--pr", type=int, default=None, help="Dispatch a specific PR by number")
 
     sub.add_parser("verify", help="Update labels based on PR merge state")
-    sub.add_parser(
-        "audit",
-        help="Periodic queue/PR consistency audit with stale-lock rollback and semantic analysis",
-    )
     audit_module_p = sub.add_parser(
         "audit-module",
         help=(
@@ -343,11 +333,6 @@ def main() -> int:
         choices=["good-practices", "code-reduction", "cost-reduction", "workflow-enhancement"],
         help="Per-module audit kind to dispatch",
     )
-    sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
-    sub.add_parser("agent-audit", help="Weekly audit of .claude/agents/ for consistency and usage")
-    sub.add_parser("propose", help="Weekly creative improvement proposal")
-    sub.add_parser("update-check", help="Check Claude Code releases for workspace improvements")
-    sub.add_parser("external-scout", help="Scout open-source libraries to replace in-house plumbing")
     sub.add_parser(
         "unblock",
         help="Resume :human-needed issues when an admin has commented",
@@ -356,8 +341,6 @@ def main() -> int:
         "rescue",
         help="Autonomously resume :human-needed issues that don't actually require human input (Opus cai-rescue agent)",
     )
-    sub.add_parser("cost-optimize", help="Weekly cost-reduction proposal or evaluation")
-    sub.add_parser("check-workflows", help="Check GitHub Actions for recent workflow failures and raise findings")
     sub.add_parser("cycle", help="One cycle tick: verify, audit, dispatch one actionable issue/PR")
     sub.add_parser(
         "transcript-sync",
@@ -382,15 +365,6 @@ def main() -> int:
         help="Aggregation grouping (default: category)",
     )
 
-    health_parser = sub.add_parser(
-        "health-report",
-        help="Automated pipeline health report with anomaly detection",
-    )
-    health_parser.add_argument(
-        "--dry-run", action="store_true", default=False,
-        help="Print report to stdout without posting a GitHub issue",
-    )
-
     args = parser.parse_args()
 
     # transcript-sync only shells out to rsync/ssh; it never touches GitHub
@@ -410,23 +384,13 @@ def main() -> int:
 
     handlers = {
         "init": cmd_init,
-        "analyze": cmd_analyze,
         "dispatch": cmd_dispatch,
         "verify": cmd_verify,
-        "audit": cmd_audit,
         "audit-module": cmd_audit_module,
-        "code-audit": cmd_code_audit,
-        "agent-audit": cmd_agent_audit,
-        "propose": cmd_propose,
-        "update-check": cmd_update_check,
-        "external-scout": cmd_external_scout,
         "unblock": cmd_unblock,
         "rescue": cmd_rescue,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
-        "health-report": cmd_health_report,
-        "cost-optimize": cmd_cost_optimize,
-        "check-workflows": cmd_check_workflows,
         "transcript-sync": cmd_transcript_sync,
         "test": cmd_test,
     }
