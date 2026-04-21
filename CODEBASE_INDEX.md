@@ -145,11 +145,11 @@
 | `tests/test_dup_check.py` | TODO: add description |
 | `tests/test_fsm.py` | Tests for cai_lib.fsm — states, transitions, Confidence, divert, marker, resume helpers |
 | `tests/test_fsm_schema.py` | Tests for cai_lib.fsm_schema — validates ISSUE_TRANSITIONS and PR_TRANSITIONS catalogs against transitions.Machine for state reference correctness |
-| `tests/test_implement_consecutive_failures.py` | TODO: add description |
-| `tests/test_implement_helper_extract.py` | TODO: add description |
-| `tests/test_implement_human_needed_reason.py` | TODO: add description |
+| `tests/test_implement_consecutive_failures.py` | Tests for cai_lib.actions.implement._count_consecutive_tests_failed — validates counting of consecutive test failures for early-abort guard |
+| `tests/test_implement_helper_extract.py` | Tests for cai_lib.actions.implement._extract_referenced_helpers and _enclosing_function_source (issue #987) — validates helper function source extraction from test output |
+| `tests/test_implement_human_needed_reason.py` | Regression tests for implement-side human-needed parks (issue #1083) — validates in_progress_to_human_needed transition and _park_in_progress_at_human_needed helper ensure divert-reason comments carry structured fields |
 | `tests/test_implement_scope.py` | Tests for plan-scope enforcement in cai_lib.actions.implement — validates scope parsing, path normalization, and out-of-scope file detection (issue #1074) |
-| `tests/test_implement_test_failure_extract.py` | TODO: add description |
+| `tests/test_implement_test_failure_extract.py` | Tests for cai_lib.actions.implement._extract_test_failures — validates parsing of test failure output from unittest discovery |
 | `tests/test_lint.py` | Lint check: ruff must report zero violations |
 | `tests/test_maintain.py` | Tests for cai_lib.actions.maintain — handle_maintain confidence routing and FSM transitions |
 | `tests/test_merge_agent_deletion_guard.py` | TODO: add description |

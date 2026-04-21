@@ -221,6 +221,51 @@ class TestAcquireRelease(unittest.TestCase):
         ok = github._release_remote_lock("issue", 1234)
         self.assertTrue(ok)
 
+    def test_acquire_post_comment_failure_leaves_no_label(self):
+        """If posting the claim comment fails, LABEL_LOCKED is never applied.
+
+        Regression for the ``stale_hours=inf`` orphan-label bug (#1086):
+        the prior ordering set the label FIRST and relied on a
+        best-effort strip-label cleanup when the subsequent post
+        failed, which could leave a label without a claim if either
+        step crashed. Inverting the ordering eliminates the class.
+        """
+        fake = _FakeGitHub()
+        with self._with_fake(fake):
+            # _install_fake already wires _post_issue_comment to the
+            # fake; override it inside the ExitStack so this patch wins.
+            with patch.object(github, "_post_issue_comment",
+                              return_value=False):
+                with patch.object(github, "INSTANCE_ID", "instance-A"):
+                    ok = github._acquire_remote_lock("issue", 55)
+        self.assertFalse(ok)
+        self.assertNotIn(("issue", 55), github._HELD_LOCKS)
+        target = fake.targets.get(55, {"labels": set(), "comments": []})
+        self.assertNotIn(
+            LABEL_LOCKED, target.get("labels", set()),
+            "post-failure must not leave an orphan :locked label",
+        )
+
+    def test_acquire_label_failure_deletes_claim_comment(self):
+        """If label-add fails after a successful claim post, the comment is deleted."""
+        fake = _FakeGitHub()
+        with self._with_fake(fake):
+            with patch.object(github, "_set_labels",
+                              return_value=False):
+                with patch.object(github, "INSTANCE_ID", "instance-A"):
+                    ok = github._acquire_remote_lock("issue", 56)
+        self.assertFalse(ok)
+        target = fake.targets.get(56, {"labels": set(), "comments": []})
+        lock_comments = [
+            c for c in target.get("comments", [])
+            if "cai-lock" in c.get("body", "")
+        ]
+        self.assertEqual(
+            lock_comments, [],
+            "label-add failure after claim-post must delete the claim",
+        )
+        self.assertNotIn(LABEL_LOCKED, target.get("labels", set()))
+
 
 class TestDispatcherLockIntegration(unittest.TestCase):
     """The drain driver must release the lock on every exit path —
