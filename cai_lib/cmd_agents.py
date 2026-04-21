@@ -260,9 +260,10 @@ def cmd_analyze(args) -> int:
     # When cross-host transcript sync is enabled, pull every machine's
     # bucket into the local aggregate mirror before parsing — this way
     # the analyzer sees tool-call activity from all machines that share
-    # this repo, not only the host this container runs on. No-op when
-    # sync is disabled.
+    # this repo, not only the host this container runs on. Also pulls cost
+    # logs so the analyzer has global spend visibility. No-op when sync is disabled.
     transcript_sync.pull()
+    transcript_sync.pull_cost()
     parse_dir = transcript_sync.parse_source()
 
     if not parse_dir.exists():
@@ -1063,6 +1064,7 @@ def cmd_cost_optimize(args) -> int:
     t0 = time.monotonic()
 
     # 1. Build cost data for the agent.
+    transcript_sync.pull_cost()
     rows_14d = _load_cost_log(days=14)
     if not rows_14d:
         print("[cai cost-optimize] no cost data available; skipping", flush=True)

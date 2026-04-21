@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timezone
 
-from cai_lib.config import COST_LOG_PATH, OUTCOME_LOG_PATH
+from cai_lib.config import COST_LOG_AGGREGATE_DIR, COST_LOG_PATH, OUTCOME_LOG_PATH
 
 
 def _load_outcome_counts(days: int = 90) -> dict:
@@ -47,38 +47,57 @@ def _load_outcome_counts(days: int = 90) -> dict:
 
 
 def _load_cost_log(days: int = 7) -> list[dict]:
-    """Read COST_LOG_PATH and return rows from the last `days` days.
+    """Read cost log rows from the last `days` days.
 
-    Each row is a dict as written by `log_cost`. Malformed lines are
-    skipped silently. Returns an empty list if the file is missing or
-    unreadable. Used by both `_build_cost_summary` (audit prompt) and
-    `cmd_cost_report` (host-facing report).
+    When ``COST_LOG_AGGREGATE_DIR`` is populated (cross-host cost sync has
+    run), reads the union of all machines' ``cai-cost.jsonl`` files from
+    that directory. Falls back to the local-only ``COST_LOG_PATH`` when the
+    aggregate dir is absent or empty — preserving single-host behaviour for
+    deployments without sync configured.
+
+    Each row is a dict as written by ``log_cost``. Malformed lines are
+    skipped silently. Returns an empty list if no readable log exists.
+    Used by both ``_build_cost_summary`` (audit prompt) and
+    ``cmd_cost_report`` (host-facing report).
     """
-    if not COST_LOG_PATH.exists():
+    # Prefer aggregate (multi-host) over local-only when available.
+    agg_files: list = []
+    if COST_LOG_AGGREGATE_DIR.exists():
+        agg_files = list(COST_LOG_AGGREGATE_DIR.rglob("cai-cost.jsonl"))
+
+    if agg_files:
+        paths_to_read = agg_files
+    elif COST_LOG_PATH.exists():
+        paths_to_read = [COST_LOG_PATH]
+    else:
         return []
+
     cutoff_ts = datetime.now(timezone.utc).timestamp() - days * 86400
     rows: list[dict] = []
-    try:
-        with COST_LOG_PATH.open("r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                ts = row.get("ts") or ""
-                try:
-                    row_ts = datetime.strptime(
-                        ts, "%Y-%m-%dT%H:%M:%SZ",
-                    ).replace(tzinfo=timezone.utc).timestamp()
-                except ValueError:
-                    continue
-                if row_ts >= cutoff_ts:
-                    rows.append(row)
-    except Exception:
-        return []
+    for path in paths_to_read:
+        if not path.exists():
+            continue
+        try:
+            with path.open("r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    ts = row.get("ts") or ""
+                    try:
+                        row_ts = datetime.strptime(
+                            ts, "%Y-%m-%dT%H:%M:%SZ",
+                        ).replace(tzinfo=timezone.utc).timestamp()
+                    except ValueError:
+                        continue
+                    if row_ts >= cutoff_ts:
+                        rows.append(row)
+        except Exception:
+            continue
     return rows
 
 

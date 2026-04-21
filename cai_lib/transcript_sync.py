@@ -219,7 +219,7 @@ def pull() -> int:
 
 
 def sync() -> int:
-    """Push then pull. Returns 0 iff both succeed; otherwise the first failure."""
+    """Push then pull transcripts and cost logs. Returns 0 iff all succeed."""
     if not config.transcript_sync_enabled():
         print(
             "[transcript-sync] disabled (CAI_TRANSCRIPT_SYNC_URL or "
@@ -230,7 +230,104 @@ def sync() -> int:
     rc = push()
     if rc != 0:
         return rc
-    return pull()
+    rc = pull()
+    if rc != 0:
+        return rc
+    rc = push_cost()
+    if rc != 0:
+        return rc
+    return pull_cost()
+
+
+# ---------------------------------------------------------------------------
+# Cost-log sync (mirrors the transcript-sync design for cai-cost.jsonl)
+# ---------------------------------------------------------------------------
+# Server layout:
+#   <TRANSCRIPT_SYNC_URL>/
+#     <repo-slug>-cost/        # separate namespace from transcripts
+#       <machine-id>/
+#         cai-cost.jsonl
+#
+# Local aggregate:
+#   COST_LOG_AGGREGATE_DIR/
+#     <machine-id>/
+#       cai-cost.jsonl
+# ---------------------------------------------------------------------------
+
+
+def _cost_server_bucket() -> str:
+    """Return ``<url>/<repo-slug>-cost/<machine-id>`` — this host's cost push target."""
+    return (
+        f"{config.TRANSCRIPT_SYNC_URL.rstrip('/')}/"
+        f"{config.REPO_SLUG}-cost/{config.MACHINE_ID}"
+    )
+
+
+def _cost_server_slug() -> str:
+    """Return ``<url>/<repo-slug>-cost`` — the cost pull source (all machines)."""
+    return f"{config.TRANSCRIPT_SYNC_URL.rstrip('/')}/{config.REPO_SLUG}-cost"
+
+
+def _local_has_cost_log() -> bool:
+    """True when the local cost log file exists and is non-empty.
+
+    Guards ``push_cost`` against uploading an empty file on a fresh install.
+    """
+    return (
+        config.COST_LOG_PATH.exists()
+        and config.COST_LOG_PATH.stat().st_size > 0
+    )
+
+
+def push_cost() -> int:
+    """Push the local cost log to this host's server bucket.
+
+    No-op (returns 0) when the feature is disabled or the local cost log is
+    absent/empty. Uses rsync to copy the single file to the machine-id bucket.
+    """
+    if not config.transcript_sync_enabled():
+        return 0
+    if not _local_has_cost_log():
+        return 0
+    if not _ensure_rsync():
+        return 0
+    if _is_local_url(config.TRANSCRIPT_SYNC_URL):
+        Path(_cost_server_bucket()).mkdir(parents=True, exist_ok=True)
+    return _run_rsync(
+        [
+            "-az",
+            "--mkpath",
+            *_transport_args(),
+            str(config.COST_LOG_PATH),
+            f"{_cost_server_bucket()}/cai-cost.jsonl",
+        ],
+        label="cost-push",
+    )
+
+
+def pull_cost() -> int:
+    """Pull all machines' cost logs into the local cost aggregate mirror.
+
+    No-op (returns 0) when disabled. Creates the aggregate directory if
+    missing. Does NOT use ``--delete`` for the same reason as ``pull()``.
+    """
+    if not config.transcript_sync_enabled():
+        return 0
+    if not _ensure_rsync():
+        return 0
+    config.COST_LOG_AGGREGATE_DIR.mkdir(parents=True, exist_ok=True)
+    if _is_local_url(config.TRANSCRIPT_SYNC_URL):
+        if not Path(_cost_server_slug()).exists():
+            return 0
+    return _run_rsync(
+        [
+            "-az",
+            *_transport_args(),
+            f"{_cost_server_slug()}/",
+            f"{config.COST_LOG_AGGREGATE_DIR}/",
+        ],
+        label="cost-pull",
+    )
 
 
 def transcript_sync_enabled() -> bool:
@@ -253,7 +350,7 @@ def parse_source() -> Path:
 
 
 def cmd_transcript_sync(args) -> int:  # noqa: ARG001 - args required by dispatcher
-    """CLI entrypoint: `cai transcript-sync`. Runs push + pull."""
+    """CLI entrypoint: `cai transcript-sync`. Syncs transcripts and cost logs."""
     rc = sync()
     if rc != 0:
         print(f"[transcript-sync] exited with rc={rc}", file=sys.stderr)
