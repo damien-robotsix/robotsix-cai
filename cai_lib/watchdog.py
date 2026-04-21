@@ -57,6 +57,17 @@ def _lock_claim_age_seconds(number: int, now: float) -> float | None:
     """
     locks = _list_lock_comments(number)
     if not locks:
+        # :locked label with no cai-lock claim comment is an anomaly —
+        # either _acquire_remote_lock partially failed (crashed between
+        # the post and the label-add) or the claim comment was manually
+        # deleted. Emit a warn so the orphan is visible every watchdog
+        # tick, not only after _STALE_LOCKED_HOURS strips it.
+        print(
+            f"[cai lock] WARN: #{number} has :locked label but no "
+            "cai-lock claim comment — orphan lock detected",
+            file=sys.stderr,
+            flush=True,
+        )
         return None
     oldest = locks[0].get("created_at") or ""
     try:

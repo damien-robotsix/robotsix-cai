@@ -553,9 +553,14 @@ def _acquire_remote_lock(kind: str, number: int) -> bool:
     refcount and returns True without any GitHub round-trip.
 
     Protocol:
-      1. Add LABEL_LOCKED via the appropriate label helper.
-      2. Post a ``<!-- cai-lock owner=INSTANCE_ID acquired=... -->``
-         claim comment.
+      1. Post a ``<!-- cai-lock owner=INSTANCE_ID acquired=... -->``
+         claim comment. If this fails, no label is ever applied, so
+         a comment-post failure cannot strand an orphan ``:locked``
+         label behind a missing claim (the ``stale_hours=inf``
+         signature seen in the watchdog audit).
+      2. Add LABEL_LOCKED via the appropriate label helper. If this
+         fails, delete the just-posted claim comment and abort so
+         neither artifact is left on the target.
       3. Poll the lock-comment list until two consecutive snapshots
          agree (or the timeout elapses), to dampen GitHub
          read-after-write replica lag.
@@ -567,25 +572,29 @@ def _acquire_remote_lock(kind: str, number: int) -> bool:
         _HELD_LOCKS[key] += 1
         return True
 
-    if kind == "issue":
-        labelled = _set_labels(number, add=[LABEL_LOCKED], log_prefix="cai lock")
-    else:
-        labelled = _set_pr_labels(number, add=[LABEL_LOCKED], log_prefix="cai lock")
-    if not labelled:
-        return False
-
+    # Post the claim comment BEFORE applying the label so a comment
+    # failure cannot leave an orphan ``:locked`` label behind — an
+    # orphan label presents as ``stale_hours=inf`` in the watchdog
+    # (see _lock_claim_age_seconds) and wastes a TTL cycle before
+    # being cleaned up.
     acquired = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     body = f"<!-- cai-lock owner={INSTANCE_ID} acquired={acquired} -->"
     posted = (_post_issue_comment if kind == "issue" else _post_pr_comment)(
         number, body, log_prefix="cai lock"
     )
     if not posted:
-        # Couldn't post — strip the label so we don't strand the target
-        # behind a label nobody can release without watchdog help.
-        if kind == "issue":
-            _set_labels(number, remove=[LABEL_LOCKED], log_prefix="cai lock")
-        else:
-            _set_pr_labels(number, remove=[LABEL_LOCKED], log_prefix="cai lock")
+        return False
+
+    if kind == "issue":
+        labelled = _set_labels(number, add=[LABEL_LOCKED], log_prefix="cai lock")
+    else:
+        labelled = _set_pr_labels(number, add=[LABEL_LOCKED], log_prefix="cai lock")
+    if not labelled:
+        # Couldn't label — delete the claim comment we just posted so
+        # we don't leave a stranded comment with no label either.
+        for entry in _list_lock_comments(number):
+            if entry.get("owner") == INSTANCE_ID and entry.get("id") is not None:
+                _delete_issue_comment(int(entry["id"]))
         return False
 
     locks = _stabilize_lock_comments(number)
