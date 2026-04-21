@@ -31,6 +31,7 @@ from cai_lib.config import (
     LABEL_HUMAN_NEEDED,
     LABEL_HUMAN_SOLVED,
     LABEL_OPUS_ATTEMPTED,
+    LABEL_PLAN_NEEDS_REVIEW,
     LABEL_PR_HUMAN_NEEDED,
 )
 from cai_lib.fsm import (
@@ -130,6 +131,22 @@ def _list_unresolved_human_needed_issues() -> list[dict]:
         }
         if LABEL_HUMAN_SOLVED in names:
             # Admin already opted-in — leave it to cmd_unblock.
+            continue
+        if LABEL_PLAN_NEEDS_REVIEW in names:
+            # `handle_plan_gate` flagged this park for mandatory admin
+            # sign-off via cai-select's requires_human_review=true
+            # signal (#1128). The autonomous rescue pass cannot resolve
+            # a divert the planner itself said needs admin input —
+            # skip until an admin applies `human:solved` (handled by
+            # `cai unblock`) or directly resumes the issue, at which
+            # point the `human_to_*` transition also strips this label
+            # via its `labels_remove`.
+            print(
+                f"[cai rescue] #{issue['number']}: carries "
+                f"{LABEL_PLAN_NEEDS_REVIEW} — plan explicitly requires "
+                f"admin review, skipping autonomous rescue",
+                flush=True,
+            )
             continue
         blockers = blocking_issue_numbers(issue.get("labels", []))
         if blockers:

@@ -391,14 +391,17 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
             "_cai_plan_requires_human_review": requires_review,
         }
 
+    @patch("cai_lib.actions.plan._set_labels")
     @patch("cai_lib.actions.plan._post_issue_comment")
     @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_requires_review_high_conf_still_diverts(
-        self, _mock_log, mock_fire, mock_post
+        self, _mock_log, mock_fire, mock_post, mock_set_labels
     ):
         from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_PLAN_NEEDS_REVIEW
         mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = True
 
         rc = handle_plan_gate(self._issue(
             confidence=Confidence.HIGH,
@@ -424,6 +427,13 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         )
         self.assertIn("admin approval required", divert_reason)
         mock_post.assert_not_called()
+        # #1128 — supplementary plan-needs-review label must be applied
+        # on top of :human-needed so rescue skips the issue.
+        mock_set_labels.assert_called_once()
+        set_labels_kwargs = mock_set_labels.call_args.kwargs
+        self.assertEqual(
+            set_labels_kwargs.get("add"), [LABEL_PLAN_NEEDS_REVIEW],
+        )
 
     @patch("cai_lib.actions.plan._post_issue_comment")
     @patch("cai_lib.actions.plan.fire_trigger")
@@ -476,16 +486,19 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         ]
         self.assertEqual(gated_calls, [])
 
+    @patch("cai_lib.actions.plan._set_labels")
     @patch("cai_lib.actions.plan._post_issue_comment")
     @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_requires_review_reparsed_from_body_when_stash_missing(
-        self, _mock_log, mock_fire, mock_post
+        self, _mock_log, mock_fire, mock_post, mock_set_labels
     ):
         """When the in-process stash is absent, the flag must be
         re-parsed from the stored plan block in the issue body."""
         from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_PLAN_NEEDS_REVIEW
         mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = True
 
         body = (
             "<!-- cai-plan-start -->\n"
@@ -515,6 +528,35 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         divert_reason = fire_call_kwargs.get("divert_reason", "")
         self.assertIn("admin approval required", divert_reason)
         mock_post.assert_not_called()
+        # #1128 — body-reparse path must also apply the supplementary
+        # plan-needs-review label.
+        mock_set_labels.assert_called_once()
+        set_labels_kwargs = mock_set_labels.call_args.kwargs
+        self.assertEqual(
+            set_labels_kwargs.get("add"), [LABEL_PLAN_NEEDS_REVIEW],
+        )
+
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan._post_issue_comment")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_requires_review_set_labels_failure_still_returns_0(
+        self, _mock_log, mock_fire, _mock_post, mock_set_labels
+    ):
+        """#1128 — a `_set_labels` failure must NOT flip the return code
+        from 0 to 1. The FSM divert has already succeeded; failing to
+        stamp the supplementary marker is a logged-but-ignorable error."""
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = False  # label-apply failed
+
+        rc = handle_plan_gate(self._issue(
+            confidence=Confidence.MEDIUM,
+            requires_review=True,
+        ))
+
+        self.assertEqual(rc, 0)
+        mock_set_labels.assert_called_once()
 
 
 class TestParseRequiresHumanReview(unittest.TestCase):

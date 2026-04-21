@@ -159,6 +159,18 @@ LABEL_HUMAN_SOLVED = "human:solved"
 # and prevents a second escalation on the same issue if the Opus run
 # also parks at :human-needed.
 LABEL_OPUS_ATTEMPTED = "auto-improve:opus-attempted"
+# Supplementary marker applied by `handle_plan_gate` (in addition to the
+# standard :human-needed state label) when `cai-select`'s structured
+# output set `requires_human_review=true` — i.e. the planner itself
+# flagged the chosen plan as needing admin sign-off. Makes the human
+# checkpoint explicit in the FSM label trail instead of leaving it
+# buried in the plan body, and lets `cai rescue` skip these issues so
+# the autonomous rescue pass does not repeatedly re-evaluate parks the
+# planner already said need admin input (#1128). Declared in
+# `labels_remove` on every `human_to_*` transition in
+# `cai_lib/fsm_transitions.py` so it auto-clears the moment the issue
+# leaves HUMAN_NEEDED.
+LABEL_PLAN_NEEDS_REVIEW = "auto-improve:plan-needs-review"
 LABEL_TRIAGING         = "auto-improve:triaging"
 LABEL_KIND_CODE        = "kind:code"
 LABEL_KIND_MAINTENANCE = "kind:maintenance"

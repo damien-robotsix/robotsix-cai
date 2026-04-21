@@ -29,11 +29,17 @@ from cai_lib.config import (
     REPO,
     LABEL_IN_PROGRESS,
     LABEL_PR_OPEN,
+    LABEL_PLAN_NEEDS_REVIEW,
     LABEL_REFINED,
     LABEL_PLANNING,
     LABEL_PLANNED,
 )
-from cai_lib.github import _gh_json, _build_issue_block, _post_issue_comment
+from cai_lib.github import (
+    _gh_json,
+    _build_issue_block,
+    _post_issue_comment,
+    _set_labels,
+)
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import (
@@ -826,6 +832,27 @@ def handle_plan_gate(issue: dict) -> int:
                     requires_human_review=1,
                     exit=1)
             return 1
+        # Surface the planner's explicit admin-review request as a
+        # supplementary label on top of :human-needed (#1128). Makes
+        # the human checkpoint visible in the FSM label trail rather
+        # than buried in the plan body, and lets `cai rescue` skip
+        # this issue instead of burning autonomous-resume cycles on a
+        # park the planner itself flagged as needing admin sign-off.
+        # Failure to apply the label is non-fatal — the FSM divert
+        # has already succeeded; log and continue so the caller still
+        # sees a 0 return code.
+        if not _set_labels(
+            issue_number,
+            add=[LABEL_PLAN_NEEDS_REVIEW],
+            log_prefix="cai plan",
+        ):
+            print(
+                f"[cai plan] #{issue_number} failed to apply "
+                f"{LABEL_PLAN_NEEDS_REVIEW}; divert already logged — "
+                f"continuing",
+                file=sys.stderr,
+                flush=True,
+            )
         print(
             f"[cai plan] #{issue_number} gate → :human-needed in {dur} "
             f"(requires_human_review=true, confidence={conf_name})",
