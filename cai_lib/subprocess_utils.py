@@ -30,6 +30,33 @@ from cai_lib.logging_utils import log_cost
 _CLI_PATH = shutil.which("claude")
 
 
+# Bounds for the stderr-capture sink wired into ClaudeAgentOptions.stderr.
+# The SDK only pipes the `claude -p` subprocess's stderr when a callback is
+# attached — otherwise stderr inherits the parent fd and the CLI's real
+# crash reason (e.g. transient network / OOM / signal) vanishes into the
+# wrapper's own log stream, leaving callers staring at the SDK's hardcoded
+# placeholder "Check stderr output for details".
+_CAPTURED_STDERR_MAX_LINES = 200
+_CAPTURED_STDERR_MAX_CHARS = 4000
+
+
+def _make_stderr_sink(buf: list[str]):
+    def _sink(line: str) -> None:
+        if len(buf) < _CAPTURED_STDERR_MAX_LINES:
+            buf.append(line)
+    return _sink
+
+
+def _captured_stderr_text(buf: list[str]) -> str:
+    if not buf:
+        return ""
+    joined = "\n".join(buf)
+    if len(joined) > _CAPTURED_STDERR_MAX_CHARS:
+        # Keep the tail — the crash reason tends to be on the last lines.
+        joined = "[truncated]\n" + joined[-_CAPTURED_STDERR_MAX_CHARS:]
+    return joined
+
+
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     """Thin wrapper around subprocess.run with text mode; defaults check=False.
 
@@ -232,6 +259,9 @@ def _run_claude_p(
     if _CLI_PATH:
         options.cli_path = _CLI_PATH
 
+    captured_stderr: list[str] = []
+    options.stderr = _make_stderr_sink(captured_stderr)
+
     prompt = input if input is not None else positional_prompt
 
     try:
@@ -247,25 +277,39 @@ def _run_claude_p(
             )
     except Exception as exc:  # noqa: BLE001
         preview = str(exc)[:200].replace("\n", " ")
-        print(
+        cli_stderr = _captured_stderr_text(captured_stderr)
+        cli_stderr_preview = cli_stderr.replace("\n", " | ")[:400]
+        msg = (
             f"[cai cost] claude-agent-sdk query failed "
-            f"({category}/{agent}): {preview}",
-            file=sys.stderr, flush=True,
+            f"({category}/{agent}): {preview}"
         )
+        if cli_stderr_preview:
+            msg += f" | cli_stderr={cli_stderr_preview!r}"
+        print(msg, file=sys.stderr, flush=True)
+        combined = str(exc)
+        if cli_stderr:
+            combined = f"{combined}\n--- cli stderr ---\n{cli_stderr}"
         return subprocess.CompletedProcess(
-            args=cmd, returncode=1, stdout="", stderr=str(exc),
+            args=cmd, returncode=1, stdout="", stderr=combined,
         )
 
     if not results:
         preview = (last_assistant or "")[:120].replace("\n", " ")
-        print(
+        cli_stderr = _captured_stderr_text(captured_stderr)
+        cli_stderr_preview = cli_stderr.replace("\n", " | ")[:400]
+        msg = (
             f"[cai cost] no ResultMessage from claude-agent-sdk "
-            f"({category}/{agent}); last assistant starts with: {preview!r}",
-            file=sys.stderr, flush=True,
+            f"({category}/{agent}); last assistant starts with: {preview!r}"
         )
+        if cli_stderr_preview:
+            msg += f" | cli_stderr={cli_stderr_preview!r}"
+        print(msg, file=sys.stderr, flush=True)
+        combined = f"no_ResultMessage last_assistant={preview!r}"
+        if cli_stderr:
+            combined = f"{combined}\n--- cli stderr ---\n{cli_stderr}"
         return subprocess.CompletedProcess(
             args=cmd, returncode=1, stdout=last_assistant or "",
-            stderr=f"no_ResultMessage last_assistant={preview!r}",
+            stderr=combined,
         )
 
     result = results[-1]
