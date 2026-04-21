@@ -778,7 +778,7 @@ def _canonical_staging_aliases(rel: str) -> list[str]:
 
 
 def _parse_plan_scope(plan_text: str) -> set[str]:
-    """Return the set of relative clone-paths the plan declares in
+    r"""Return the set of relative clone-paths the plan declares in
     scope.
 
     Parses two sections:
