@@ -129,7 +129,6 @@ modules:
       - "README.md"
       - "LICENSE"
       - "CLAUDE.md"
-      - "CODEBASE_INDEX.md"
     doc: "docs/modules/docs.md"
 
   - name: tests
