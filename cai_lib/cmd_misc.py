@@ -14,6 +14,7 @@ from pathlib import Path
 from cai_lib.config import *  # noqa: F403,F401
 from cai_lib.logging_utils import log_run
 from cai_lib.audit.cost import _load_cost_log, _load_outcome_counts, _row_ts
+from cai_lib import transcript_sync
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.github import (
     _gh_json, _set_labels, _transcript_dir_is_empty,
@@ -254,6 +255,7 @@ def cmd_cost_report(args) -> int:
         cai cost-report
         cai cost-report --days 30 --top 20 --by agent
     """
+    transcript_sync.pull_cost()
     rows = _load_cost_log(days=args.days)
     if not rows:
         print(
@@ -463,6 +465,11 @@ def cmd_health_report(args) -> int:
     now_ts = datetime.now(timezone.utc).timestamp()
     sections: list[str] = []
     anomalies: list[str] = []
+
+    # Pull aggregated cost logs from all machines before reading trends —
+    # same pattern as transcript aggregation in cmd_analyze. No-op when
+    # sync is disabled.
+    transcript_sync.pull_cost()
 
     # ------------------------------------------------------------------ #
     # 1. Cost Trends                                                       #
