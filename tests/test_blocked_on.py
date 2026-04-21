@@ -299,5 +299,56 @@ class TestRescueListRespectsBlockedOn(unittest.TestCase):
         self.assertEqual(result[0]["number"], 10)
 
 
+# ---------------------------------------------------------------------------
+# _list_unresolved_human_needed_issues skips LABEL_PLAN_NEEDS_REVIEW (#1128)
+# ---------------------------------------------------------------------------
+
+
+class TestRescueListSkipsPlanNeedsReview(unittest.TestCase):
+    """#1128 — issues whose plan block was flagged by cai-select with
+    requires_human_review=true carry `auto-improve:plan-needs-review` on
+    top of `:human-needed`, and `cai rescue` must skip them so the
+    autonomous rescue pass does not re-evaluate parks the planner itself
+    said need admin sign-off."""
+
+    def test_plan_needs_review_issue_excluded(self):
+        flagged = _rescue_issue(
+            1,
+            ["auto-improve:human-needed", "auto-improve:plan-needs-review"],
+        )
+        plain = _rescue_issue(2, ["auto-improve:human-needed"])
+
+        side_effect = _make_rescue_gh_json([flagged, plain], {})
+        with patch.object(R, "_gh_json", side_effect=side_effect), \
+             patch("cai_lib.github._gh_json", side_effect=side_effect):
+            result = R._list_unresolved_human_needed_issues()
+
+        numbers = [i["number"] for i in result]
+        self.assertNotIn(1, numbers)
+        self.assertIn(2, numbers)
+
+    def test_plan_needs_review_takes_precedence_over_blocker_check(self):
+        """When both plan-needs-review and blocked-on labels are present,
+        the plan-needs-review filter fires first and no blocker lookup
+        is required."""
+        flagged_and_blocked = _rescue_issue(
+            1,
+            [
+                "auto-improve:human-needed",
+                "auto-improve:plan-needs-review",
+                "blocked-on:99",
+            ],
+        )
+
+        # Return state=OPEN for #99 so the blocker path would skip too;
+        # either filter firing yields the same exclusion outcome.
+        side_effect = _make_rescue_gh_json([flagged_and_blocked], {99: "OPEN"})
+        with patch.object(R, "_gh_json", side_effect=side_effect), \
+             patch("cai_lib.github._gh_json", side_effect=side_effect):
+            result = R._list_unresolved_human_needed_issues()
+
+        self.assertEqual(result, [])
+
+
 if __name__ == "__main__":
     unittest.main()

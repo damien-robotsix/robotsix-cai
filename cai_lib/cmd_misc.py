@@ -38,6 +38,13 @@ _ALL_MANAGED_ISSUE_LABELS: frozenset[str] = frozenset({
     # sweep so the next rescue pass can detect the one-shot has
     # already been burned and refuse a second escalation (#944).
     LABEL_OPUS_ATTEMPTED,
+    # Supplementary plan-needs-review marker (#1128) — set alongside
+    # :human-needed by `handle_plan_gate` when cai-select emitted
+    # requires_human_review=true. Must survive the hourly sweep so
+    # `cai rescue` keeps skipping the issue until the admin resumes
+    # it; auto-cleared on any `human_to_*` resume transition via
+    # the transition's `labels_remove`.
+    LABEL_PLAN_NEEDS_REVIEW,
     "auto-improve", "audit", "check-workflows", "check-workflows:raised",
 })
 

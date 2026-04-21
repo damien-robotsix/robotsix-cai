@@ -21,6 +21,7 @@ from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
     LABEL_TRIAGING, LABEL_APPLYING, LABEL_APPLIED,
+    LABEL_PLAN_NEEDS_REVIEW,
     LABEL_PR_REVIEWING_CODE, LABEL_PR_REVISION_PENDING,
     LABEL_PR_REVIEWING_DOCS, LABEL_PR_APPROVED, LABEL_PR_REBASING,
     LABEL_PR_CI_FAILING,
@@ -242,23 +243,35 @@ ISSUE_TRANSITIONS: list[Transition] = [
     Transition("merged_to_solved",           IssueState.MERGED,            IssueState.SOLVED,
                labels_remove=[LABEL_MERGED],            labels_add=[LABEL_SOLVED]),
 
+    # Every `human_to_*` resume transition also strips the
+    # supplementary LABEL_PLAN_NEEDS_REVIEW marker (#1128) so the
+    # "plan explicitly flagged for admin review" signal never
+    # lingers after the admin has actually resolved the divert.
+    # `gh issue edit --remove-label` is idempotent when the label is
+    # not present, so the extra entry is a no-op for the common case
+    # where the label was never applied.
     Transition("human_to_raised",            IssueState.HUMAN_NEEDED,      IssueState.RAISED,
-               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_RAISED]),
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_add=[LABEL_RAISED]),
     # Admin-comment-driven re-entries out of HUMAN_NEEDED. Fired by
     # cmd_unblock after a Haiku agent classifies the admin's reply.
     # Resume into REFINING (not REFINED) so the refine agent re-runs
     # with the admin's input in context — REFINED is an auto-advance
     # waypoint, not a sensible re-entry point.
     Transition("human_to_refining",          IssueState.HUMAN_NEEDED,      IssueState.REFINING,
-               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_REFINING]),
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_add=[LABEL_REFINING]),
     # Admin greenlights the already-stored plan — jump past the
     # planned→approved gate.
     Transition("human_to_plan_approved",     IssueState.HUMAN_NEEDED,      IssueState.PLAN_APPROVED,
-               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_PLAN_APPROVED]),
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_add=[LABEL_PLAN_APPROVED]),
     Transition("human_to_exploration",       IssueState.HUMAN_NEEDED,      IssueState.NEEDS_EXPLORATION,
-               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_NEEDS_EXPLORATION]),
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_add=[LABEL_NEEDS_EXPLORATION]),
     Transition("human_to_solved",            IssueState.HUMAN_NEEDED,      IssueState.SOLVED,
-               labels_remove=[LABEL_HUMAN_NEEDED],      labels_add=[LABEL_SOLVED]),
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_add=[LABEL_SOLVED]),
 ]
 
 

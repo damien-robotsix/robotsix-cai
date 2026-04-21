@@ -52,6 +52,7 @@ Issues enter the pipeline when a human files an issue labeled `auto-improve:rais
 | `auto-improve:planned` | Plan generated and stored in issue body; confidence gate pending |
 | `auto-improve:planning` | Plan generation in progress (transient) |
 | `auto-improve:plan-approved` | Plan approved (HIGH confidence auto-approval or admin resume); ready for implement subagent |
+| `auto-improve:plan-needs-review` | Supplementary marker set by `handle_plan_gate` when cai-select flagged `requires_human_review=true`; signals that this plan explicitly diverges from refined-issue preference and requires admin approval. Applied alongside `:human-needed`; auto-cleared when the issue leaves HUMAN_NEEDED via any `human_to_*` resume transition. Causes `cai rescue` to skip the issue during autonomous resume cycles. |
 | `auto-improve:human-needed` | Awaiting admin review and decision; admin applies `human:solved` to resume |
 | `auto-improve:applying` | Maintenance ops are being applied (transient; Step 3 agent drains this state) |
 | `auto-improve:applied` | Maintenance ops applied; awaiting verification |
