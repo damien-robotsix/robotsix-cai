@@ -87,6 +87,36 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 # (see issues #748 / #695).
 _MAX_TESTS_FAILED_RETRIES = 2
 
+# Broader safety net (issue #1088): max consecutive implement-failure
+# runs of ANY kind (tests_failed, subagent_failed, unexpected_error,
+# clone_failed, fetch_existing_failed, push_failed, pr_create_failed)
+# for the same issue before we park at :human-needed. Catches the
+# post-escalation loop observed on issue #1065 where Opus (resumed
+# with LABEL_OPUS_ATTEMPTED after `tests_failed_escalated`) kept
+# retrying because `tests_failed_escalated` breaks the narrower
+# `tests_failed`-only counter's streak. At the Opus tier rescue will
+# naturally refuse to re-escalate (see cmd_rescue's
+# _issue_has_opus_attempted guard); at the Sonnet tier rescue may
+# still escalate to Opus (different model may handle it).
+_MAX_CONSECUTIVE_FAILED_ATTEMPTS = 3
+
+# Result tags that count as implement failures for
+# :func:`_count_consecutive_failed_attempts`. Transition tags such as
+# ``tests_failed_escalated`` / ``tests_failed_escalated_early`` /
+# ``tests_failed_auto_refine`` / ``retries_exhausted`` and bail-outs
+# such as ``no_stored_plan`` / ``bad_state`` / ``lock_failed`` are
+# deliberately excluded — they are not evidence of a stuck retry
+# loop (they signal the pipeline already responded to the failure).
+_COUNTED_IMPLEMENT_FAILURES: frozenset[str] = frozenset({
+    "tests_failed",
+    "subagent_failed",
+    "unexpected_error",
+    "clone_failed",
+    "fetch_existing_failed",
+    "push_failed",
+    "pr_create_failed",
+})
+
 def _park_in_progress_at_human_needed(
     issue_number: int,
     *,
@@ -551,6 +581,57 @@ def _count_consecutive_tests_failed(issue_number: int) -> int:
     return count
 
 
+# Match ``result=<tag>`` where <tag> is a space-bounded token. Used by
+# :func:`_count_consecutive_failed_attempts` to classify each log
+# line without the substring pitfalls of plain ``in`` checks
+# (``tests_failed`` vs. ``tests_failed_escalated``).
+_RESULT_TAG_RE = re.compile(r" result=(\S+)")
+
+
+def _count_consecutive_failed_attempts(issue_number: int) -> int:
+    """Count trailing consecutive implement-failure log entries for
+    *issue_number* in LOG_PATH.
+
+    A "failure" is any ``[implement]`` entry whose ``result=`` token
+    is in :data:`_COUNTED_IMPLEMENT_FAILURES`. Walks the entries for
+    this issue in reverse and counts how many trailing entries
+    match. The walk stops at the first non-failure entry — including
+    transition tags such as ``tests_failed_escalated`` /
+    ``tests_failed_escalated_early`` / ``tests_failed_auto_refine``
+    and successful PR-open entries (which have no ``result=`` field
+    at all).
+
+    Returns 0 on any I/O failure (the guard is best-effort — we must
+    never block the implement pipeline on log read errors).
+
+    Added in issue #1088 as a broader safety net than
+    :func:`_count_consecutive_tests_failed`: it catches post-Opus
+    escalation loops (the canonical failure was issue #1065, which
+    accumulated three ``unexpected_error`` runs after a
+    ``tests_failed_escalated`` transition without being caught by
+    the narrower tests-only counter).
+    """
+    try:
+        if not LOG_PATH.exists():
+            return 0
+        lines = LOG_PATH.read_text().splitlines()
+    except OSError:
+        return 0
+    issue_tag = f" issue={issue_number} "
+    relevant = [
+        ln for ln in lines
+        if "[implement]" in ln and issue_tag in (ln + " ")
+    ]
+    count = 0
+    for ln in reversed(relevant):
+        m = _RESULT_TAG_RE.search(ln)
+        if m and m.group(1) in _COUNTED_IMPLEMENT_FAILURES:
+            count += 1
+        else:
+            break
+    return count
+
+
 # ---------------------------------------------------------------------------
 # Plan-scope enforcement (issue #1074).
 #
@@ -934,6 +1015,59 @@ def handle_implement(issue: dict) -> int:
             log_run("implement", repo=REPO, issue=issue_number,
                     result="tests_failed_escalated_early", exit=0)
             return 0
+
+    # General consecutive-failure cap (issue #1088). Fires for both
+    # tiers as a broader safety net than the tests-only counter above.
+    # If this issue has already burned through
+    # _MAX_CONSECUTIVE_FAILED_ATTEMPTS implement failures of any kind
+    # (tests_failed, subagent_failed, unexpected_error, and the git/gh
+    # transport failures), park at :human-needed for admin review.
+    # At the Opus tier the LABEL_OPUS_ATTEMPTED label will naturally
+    # prevent rescue from re-escalating (see cmd_rescue's
+    # _issue_has_opus_attempted guard); at the Sonnet tier rescue may
+    # still escalate to Opus, which is desirable (different model may
+    # handle it).
+    consecutive_any = _count_consecutive_failed_attempts(issue_number)
+    if consecutive_any >= _MAX_CONSECUTIVE_FAILED_ATTEMPTS:
+        tier = "Opus" if opus_escalation else "Sonnet"
+        print(
+            f"[cai implement] #{issue_number} has {consecutive_any} "
+            f"consecutive failed implement attempts at the {tier} "
+            f"tier (>= {_MAX_CONSECUTIVE_FAILED_ATTEMPTS}); skipping "
+            f"subagent and parking at auto-improve:human-needed",
+            flush=True,
+        )
+        reason = (
+            "## Implement subagent: retries exhausted\n\n"
+            f"This issue has {consecutive_any} consecutive failed "
+            f"implement attempts in the run log at the {tier} tier "
+            "(counting `tests_failed`, `subagent_failed`, "
+            "`unexpected_error`, and git/gh transport failures). "
+            "Further retries would loop indefinitely without "
+            "progress — pre-empting the subagent call and "
+            "escalating to human review.\n\n"
+            "---\n"
+            f"_Pre-empted by `cai implement` retries-exhausted guard "
+            f"after {_MAX_CONSECUTIVE_FAILED_ATTEMPTS} consecutive "
+            f"failures. Re-label to `{LABEL_PLAN_APPROVED}` once the "
+            "underlying problem is resolved to retry. Issue #1088._"
+        )
+        if not _park_in_progress_at_human_needed(
+            issue_number, reason=reason,
+        ):
+            print(
+                f"[cai implement] WARNING: label transition "
+                f"to auto-improve:human-needed failed twice "
+                f"for #{issue_number} — issue may be stuck",
+                file=sys.stderr, flush=True,
+            )
+            log_run("implement", repo=REPO,
+                    issue=issue_number,
+                    result="label_transition_failed", exit=1)
+            return 1
+        log_run("implement", repo=REPO, issue=issue_number,
+                result="retries_exhausted", exit=0)
+        return 0
 
     # Pre-screen: cheap Haiku call to triage obvious non-actionable issues
     # before the expensive clone + plan-select pipeline.
