@@ -139,5 +139,130 @@ class TestRunClaudePEnvelope(unittest.TestCase):
         self.assertEqual(proc.stdout, "fallback text")
 
 
+class TestStderrEnrichment(unittest.TestCase):
+    """Issue #1106: ``_run_claude_p`` must populate ``stderr`` with a
+    diagnostic summary on every non-zero returncode path so the
+    downstream implement handler has something to log. Before #1106
+    both the ``is_error=True`` and ``no-ResultMessage`` branches set
+    ``stderr=""``, which is why issue #910 produced five
+    byte-identical ``result=subagent_failed exit=1`` rows."""
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_is_error_populates_stderr_with_subtype(self, _mock_log):
+        """is_error=True must surface sdk_subtype and is_error in stderr."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg = _mk_result(
+            subtype="error_max_turns",
+            is_error=True,
+            result="Agent exhausted max_turns=60 before producing a plan.",
+            total_cost_usd=0.4,
+        )
+        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+            proc = _run_claude_p(
+                ["claude", "-p", "--agent", "cai-implement"],
+                category="implement", agent="cai-implement",
+            )
+
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("sdk_subtype=error_max_turns", proc.stderr)
+        self.assertIn("is_error=True", proc.stderr)
+        self.assertIn("Agent exhausted max_turns", proc.stderr)
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_is_error_without_result_text_still_has_summary(self, _mock_log):
+        """is_error=True with result=None must still carry subtype/is_error."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg = _mk_result(
+            subtype="error_max_structured_output_retries",
+            is_error=True,
+            result=None,
+            total_cost_usd=0.2,
+        )
+        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+            with patch("builtins.print"):
+                proc = _run_claude_p(
+                    ["claude", "-p", "--agent", "cai-triage",
+                     "--json-schema", "{}"],
+                    category="triage", agent="cai-triage",
+                )
+
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn(
+            "sdk_subtype=error_max_structured_output_retries",
+            proc.stderr,
+        )
+        self.assertIn("is_error=True", proc.stderr)
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_success_leaves_stderr_empty(self, _mock_log):
+        """returncode=0 must NOT leak a diagnostic summary into stderr."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg = _mk_result(result="ok", total_cost_usd=0.05)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+            proc = _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan", agent="cai-plan",
+            )
+
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stderr, "")
+
+    def test_no_result_message_populates_stderr(self):
+        """The no-ResultMessage fallback path must surface a diagnostic."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        # No ResultMessage and no AssistantMessage — the empty-iterator case.
+        async def _empty_gen(*, prompt, options=None, transport=None):
+            if False:
+                yield  # pragma: no cover
+
+        with patch.object(subprocess_utils, "query", _empty_gen):
+            with patch("builtins.print"):
+                proc = _run_claude_p(
+                    ["claude", "-p", "--agent", "cai-implement"],
+                    category="implement", agent="cai-implement",
+                )
+
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("no_ResultMessage", proc.stderr)
+
+
+class TestSdkErrorSummary(unittest.TestCase):
+    """Direct unit tests for the issue-#1106 summary helper."""
+
+    def test_summary_with_subtype_and_result_text(self):
+        from cai_lib.subprocess_utils import _sdk_error_summary
+
+        class _R:
+            subtype = "error_max_turns"
+            is_error = True
+            result = "hit the cap\nbailing out"
+
+        s = _sdk_error_summary(_R())
+        self.assertIn("sdk_subtype=error_max_turns", s)
+        self.assertIn("is_error=True", s)
+        self.assertIn("hit the cap", s)
+        # The newline in result must be collapsed to a space by
+        # the helper so the caller's log line stays single-line.
+        self.assertNotIn("\n", s)
+
+    def test_summary_with_missing_fields_defaults_to_none(self):
+        from cai_lib.subprocess_utils import _sdk_error_summary
+
+        class _R:  # no subtype, no is_error, no result
+            pass
+
+        s = _sdk_error_summary(_R())
+        self.assertIn("sdk_subtype=none", s)
+        self.assertIn("is_error=False", s)
+
+
 if __name__ == "__main__":
     unittest.main()

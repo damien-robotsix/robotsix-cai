@@ -117,6 +117,45 @@ _COUNTED_IMPLEMENT_FAILURES: frozenset[str] = frozenset({
     "pr_create_failed",
 })
 
+
+# Length cap for the ``stderr_tail=`` field stamped on the
+# ``result=subagent_failed`` log row (issue #1106). 120 chars keeps
+# the log line readable while still carrying enough signal to tell a
+# ``sdk_subtype=error_max_turns`` run apart from an
+# ``sdk_subtype=error_max_structured_output_retries`` run. The token
+# is always a single whitespace-free run so the
+# ``_RESULT_TAG_RE = re.compile(r" result=(\S+)")`` classifier in
+# :func:`_count_consecutive_failed_attempts` keeps matching
+# ``subagent_failed`` unchanged.
+_STDERR_TAIL_LIMIT = 120
+
+
+def _format_stderr_tail(stderr: str) -> str:
+    """Sanitize ``agent.stderr`` for inclusion as a key=value log field.
+
+    Whitespace (spaces, tabs, newlines) collapses to ``_`` so the
+    token is space-free; ``=`` is rewritten to ``:`` so a downstream
+    key=value parser cannot accidentally split ``stderr_tail=foo=bar``
+    into two fields. The result is truncated to
+    :data:`_STDERR_TAIL_LIMIT` characters and coerced to at least
+    ``"empty"`` when *stderr* is blank (the pre-#1106 shape, retained
+    for a fresh ``stderr=""`` path the SDK may surface in future).
+
+    Returned tokens are always non-empty, contain no whitespace and
+    no ``=``, so they are safe to log between ``result=<tag>`` and
+    ``exit=<code>`` without breaking either the existing
+    :data:`_RESULT_TAG_RE` classifier or the audit agent's column
+    layout.
+    """
+    text = (stderr or "").strip()
+    if not text:
+        return "empty"
+    text = re.sub(r"\s+", "_", text)
+    text = text.replace("=", ":")
+    tail = text[:_STDERR_TAIL_LIMIT]
+    return tail or "empty"
+
+
 def _park_in_progress_at_human_needed(
     issue_number: int,
     *,
@@ -1250,8 +1289,14 @@ def handle_implement(issue: dict) -> int:
                 file=sys.stderr,
             )
             rollback()
-            log_run("implement", repo=REPO, issue=issue_number,
-                    result="subagent_failed", exit=agent.returncode)
+            log_run(
+                "implement",
+                repo=REPO,
+                issue=issue_number,
+                result="subagent_failed",
+                stderr_tail=_format_stderr_tail(agent.stderr or ""),
+                exit=agent.returncode,
+            )
             return agent.returncode
 
         # 5b. Create any suggested issues the subagent raised.
