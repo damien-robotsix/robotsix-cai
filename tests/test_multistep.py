@@ -167,11 +167,22 @@ class TestCreateSubIssuesDepth(unittest.TestCase):
 
 
 class TestDepthGate(unittest.TestCase):
+    @patch("cai_lib.actions.refine.log_run")
     @patch("cai_lib.actions.refine._run_claude_p")
     @patch("cai_lib.actions.refine.fire_trigger")
     @patch("cai_lib.actions.refine._build_issue_block", return_value="issue text")
-    def test_max_depth_injects_no_decompose(self, mock_build, mock_transition, mock_claude):
-        """At max depth, user_message should instruct agent not to decompose."""
+    def test_max_depth_injects_no_decompose(
+        self, mock_build, mock_transition, mock_claude, mock_log_run,
+    ):
+        """At max depth, user_message should instruct agent not to decompose.
+
+        Also patches ``cai_lib.actions.refine.log_run`` (issue #1109) so the
+        test does not append a real ``[refine] issue=5 duration=0s
+        result=refined exit=0`` entry to ``/var/log/cai/cai.log`` every time
+        ``cai implement``'s in-clone regression gate
+        (``cai_lib/actions/implement.py:1406``) runs
+        ``python -m unittest discover -s tests -v``.
+        """
         mock_claude.return_value = MagicMock(
             returncode=0, stdout="## Refined Issue\nContent", stderr=""
         )
@@ -187,6 +198,18 @@ class TestDepthGate(unittest.TestCase):
         call_kwargs = mock_claude.call_args
         input_msg = call_kwargs.kwargs.get("input") or call_kwargs[1].get("input", "")
         self.assertIn("Do NOT produce", input_msg)
+        # Regression guard: if a future refactor removes the log_run patch,
+        # this assertion fires before the real logger can write to
+        # /var/log/cai/cai.log. handle_refine's success path always ends in
+        # a log_run call, so the mock must see at least one invocation.
+        mock_log_run.assert_called()
+        # All recorded calls must carry category="refine" and issue=5 so an
+        # accidental bypass (e.g. a real log_run leaking through a partial
+        # patch) is visible.
+        for call in mock_log_run.call_args_list:
+            args, kwargs = call
+            self.assertEqual(args[0], "refine")
+            self.assertEqual(kwargs.get("issue"), 5)
 
 
 from cai_lib.actions.refine import (
