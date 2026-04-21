@@ -1076,5 +1076,158 @@ class TestParseApprovableAtMedium(unittest.TestCase):
         ))
 
 
+class TestHandlePlanGateAutoFlaggedScaleComplexity(unittest.TestCase):
+    """#1131 — handle_plan_gate auto-flags plans for human review at
+    LOW confidence when the plan targets >= 15 files or a prior
+    divert MARKER comment cites scale/complexity. Fires the same
+    planned_to_human + LABEL_PLAN_NEEDS_REVIEW divert as the #982
+    requires_human_review=true path, using a bespoke reason."""
+
+    def _issue(self, *, body="", comments=None, confidence=Confidence.LOW):
+        return {
+            "number": 1131,
+            "title": "t",
+            "body": body,
+            "labels": [{"name": "auto-improve:planned"}],
+            "comments": comments or [],
+            "_cai_plan_confidence": confidence,
+            "_cai_plan_confidence_reason": "",
+            "_cai_plan_text": body,
+            "_cai_plan_requires_human_review": False,
+            "_cai_plan_approvable_at_medium": False,
+        }
+
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_large_scope_low_confidence_diverts(
+        self, _mock_log, mock_fire, mock_set_labels
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_PLAN_NEEDS_REVIEW
+        mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = True
+        body = "### Files to change\n" + "\n".join(
+            f"- `pkg/file{i}.py`: change it" for i in range(16)
+        ) + "\n"
+        rc = handle_plan_gate(self._issue(body=body))
+        self.assertEqual(rc, 0)
+        call_args = mock_fire.call_args
+        self.assertEqual(call_args.args[1], "planned_to_human")
+        divert_reason = call_args.kwargs.get("divert_reason", "")
+        self.assertIn(
+            "Auto-flagged scale/complexity checkpoint (#1131)",
+            divert_reason,
+        )
+        mock_set_labels.assert_called_once()
+        self.assertEqual(
+            mock_set_labels.call_args.kwargs.get("add"),
+            [LABEL_PLAN_NEEDS_REVIEW],
+        )
+
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_prior_divert_scale_phrase_low_confidence_diverts(
+        self, _mock_log, mock_fire, mock_set_labels
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = True
+        comments = [{
+            "body": (
+                "**\U0001f64b Human attention needed**\n"
+                "the scale alone warrants admin review"
+            ),
+        }]
+        rc = handle_plan_gate(self._issue(comments=comments))
+        self.assertEqual(rc, 0)
+        divert_reason = mock_fire.call_args.kwargs.get("divert_reason", "")
+        self.assertIn("prior divert", divert_reason)
+        self.assertIn("scale or complexity", divert_reason)
+
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_small_scope_low_confidence_falls_through(
+        self, _mock_log, mock_fire, mock_set_labels
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_fire.return_value = (True, True)
+        body = "### Files to change\n- `pkg/one.py`: change it\n"
+        rc = handle_plan_gate(self._issue(body=body))
+        self.assertEqual(rc, 0)
+        mock_set_labels.assert_not_called()
+
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_large_scope_high_confidence_does_not_trigger(
+        self, _mock_log, mock_fire, mock_set_labels
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_fire.return_value = (True, False)
+        body = "### Files to change\n" + "\n".join(
+            f"- `pkg/file{i}.py`: change" for i in range(20)
+        ) + "\n"
+        issue = self._issue(body=body, confidence=Confidence.HIGH)
+        rc = handle_plan_gate(issue)
+        self.assertEqual(rc, 0)
+        mock_set_labels.assert_not_called()
+
+
+class TestAutoFlaggedScaleComplexityHelpers(unittest.TestCase):
+    """#1131 — helper functions backing the handle_plan_gate auto-flag."""
+
+    def test_count_files_to_change_counts_unique_paths(self):
+        from cai_lib.actions.plan import _count_files_to_change
+        body = (
+            "### Files to change\n"
+            "- `pkg/a.py`: change\n"
+            "- `pkg/b.py`: change\n"
+            "- `pkg/a.py`: again (duplicate)\n"
+            "### Other\n"
+            "- `pkg/c.py`: outside the section\n"
+        )
+        self.assertEqual(_count_files_to_change(body), 2)
+
+    def test_count_files_to_change_empty(self):
+        from cai_lib.actions.plan import _count_files_to_change
+        self.assertEqual(_count_files_to_change(""), 0)
+        self.assertEqual(_count_files_to_change(None), 0)
+
+    def test_count_files_to_change_no_section(self):
+        from cai_lib.actions.plan import _count_files_to_change
+        self.assertEqual(
+            _count_files_to_change("no section here, just prose"), 0
+        )
+
+    def test_prior_divert_cites_scale_complexity_matches_marker(self):
+        from cai_lib.actions.plan import _prior_divert_cites_scale_complexity
+        comments = [{"body": (
+            "**\U0001f64b Human attention needed**\n"
+            "the scale alone warrants admin review"
+        )}]
+        self.assertTrue(_prior_divert_cites_scale_complexity(comments))
+
+    def test_prior_divert_requires_marker_presence(self):
+        from cai_lib.actions.plan import _prior_divert_cites_scale_complexity
+        comments = [{"body": "the scale alone warrants admin review"}]
+        self.assertFalse(_prior_divert_cites_scale_complexity(comments))
+
+    def test_prior_divert_requires_scale_phrase(self):
+        from cai_lib.actions.plan import _prior_divert_cites_scale_complexity
+        comments = [{"body": (
+            "**\U0001f64b Human attention needed**\n"
+            "Automation paused because the confidence gate was not met."
+        )}]
+        self.assertFalse(_prior_divert_cites_scale_complexity(comments))
+
+    def test_prior_divert_empty(self):
+        from cai_lib.actions.plan import _prior_divert_cites_scale_complexity
+        self.assertFalse(_prior_divert_cites_scale_complexity([]))
+        self.assertFalse(_prior_divert_cites_scale_complexity(None))
+
+
 if __name__ == "__main__":
     unittest.main()
