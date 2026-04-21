@@ -296,6 +296,39 @@ class TestPlannedToPlanApprovedApprovable(unittest.TestCase):
         )
 
 
+class TestPlanApprovedToRefined(unittest.TestCase):
+    """#1142 — admin-sigil-driven rollback from :plan-approved to :refined."""
+
+    def test_transition_exists(self):
+        t = find_transition("plan_approved_to_refined")
+        self.assertEqual(t.from_state, IssueState.PLAN_APPROVED)
+        self.assertEqual(t.to_state, IssueState.REFINED)
+
+    def test_transition_is_caller_gated(self):
+        # The sigil literal-string match is the sole gate — no FSM-level
+        # confidence threshold. accepts() therefore returns True for every
+        # confidence value (including None).
+        t = find_transition("plan_approved_to_refined")
+        self.assertIsNone(t.min_confidence)
+        self.assertTrue(t.accepts(Confidence.HIGH))
+        self.assertTrue(t.accepts(Confidence.MEDIUM))
+        self.assertTrue(t.accepts(Confidence.LOW))
+        self.assertTrue(t.accepts(None))
+
+    def test_label_move_is_plan_approved_to_refined(self):
+        from cai_lib.config import LABEL_PLAN_APPROVED, LABEL_REFINED
+        t = find_transition("plan_approved_to_refined")
+        self.assertEqual(t.labels_remove, [LABEL_PLAN_APPROVED])
+        self.assertEqual(t.labels_add, [LABEL_REFINED])
+
+    def test_sibling_transition_still_exists(self):
+        # Regression guard: the new sibling must not replace
+        # ``approved_to_in_progress`` — both must coexist so the
+        # default handle_implement path survives.
+        default = find_transition("approved_to_in_progress")
+        self.assertEqual(default.from_state, IssueState.PLAN_APPROVED)
+
+
 class TestBackfillSilentHumanNeeded(unittest.TestCase):
     """Pins the self-healing backfill sweep (#1009, #932)."""
 

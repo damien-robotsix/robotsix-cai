@@ -34,6 +34,12 @@ import from `cai_lib.fsm` rather than the split modules directly.
   `parse_resume_target`.
 - [`cai_lib/fsm.py`](../../cai_lib/fsm.py) — umbrella re-exporter;
   the canonical import path for handlers.
+- [`cai_lib/admin_sigils.py`](../../cai_lib/admin_sigils.py) —
+  admin comment sigil scanner + processor. Currently supports
+  `<!-- cai-resplit -->`, which rolls a `:plan-approved` issue back
+  to `:refined` so `cai-split` re-evaluates scope on the next tick.
+  Wired into Phase 0.7 of `cmd_cycle`; the sigil check is a literal-
+  string match, no Haiku / Claude invocation.
 - [`scripts/generate-fsm-docs.py`](../../scripts/generate-fsm-docs.py)
   — regenerates `docs/fsm.md` by calling `render_fsm_mermaid` over
   both transition tables. Before rendering it runs
@@ -77,3 +83,26 @@ import from `cai_lib.fsm` rather than the split modules directly.
   will fail if a transition reference goes stale.
 - **Cost sensitivity.** Zero — pure Python with no Claude
   invocations.
+
+## Admin comment sigils
+
+A short, deterministic bypass channel for admins who notice a plan
+needs a course correction without waiting for `cai-implement` to bail
+or `cai rescue` to divert. Detected on every `cai cycle` tick by the
+Phase 0.7 sweep in `cmd_cycle` via
+[`cai_lib/admin_sigils.py`](../../cai_lib/admin_sigils.py).
+
+| Sigil | Required label | Authoring identity | Effect |
+|---|---|---|---|
+| `<!-- cai-resplit -->` | `auto-improve:plan-approved` | Latest admin comment author (from `CAI_ADMIN_LOGINS`) | Fires `plan_approved_to_refined` — moves the issue to `:refined` so the dispatcher routes it to `handle_split` for a fresh atomic-vs-decompose verdict. An ack comment is posted on success. |
+
+Rules:
+
+- The sigil must appear in the **most recent** admin-authored comment
+  on the issue — a later admin comment without the sigil means the
+  admin has moved past the re-split intent and the scan ignores it.
+- The sigil is a literal-string match; no Haiku classifier is invoked.
+- Non-admin commenters echoing the sigil string never trigger the
+  rollback (admin identity is checked via `cai_lib.config.is_admin_login`).
+- The sigil does not add or clear any GitHub label — no
+  `_ALL_MANAGED_ISSUE_LABELS` update is required.

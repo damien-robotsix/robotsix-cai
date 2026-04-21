@@ -211,6 +211,17 @@ ISSUE_TRANSITIONS: list[Transition] = [
 
     Transition("approved_to_in_progress",    IssueState.PLAN_APPROVED,     IssueState.IN_PROGRESS,
                labels_remove=[LABEL_PLAN_APPROVED],     labels_add=[LABEL_IN_PROGRESS]),
+    # Admin-sigil-driven rollback (#1142): when an admin drops the
+    # ``<!-- cai-resplit -->`` sigil in a comment on a :plan-approved
+    # issue, Phase 0.7 of ``cai cycle`` fires this transition so the
+    # issue lands at :refined and ``handle_split`` re-evaluates scope
+    # decomposition on the next tick. Caller-gated (no FSM-level
+    # confidence threshold) — the sigil literal-string match is the
+    # sole gate. Parallels ``in_progress_to_refining`` and
+    # ``human_to_splitting`` precedents.
+    Transition("plan_approved_to_refined",   IssueState.PLAN_APPROVED,     IssueState.REFINED,
+               labels_remove=[LABEL_PLAN_APPROVED],     labels_add=[LABEL_REFINED],
+               min_confidence=None),
     Transition("in_progress_to_pr",          IssueState.IN_PROGRESS,       IssueState.PR,
                labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_PR_OPEN]),
     # Re-planning gate for MEDIUM-confidence plans that implement struggled

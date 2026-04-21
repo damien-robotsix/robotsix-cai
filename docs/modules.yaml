@@ -36,6 +36,7 @@ modules:
     summary: FSM enums, transitions, confidence parsing, and diagram generator.
     globs:
       - "cai_lib/fsm*.py"
+      - "cai_lib/admin_sigils.py"
       - "scripts/generate-fsm-docs.py"
     doc: "docs/modules/fsm.md"
 
