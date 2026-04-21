@@ -32,9 +32,8 @@ def cmd_cycle(args) -> int:
     containers — on the same host or across hosts — cannot advance the
     same issue/PR concurrently. A stale-lock watchdog expires the lock
     after ``_STALE_LOCKED_HOURS`` so a crashed handler cannot strand a
-    target. Verify and audit run on their own cron cadences
-    (CAI_VERIFY_SCHEDULE, CAI_AUDIT_SCHEDULE) — the cycle itself is
-    purely restart-recovery + dispatch.
+    target. Verify runs on its own cron cadence (CAI_VERIFY_SCHEDULE) —
+    the cycle itself is purely restart-recovery + dispatch.
     """
     print("[cai cycle] starting cycle tick", flush=True)
     t0 = time.monotonic()

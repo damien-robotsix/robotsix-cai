@@ -4,7 +4,7 @@
 
 Run inside the container: `docker compose exec cai python /app/cai.py <subcommand>`
 
-Subcommands group into three categories: **pipeline drivers** (`cycle`, `dispatch`) drain the auto-improve FSM queue; **audit subcommands** (`audit-module`) file findings into the loop; **utility commands** (`cost-report`, `init`, `test`, `unblock`, `verify`) are operational helpers.
+Subcommands group into three categories: **pipeline drivers** (`cycle`, `dispatch`) drain the auto-improve FSM queue; **audit subcommands** (`audit-module`) file findings into the loop; **utility commands** (`cost-report`, `init`, `rescue`, `test`, `unblock`, `verify`) are operational helpers.
 
 ---
 
@@ -41,7 +41,7 @@ Print a human-readable cost report from `/var/log/cai/cai-cost.jsonl`.
 
 ## cycle
 
-One cycle tick: restart-recover stale locks → drain the actionable queue. The drain loops "pick oldest actionable issue/PR → run its state handler" until the queue is empty (or a loop guard / max-iter cap fires). A flock serializes overlapping runs. No explicit per-phase ordering — the FSM label is the source of truth and the dispatcher picks the handler for whichever state the oldest actionable item is in. Verify and audit run on their own crons (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`).
+One cycle tick: restart-recover stale locks → drain the actionable queue. The drain loops "pick oldest actionable issue/PR → run its state handler" until the queue is empty (or a loop guard / max-iter cap fires). A flock serializes overlapping runs. No explicit per-phase ordering — the FSM label is the source of truth and the dispatcher picks the handler for whichever state the oldest actionable item is in. Verify runs on its own cron (`CAI_VERIFY_SCHEDULE`).
 
 No arguments.
 

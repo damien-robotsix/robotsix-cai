@@ -78,13 +78,13 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py cycle` | `0 * * * *` (hourly, startup, manual) | One dispatcher tick: restart-recovery + `dispatch_oldest_actionable()` (runs the handler for whatever state the oldest actionable issue or PR is in). A flock serializes overlapping runs; the entrypoint also runs this once synchronously at `docker compose up -d` so startup logs are immediate |
 | `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — removes deprecated cai-managed labels from open issues, then keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
-| `cai.py audit` | `0 */6 * * *` (every 6 hours) | Queue/PR consistency audit — rolls back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks, migrates open `:no-action` issues (deprecated label) to closed-as-not-planned, flags stale `:merged` issues for human review, recovers `:pr-open` issues whose linked PR was closed (rolls back to `:refined`), deletes remote branches for merged/closed PRs, retroactively closes closed issues lacking terminal labels (as 'not planned'), then flags duplicates, stuck loops, label corruption, and human-needed issues (pipeline jams, abandoned issues, repeated diversions, missing divert reasons) as `auto-improve:raised` + `audit` findings (Opus). |
+| `cai.py rescue` | `30 */4 * * *` (every 4 hours at :30) | Autonomously resume `:human-needed` issues that have been waiting too long without explicit `human:solved` label. Runs Opus escalation for eligible issues to unblock stuck automations. |
 | `cai.py audit-module` | _(manual/on-demand)_ | On-demand per-module audit: takes `--kind` (one of: good-practices, code-reduction, cost-reduction, workflow-enhancement) and iterates every module in `docs/modules.yaml`, dispatching the matching on-demand audit agent for each module and publishing findings via the existing dedup/dup-check pipeline. |
-| `cai.py verify` / `audit` / `unblock` | _(own cron schedules; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, maintain, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. |
+| `cai.py verify` / `rescue` / `unblock` | _(own cron schedules; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, maintain, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
-the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_RESCUE_SCHEDULE`, `CAI_AUDIT_SCHEDULE`),
+the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_RESCUE_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. The `audit-module`
 subcommand is available on-demand for per-module audits but does not
@@ -497,10 +497,10 @@ Docker daemons (≥ API 1.44), causing watchtower to crash-loop with
 
 **Mid-fix restart caveat:** if Watchtower restarts cai while a fix
 subagent is running, the in-flight fix is killed and the issue may be
-left stuck in `auto-improve:in-progress`. The audit subcommand handles
-automatic recovery (rolling back to `:refined`). For manual recovery,
-relabel back to `:refined` to re-enter the refinement → plan → approval
-cycle, or to `:raised` to re-run through the refine step first.
+left stuck in `auto-improve:in-progress`. The stale-lock watchdog in the
+cycle handles automatic recovery (rolling back to `:refined` after 6 hours).
+For manual recovery, relabel back to `:refined` to re-enter the refinement →
+plan → approval cycle, or to `:raised` to re-run through the refine step first.
 
 To change the polling interval, edit the `--interval` value (in
 seconds) in the `watchtower` service's `command:` block and run
@@ -545,7 +545,7 @@ greeting on the very first run, otherwise skipped), the initial
 
 ### Changing the schedule
 
-Edit any of the schedule environment variables (`CAI_CYCLE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_RESCUE_SCHEDULE`, or `CAI_AUDIT_SCHEDULE`)
+Edit any of the schedule environment variables (`CAI_CYCLE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, or `CAI_RESCUE_SCHEDULE`)
 in the generated `docker-compose.yml` (any valid 5-field cron expression, or `@hourly`, `@daily`, etc.) and restart the service:
 
 ```bash
