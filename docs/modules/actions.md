@@ -87,7 +87,7 @@ PR-side handlers (take a PR dict):
   with worktree Read/Write.
 - **FSM invariant.** A handler must either advance the FSM or
   divert to `:human-needed`; silently returning 0 strands the
-  issue. Use `apply_transition_with_confidence` so a missing
+  issue. Use `fire_trigger` with `_confidence_gated=True` so a missing
   `Confidence:` line diverts safely.
 - **Worktree hygiene.** `handle_implement`, `handle_revise`,
   `handle_rebase`, `handle_fix_ci`, and `handle_maintain` each

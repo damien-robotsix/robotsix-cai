@@ -59,7 +59,7 @@ def handle_maintain(issue: dict) -> int:
     block, and applies the FSM transition:
     - ``applying_to_applied``   on HIGH confidence.
     - ``applying_to_human``     on MEDIUM / LOW / missing confidence (via
-      :func:`apply_transition_with_confidence` divert path).
+      :func:`fire_trigger` divert path).
     """
     t0 = time.monotonic()
     issue_number = issue["number"]

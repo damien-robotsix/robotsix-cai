@@ -461,7 +461,7 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
     Mirrors :func:`_try_unblock_issue`. Resume target maps to a
     ``pr_human_to_<state>`` transition via
     :func:`resume_pr_transition_for`, applied with
-    :func:`apply_pr_transition`.
+    :func:`fire_trigger`.
     """
     pr_number = pr["number"]
 
@@ -530,8 +530,7 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
         return "no_target"
 
     # The transition already clears :pr-human-needed via labels_remove.
-    # The human:solved label needs an explicit removal pass — unlike the
-    # issue-side helper, apply_pr_transition has no ``extra_remove`` kw.
+    # The human:solved label needs an explicit removal pass via _set_pr_labels.
     ok, _ = fire_trigger(
         pr_number, transition.name,
         is_pr=True,

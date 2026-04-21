@@ -207,7 +207,7 @@ def _build_pr_registry() -> dict[PRState, PRHandler]:
 # Maps each from-state to the canonical ``*_to_rebasing`` transition name.
 # REBASING itself, MERGED, and OPEN are intentionally
 # excluded — REBASING is already running it; OPEN doesn't have a label
-# so apply_pr_transition wouldn't have one to remove.
+# so fire_trigger wouldn't have one to remove.
 _REBASE_ENTRY_TRANSITIONS: dict[PRState, str] = {
     PRState.REVIEWING_CODE:   "reviewing_code_to_rebasing",
     PRState.REVISION_PENDING: "revision_pending_to_rebasing",

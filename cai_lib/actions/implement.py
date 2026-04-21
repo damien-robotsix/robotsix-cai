@@ -126,7 +126,7 @@ def _park_in_progress_at_human_needed(
 ) -> bool:
     """Park an :in-progress issue at :human-needed with a parseable divert-reason comment.
 
-    Wraps :func:`apply_transition` for ``in_progress_to_human_needed``
+    Wraps :func:`fire_trigger` for ``in_progress_to_human_needed``
     so every implement-side escalation path goes through the PR #1072
     invariant (issue #1009) — which refuses silent HUMAN_NEEDED diverts
     and auto-posts a :func:`_render_human_divert_reason`-rendered
@@ -145,7 +145,7 @@ def _park_in_progress_at_human_needed(
     Returns True iff the park succeeded (labels changed + MARKER
     comment posted). Retries once on transient ``_set_labels`` failure
     — the same double-retry pattern the direct-label path had before
-    the refactor. The retry re-invokes ``apply_transition``; because
+    the refactor. The retry re-invokes ``fire_trigger``; because
     its comment post is gated on ``ok`` from ``_set_labels``, a failed
     first attempt does not double-post the comment on the second
     attempt.
