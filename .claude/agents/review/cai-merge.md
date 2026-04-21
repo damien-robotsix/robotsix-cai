@@ -119,20 +119,18 @@ present**:
 All other files in the diff must still meet the usual completeness,
 scope, and correctness criteria.
 
-### Exemption: `docs/**` and `CODEBASE_INDEX.md`
+### Exemption: `docs/**`
 
-Files under `docs/**` and the file `CODEBASE_INDEX.md` are
-auto-generated pipeline output produced by the `cai-review-docs`
-stage, which runs *after* the implementer finishes. They are not
-authored by the implementer and are not governed by the issue's
-scope guardrails.
+Files under `docs/**` are auto-generated pipeline output produced by
+the `cai-review-docs` stage, which runs *after* the implementer
+finishes. They are not authored by the implementer and are not
+governed by the issue's scope guardrails.
 
 When walking the diff, **evaluate the PR as if these files were not
 present**:
 
-- Do not count additions or edits under `docs/**` or to
-  `CODEBASE_INDEX.md` as "new files not mentioned in the issue" or
-  as scope creep.
+- Do not count additions or edits under `docs/**` as "new files not
+  mentioned in the issue" or as scope creep.
 - Do not require these files to be mentioned in the issue's
   remediation steps.
 - Do not treat an issue scope guardrail saying "only touch file X"
@@ -150,10 +148,9 @@ pre-merge review — <sha>` and contains one or more `### Finding:`
 blocks, each with a `**File(s):**` line and a `**Suggested fix:**`
 paragraph that tells the fix agent to update specific files — often
 files that are *not* listed in the linked issue's "Likely files" or
-scope guardrails. The canonical example is `scripts/generate-index.sh`,
-which must be updated whenever a new tracked file is added so the
-auto-generated `CODEBASE_INDEX.md` does not drift when the
-`regenerate-docs.yml` CI workflow runs. The fix agent then addresses
+scope guardrails. A common example is a co-change to `docs/modules.yaml`
+or `scripts/check-modules-coverage.py` when a new tracked file is added
+and the module index must be kept in sync. The fix agent then addresses
 those findings in a follow-up revise commit, and a subsequent `## cai
 pre-merge review (clean) — <sha>` comment confirms the findings were
 resolved.
@@ -189,14 +186,14 @@ scope concern that the pipeline itself introduced.
 
 After each code-review pass, the `cai-review-docs` pre-merge reviewer
 also runs and may directly commit edits to the PR. Its scope is
-broader than `docs/**` / `CODEBASE_INDEX.md`: it is authorized to
-update `README.md`, Python/shell docstrings, inline code comments,
-`argparse` help strings, and any other prose reference to a symbol
-the PR renamed. When it applies a fix, it posts a `## cai docs
-review (applied) — <sha>` comment containing one or more `### Fixed:
-stale_docs` blocks, each with a `**File(s):**` line listing the
-exact paths it touched. A clean run posts `## cai docs review
-(clean) — <sha>` with no `### Fixed:` blocks.
+broader than `docs/**`: it is authorized to update `README.md`,
+Python/shell docstrings, inline code comments, `argparse` help
+strings, and any other prose reference to a symbol the PR renamed.
+When it applies a fix, it posts a `## cai docs review (applied) —
+<sha>` comment containing one or more `### Fixed: stale_docs` blocks,
+each with a `**File(s):**` line listing the exact paths it touched. A
+clean run posts `## cai docs review (clean) — <sha>` with no `###
+Fixed:` blocks.
 
 When walking the diff, **treat any file cited in a prior `### Fixed:
 stale_docs` block's `**File(s):**` list as in-scope for this PR**:
@@ -258,7 +255,7 @@ the user message:
   `.github/workflows/` is still disqualifying.
 - Files not listed in the pre-authorized block AND not covered by
   one of the other exemptions above (`.cai/pr-context.md`,
-  `docs/**`, `CODEBASE_INDEX.md`, reviewer-recommended co-changes,
+  `docs/**`, reviewer-recommended co-changes,
   docs-reviewer co-edits) are still scope creep and disqualify a
   `high` verdict.
 - If a pre-authorized scope expansion is the *only* soft concern
@@ -343,7 +340,7 @@ verdict **if and only if** all of the following hold:
    `Read` tool if needed. If **any** new `pip install` package is
    not declared in `pyproject.toml`, the exemption does not apply.
 4. **No other files changed** (outside the other exemptions for
-   `.cai/pr-context.md`, `docs/**`, `CODEBASE_INDEX.md`, etc.).
+   `.cai/pr-context.md`, `docs/**`, etc.).
 
 **Rationale:** Adding a `pip install` step for a package that is
 already a declared project dependency is a low-risk CI-maintenance

@@ -175,7 +175,7 @@ fenced block is required.>
 - <anything the fix agent should watch out for>
 
 ### Scope guardrails
-- <what the fix agent must NOT touch; boundaries of the change — do NOT list `docs/**` or `CODEBASE_INDEX.md` as off-limits; those may be updated by the cai-review-docs pipeline stage and are always allowed>
+- <what the fix agent must NOT touch; boundaries of the change — do NOT list `docs/**` as off-limits; those may be updated by the cai-review-docs pipeline stage and are always allowed>
 ```
 
 ### Anti-pattern vs correct pattern

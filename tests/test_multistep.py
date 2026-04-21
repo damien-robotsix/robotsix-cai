@@ -287,15 +287,6 @@ class TestGuardrailContradictionLint(unittest.TestCase):
         )
         self.assertEqual(_detect_guardrail_contradictions(body), [])
 
-    def test_codebase_index_ignored(self):
-        body = (
-            "### Files to change\n"
-            "- `CODEBASE_INDEX.md`\n\n"
-            "### Scope guardrails\n"
-            "- Do not touch `CODEBASE_INDEX.md`\n"
-        )
-        self.assertEqual(_detect_guardrail_contradictions(body), [])
-
     def test_clone_prefix_stripped_so_paths_match(self):
         body = (
             "### Files to change\n"
