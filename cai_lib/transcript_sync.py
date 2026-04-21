@@ -350,7 +350,7 @@ def parse_source() -> Path:
 
 
 def cmd_transcript_sync(args) -> int:  # noqa: ARG001 - args required by dispatcher
-    """CLI entrypoint: `cai transcript-sync`. Runs push + pull."""
+    """CLI entrypoint: `cai transcript-sync`. Syncs transcripts and cost logs."""
     rc = sync()
     if rc != 0:
         print(f"[transcript-sync] exited with rc={rc}", file=sys.stderr)
