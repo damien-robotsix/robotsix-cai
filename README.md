@@ -197,6 +197,12 @@ prevents the implement loop from monopolizing cycles on unresolvable issues
 is posted to the issue explaining the escalation; you can relabel to
 `:plan-approved` to retry once the underlying problem is resolved.
 
+Additionally, a broader safety net is in place: if an issue accumulates **3 consecutive
+failures of any kind** (tests_failed, subagent_failed, unexpected_error, clone_failed,
+fetch_existing_failed, push_failed, pr_create_failed), it is escalated to `:human-needed`
+to prevent divergent failure modes from masking unresolvable issues (e.g., when each
+retry fails for a different reason, breaking the narrow test-failure counter's detection).
+
 ### Filing issues with multi-step plans
 
 When filing an auto-improve issue, you can optionally include a
