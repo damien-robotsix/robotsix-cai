@@ -10,8 +10,9 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
+from transitions import Machine, MachineError
 from transitions.extensions import GraphMachine
 
 from cai_lib.config import (
@@ -515,6 +516,419 @@ def find_transition(name: str, transitions: Sequence[Transition] = _ALL_TRANSITI
     raise KeyError(f"unknown transition: {name!r}")
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Machine-based FSM dispatch — fire_trigger() and supporting internals
+# ──────────────────────────────────────────────────────────────────────────
+
+class _FsmModel:
+    """Minimal model object for per-call ephemeral pytransitions.Machine."""
+    pass
+
+
+def _confidence_ok(min_confidence: Optional[Confidence]) -> Callable:
+    """Factory returning a pytransitions condition callable.
+
+    When *_confidence_gated* is False in ``event_data.kwargs`` (e.g. from
+    the ``apply_transition`` shim which carries no confidence), the check is
+    bypassed so confidence-free callers never accidentally trigger a divert.
+    """
+    def _check(event_data) -> bool:
+        if not event_data.kwargs.get("_confidence_gated", False):
+            return True  # No gating requested; always pass primary
+        if min_confidence is None:
+            return True  # No FSM-level gate on this transition
+        supplied = event_data.kwargs.get("_confidence")
+        return supplied is not None and supplied >= min_confidence
+    return _check
+
+
+def _before_human_needed(event_data) -> None:
+    """Enforce the HUMAN_NEEDED / PR_HUMAN_NEEDED divert_reason invariant.
+
+    Runs as a pytransitions ``before`` callback on all transitions whose
+    destination is HUMAN_NEEDED or PR_HUMAN_NEEDED.  Raises ``MachineError``
+    (cancelling the transition) when the caller has not supplied a non-empty
+    ``_divert_reason``, mirroring the invariant in the old ``apply_transition``
+    helper.
+    """
+    divert_reason = event_data.kwargs.get("_divert_reason") or ""
+    if not divert_reason.strip():
+        trigger_name = event_data.event.name
+        number = event_data.kwargs.get("_number")
+        log_prefix = event_data.kwargs.get("_log_prefix", "cai")
+        is_pr = event_data.kwargs.get("_is_pr", False)
+        entity = "PR_HUMAN_NEEDED" if is_pr else "HUMAN_NEEDED"
+        print(
+            f"[{log_prefix}] refusing silent {entity} divert "
+            f"{trigger_name!r} on #{number}: caller must pass "
+            f"a non-empty divert_reason so the divert-reason comment "
+            f"can be posted (see cai_lib.fsm_transitions invariant)",
+            file=sys.stderr,
+        )
+        raise MachineError(f"Missing divert_reason for {entity} transition")
+
+
+def _after_label_change_normal(event_data) -> None:
+    """After-callback for normal (non-divert) transitions.
+
+    Applies ``labels_add`` / ``labels_remove`` from the catalog entry and,
+    when the destination is HUMAN_NEEDED / PR_HUMAN_NEEDED, posts the
+    ``_divert_reason`` comment supplied by the caller.
+    """
+    trigger_name = event_data.event.name
+    is_pr = event_data.kwargs.get("_is_pr", False)
+    number = event_data.kwargs.get("_number")
+    extra_remove = event_data.kwargs.get("_extra_remove", ())
+    log_prefix = event_data.kwargs.get("_log_prefix", "cai")
+    divert_reason = event_data.kwargs.get("_divert_reason") or ""
+    set_fn = event_data.kwargs.get("_set_pr_labels_fn" if is_pr else "_set_labels_fn")
+    post_fn = event_data.kwargs.get("_post_comment_fn")
+    result_box = event_data.kwargs.get("_result_box", {})
+
+    transition_list = PR_TRANSITIONS if is_pr else ISSUE_TRANSITIONS
+    original_trans = find_transition(trigger_name, transition_list)
+
+    add_labels = list(original_trans.labels_add)
+    remove_labels = list(original_trans.labels_remove) + list(extra_remove)
+
+    if set_fn is None:
+        if is_pr:
+            from cai_lib.github import _set_pr_labels as set_fn  # local import — avoids cycle
+        else:
+            from cai_lib.github import _set_labels as set_fn  # local import — avoids cycle
+
+    ok = set_fn(number, add=add_labels, remove=remove_labels, log_prefix=log_prefix)
+    result_box["ok"] = ok
+    if not ok:
+        return
+
+    # Post HUMAN_NEEDED comment for explicit human-destination transitions.
+    human_dest_name = PRState.PR_HUMAN_NEEDED.name if is_pr else IssueState.HUMAN_NEEDED.name
+    if original_trans.to_state.name != human_dest_name:
+        return
+
+    msg = _render_human_divert_reason(
+        transition_name=trigger_name,
+        transition=original_trans,
+        confidence=None,
+        extra=divert_reason,
+    )
+    if post_fn is None:
+        if is_pr:
+            from cai_lib.github import _post_pr_comment as post_fn  # local import — avoids cycle
+        else:
+            from cai_lib.github import _post_issue_comment as post_fn  # local import — avoids cycle
+    post_fn(number, msg, log_prefix=log_prefix)
+
+
+def _after_label_change_divert(event_data) -> None:
+    """After-callback for confidence-gated divert siblings.
+
+    Applies ``human_label_if_below`` + ``labels_remove`` from the original
+    catalog entry and posts the confidence-gate divert reason comment so the
+    audit parser and ``cai unblock`` have context.
+    """
+    trigger_name = event_data.event.name
+    is_pr = event_data.kwargs.get("_is_pr", False)
+    number = event_data.kwargs.get("_number")
+    extra_remove = event_data.kwargs.get("_extra_remove", ())
+    log_prefix = event_data.kwargs.get("_log_prefix", "cai")
+    confidence = event_data.kwargs.get("_confidence")
+    reason_extra = event_data.kwargs.get("_reason_extra", "")
+    set_fn = event_data.kwargs.get("_set_pr_labels_fn" if is_pr else "_set_labels_fn")
+    post_fn = event_data.kwargs.get("_post_comment_fn")
+    result_box = event_data.kwargs.get("_result_box", {})
+
+    transition_list = PR_TRANSITIONS if is_pr else ISSUE_TRANSITIONS
+    original_trans = find_transition(trigger_name, transition_list)
+
+    add_labels = [original_trans.human_label_if_below]
+    remove_labels = list(original_trans.labels_remove) + list(extra_remove)
+
+    if set_fn is None:
+        if is_pr:
+            from cai_lib.github import _set_pr_labels as set_fn  # local import — avoids cycle
+        else:
+            from cai_lib.github import _set_labels as set_fn  # local import — avoids cycle
+
+    ok = set_fn(number, add=add_labels, remove=remove_labels, log_prefix=log_prefix)
+    result_box["ok"] = ok
+    if not ok:
+        return
+
+    # Post confidence-gate divert reason comment.
+    msg = _render_human_divert_reason(
+        transition_name=trigger_name,
+        transition=original_trans,
+        confidence=confidence,
+        extra=reason_extra,
+    )
+    if post_fn is None:
+        if is_pr:
+            from cai_lib.github import _post_pr_comment as post_fn  # local import — avoids cycle
+        else:
+            from cai_lib.github import _post_issue_comment as post_fn  # local import — avoids cycle
+    post_fn(number, msg, log_prefix=log_prefix)
+
+
+def _build_issue_machine(
+    issue_number: int,
+    current_labels: Optional[list[str]],
+    trigger_name: str,
+) -> tuple["Machine", "_FsmModel"]:
+    """Construct an ephemeral pytransitions.Machine for issue FSM dispatch.
+
+    Returns ``(machine, model)``.  The model's initial state is derived from
+    *current_labels*; when *current_labels* is ``None`` the state is set to
+    the ``from_state`` of *trigger_name* so that state-mismatch validation is
+    skipped (backward-compat with ``apply_transition`` callers that omit
+    ``current_labels``).
+
+    Deprecation note: ``Transition.accepts()``, ``Transition.labels_add``,
+    and ``Transition.labels_remove`` are still used by the Mermaid renderer
+    and the shim adapters; they are preserved on the dataclass for now.
+    """
+    original_trans = find_transition(trigger_name, ISSUE_TRANSITIONS)
+    if current_labels is None:
+        initial_state = original_trans.from_state.name
+    else:
+        state_obj = get_issue_state(current_labels)
+        initial_state = state_obj.name if state_obj is not None else IssueState.RAISED.name
+
+    model = _FsmModel()
+    machine = Machine(
+        model=model,
+        states=[s.name for s in IssueState],
+        initial=initial_state,
+        ignore_invalid_triggers=False,
+        auto_transitions=False,
+        send_event=True,
+    )
+
+    for trans in ISSUE_TRANSITIONS:
+        is_human_dest = (trans.to_state == IssueState.HUMAN_NEEDED)
+        before_cbs: list = [_before_human_needed] if is_human_dest else []
+
+        if trans.min_confidence is not None:
+            # Primary sibling: fires when the confidence check passes.
+            machine.add_transition(
+                trigger=trans.name,
+                source=trans.from_state.name,
+                dest=trans.to_state.name,
+                conditions=[_confidence_ok(trans.min_confidence)],
+                before=before_cbs,
+                after=[_after_label_change_normal],
+            )
+            # Divert sibling: fires when the confidence check fails.
+            machine.add_transition(
+                trigger=trans.name,
+                source=trans.from_state.name,
+                dest=IssueState.HUMAN_NEEDED.name,
+                unless=[_confidence_ok(trans.min_confidence)],
+                after=[_after_label_change_divert],
+            )
+        else:
+            # Unconditional (caller-gated or no confidence gate).
+            machine.add_transition(
+                trigger=trans.name,
+                source=trans.from_state.name,
+                dest=trans.to_state.name,
+                before=before_cbs,
+                after=[_after_label_change_normal],
+            )
+
+    return machine, model
+
+
+def _build_pr_machine(
+    pr_number: int,
+    current_pr: Optional[dict],
+    trigger_name: str,
+) -> tuple["Machine", "_FsmModel"]:
+    """Construct an ephemeral pytransitions.Machine for PR FSM dispatch.
+
+    Symmetric counterpart of :func:`_build_issue_machine` for the PR
+    submachine.  Uses ``PR_TRANSITIONS``, ``get_pr_state``, and
+    ``PRState`` in place of their issue equivalents.
+    """
+    original_trans = find_transition(trigger_name, PR_TRANSITIONS)
+    if current_pr is None:
+        initial_state = original_trans.from_state.name
+    else:
+        state_obj = get_pr_state(current_pr)
+        initial_state = state_obj.name
+
+    model = _FsmModel()
+    machine = Machine(
+        model=model,
+        states=[s.name for s in PRState],
+        initial=initial_state,
+        ignore_invalid_triggers=False,
+        auto_transitions=False,
+        send_event=True,
+    )
+
+    for trans in PR_TRANSITIONS:
+        is_human_dest = (trans.to_state == PRState.PR_HUMAN_NEEDED)
+        before_cbs: list = [_before_human_needed] if is_human_dest else []
+
+        if trans.min_confidence is not None:
+            machine.add_transition(
+                trigger=trans.name,
+                source=trans.from_state.name,
+                dest=trans.to_state.name,
+                conditions=[_confidence_ok(trans.min_confidence)],
+                before=before_cbs,
+                after=[_after_label_change_normal],
+            )
+            machine.add_transition(
+                trigger=trans.name,
+                source=trans.from_state.name,
+                dest=PRState.PR_HUMAN_NEEDED.name,
+                unless=[_confidence_ok(trans.min_confidence)],
+                after=[_after_label_change_divert],
+            )
+        else:
+            machine.add_transition(
+                trigger=trans.name,
+                source=trans.from_state.name,
+                dest=trans.to_state.name,
+                before=before_cbs,
+                after=[_after_label_change_normal],
+            )
+
+    return machine, model
+
+
+def fire_trigger(
+    number: int,
+    trigger_name: str,
+    *,
+    is_pr: bool = False,
+    confidence: Optional[Confidence] = None,
+    _confidence_gated: bool = False,
+    log_prefix: str = "cai",
+    current_labels: Optional[list[str]] = None,
+    current_pr: Optional[dict] = None,
+    extra_remove: Sequence[str] = (),
+    divert_reason: str = "",
+    reason_extra: str = "",
+    set_labels=None,
+    post_comment=None,
+    set_pr_labels=None,
+) -> tuple[bool, bool]:
+    """Single FSM dispatch entry point using an ephemeral pytransitions.Machine.
+
+    Builds a per-call :class:`~transitions.Machine` from ``ISSUE_TRANSITIONS``
+    or ``PR_TRANSITIONS``, sets its initial state from *current_labels* /
+    *current_pr*, fires *trigger_name*, and applies the corresponding GitHub
+    label changes via the after-callbacks.
+
+    Args:
+        number: Issue or PR number.
+        trigger_name: Name of the FSM trigger to fire (must match a
+            :attr:`Transition.name` in the appropriate catalog).
+        is_pr: ``True`` for PR transitions, ``False`` (default) for issues.
+        confidence: Confidence level reported by the agent; only relevant
+            when *_confidence_gated* is ``True``.
+        _confidence_gated: When ``True`` the confidence check is applied and
+            a below-threshold confidence diverts to HUMAN_NEEDED.  Set by
+            the ``apply_transition_with_confidence`` shim; callers of the
+            bare ``apply_transition`` shim leave this ``False`` so the
+            transition fires unconditionally (no divert risk).
+        log_prefix: Prefix for log messages.
+        current_labels: Current issue labels used to derive the initial FSM
+            state.  When ``None`` the initial state is set to the
+            transition's ``from_state`` so state-mismatch validation is
+            skipped (backward-compat with callers that omit labels).
+        current_pr: Current PR JSON dict used to derive the initial FSM
+            state for PR transitions.
+        extra_remove: Additional labels to remove beyond the transition's
+            own ``labels_remove``.
+        divert_reason: Non-empty string required when the transition's
+            ``to_state`` is HUMAN_NEEDED / PR_HUMAN_NEEDED.  Enforces the
+            silent-divert invariant from apply_transition.
+        reason_extra: Extra context appended to the confidence-gate divert
+            comment posted when *_confidence_gated* is ``True`` and
+            confidence falls below the threshold.
+        set_labels: Injectable ``_set_labels`` for tests (issue side).
+        post_comment: Injectable comment poster for tests.
+        set_pr_labels: Injectable ``_set_pr_labels`` for tests (PR side).
+
+    Returns:
+        ``(ok, diverted)`` — *ok* is ``True`` when the transition succeeded
+        (labels applied), ``False`` when refused or errored.  *diverted* is
+        ``True`` when the transition ended at HUMAN_NEEDED / PR_HUMAN_NEEDED
+        rather than the intended destination (confidence too low).
+
+    Raises:
+        KeyError: When *trigger_name* is not found in the transition catalog.
+    """
+    # Validate trigger name first — propagates KeyError for unknown triggers,
+    # matching the behaviour callers expect from find_transition.
+    transition_list = PR_TRANSITIONS if is_pr else ISSUE_TRANSITIONS
+    original_trans = find_transition(trigger_name, transition_list)
+
+    try:
+        if is_pr:
+            machine, model = _build_pr_machine(number, current_pr, trigger_name)
+        else:
+            machine, model = _build_issue_machine(number, current_labels, trigger_name)
+
+        result_box: dict = {"ok": True}
+        trigger_fn = getattr(model, trigger_name)
+        trigger_fn(
+            _number=number,
+            _is_pr=is_pr,
+            _confidence_gated=_confidence_gated,
+            _confidence=confidence,
+            _log_prefix=log_prefix,
+            _extra_remove=tuple(extra_remove),
+            _divert_reason=divert_reason or "",
+            _reason_extra=reason_extra,
+            _set_labels_fn=set_labels,
+            _set_pr_labels_fn=set_pr_labels,
+            _post_comment_fn=post_comment,
+            _result_box=result_box,
+        )
+
+        ok = result_box.get("ok", True)
+        # Diverted when the machine landed somewhere other than the intended destination.
+        diverted = (model.state != original_trans.to_state.name)
+
+        if diverted and _confidence_gated:
+            conf_name = confidence.name if confidence is not None else "MISSING"
+            req = (
+                original_trans.min_confidence.name
+                if original_trans.min_confidence is not None
+                else "caller-gated"
+            )
+            print(
+                f"[{log_prefix}] diverting {trigger_name!r} on "
+                f"{'PR' if is_pr else 'issue'} #{number} to "
+                f"{original_trans.human_label_if_below} "
+                f"(confidence={conf_name}, required={req})",
+                flush=True,
+            )
+
+        return ok, diverted
+
+    except MachineError as exc:
+        print(
+            f"[{log_prefix}] FSM refused {trigger_name!r} on "
+            f"{'PR' if is_pr else 'issue'} #{number}: {exc}",
+            file=sys.stderr,
+        )
+        return False, False
+    except Exception as exc:
+        print(
+            f"[{log_prefix}] FSM error firing {trigger_name!r} on "
+            f"{'PR' if is_pr else 'issue'} #{number}: {exc}",
+            file=sys.stderr,
+        )
+        return False, False
+
+
 def apply_transition(
     issue_number: int,
     transition_name: str,
@@ -526,77 +940,28 @@ def apply_transition(
     divert_reason: Optional[str] = None,
     post_comment=None,
 ) -> bool:
-    """Apply a named issue FSM transition via ``_set_labels``.
+    """Shim: delegates to :func:`fire_trigger` (issue side, no confidence gate).
 
-    When *current_labels* is provided, the current IssueState is derived and
-    compared to ``transition.from_state``. A mismatch is refused (logs and
-    returns False) so drift cannot silently compound.
+    Preserves the full public signature of the original implementation so all
+    19 call-site files remain unchanged.  The HUMAN_NEEDED invariant
+    (*divert_reason* required), state-mismatch refusal, and label-change /
+    comment posting are enforced inside ``fire_trigger`` via the Machine
+    callbacks.
 
-    *extra_remove* is appended to the transition's own ``labels_remove`` —
-    used for auxiliary labels that aren't part of the canonical FSM but
-    must be cleared alongside the state change.
-
-    *set_labels* is injectable for tests; defaults to
-    ``cai_lib.github._set_labels``.
-
-    **HUMAN_NEEDED invariant (#1009).** When ``transition.to_state`` is
-    :attr:`IssueState.HUMAN_NEEDED`, the caller MUST pass a non-empty
-    *divert_reason*. The helper then both applies the label AND posts a
-    ``_render_human_divert_reason``-rendered MARKER comment on the issue
-    — guaranteeing every park at ``:human-needed`` has a parseable audit
-    trail for ``_fetch_human_needed_issues`` and ``cai unblock``. Silent
-    diverts (reason missing) are refused with a log and ``return False``
-    so the gap is load-bearing rather than hidden. *post_comment* is
-    injectable for tests; defaults to
-    ``cai_lib.github._post_issue_comment``.
+    *set_labels* and *post_comment* are injectable for tests (forwarded to
+    ``fire_trigger``).
     """
-    transition = find_transition(transition_name, ISSUE_TRANSITIONS)
-
-    if transition.to_state == IssueState.HUMAN_NEEDED and not (
-        divert_reason and divert_reason.strip()
-    ):
-        print(
-            f"[{log_prefix}] refusing silent HUMAN_NEEDED divert "
-            f"{transition_name!r} on #{issue_number}: caller must pass "
-            f"a non-empty divert_reason so the divert-reason comment "
-            f"can be posted (see cai_lib.fsm_transitions invariant)",
-            file=sys.stderr,
-        )
-        return False
-
-    if current_labels is not None:
-        current = get_issue_state(current_labels)
-        if current != transition.from_state:
-            print(
-                f"[{log_prefix}] refusing transition {transition_name!r} on "
-                f"#{issue_number}: current state {current} does not match "
-                f"expected {transition.from_state}",
-                file=sys.stderr,
-            )
-            return False
-
-    if set_labels is None:
-        from cai_lib.github import _set_labels as set_labels  # local import — avoids cycle at module load
-
-    ok = set_labels(
-        issue_number,
-        add=list(transition.labels_add),
-        remove=list(transition.labels_remove) + list(extra_remove),
+    ok, _ = fire_trigger(
+        issue_number, transition_name,
+        is_pr=False,
+        _confidence_gated=False,
         log_prefix=log_prefix,
+        current_labels=current_labels,
+        extra_remove=extra_remove,
+        divert_reason=divert_reason or "",
+        set_labels=set_labels,
+        post_comment=post_comment,
     )
-    if ok and transition.to_state == IssueState.HUMAN_NEEDED:
-        if post_comment is None:
-            from cai_lib.github import _post_issue_comment as post_comment  # local import — avoids cycle
-        post_comment(
-            issue_number,
-            _render_human_divert_reason(
-                transition_name=transition_name,
-                transition=transition,
-                confidence=None,
-                extra=divert_reason or "",
-            ),
-            log_prefix=log_prefix,
-        )
     return ok
 
 
@@ -649,78 +1014,26 @@ def apply_transition_with_confidence(
     post_comment=None,
     reason_extra: str = "",
 ) -> tuple[bool, bool]:
-    """Apply an issue FSM transition gated on *confidence*.
+    """Shim: delegates to :func:`fire_trigger` with confidence gating enabled.
 
-    Returns ``(ok, diverted)``:
-
-    - When *confidence* is missing or below ``transition.min_confidence``,
-      the intended state change is refused and the issue is instead moved
-      to ``transition.human_label_if_below`` (defaults to
-      :data:`LABEL_HUMAN_NEEDED`). An admin resumes the FSM by leaving a
-      comment and applying ``human:solved`` — see :mod:`cai_lib.cmd_unblock`.
-    - When confidence meets the threshold, delegates to
-      :func:`apply_transition` and returns ``(ok, False)``.
-
-    On a successful divert, also posts a comment on the issue explaining
-    the reason (the failing transition and confidence gate). ``post_comment``
-    is injectable for tests; defaults to ``cai_lib.github._post_issue_comment``.
-    ``reason_extra`` lets the caller append handler-specific context (e.g. a
-    failed-transition name when the divert is not driven by confidence).
+    Returns ``(ok, diverted)``.  When *confidence* is ``None`` or below the
+    transition's ``min_confidence``, the issue is moved to HUMAN_NEEDED
+    (diverted=True); otherwise the primary destination is applied
+    (diverted=False).  *set_labels* and *post_comment* are injectable for
+    tests.
     """
-    transition = find_transition(transition_name, ISSUE_TRANSITIONS)
-
-    if transition.accepts(confidence):
-        ok = apply_transition(
-            issue_number, transition_name,
-            current_labels=current_labels,
-            extra_remove=extra_remove,
-            log_prefix=log_prefix,
-            set_labels=set_labels,
-        )
-        return ok, False
-
-    # Divert: clear the from_state label and apply the human-needed label.
-    if current_labels is not None:
-        current = get_issue_state(current_labels)
-        if current != transition.from_state:
-            print(
-                f"[{log_prefix}] refusing divert for {transition_name!r} on "
-                f"#{issue_number}: current state {current} does not match "
-                f"expected {transition.from_state}",
-                file=sys.stderr,
-            )
-            return False, False
-
-    if set_labels is None:
-        from cai_lib.github import _set_labels as set_labels  # local import — avoids cycle at module load
-
-    conf_name = confidence.name if confidence is not None else "MISSING"
-    print(
-        f"[{log_prefix}] diverting {transition_name!r} on #{issue_number} to "
-        f"{transition.human_label_if_below} (confidence={conf_name}, "
-        f"required={transition.min_confidence.name})",
-        flush=True,
-    )
-    ok = set_labels(
-        issue_number,
-        add=[transition.human_label_if_below],
-        remove=list(transition.labels_remove) + list(extra_remove),
+    return fire_trigger(
+        issue_number, transition_name,
+        is_pr=False,
+        confidence=confidence,
+        _confidence_gated=True,
         log_prefix=log_prefix,
+        current_labels=current_labels,
+        extra_remove=extra_remove,
+        reason_extra=reason_extra,
+        set_labels=set_labels,
+        post_comment=post_comment,
     )
-    if ok:
-        if post_comment is None:
-            from cai_lib.github import _post_issue_comment as post_comment  # local import — avoids cycle
-        post_comment(
-            issue_number,
-            _render_human_divert_reason(
-                transition_name=transition_name,
-                transition=transition,
-                confidence=confidence,
-                extra=reason_extra,
-            ),
-            log_prefix=log_prefix,
-        )
-    return ok, True
 
 
 def resume_transition_for(target_state_name: str) -> Optional[Transition]:
@@ -752,71 +1065,25 @@ def apply_pr_transition(
     divert_reason: Optional[str] = None,
     post_comment=None,
 ) -> bool:
-    """Apply a named PR FSM transition via ``_set_pr_labels``.
+    """Shim: delegates to :func:`fire_trigger` (PR side, no confidence gate).
 
-    When *current_pr* is provided, the current PRState is derived and
-    compared to ``transition.from_state``. A mismatch is refused (logs
-    and returns False) so drift cannot silently compound.
+    Preserves the full public signature of the original implementation.  The
+    PR_HUMAN_NEEDED invariant (*divert_reason* required), state-mismatch
+    refusal, and label-change / comment posting are enforced inside
+    ``fire_trigger`` via the Machine callbacks.
 
-    *set_pr_labels* is injectable for tests; defaults to
-    ``cai_lib.github._set_pr_labels``.
-
-    **PR_HUMAN_NEEDED invariant (#1009).** Mirrors the issue-side
-    ``apply_transition``: when ``transition.to_state`` is
-    :attr:`PRState.PR_HUMAN_NEEDED`, the caller MUST pass a non-empty
-    *divert_reason*, and on success a MARKER-bearing comment rendered
-    by :func:`_render_human_divert_reason` is posted on the PR so
-    ``_fetch_human_needed_issues`` can parse the reason and
-    ``cai unblock`` has context. *post_comment* is injectable for
-    tests; defaults to ``cai_lib.github._post_pr_comment``.
+    *set_pr_labels* and *post_comment* are injectable for tests.
     """
-    transition = find_transition(transition_name, PR_TRANSITIONS)
-
-    if transition.to_state == PRState.PR_HUMAN_NEEDED and not (
-        divert_reason and divert_reason.strip()
-    ):
-        print(
-            f"[{log_prefix}] refusing silent PR_HUMAN_NEEDED divert "
-            f"{transition_name!r} on #{pr_number}: caller must pass "
-            f"a non-empty divert_reason so the divert-reason comment "
-            f"can be posted (see cai_lib.fsm_transitions invariant)",
-            file=sys.stderr,
-        )
-        return False
-
-    if current_pr is not None:
-        current = get_pr_state(current_pr)
-        if current != transition.from_state:
-            print(
-                f"[{log_prefix}] refusing PR transition {transition_name!r} on "
-                f"#{pr_number}: current state {current} does not match "
-                f"expected {transition.from_state}",
-                file=sys.stderr,
-            )
-            return False
-
-    if set_pr_labels is None:
-        from cai_lib.github import _set_pr_labels as set_pr_labels  # local import — avoids cycle at module load
-
-    ok = set_pr_labels(
-        pr_number,
-        add=list(transition.labels_add),
-        remove=list(transition.labels_remove),
+    ok, _ = fire_trigger(
+        pr_number, transition_name,
+        is_pr=True,
+        _confidence_gated=False,
         log_prefix=log_prefix,
+        current_pr=current_pr,
+        divert_reason=divert_reason or "",
+        set_pr_labels=set_pr_labels,
+        post_comment=post_comment,
     )
-    if ok and transition.to_state == PRState.PR_HUMAN_NEEDED:
-        if post_comment is None:
-            from cai_lib.github import _post_pr_comment as post_comment  # local import — avoids cycle
-        post_comment(
-            pr_number,
-            _render_human_divert_reason(
-                transition_name=transition_name,
-                transition=transition,
-                confidence=None,
-                extra=divert_reason or "",
-            ),
-            log_prefix=log_prefix,
-        )
     return ok
 
 
@@ -831,64 +1098,23 @@ def apply_pr_transition_with_confidence(
     post_comment=None,
     reason_extra: str = "",
 ) -> tuple[bool, bool]:
-    """Confidence-gated PR transition. Mirrors ``apply_transition_with_confidence``.
+    """Shim: delegates to :func:`fire_trigger` with confidence gating (PR side).
 
-    On successful divert, posts a comment on the PR with the failing
-    transition / confidence values. ``post_comment`` is injectable for tests;
-    defaults to ``cai_lib.github._post_pr_comment``.
+    Returns ``(ok, diverted)``.  Mirrors :func:`apply_transition_with_confidence`
+    for the PR submachine.  *set_pr_labels* and *post_comment* are injectable
+    for tests.
     """
-    transition = find_transition(transition_name, PR_TRANSITIONS)
-
-    if transition.accepts(confidence):
-        ok = apply_pr_transition(
-            pr_number, transition_name,
-            current_pr=current_pr,
-            log_prefix=log_prefix,
-            set_pr_labels=set_pr_labels,
-        )
-        return ok, False
-
-    if current_pr is not None:
-        current = get_pr_state(current_pr)
-        if current != transition.from_state:
-            print(
-                f"[{log_prefix}] refusing PR divert for {transition_name!r} on "
-                f"#{pr_number}: current state {current} does not match "
-                f"expected {transition.from_state}",
-                file=sys.stderr,
-            )
-            return False, False
-
-    if set_pr_labels is None:
-        from cai_lib.github import _set_pr_labels as set_pr_labels  # local import — avoids cycle at module load
-
-    conf_name = confidence.name if confidence is not None else "MISSING"
-    print(
-        f"[{log_prefix}] diverting PR {transition_name!r} on #{pr_number} to "
-        f"{transition.human_label_if_below} (confidence={conf_name}, "
-        f"required={transition.min_confidence.name})",
-        flush=True,
-    )
-    ok = set_pr_labels(
-        pr_number,
-        add=[transition.human_label_if_below],
-        remove=list(transition.labels_remove),
+    return fire_trigger(
+        pr_number, transition_name,
+        is_pr=True,
+        confidence=confidence,
+        _confidence_gated=True,
         log_prefix=log_prefix,
+        current_pr=current_pr,
+        reason_extra=reason_extra,
+        set_pr_labels=set_pr_labels,
+        post_comment=post_comment,
     )
-    if ok:
-        if post_comment is None:
-            from cai_lib.github import _post_pr_comment as post_comment  # local import — avoids cycle
-        post_comment(
-            pr_number,
-            _render_human_divert_reason(
-                transition_name=transition_name,
-                transition=transition,
-                confidence=confidence,
-                extra=reason_extra,
-            ),
-            log_prefix=log_prefix,
-        )
-    return ok, True
 
 
 def resume_pr_transition_for(target_state_name: str) -> Optional[Transition]:
