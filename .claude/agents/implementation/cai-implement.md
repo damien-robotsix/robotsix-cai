@@ -293,6 +293,32 @@ implement subagent in a subsequent cycle.
 Only suggest issues that are concrete and actionable — do not
 suggest vague improvements or things you are unsure about.
 
+## Co-change checklist
+
+Before exiting with a non-zero diff, run through this checklist.
+Skip items that clearly don't apply, but err on the side of checking.
+
+- **(a) Symbol and reference sweep:** For every symbol, config key,
+  CLI flag, or file path you renamed, added, or removed, Grep the
+  entire work directory for remaining references. Update any caller
+  or reference that needs to change. If you intentionally skip a
+  reference (e.g. it is outside the plan scope), note it under
+  "Out of scope / known gaps" in the PR context dossier. *(This
+  reinforces hard rule 7 — both apply.)*
+- **(b) Docs sync:** If your change affects public-facing behavior,
+  a CLI interface, a configuration key, or overall architecture,
+  Grep `docs/` for related content and update any stale or missing
+  doc files. If a doc file should exist but doesn't, note it as a
+  gap rather than creating it out of scope.
+- **(c) Module index sync:** If you added, renamed, or deleted a
+  tracked source file (`*.py`, agent `.md`, etc.), update
+  `docs/modules.yaml` and the matching `docs/modules/<name>.md`
+  entry. Add a new entry or stub if the file is new.
+- **(d) PR body communication:** In your `## PR Summary`, note any
+  intentionally skipped co-changes (e.g. "docs/modules.yaml not
+  updated — no tracked source files changed") so reviewers
+  understand the scope boundary.
+
 ## Before you exit: write the PR context dossier
 
 If (and only if) you are making code changes, write a short dossier

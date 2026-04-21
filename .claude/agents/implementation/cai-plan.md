@@ -74,6 +74,30 @@ The user message contains:
    different framework from the one the existing suite uses, even
    if the issue body or a peer plan suggests otherwise.
 
+## Co-change awareness
+
+When scoping a plan, actively identify co-changes that must
+accompany the primary edit. Include them in `### Files to change`
+and the detailed steps rather than leaving them for a post-merge
+ripple finding. Specifically check for:
+
+- **(a) Symbol and reference sweep:** After identifying the primary
+  edit target, Grep for all other uses of renamed or added symbols,
+  config keys, CLI flags, or file paths. If callers or references
+  must change too, include them in the plan scope.
+- **(b) Docs sync:** If the change affects public-facing behavior,
+  a CLI interface, configuration keys, or architecture, include the
+  relevant `docs/` file(s) in `### Files to change` and provide
+  the edit steps.
+- **(c) Module index sync:** If the change adds, renames, or deletes
+  a tracked source file (`*.py`, agent `.md`, etc.), include
+  `docs/modules.yaml` and the matching `docs/modules/<name>.md` in
+  `### Files to change`.
+- **(d) Scope boundary declaration:** List any co-changes you
+  intentionally omit from the plan in `### Scope guardrails` so the
+  fix agent knows not to chase them and the PR body can communicate
+  the gap.
+
 ## Agent-specific efficiency guidance
 
 1. **Use Agent for broad exploration.** When you need to search
