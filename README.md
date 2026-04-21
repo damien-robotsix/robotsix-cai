@@ -84,7 +84,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
-the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_RESCUE_SCHEDULE`),
+the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_RESCUE_SCHEDULE`, `CAI_AUDIT_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
 produces immediate logs, then execs supercronic. The `audit-module`
 subcommand is available on-demand for per-module audits but does not
@@ -545,9 +545,8 @@ greeting on the very first run, otherwise skipped), the initial
 
 ### Changing the schedule
 
-Edit the `CAI_CYCLE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, or `CAI_RESCUE_SCHEDULE`
-environment variables in the generated `docker-compose.yml` (any valid 5-field
-cron expression, or `@hourly`, `@daily`, etc.) and restart the service:
+Edit any of the schedule environment variables (`CAI_CYCLE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_RESCUE_SCHEDULE`, or `CAI_AUDIT_SCHEDULE`)
+in the generated `docker-compose.yml` (any valid 5-field cron expression, or `@hourly`, `@daily`, etc.) and restart the service:
 
 ```bash
 docker compose up -d
