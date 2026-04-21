@@ -13,6 +13,7 @@ from cai_lib.fsm import (
     apply_transition, apply_transition_with_confidence, find_transition,
     parse_confidence, parse_confidence_reason, parse_resume_target,
     resume_transition_for, resume_pr_transition_for,
+    fire_trigger,
 )
 from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_RAISED, LABEL_REFINED, LABEL_REFINING,
@@ -1254,6 +1255,109 @@ class TestTriagingPrelabeledKindOverride(unittest.TestCase):
         self.assertNotIn("triaging_to_applying", transitions_called)
         self.assertIn(LABEL_KIND_CODE, labels_added)
         self.assertNotIn(LABEL_KIND_MAINTENANCE, labels_added)
+
+
+class TestFireTrigger(unittest.TestCase):
+    """Direct fire_trigger() tests — Machine-based FSM dispatch (#1099)."""
+
+    def _recording_set_labels(self):
+        calls = []
+        def _fake(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            calls.append({
+                "issue_number": issue_number,
+                "add": list(add),
+                "remove": list(remove),
+                "log_prefix": log_prefix,
+            })
+            return True
+        return calls, _fake
+
+    def _recording_post_comment(self):
+        calls = []
+        def _fake(issue_number, body, *, log_prefix="cai"):
+            calls.append({
+                "issue_number": issue_number,
+                "body": body,
+                "log_prefix": log_prefix,
+            })
+            return True
+        return calls, _fake
+
+    def test_fire_trigger_basic_transition(self):
+        """fire_trigger dispatches correctly for a basic non-gated transition."""
+        calls, fake_labels = self._recording_set_labels()
+        ok, diverted = fire_trigger(
+            123, "raise_to_refining",
+            is_pr=False,
+            current_labels=[LABEL_RAISED],
+            set_labels=fake_labels,
+        )
+        self.assertTrue(ok)
+        self.assertFalse(diverted)
+        self.assertEqual(len(calls), 1)
+        self.assertIn(LABEL_REFINING, calls[0]["add"])
+        self.assertIn(LABEL_RAISED, calls[0]["remove"])
+
+    def test_fire_trigger_confidence_gate_diverts_on_low(self):
+        """Confidence-gated fire_trigger diverts to HUMAN_NEEDED on low confidence."""
+        calls, fake_labels = self._recording_set_labels()
+        comments, fake_comment = self._recording_post_comment()
+        ok, diverted = fire_trigger(
+            456, "refining_to_refined",
+            is_pr=False,
+            _confidence_gated=True,
+            confidence=Confidence.MEDIUM,  # Below HIGH threshold
+            current_labels=[LABEL_REFINING],
+            set_labels=fake_labels,
+            post_comment=fake_comment,
+        )
+        self.assertTrue(ok)
+        self.assertTrue(diverted)
+        self.assertEqual(len(calls), 1)
+        self.assertIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
+        self.assertIn(LABEL_REFINING, calls[0]["remove"])
+        self.assertNotIn(LABEL_REFINED, calls[0]["add"])
+        self.assertEqual(len(comments), 1)
+        self.assertIn("MEDIUM", comments[0]["body"])
+        self.assertIn("HIGH", comments[0]["body"])
+
+    def test_fire_trigger_confidence_gate_passes_on_high(self):
+        """Confidence-gated fire_trigger applies the primary transition on HIGH."""
+        calls, fake_labels = self._recording_set_labels()
+        comments, fake_comment = self._recording_post_comment()
+        ok, diverted = fire_trigger(
+            457, "refining_to_refined",
+            is_pr=False,
+            _confidence_gated=True,
+            confidence=Confidence.HIGH,
+            current_labels=[LABEL_REFINING],
+            set_labels=fake_labels,
+            post_comment=fake_comment,
+        )
+        self.assertTrue(ok)
+        self.assertFalse(diverted)
+        self.assertEqual(len(calls), 1)
+        self.assertIn(LABEL_REFINED, calls[0]["add"])
+        self.assertNotIn(LABEL_HUMAN_NEEDED, calls[0]["add"])
+        self.assertEqual(comments, [])
+
+    def test_fire_trigger_invalid_source_state(self):
+        """fire_trigger returns (False, False) on state mismatch."""
+        calls, fake_labels = self._recording_set_labels()
+        ok, diverted = fire_trigger(
+            789, "raise_to_refining",  # Expects source=RAISED
+            is_pr=False,
+            current_labels=[LABEL_HUMAN_NEEDED],  # Wrong state
+            set_labels=fake_labels,
+        )
+        self.assertFalse(ok)
+        self.assertFalse(diverted)
+        self.assertEqual(calls, [])
+
+    def test_fire_trigger_unknown_trigger_raises_key_error(self):
+        """fire_trigger raises KeyError for unrecognised trigger names."""
+        with self.assertRaises(KeyError):
+            fire_trigger(1, "not_a_real_transition", current_labels=[LABEL_RAISED])
 
 
 if __name__ == "__main__":
