@@ -28,6 +28,7 @@ from pathlib import Path
 from cai_lib.config import (
     REPO,
     LABEL_IN_PROGRESS,
+    LABEL_OPUS_ATTEMPTED,
     LABEL_PR_OPEN,
     LABEL_PLAN_NEEDS_REVIEW,
     LABEL_REFINED,
@@ -318,6 +319,104 @@ def _auto_flagged_human_review_reason(issue, plan_confidence):
         "applied, `cai rescue`'s autonomous resume pass will skip "
         "this issue."
     )
+
+
+# ---------------------------------------------------------------------------
+# Pre-emptive Opus-tier escalation for large mechanical refactors (#1139).
+#
+# A plan whose ``### Files to change`` section lists at least
+# ``_LARGE_REFACTOR_FILE_THRESHOLD`` unique backticked path tokens AND
+# whose body contains at least ``_LARGE_REFACTOR_EDIT_SITE_THRESHOLD``
+# ``#### Step N — Edit/Write`` headers is treated as a large mechanical
+# refactor. On successful ``planned_to_plan_approved*`` transition,
+# :func:`handle_plan_gate` stamps :data:`LABEL_OPUS_ATTEMPTED` on the
+# issue so :func:`cai_lib.actions.implement.handle_implement` reads
+# ``opus_escalation = True`` on the next dispatch tick — skipping the
+# Sonnet subagent entirely and running the implementation on Opus from
+# the start. This prevents the three-Sonnet-retry loop observed on
+# #1136 (the divert that motivated this issue) without requiring any
+# handler-side changes: ``handle_implement`` already treats
+# ``LABEL_OPUS_ATTEMPTED`` as the Opus-tier signal, and ``cai rescue``'s
+# ``_issue_has_opus_attempted`` guard correctly refuses a second
+# escalation if Opus also fails.
+#
+# Detection is deliberately **structural** — counting the planner's
+# canonical ``### Files to change`` declarations and its ``#### Step N
+# — Edit/Write`` step headers — matching the "Prefer structural
+# detection over marker phrases" guidance in the shared-memory
+# ``fsm-transition-threshold-relaxation.md`` entry and the
+# :func:`_plan_targets_only_docs` pattern established in #989. The
+# signal is stored as an FSM label (not a plan-body marker), keeping
+# the information visible in the GitHub UI and consumable by the
+# existing label-based ``opus_escalation`` path without introducing a
+# new ``parse_*`` helper or a new plan-body field.
+#
+# The label is applied only when the gate has already successfully
+# transitioned the issue to ``:plan-approved`` (non-diverted outcome of
+# the ``planned_to_plan_approved*`` siblings). Divert paths
+# (``planned_to_human`` via confidence gate, requires_human_review,
+# or #1131 scale/complexity auto-flag) skip the label so the admin can
+# choose the tier when resuming.
+# ---------------------------------------------------------------------------
+_LARGE_REFACTOR_FILE_THRESHOLD = 8
+
+_LARGE_REFACTOR_EDIT_SITE_THRESHOLD = 50
+
+# Count each ``#### Step N — Edit `<path>` `` / ``#### Step N — Write
+# `<path>` `` header once. Accepts em-dash (\u2014), en-dash (\u2013),
+# and plain hyphen between ``Step N`` and the verb to match the
+# cai-plan template plus real-world drift. The separate
+# ``_STEP_HEADER_RE`` in ``cai_lib/actions/implement.py`` captures the
+# path (for scope enforcement) and is intentionally not reused here —
+# we only need the header count, and a path-capturing regex would
+# force an implement.py import from a plan-phase helper.
+_STEP_EDIT_HEADER_RE = re.compile(
+    r"^####\s+Step\s+\d+\s+[\u2014\u2013\-]\s+(?:Edit|Write)\s+`",
+    re.MULTILINE,
+)
+
+
+def _count_edit_steps(plan_text):
+    """Return the count of ``#### Step N — Edit/Write`` headers in
+    *plan_text*.
+
+    Uses :data:`_STEP_EDIT_HEADER_RE` — one increment per header
+    regardless of the target path. Returns ``0`` on empty or ``None``
+    input. Non-``Edit``/``Write`` step verbs (e.g. ``Read``, ``Verify``)
+    are ignored so the count reflects *edit sites* only.
+    """
+    if not plan_text:
+        return 0
+    return len(_STEP_EDIT_HEADER_RE.findall(plan_text))
+
+
+def _plan_is_large_mechanical_refactor(plan_text):
+    """Return ``True`` when *plan_text* qualifies as a large mechanical
+    refactor worth pre-emptively routing to the Opus implement tier
+    (#1139).
+
+    Both thresholds must be met:
+
+      * ``_count_files_to_change(plan_text) >= _LARGE_REFACTOR_FILE_THRESHOLD``
+        — at least 8 unique backticked ``path/with.ext`` tokens in the
+        plan's ``### Files to change`` section.
+      * ``_count_edit_steps(plan_text) >= _LARGE_REFACTOR_EDIT_SITE_THRESHOLD``
+        — at least 50 ``#### Step N — Edit/Write`` headers.
+
+    Returns ``False`` on empty or ``None`` input. Used by
+    :func:`handle_plan_gate` to stamp :data:`LABEL_OPUS_ATTEMPTED`
+    directly on the issue after a successful ``planned_to_plan_approved*``
+    transition — so :func:`cai_lib.actions.implement.handle_implement`
+    reads ``opus_escalation = True`` on the next dispatch tick and
+    skips the Sonnet attempt entirely.
+    """
+    if not plan_text:
+        return False
+    if _count_files_to_change(plan_text) < _LARGE_REFACTOR_FILE_THRESHOLD:
+        return False
+    if _count_edit_steps(plan_text) < _LARGE_REFACTOR_EDIT_SITE_THRESHOLD:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1118,6 +1217,80 @@ def handle_plan_gate(issue: dict) -> int:
         f"(confidence={conf_name}, transition={transition_name})",
         flush=True,
     )
+
+    # Pre-emptive Opus-tier escalation for large mechanical refactors
+    # (#1139). When the plan was just approved (non-diverted) AND the
+    # plan body qualifies as a large mechanical refactor (>= 8 files in
+    # ### Files to change AND >= 50 #### Step N — Edit/Write headers),
+    # apply LABEL_OPUS_ATTEMPTED directly. handle_implement reads this
+    # label via ``opus_escalation = LABEL_OPUS_ATTEMPTED in label_names``
+    # and will run the subagent with ``--model claude-opus-4-7`` from
+    # the start — skipping the Sonnet retry loop that normally consumes
+    # 2–3 slots on a large-refactor plan (see #1136).
+    #
+    # Guarded by ``not diverted`` so we never stamp the label on a plan
+    # the gate just parked at :human-needed — the admin can then choose
+    # the implement tier when resuming. Also short-circuits if the label
+    # is already present (e.g. the plan was re-run after a rescue
+    # escalation) so we don't spam duplicate comments.
+    if not diverted and _plan_is_large_mechanical_refactor(plan_text):
+        current_labels = {
+            lbl["name"] for lbl in issue.get("labels", [])
+        }
+        if LABEL_OPUS_ATTEMPTED not in current_labels:
+            file_count = _count_files_to_change(plan_text)
+            step_count = _count_edit_steps(plan_text)
+            print(
+                f"[cai plan] #{issue_number} plan is a large mechanical "
+                f"refactor "
+                f"(files={file_count} "
+                f">= {_LARGE_REFACTOR_FILE_THRESHOLD}, "
+                f"edit_steps={step_count} "
+                f">= {_LARGE_REFACTOR_EDIT_SITE_THRESHOLD}); "
+                f"applying {LABEL_OPUS_ATTEMPTED} to pre-empt the "
+                f"Sonnet attempt and route `cai implement` to Opus "
+                f"(#1139)",
+                flush=True,
+            )
+            if _set_labels(
+                issue_number,
+                add=[LABEL_OPUS_ATTEMPTED],
+                log_prefix="cai plan",
+            ):
+                _post_issue_comment(
+                    issue_number,
+                    (
+                        "## Pre-emptive Opus-tier escalation (#1139)\n\n"
+                        f"This plan lists **{file_count} files** in "
+                        f"`### Files to change` and **{step_count} "
+                        f"`#### Step N — Edit/Write` headers**, both "
+                        f"at or above the large-mechanical-refactor "
+                        f"thresholds "
+                        f"({_LARGE_REFACTOR_FILE_THRESHOLD} files / "
+                        f"{_LARGE_REFACTOR_EDIT_SITE_THRESHOLD} edit "
+                        f"sites). `cai implement` will therefore run "
+                        f"the Opus tier from the start instead of "
+                        f"attempting Sonnet first — avoiding the "
+                        f"three-Sonnet-retry loop observed on similar "
+                        f"plans (see #1136).\n\n"
+                        f"---\n"
+                        f"_Applied by `cai plan` structural detector. "
+                        f"If Opus also fails, `cai rescue` will not "
+                        f"re-escalate; remove `"
+                        f"{LABEL_OPUS_ATTEMPTED}` manually to force a "
+                        f"Sonnet attempt._"
+                    ),
+                    log_prefix="cai plan",
+                )
+            else:
+                print(
+                    f"[cai plan] #{issue_number} failed to apply "
+                    f"{LABEL_OPUS_ATTEMPTED}; implement will run at "
+                    f"the Sonnet tier as a fallback",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
     log_run("plan", repo=REPO, issue=issue_number,
             duration=dur, result="gate_ok",
             confidence=conf_name, diverted=int(diverted),
