@@ -1230,7 +1230,23 @@ def handle_implement(issue: dict) -> int:
                 flush=True,
             )
         else:
-            claude_cmd += ["--max-turns", "60"]
+            # Sonnet-tier caps: 60-turn (issue #934 / PR #1003) +
+            # $2.50 per-invocation cost ceiling (issue #1107). The
+            # budget cap catches runaway invocations that stay under
+            # 60 turns but rack up cost via large inputs or cache
+            # churn. On exhaustion, claude-agent-sdk returns
+            # ResultMessage with subtype="error_max_budget_usd" and
+            # is_error=True; _run_claude_p surfaces that as
+            # returncode=1 with the last-assistant salvage text,
+            # which flows through the existing `subagent_failed`
+            # rollback path below. Three consecutive failures (any
+            # kind) then trip _MAX_CONSECUTIVE_FAILED_ATTEMPTS and
+            # park the issue at :human-needed with
+            # result=retries_exhausted. Opus one-shot runs are
+            # deliberately uncapped (shared memory:
+            # implement-sonnet-turn-cap.md).
+            claude_cmd += ["--max-turns", "60",
+                           "--max-budget-usd", "2.50"]
         claude_cmd += ["--dangerously-skip-permissions",
                        "--add-dir", str(work_dir)]
         print(f"[cai implement] running cai-implement subagent for {work_dir}", flush=True)
