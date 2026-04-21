@@ -41,6 +41,8 @@ stateDiagram-v2
   Class REFINED s_default
   state "NEEDS_EXPLORATION" as NEEDS_EXPLORATION
   Class NEEDS_EXPLORATION s_default
+  state "SPLITTING" as SPLITTING
+  Class SPLITTING s_default
   state "PLANNING" as PLANNING
   Class PLANNING s_default
   state "PLANNED" as PLANNED
@@ -66,7 +68,10 @@ stateDiagram-v2
   REFINING --> NEEDS_EXPLORATION: refining_to_exploration [≥HIGH]
   REFINING --> HUMAN_NEEDED: refining_to_human [≥HIGH]
   NEEDS_EXPLORATION --> REFINING: exploration_to_refining [≥HIGH]
+  REFINED --> SPLITTING: refined_to_splitting [≥HIGH]
   REFINED --> PLANNING: refined_to_planning [≥HIGH]
+  SPLITTING --> PLANNING: splitting_to_planning [≥HIGH]
+  SPLITTING --> HUMAN_NEEDED: splitting_to_human [≥HIGH]
   PLANNING --> PLANNED: planning_to_planned [≥HIGH]
   PLANNING --> HUMAN_NEEDED: planning_to_human [≥HIGH]
   PLANNED --> PLAN_APPROVED: planned_to_plan_approved [≥HIGH] | planned_to_plan_approved_mitigated [≥MEDIUM] | planned_to_plan_approved_docs_only [≥MEDIUM] | planned_to_plan_approved_approvable [≥MEDIUM]
@@ -82,6 +87,7 @@ stateDiagram-v2
   MERGED --> SOLVED: merged_to_solved [≥HIGH]
   HUMAN_NEEDED --> RAISED: human_to_raised [≥HIGH]
   HUMAN_NEEDED --> REFINING: human_to_refining [≥HIGH]
+  HUMAN_NEEDED --> SPLITTING: human_to_splitting [≥HIGH]
   HUMAN_NEEDED --> PLAN_APPROVED: human_to_plan_approved [≥HIGH]
   HUMAN_NEEDED --> NEEDS_EXPLORATION: human_to_exploration [≥HIGH]
   HUMAN_NEEDED --> SOLVED: human_to_solved [≥HIGH]

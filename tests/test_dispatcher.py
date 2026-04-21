@@ -28,6 +28,7 @@ class TestActionableStateSets(unittest.TestCase):
             IssueState.REFINING,
             IssueState.NEEDS_EXPLORATION,
             IssueState.REFINED,
+            IssueState.SPLITTING,
             IssueState.PLANNING,
             IssueState.PLANNED,
             IssueState.PLAN_APPROVED,

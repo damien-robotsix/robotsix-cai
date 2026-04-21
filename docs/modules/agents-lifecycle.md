@@ -12,7 +12,13 @@ issues move through their state machine.
   HUMAN). No tools; full issue body arrives in the user message.
 - [`.claude/agents/lifecycle/cai-refine.md`](../../.claude/agents/lifecycle/cai-refine.md)
   — opus issue rewriter; emits structured plans with problem,
-  steps, verification, scope guardrails.
+  steps, verification, scope guardrails. Scope decomposition is
+  NOT refine's job — `cai-split` handles that downstream.
+- [`.claude/agents/lifecycle/cai-split.md`](../../.claude/agents/lifecycle/cai-split.md)
+  — opus scope evaluator; runs after refine and decides whether
+  the refined issue ships as one PR (ATOMIC) or must be broken
+  into ordered sub-issues (emits a `## Multi-Step Decomposition`
+  block). LOW confidence diverts to `:human-needed`.
 - [`.claude/agents/lifecycle/cai-explore.md`](../../.claude/agents/lifecycle/cai-explore.md)
   — sonnet exploration / benchmarking agent with Bash.
 - [`.claude/agents/lifecycle/cai-propose.md`](../../.claude/agents/lifecycle/cai-propose.md)
@@ -33,7 +39,8 @@ issues move through their state machine.
 
 ## Inter-module dependencies
 - Invoked by **actions** — `handle_triage` (cai-triage),
-  `handle_refine` (cai-refine), `handle_explore` (cai-explore).
+  `handle_refine` (cai-refine), `handle_split` (cai-split),
+  `handle_explore` (cai-explore).
 - Invoked by **cli** — `cmd_propose` / `cmd_propose_review`
   (weekly creative cycle); `cmd_rescue` (cai-rescue); `cmd_unblock`
   (cai-unblock); `dup_check.check_duplicate_or_resolved`
@@ -48,9 +55,11 @@ issues move through their state machine.
 - **Cost sensitivity varies widely.** `cai-triage` and
   `cai-dup-check` are the cheapest in the pipeline (haiku, inline,
   no tools) and run on every raised issue — latency and cost
-  must stay low. `cai-refine`, `cai-propose`,
+  must stay low. `cai-refine`, `cai-split`, `cai-propose`,
   `cai-propose-review`, `cai-rescue` are opus and therefore
-  expensive per invocation but rare.
+  expensive per invocation but rare. Every issue that clears
+  triage hits both `cai-refine` and `cai-split` — two opus
+  passes in sequence — before any plan work begins.
 - **FSM invariant.** Triage and dup-check emit a verdict string
   the Python caller parses; introducing new verdict values
   requires matched updates to the parser

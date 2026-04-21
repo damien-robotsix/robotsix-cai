@@ -16,8 +16,16 @@ Issue-side handlers (take an issue dict):
   into REFINE / PLAN_APPROVE / APPLY / HUMAN; runs the dup-check
   pre-filter first.
 - [`refine.py`](../../cai_lib/actions/refine.py) —
-  `handle_refine`: runs `cai-refine` and, for multi-step
-  decompositions, creates sub-issues via `_create_sub_issues`.
+  `handle_refine`: runs `cai-refine` (opus) to rewrite a raised
+  issue into a structured `## Refined Issue` block. Scope
+  decomposition is NOT handled here — the downstream
+  `handle_split` owns that decision.
+- [`split.py`](../../cai_lib/actions/split.py) —
+  `handle_split`: runs `cai-split` (opus) on a `:refined` or
+  `:splitting` issue; fires `splitting_to_planning` on ATOMIC +
+  HIGH confidence, creates sub-issues via `_create_sub_issues`
+  on DECOMPOSE + HIGH confidence, and diverts to `:human-needed`
+  on LOW confidence / malformed output / depth-gate violations.
 - [`plan.py`](../../cai_lib/actions/plan.py) — `handle_plan`
   (dual-planner + `cai-select` pipeline) and `handle_plan_gate`
   (confidence-based gate into PLAN_APPROVED / HUMAN).

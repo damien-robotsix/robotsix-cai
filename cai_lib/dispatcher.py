@@ -148,6 +148,7 @@ def _build_issue_registry() -> dict[IssueState, IssueHandler]:
     from cai_lib.actions.triage    import handle_triage
     from cai_lib.actions.refine    import handle_refine
     from cai_lib.actions.explore   import handle_explore
+    from cai_lib.actions.split     import handle_split
     from cai_lib.actions.plan      import handle_plan, handle_plan_gate
     from cai_lib.actions.implement import handle_implement
     from cai_lib.actions.maintain  import handle_maintain, handle_applied
@@ -160,7 +161,8 @@ def _build_issue_registry() -> dict[IssueState, IssueHandler]:
         IssueState.TRIAGING:          handle_triage,      # resume
         IssueState.REFINING:          handle_refine,
         IssueState.NEEDS_EXPLORATION: handle_explore,
-        IssueState.REFINED:           handle_plan,
+        IssueState.REFINED:           handle_split,
+        IssueState.SPLITTING:         handle_split,       # resume
         IssueState.PLANNING:          handle_plan,        # resume
         IssueState.PLANNED:           handle_plan_gate,
         IssueState.PLAN_APPROVED:     handle_implement,

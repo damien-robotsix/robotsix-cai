@@ -51,12 +51,15 @@ maps to a `human_to_<state>` transition defined in
 | `RAISED`            | "start over" / "re-triage this" / comment is ambiguous      |
 | `REFINING`          | "re-run the refine agent with this new context"             |
 | `NEEDS_EXPLORATION` | "investigate further before doing anything"                 |
+| `SPLITTING`         | "re-run cai-split / re-evaluate atomic-vs-decompose"        |
 | `PLAN_APPROVED`     | "approve the existing plan — let the implement agent run"   |
 | `SOLVED`            | "close this — not worth doing" / "already fixed elsewhere"  |
 
-(`REFINED` and `PLANNED` are auto-advance waypoints, not valid resume
-targets. If an admin wants refinement re-run, pick `REFINING`. If an
-admin wants to accept an existing plan, pick `PLAN_APPROVED`.)
+(`REFINED`, `PLANNING`, and `PLANNED` are auto-advance waypoints,
+not valid resume targets. If an admin wants refinement re-run, pick
+`REFINING`. If an admin wants split to re-evaluate scope without
+re-refining, pick `SPLITTING`. If an admin wants to accept an
+existing plan, pick `PLAN_APPROVED`.)
 
 ## PR resume targets (Kind: pr)
 
