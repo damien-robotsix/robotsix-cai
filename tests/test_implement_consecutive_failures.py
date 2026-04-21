@@ -295,5 +295,125 @@ class TestRetriesExhaustedConstants(unittest.TestCase):
             self.assertNotIn(tag, _COUNTED_IMPLEMENT_FAILURES)
 
 
+class TestFormatStderrTail(unittest.TestCase):
+    """Issue #1106: the sanitizer must collapse whitespace, neutralise
+    ``=``, cap length, and always return a non-empty single token so
+    the existing ``_RESULT_TAG_RE = re.compile(r" result=(\\S+)")``
+    classifier in :func:`_count_consecutive_failed_attempts` keeps
+    matching ``subagent_failed`` unchanged when the new
+    ``stderr_tail=<token>`` field is stamped between ``result=`` and
+    ``exit=``."""
+
+    def test_empty_returns_empty_tag(self):
+        from cai_lib.actions.implement import _format_stderr_tail
+        self.assertEqual(_format_stderr_tail(""), "empty")
+        self.assertEqual(_format_stderr_tail("   \n\t"), "empty")
+
+    def test_whitespace_is_collapsed_to_underscore(self):
+        from cai_lib.actions.implement import _format_stderr_tail
+        self.assertEqual(
+            _format_stderr_tail("hit max turns"),
+            "hit_max_turns",
+        )
+        self.assertEqual(
+            _format_stderr_tail("line one\nline two"),
+            "line_one_line_two",
+        )
+
+    def test_equals_is_rewritten_to_colon(self):
+        """``=`` must not leak into the token or a downstream
+        key=value parser could split ``stderr_tail=foo=bar`` in two."""
+        from cai_lib.actions.implement import _format_stderr_tail
+        self.assertEqual(
+            _format_stderr_tail("sdk_subtype=error_max_turns"),
+            "sdk_subtype:error_max_turns",
+        )
+
+    def test_truncation_caps_length(self):
+        from cai_lib.actions.implement import (
+            _format_stderr_tail,
+            _STDERR_TAIL_LIMIT,
+        )
+        huge = "x" * (_STDERR_TAIL_LIMIT * 3)
+        self.assertEqual(
+            len(_format_stderr_tail(huge)),
+            _STDERR_TAIL_LIMIT,
+        )
+
+    def test_token_is_single_token_safe_for_log_parser(self):
+        """The token stamped between ``result=`` and ``exit=`` must
+        never contain whitespace — otherwise ``_RESULT_TAG_RE``
+        (``" result=(\\S+)"``) would grab the wrong ``result=`` token
+        downstream and the consecutive-failure guard would undercount."""
+        import re as _re
+        from cai_lib.actions.implement import _format_stderr_tail
+        rx = _re.compile(r" result=(\S+)")
+        for sample in (
+            "sdk_subtype=error_max_turns is_error=True "
+            "result='Agent exhausted max_turns=60'",
+            "",
+            "\nspaced  out\tvalue\n",
+            "no_ResultMessage last_assistant='oops'",
+        ):
+            tok = _format_stderr_tail(sample)
+            self.assertNotIn(" ", tok)
+            self.assertNotIn("\t", tok)
+            self.assertNotIn("\n", tok)
+            self.assertNotIn("=", tok)
+            line = (
+                "2026-04-21T05:16:05Z [implement] repo=foo issue=910 "
+                f"result=subagent_failed stderr_tail={tok} exit=1"
+            )
+            m = rx.search(line)
+            self.assertIsNotNone(m)
+            self.assertEqual(m.group(1), "subagent_failed")
+
+
+class TestConsecutiveCounterStillMatchesEnrichedLine(unittest.TestCase):
+    """Pin that :func:`_count_consecutive_failed_attempts` still counts
+    three consecutive ``subagent_failed`` rows correctly when each
+    carries the new issue-#1106 ``stderr_tail=<token>`` field (which
+    sits between ``result=`` and ``exit=``). If this regresses, the
+    existing :data:`_MAX_CONSECUTIVE_FAILED_ATTEMPTS` guard would stop
+    firing and issue #910's failure mode would reappear."""
+
+    def test_three_consecutive_with_stderr_tail_field_counted_as_three(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from cai_lib.actions.implement import (
+            _count_consecutive_failed_attempts,
+        )
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".log", delete=False,
+        )
+        tmp.close()
+        log_path = Path(tmp.name)
+        try:
+            log_path.write_text(
+                "\n".join([
+                    "2026-04-21T00:30:57Z [implement] repo=foo issue=910 "
+                    "result=subagent_failed "
+                    "stderr_tail=sdk_subtype:error_max_turns_is_error:True "
+                    "exit=1",
+                    "2026-04-21T00:47:28Z [implement] repo=foo issue=910 "
+                    "result=subagent_failed stderr_tail=empty exit=1",
+                    "2026-04-21T03:08:55Z [implement] repo=foo issue=910 "
+                    "result=subagent_failed "
+                    "stderr_tail=no_ResultMessage_last_assistant:oops "
+                    "exit=1",
+                ]) + "\n"
+            )
+            with patch(
+                "cai_lib.actions.implement.LOG_PATH", log_path,
+            ):
+                self.assertEqual(
+                    _count_consecutive_failed_attempts(910), 3,
+                )
+        finally:
+            if log_path.exists():
+                log_path.unlink()
+
+
 if __name__ == "__main__":
     unittest.main()
