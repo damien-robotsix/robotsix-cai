@@ -114,6 +114,36 @@ def cmd_cycle(args) -> int:
             file=sys.stderr, flush=True,
         )
 
+    # Phase 0.7: process <!-- cai-resplit --> admin sigils (issue #1142).
+    # An admin drops the sigil in a comment on a :plan-approved issue
+    # to signal that the refined-and-planned scope is too large and
+    # should be re-evaluated by cai-split. Detected deterministically
+    # (literal-string check, no classifier) at the start of each tick
+    # so the FSM is rolled back to :refined before the dispatcher
+    # picks the issue up for handle_implement.
+    try:
+        from cai_lib.admin_sigils import (
+            scan_resplit_sigil, process_resplit_sigil,
+        )
+        for _num in scan_resplit_sigil():
+            if process_resplit_sigil(_num):
+                print(
+                    f"[cai cycle] resplit sigil: #{_num} rolled back "
+                    f"to :refined",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[cai cycle] resplit sigil: #{_num} rollback "
+                    f"failed — leaving as-is",
+                    file=sys.stderr, flush=True,
+                )
+    except Exception as exc:
+        print(
+            f"[cai cycle] Phase 0.7 resplit sigil raised {exc!r} — continuing",
+            file=sys.stderr, flush=True,
+        )
+
     # Phase 1: TTL-based stale-lock sweep — rolls back only locks that
     # have exceeded their configured TTL (_STALE_LOCKED_HOURS etc.).
     # NOTE: immediate=True is NOT used here; that path bypasses TTLs and

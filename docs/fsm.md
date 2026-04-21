@@ -77,6 +77,7 @@ stateDiagram-v2
   PLANNED --> PLAN_APPROVED: planned_to_plan_approved [≥HIGH] | planned_to_plan_approved_mitigated [≥MEDIUM] | planned_to_plan_approved_docs_only [≥MEDIUM] | planned_to_plan_approved_approvable [≥MEDIUM]
   PLANNED --> HUMAN_NEEDED: planned_to_human [≥HIGH]
   PLAN_APPROVED --> IN_PROGRESS: approved_to_in_progress [≥HIGH]
+  PLAN_APPROVED --> REFINED: plan_approved_to_refined [caller-gated]
   IN_PROGRESS --> PR: in_progress_to_pr [≥HIGH]
   IN_PROGRESS --> REFINING: in_progress_to_refining [caller-gated]
   IN_PROGRESS --> HUMAN_NEEDED: in_progress_to_human_needed [caller-gated]
