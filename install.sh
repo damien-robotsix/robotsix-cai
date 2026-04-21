@@ -353,12 +353,9 @@ services:
       # CAI_CYCLE_SCHEDULE drives the fix pipeline on auto-improve:plan-approved
       # issues (fix → revise → review-pr → merge → confirm). A flock
       # in cmd_cycle serializes overlapping runs so issues are
-      # processed one at a time. CAI_PLAN_ALL_SCHEDULE drives the
-      # upstream refine → plan flow that turns :raised/:refined
-      # issues into :planned for humans to approve. The remaining
-      # schedules are for orthogonal tasks that run independently.
+      # processed one at a time. The remaining schedules are for
+      # orthogonal tasks that run independently.
       CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on auto-improve:plan-approved
-      CAI_PLAN_ALL_SCHEDULE: "30 * * * *"   # hourly @30 — drain :raised/:refined into :planned
       CAI_VERIFY_SCHEDULE: "15 * * * *"     # hourly @15 — label-state reconciliation (cmd_verify)
       CAI_RESCUE_SCHEDULE: "30 */4 * * *"  # every 4h at :30 — autonomously resume :human-needed issues
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
@@ -432,12 +429,9 @@ services:
       # CAI_CYCLE_SCHEDULE drives the fix pipeline on auto-improve:plan-approved
       # issues (fix → revise → review-pr → merge → confirm). A flock
       # in cmd_cycle serializes overlapping runs so issues are
-      # processed one at a time. CAI_PLAN_ALL_SCHEDULE drives the
-      # upstream refine → plan flow that turns :raised/:refined
-      # issues into :planned for humans to approve. The remaining
-      # schedules are for orthogonal tasks that run independently.
+      # processed one at a time. The remaining schedules are for
+      # orthogonal tasks that run independently.
       CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — fix pipeline on auto-improve:plan-approved
-      CAI_PLAN_ALL_SCHEDULE: "30 * * * *"   # hourly @30 — drain :raised/:refined into :planned
       CAI_VERIFY_SCHEDULE: "15 * * * *"     # hourly @15 — label-state reconciliation (cmd_verify)
       CAI_RESCUE_SCHEDULE: "30 */4 * * *"  # every 4h at :30 — autonomously resume :human-needed issues
       CAI_AUDIT_SCHEDULE: "0 */6 * * *"     # every 6h (Sonnet: LLM audit + deterministic cleanup; see README)
