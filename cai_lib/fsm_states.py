@@ -9,8 +9,8 @@ from __future__ import annotations
 from enum import Enum
 
 from cai_lib.config import (
-    LABEL_RAISED, LABEL_REFINING, LABEL_REFINED, LABEL_PLANNING,
-    LABEL_PLANNED, LABEL_PLAN_APPROVED,
+    LABEL_RAISED, LABEL_REFINING, LABEL_REFINED, LABEL_SPLITTING,
+    LABEL_PLANNING, LABEL_PLANNED, LABEL_PLAN_APPROVED,
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
     LABEL_TRIAGING, LABEL_APPLYING, LABEL_APPLIED,
@@ -26,7 +26,8 @@ class IssueState(str, Enum):
     APPLYING          = LABEL_APPLYING     # cai-maintain is actively applying ops
     APPLIED           = LABEL_APPLIED      # ops applied; awaiting verification
     REFINING          = LABEL_REFINING     # cai-refine is actively running
-    REFINED           = LABEL_REFINED      # refine done, awaiting plan pickup
+    REFINED           = LABEL_REFINED      # refine done, awaiting split pickup
+    SPLITTING         = LABEL_SPLITTING    # cai-split is actively running (scope evaluation)
     PLANNING          = LABEL_PLANNING     # cai-plan is actively running
     PLANNED           = LABEL_PLANNED      # plan stored, awaiting approval
     PLAN_APPROVED     = LABEL_PLAN_APPROVED

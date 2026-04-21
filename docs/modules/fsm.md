@@ -9,11 +9,16 @@ import from `cai_lib.fsm` rather than the split modules directly.
 
 ## Key entry points
 - [`cai_lib/fsm_states.py`](../../cai_lib/fsm_states.py) —
-  `IssueState` (RAISED, REFINED, PLANNED, IN_PROGRESS, …) and
-  `PRState` (OPEN, REVIEWING_CODE, REVIEWING_DOCS, APPROVED,
-  CI_FAILING, REVISION_PENDING, REBASING, …). Enum values are the
-  GitHub label suffixes, so `str(state)` round-trips through
-  labels.
+  `IssueState` (RAISED, REFINED, SPLITTING, PLANNED, IN_PROGRESS,
+  …) and `PRState` (OPEN, REVIEWING_CODE, REVIEWING_DOCS,
+  APPROVED, CI_FAILING, REVISION_PENDING, REBASING, …). Enum
+  values are the GitHub label suffixes, so `str(state)`
+  round-trips through labels. `SPLITTING` sits between `REFINED`
+  and `PLANNING`: after refine writes a structured plan, the
+  dispatcher hands the issue to `cai-split` for atomic-vs-decompose
+  evaluation; atomic verdicts advance to `PLANNING` (cai-plan),
+  decompose verdicts create sub-issues and park the parent at
+  `:parent`, LOW confidence diverts to `:human-needed`.
 - [`cai_lib/fsm_transitions.py`](../../cai_lib/fsm_transitions.py) —
   `Transition` dataclass; `ISSUE_TRANSITIONS` and `PR_TRANSITIONS`
   tables; `get_issue_state`, `get_pr_state`, `find_transition`,

@@ -498,22 +498,33 @@ class TestTransientStatesShape(unittest.TestCase):
         }
         self.assertEqual(dests, {IssueState.PLAN_APPROVED, IssueState.HUMAN_NEEDED})
 
-    def test_refined_only_auto_advances(self):
-        """REFINED is a waypoint — the only next stop is PLANNING."""
+    def test_refined_advances_to_splitting_or_planning(self):
+        """REFINED is a waypoint — next stop is either SPLITTING
+        (normal drive via cai-split) or PLANNING (legacy compat)."""
         dests = {
             t.to_state
             for t in ISSUE_TRANSITIONS
             if t.from_state == IssueState.REFINED
         }
-        self.assertEqual(dests, {IssueState.PLANNING})
+        self.assertEqual(dests, {IssueState.SPLITTING, IssueState.PLANNING})
+
+    def test_splitting_routes_to_planning_or_human(self):
+        """SPLITTING exits only to PLANNING (atomic) or HUMAN_NEEDED (LOW)."""
+        dests = {
+            t.to_state
+            for t in ISSUE_TRANSITIONS
+            if t.from_state == IssueState.SPLITTING
+        }
+        self.assertEqual(dests, {IssueState.PLANNING, IssueState.HUMAN_NEEDED})
 
     def test_no_refine_to_in_progress_shortcut(self):
         """No transition may bypass PLANNED → PLAN_APPROVED en route to IN_PROGRESS."""
         forbidden_pairs = [
-            (IssueState.REFINED,  IssueState.IN_PROGRESS),
-            (IssueState.REFINING, IssueState.IN_PROGRESS),
-            (IssueState.PLANNING, IssueState.IN_PROGRESS),
-            (IssueState.PLANNED,  IssueState.IN_PROGRESS),
+            (IssueState.REFINED,   IssueState.IN_PROGRESS),
+            (IssueState.REFINING,  IssueState.IN_PROGRESS),
+            (IssueState.SPLITTING, IssueState.IN_PROGRESS),
+            (IssueState.PLANNING,  IssueState.IN_PROGRESS),
+            (IssueState.PLANNED,   IssueState.IN_PROGRESS),
         ]
         for f, to in forbidden_pairs:
             self.assertFalse(

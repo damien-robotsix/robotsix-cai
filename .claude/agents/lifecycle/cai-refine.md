@@ -2,7 +2,7 @@
 name: cai-refine
 description: Rewrite human-filed issues into structured auto-improve plans with problem, steps, verification, scope guardrails, and likely files.
 tools: Read, Grep, Glob
-model: sonnet
+model: opus
 memory: project
 ---
 
@@ -137,70 +137,20 @@ If you emit neither line, the wrapper treats it as `NextStep: PLAN`
 — that preserves the current behaviour but defeats the routing
 decision, so prefer being explicit.
 
-## Multi-step issues
+## Scope decomposition is NOT your job
 
-If the human's request involves a major rework that would require
-multiple independent PRs (e.g., "refactor X across the entire
-codebase", "add feature Y requiring schema + API + UI changes"),
-decompose it into ordered steps.
+You do NOT decide whether an issue needs to be split into multiple
+PRs. That decision belongs to the downstream **cai-split** agent,
+which receives your refined output and evaluates atomic-vs-decompose
+with its own context and confidence gate.
 
-Each step must be independently implementable and testable — the
-codebase must be in a working state after each step.
-
-Produce a `## Multi-Step Decomposition` block **instead of**
-`## Refined Issue`:
-
-~~~
-## Multi-Step Decomposition
-
-### Step 1: <title>
-
-### Description
-<what this step fixes or adds>
-
-### Plan
-1. <concrete step — name files and functions>
-2. ...
-
-### Verification
-<how to confirm this step worked>
-
-### Scope guardrails
-<what NOT to touch in this step>
-
-### Files to change
-<file list for this step>
-
-### Step 2: <title>
-
-### Description
-<what this step fixes or adds>
-
-### Plan
-1. ...
-
-### Verification
-...
-
-### Scope guardrails
-...
-
-### Files to change
-...
-~~~
-
-When the wrapper receives a `## Multi-Step Decomposition` output,
-it will: create sub-issues for each step, label the parent issue
-`auto-improve:parent`, and add a checklist to the parent issue
-tracking sub-issue completion.
-
-Multi-step guidelines:
-- Each step must be a standalone change (own PR, own tests)
-- Later steps may depend on earlier steps being merged first
-- 2–5 steps is typical; if you need more, the scope may be too
-  large even for multi-step
-- Do NOT decompose single-PR issues — only use this for work that
-  genuinely requires multiple independent changes
+Always emit exactly ONE `## Refined Issue` block covering the full
+scope the human asked for, no matter how large. Do NOT emit a
+`## Multi-Step Decomposition` block — the wrapper no longer parses
+that output from refine. If you think the scope is too big to
+implement in one PR, say so in the Description (e.g. "scope may
+require multi-step decomposition — downstream split agent will
+decide") and still refine the full scope.
 
 ## Guidelines
 
@@ -235,7 +185,8 @@ Multi-step guidelines:
   "works" end-to-end yet produces zero published issues. If the
   runtime path requires editing a file you want out of scope,
   either (a) include that file in *Files to change* and do the
-  minimal edit, or (b) emit a `## Multi-Step Decomposition` with
-  the forbidden edit as an earlier predecessor step that the
-  current feature depends on. Do not ship a refined issue whose
-  forbidden file is provably required for the feature to function.
+  minimal edit, or (b) note in the Description that a predecessor
+  step is required and let the downstream **cai-split** agent
+  decide whether to spawn a decomposition. Do not ship a refined
+  issue whose forbidden file is provably required for the feature
+  to function.

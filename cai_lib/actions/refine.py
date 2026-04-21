@@ -16,18 +16,13 @@ from cai_lib.config import (
     REPO,
     LABEL_RAISED,
     LABEL_REFINING,
-    LABEL_PARENT,
     LABEL_DEPTH_PREFIX,
-    MAX_DECOMPOSITION_DEPTH,
 )
 from cai_lib.fsm import fire_trigger
-from cai_lib.github import (
-    _gh_json, _set_labels, _build_issue_block, _post_issue_comment,
-)
+from cai_lib.github import _build_issue_block
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import _strip_stored_plan_block
-from cai_lib.cmd_implement import _parse_decomposition
 from cai_lib.issues import create_issue, link_sub_issue, list_sub_issues
 
 
@@ -264,14 +259,9 @@ def handle_refine(issue: dict) -> int:
     # the agent may rewrite the body to incorporate exploration findings
     # and re-decide NextStep.
     user_message = _build_issue_block(issue)
-    current_depth = _issue_depth(issue)
-    if current_depth >= MAX_DECOMPOSITION_DEPTH:
-        user_message += (
-            f"\n\nIMPORTANT: This issue is at decomposition depth {current_depth} "
-            f"(max {MAX_DECOMPOSITION_DEPTH}). Do NOT produce a "
-            f"`## Multi-Step Decomposition` section. Refine this issue as a single "
-            f"unit of work."
-        )
+    # Decomposition depth awareness is handled by cai-split (the
+    # downstream scope evaluator). Refine now always refines a
+    # single unit of work regardless of depth.
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-refine",
          "--dangerously-skip-permissions"],
@@ -311,38 +301,10 @@ def handle_refine(issue: dict) -> int:
                 duration=dur, result="already_structured", exit=0)
         return 0
 
-    # Check for multi-step decomposition. Parent issues take on
-    # :parent and drop out of the normal FSM; sub-issues become the
-    # new units of work at :raised.
-    if "## Multi-Step Decomposition" in stdout:
-        steps = _parse_decomposition(stdout)
-        if steps and len(steps) >= 2:
-            print(
-                f"[cai refine] #{issue_number} decomposed into "
-                f"{len(steps)} steps",
-                flush=True,
-            )
-            sub_nums = _create_sub_issues(steps, issue_number, title, depth=current_depth + 1)
-            _set_labels(
-                issue_number,
-                add=[LABEL_PARENT],
-                remove=[LABEL_REFINING],
-                log_prefix="cai refine",
-            )
-            dur = f"{int(time.monotonic() - t0)}s"
-            log_run(
-                "refine", repo=REPO, issue=issue_number,
-                duration=dur, result="decomposed",
-                sub_issues=len(sub_nums), steps=len(steps), exit=0,
-            )
-            return 0
-        # Malformed decomposition (< 2 steps) — fall through to normal
-        # refinement.
-        print(
-            f"[cai refine] #{issue_number} decomposition had "
-            f"{len(steps)} step(s); falling through to normal refinement",
-            flush=True,
-        )
+    # Scope decomposition (Multi-Step Decomposition) is now the
+    # responsibility of the downstream cai-split agent. If refine
+    # emits a decomposition block anyway we silently ignore it here
+    # — split re-evaluates from the refined body on the next cycle.
 
     # Parse the refined issue block.
     marker = "## Refined Issue"

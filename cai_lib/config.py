@@ -142,6 +142,7 @@ LABEL_PLAN_APPROVED = "auto-improve:plan-approved"
 # corresponding agent runs. Confidence gates on their exit transitions
 # divert to :human-needed instead of the nominal target.
 LABEL_REFINING = "auto-improve:refining"
+LABEL_SPLITTING = "auto-improve:splitting"
 LABEL_PLANNING = "auto-improve:planning"
 LABEL_APPLYING = "auto-improve:applying"
 LABEL_APPLIED  = "auto-improve:applied"

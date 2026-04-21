@@ -166,49 +166,42 @@ class TestCreateSubIssuesDepth(unittest.TestCase):
         self.assertIn("depth:1", labels)
 
 
-class TestDepthGate(unittest.TestCase):
-    @patch("cai_lib.actions.refine.log_run")
-    @patch("cai_lib.actions.refine._run_claude_p")
-    @patch("cai_lib.actions.refine.fire_trigger")
-    @patch("cai_lib.actions.refine._build_issue_block", return_value="issue text")
+class TestSplitDepthGate(unittest.TestCase):
+    """At max depth, cai-split's user_message instructs the agent not to
+    emit a decomposition block. Decomposition responsibility moved from
+    cai-refine to cai-split in the refine-split-architecture change.
+    """
+
+    @patch("cai_lib.actions.split.log_run")
+    @patch("cai_lib.actions.split._run_claude_p")
+    @patch("cai_lib.actions.split.fire_trigger")
+    @patch("cai_lib.actions.split._build_issue_block", return_value="issue text")
     def test_max_depth_injects_no_decompose(
         self, mock_build, mock_transition, mock_claude, mock_log_run,
     ):
-        """At max depth, user_message should instruct agent not to decompose.
-
-        Also patches ``cai_lib.actions.refine.log_run`` (issue #1109) so the
-        test does not append a real ``[refine] issue=5 duration=0s
-        result=refined exit=0`` entry to ``/var/log/cai/cai.log`` every time
-        ``cai implement``'s in-clone regression gate
-        (``cai_lib/actions/implement.py:1406``) runs
-        ``python -m unittest discover -s tests -v``.
-        """
         mock_claude.return_value = MagicMock(
-            returncode=0, stdout="## Refined Issue\nContent", stderr=""
+            returncode=0,
+            stdout="## Split Verdict\n\nVERDICT: ATOMIC\n\nConfidence: HIGH\n",
+            stderr="",
         )
-        with patch("cai_lib.actions.refine._run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stderr="")
-            with patch("cai_lib.actions.refine.MAX_DECOMPOSITION_DEPTH", 2):
-                issue = {
-                    "number": 5, "title": "Test",
-                    "labels": [{"name": "depth:2"}],
-                    "body": "test body",
-                }
-                handle_refine(issue)
+        with patch("cai_lib.actions.split.MAX_DECOMPOSITION_DEPTH", 2):
+            from cai_lib.actions.split import handle_split
+            issue = {
+                "number": 5, "title": "Test",
+                "labels": [{"name": "depth:2"}, {"name": "auto-improve:refined"}],
+                "body": "test body",
+            }
+            handle_split(issue)
         call_kwargs = mock_claude.call_args
         input_msg = call_kwargs.kwargs.get("input") or call_kwargs[1].get("input", "")
-        self.assertIn("Do NOT produce", input_msg)
-        # Regression guard: if a future refactor removes the log_run patch,
-        # this assertion fires before the real logger can write to
-        # /var/log/cai/cai.log. handle_refine's success path always ends in
-        # a log_run call, so the mock must see at least one invocation.
+        self.assertIn("Do NOT", input_msg)
+        self.assertIn("Multi-Step Decomposition", input_msg)
+        # Regression guard: handle_split's success path always ends in a
+        # log_run call, so the mock must see at least one invocation.
         mock_log_run.assert_called()
-        # All recorded calls must carry category="refine" and issue=5 so an
-        # accidental bypass (e.g. a real log_run leaking through a partial
-        # patch) is visible.
         for call in mock_log_run.call_args_list:
             args, kwargs = call
-            self.assertEqual(args[0], "refine")
+            self.assertEqual(args[0], "split")
             self.assertEqual(kwargs.get("issue"), 5)
 
 

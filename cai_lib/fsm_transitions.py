@@ -16,8 +16,8 @@ from transitions import Machine, MachineError
 from transitions.extensions import GraphMachine
 
 from cai_lib.config import (
-    LABEL_RAISED, LABEL_REFINING, LABEL_REFINED, LABEL_PLANNING,
-    LABEL_PLANNED, LABEL_PLAN_APPROVED,
+    LABEL_RAISED, LABEL_REFINING, LABEL_REFINED, LABEL_SPLITTING,
+    LABEL_PLANNING, LABEL_PLANNED, LABEL_PLAN_APPROVED,
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
     LABEL_TRIAGING, LABEL_APPLYING, LABEL_APPLIED,
@@ -126,12 +126,26 @@ ISSUE_TRANSITIONS: list[Transition] = [
     Transition("exploration_to_refining",    IssueState.NEEDS_EXPLORATION, IssueState.REFINING,
                labels_remove=[LABEL_NEEDS_EXPLORATION], labels_add=[LABEL_REFINING]),
 
-    # REFINED → PLANNING is the auto-advance: whoever drives the
-    # pipeline (cmd_plan / unified driver) picks up a :refined issue
-    # and immediately moves it to :planning when it starts the plan
-    # agent. There is no human gate here.
+    # REFINED → SPLITTING is the auto-advance: the dispatcher picks up
+    # a :refined issue and hands it to cai-split for scope evaluation
+    # before any plan work. The legacy refined_to_planning edge is kept
+    # for backwards compatibility with resume paths but is no longer
+    # fired by the unified driver.
+    Transition("refined_to_splitting",       IssueState.REFINED,           IssueState.SPLITTING,
+               labels_remove=[LABEL_REFINED],           labels_add=[LABEL_SPLITTING]),
     Transition("refined_to_planning",        IssueState.REFINED,           IssueState.PLANNING,
                labels_remove=[LABEL_REFINED],           labels_add=[LABEL_PLANNING]),
+
+    # SPLITTING is transient — cai-split is evaluating whether the
+    # refined scope is atomic (single PR) or needs multi-step
+    # decomposition. Atomic + HIGH → PLANNING (cai-plan runs next).
+    # Decompose + HIGH is handled by handle_split directly via
+    # _set_labels(LABEL_PARENT) — no state transition for that branch.
+    # LOW confidence or malformed output diverts to HUMAN_NEEDED.
+    Transition("splitting_to_planning",      IssueState.SPLITTING,         IssueState.PLANNING,
+               labels_remove=[LABEL_SPLITTING],         labels_add=[LABEL_PLANNING]),
+    Transition("splitting_to_human",         IssueState.SPLITTING,         IssueState.HUMAN_NEEDED,
+               labels_remove=[LABEL_SPLITTING],         labels_add=[LABEL_HUMAN_NEEDED]),
 
     # PLANNING is transient — cai-plan is running. Same confidence gate
     # pattern as refining.
@@ -261,6 +275,12 @@ ISSUE_TRANSITIONS: list[Transition] = [
     Transition("human_to_refining",          IssueState.HUMAN_NEEDED,      IssueState.REFINING,
                labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
                labels_add=[LABEL_REFINING]),
+    # Admin wants cai-split to re-evaluate scope without re-running
+    # cai-refine (e.g. they've manually narrowed the refined body and
+    # want a fresh atomic/decompose verdict).
+    Transition("human_to_splitting",         IssueState.HUMAN_NEEDED,      IssueState.SPLITTING,
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_add=[LABEL_SPLITTING]),
     # Admin greenlights the already-stored plan — jump past the
     # planned→approved gate.
     Transition("human_to_plan_approved",     IssueState.HUMAN_NEEDED,      IssueState.PLAN_APPROVED,
