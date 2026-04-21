@@ -26,8 +26,8 @@ The user message contains the following sections, in order:
 ### Module
 
 Name of the module being audited, a one-paragraph summary of its purpose, a
-documentation snippet (e.g. the module's README or relevant section of
-`CODEBASE_INDEX.md`), and the list of file globs that define the module's
+documentation snippet (e.g. the corresponding narrative in `docs/modules/<name>.md`
+or the module entry in `docs/modules.yaml`), and the list of file globs that define the module's
 scope.
 
 ### Findings file

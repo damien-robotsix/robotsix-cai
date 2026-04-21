@@ -18,7 +18,7 @@ Prefer conservative judgment: one well-justified proposal is worth more than sev
 
 ### Module
 
-Name of the module being audited, a one-paragraph summary of its purpose, a documentation snippet (e.g. the module's README or the relevant section of `CODEBASE_INDEX.md`), and the list of file globs that define the module's scope. Every finding you raise must cite a `file:line` inside these globs.
+Name of the module being audited, a one-paragraph summary of its purpose, a documentation snippet (e.g. the corresponding narrative in `docs/modules/<name>.md` or the module entry in `docs/modules.yaml`), and the list of file globs that define the module's scope. Every finding you raise must cite a `file:line` inside these globs.
 
 ### Findings file
 
