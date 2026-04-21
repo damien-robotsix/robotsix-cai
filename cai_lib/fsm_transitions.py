@@ -205,6 +205,22 @@ ISSUE_TRANSITIONS: list[Transition] = [
     Transition("in_progress_to_refining",    IssueState.IN_PROGRESS,       IssueState.REFINING,
                labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_REFINING],
                min_confidence=None),
+    # Explicit IN_PROGRESS → HUMAN_NEEDED park used by the four
+    # implement-side escalation paths (early-abort guard, pre-screen
+    # spike verdict, subagent-no-change spike marker, repeated
+    # test-failures on a non-MEDIUM plan). Caller-gated (no FSM-level
+    # confidence threshold) — the handler decides when to park and
+    # supplies the divert_reason text that apply_transition renders
+    # into the MARKER-bearing comment the audit parser picks up. Added
+    # in response to issue #1083: before this transition existed the
+    # four code paths called ``_set_labels(add=[LABEL_HUMAN_NEEDED])``
+    # directly with a hand-rolled comment that was missing the
+    # ``Automation paused`` / ``Required confidence:`` /
+    # ``Reported confidence:`` lines, silently breaking
+    # ``_fetch_human_needed_issues`` in cmd_agents.py.
+    Transition("in_progress_to_human_needed", IssueState.IN_PROGRESS,      IssueState.HUMAN_NEEDED,
+               labels_remove=[LABEL_IN_PROGRESS],       labels_add=[LABEL_HUMAN_NEEDED],
+               min_confidence=None),
     Transition("pr_to_merged",               IssueState.PR,                IssueState.MERGED,
                labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_MERGED]),
     # Recovery paths out of PR when the linked PR was closed unmerged
@@ -597,7 +613,11 @@ def _render_human_divert_reason(
     semantics only needs to touch one formatter.
     """
     conf_name = confidence.name if confidence is not None else "MISSING"
-    required = transition.min_confidence.name
+    required = (
+        transition.min_confidence.name
+        if transition.min_confidence is not None
+        else "caller-gated"
+    )
     lines = [
         "**🙋 Human attention needed**",
         "",
