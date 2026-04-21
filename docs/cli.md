@@ -4,19 +4,9 @@
 
 Run inside the container: `docker compose exec cai python /app/cai.py <subcommand>`
 
-Subcommands group into three categories: **pipeline drivers** (`cycle`, `dispatch`) drain the auto-improve FSM queue; **audit subcommands** (`audit`, `audit-module`) file findings into the loop; **utility commands** (`cost-report`, `init`, `test`, `unblock`, `verify`) are operational helpers.
+Subcommands group into three categories: **pipeline drivers** (`cycle`, `dispatch`) drain the auto-improve FSM queue; **audit subcommands** (`audit-module`) file findings into the loop; **utility commands** (`cost-report`, `init`, `test`, `unblock`, `verify`) are operational helpers.
 
 ---
-
-## audit
-
-Run the periodic queue/PR consistency audit: roll back stale `:in-progress` (6-hour TTL), `:revising` (1-hour TTL), and `:applying` (2-hour TTL) locks; clean up orphaned branches; migrate open `:no-action` issues (deprecated label) to closed-as-not-planned; recover `:pr-open` issues whose linked PR was closed; retroactively close closed issues lacking terminal labels (as 'not planned'); and invoke the `cai-audit` agent for a full state-machine review. The audit checks for inconsistencies including duplicates, stuck loops, label corruption, and human-needed issues (pipeline jams, abandoned tasks, repeated diversions, missing divert reasons). Findings are pre-screened for duplicates/resolved via `cai-dup-check` before publishing; only survivors create issues.
-
-```bash
-cai audit
-```
-
-No arguments.
 
 ## audit-module
 

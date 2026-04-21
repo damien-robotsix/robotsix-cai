@@ -12,29 +12,6 @@ Subcommands:
                             claude -p, and publish findings via
                             publish.py.
 
-    python cai.py fix       Score eligible issues by age, category
-                            success rate, and prior fix attempts; pick
-                            the highest scorer labelled
-                            `auto-improve:plan-approved` (reached
-                            either automatically on a HIGH-confidence
-                            plan or via admin resume from
-                            `:human-needed`), run a cheap Haiku
-                            pre-screen to classify the issue;
-                            ambiguous issues are returned to their origin
-                            label without cloning, while spike-shaped
-                            issues are routed to :human-needed; if
-                            actionable, lock it
-                            via the `:in-progress` label, clone the repo
-                            into /tmp, load the stored implementation
-                            plan from the issue body (written by `cai
-                            plan` between `<!-- cai-plan-start/end -->`
-                            markers) if present, then run the fix
-                            subagent (full tool permissions) with that
-                            plan, and open a PR if the agent produced a
-                            diff. Does NOT re-plan — planning is a
-                            separate `cai plan` step. Rolls back the
-                            label on empty diff or any failure.
-
     python cai.py verify    Mechanical, no-LLM. Walk issues with
                             `:pr-open`, find their linked PR by `Refs`
                             search, and transition the label:
@@ -68,12 +45,6 @@ Subcommands:
                             cost-reduction, workflow-enhancement). Publishes
                             findings through the existing dedup/dup-check
                             pipeline.
-
-    python cai.py audit-triage  Autonomously resolve `auto-improve:raised`
-                            + `audit` findings without opening a PR. Calls
-                            `cai-audit-triage` which classifies each finding
-                            as `close_duplicate`, `close_resolved`,
-                            `passthrough`, or `escalate`.
 
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
@@ -118,67 +89,6 @@ Subcommands:
                             `auto-improve:planned`. Invoked as part
                             of `cai.py cycle`; also runnable manually.
 
-    python cai.py code-audit  Weekly source-code consistency audit.
-                            Clones the repo read-only, runs a Sonnet
-                            agent that checks for cross-file
-                            inconsistencies, dead code, missing
-                            references, and similar concrete problems.
-                            Findings are published as issues via
-                            publish.py with the `code-audit` namespace.
-
-    python cai.py agent-audit  Weekly audit of .claude/agents/**/*.md for
-                            Claude Code best-practice violations, unused
-                            agents (not invoked via `--agent` anywhere), and
-                            near-duplicate agents. Runs on Opus. Findings are
-                            published via publish.py with the `agent-audit`
-                            namespace.
-
-    python cai.py propose     Weekly creative improvement proposal.
-                            Clones the repo read-only, runs a creative
-                            agent to propose an ambitious improvement,
-                            then a review agent to evaluate feasibility.
-                            Approved proposals are filed as issues with
-                            `auto-improve:raised` so they flow through
-                            the refine → fix pipeline.
-
-    python cai.py update-check  Weekly Claude Code release check.
-                            Clones the repo, fetches the latest Claude
-                            Code releases from GitHub, and runs a Sonnet
-                            agent that compares the current pinned
-                            version against the latest releases. Findings
-                            (new versions, deprecated flags, best
-                            practices) are published via publish.py with
-                            the `update-check` namespace.
-
-    python cai.py external-scout  Weekly scout for open-source libraries
-                            that could replace in-house plumbing.
-                            Clones the repo, runs an Opus agent that
-                            walks the codebase, picks one category of
-                            in-house utility, searches the open-source
-                            ecosystem for mature alternatives, and emits
-                            a single adoption proposal (or No findings.).
-                            Findings are published via publish.py with
-                            the `external-scout` namespace. Uses the
-                            built-in `memory: project` pool to avoid
-                            re-proposing the same category or library.
-
-    python cai.py health-report  Automated pipeline health report with
-                            anomaly detection. Aggregates cost trends
-                            (last 7d vs prior 7d), issue queue counts,
-                            pipeline stalls, and fix quality metrics.
-                            Flags anomalies with 🔴/🟡/🟢 traffic-light
-                            indicators and posts the report as a GitHub
-                            issue with the `health-report` label. Use
-                            --dry-run to print to stdout without posting.
-
-    python cai.py check-workflows  Periodic GitHub Actions workflow failure
-                            monitor. Fetches recent workflow runs, filters
-                            out bot branches (auto-improve/), and runs a
-                            Haiku agent to identify persistent failures.
-                            Findings are published via publish.py with the
-                            `check-workflows` namespace. Runs every 6 hours
-                            by default (configurable via CAI_CHECK_WORKFLOWS_SCHEDULE).
-
     python cai.py unblock   Scan open issues/PRs parked at
                             `auto-improve:human-needed` (or
                             `auto-improve:pr-human-needed`) that an admin
@@ -212,16 +122,6 @@ Default schedules (all configurable via environment variables):
     ─────────────     ──────────────     ─────────────────────   ──────────────────────────
     cycle             0 * * * *          Hourly at :00           CAI_CYCLE_SCHEDULE
     verify            15 * * * *         Hourly at :15           CAI_VERIFY_SCHEDULE
-    analyze           0 0 * * *          Daily at midnight       CAI_ANALYZER_SCHEDULE
-    audit             0 */6 * * *        Every 6 hours           CAI_AUDIT_SCHEDULE
-    check-workflows   0 */6 * * *        Every 6 hours           CAI_CHECK_WORKFLOWS_SCHEDULE
-    code-audit        0 3 * * 0          Weekly, Sundays 03:00   CAI_CODE_AUDIT_SCHEDULE
-    propose           0 4 * * 0          Weekly, Sundays 04:00   CAI_PROPOSE_SCHEDULE
-    cost-optimize     0 5 * * 0          Weekly, Sundays 05:00   CAI_COST_OPTIMIZE_SCHEDULE
-    agent-audit       0 6 * * 0          Weekly, Sundays 06:00   CAI_AGENT_AUDIT_SCHEDULE
-    update-check      0 4 * * 1          Weekly, Mondays 04:00   CAI_UPDATE_CHECK_SCHEDULE
-    external-scout    0 6 * * 1          Weekly, Mondays 06:00   CAI_EXTERNAL_SCOUT_SCHEDULE
-    health-report     0 7 * * 1          Weekly, Mondays 07:00   CAI_HEALTH_REPORT_SCHEDULE
     rescue            30 */4 * * *       Every 4 hours at :30    CAI_RESCUE_SCHEDULE
 
 The container runs `entrypoint.sh`, which executes `cai.py cycle` once
@@ -294,14 +194,9 @@ from cai_lib.cmd_helpers import _work_directory_block  # noqa: E402
 from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
 from cai_lib.cmd_rescue import cmd_rescue  # noqa: E402
 from cai_lib.cmd_misc import (  # noqa: E402
-    cmd_init, cmd_verify, cmd_test,
-    cmd_cost_report, cmd_health_report, cmd_check_workflows,
+    cmd_init, cmd_verify, cmd_test, cmd_cost_report,
 )
-from cai_lib.cmd_agents import (  # noqa: E402
-    cmd_analyze, cmd_audit, cmd_propose, cmd_code_audit,
-    cmd_agent_audit, cmd_update_check, cmd_cost_optimize, cmd_external_scout,
-    cmd_audit_module,
-)
+from cai_lib.cmd_agents import cmd_audit_module  # noqa: E402
 from cai_lib.cmd_cycle import cmd_cycle, cmd_dispatch  # noqa: E402
 from cai_lib.transcript_sync import cmd_transcript_sync  # noqa: E402
 
@@ -317,17 +212,12 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="Smoke test if no transcripts exist")
-    sub.add_parser("analyze", help="Run the analyzer + publish findings")
 
     dispatch_parser = sub.add_parser("dispatch", help="Dispatch FSM action (oldest actionable by default)")
     dispatch_parser.add_argument("--issue", type=int, default=None, help="Dispatch a specific issue by number")
     dispatch_parser.add_argument("--pr", type=int, default=None, help="Dispatch a specific PR by number")
 
     sub.add_parser("verify", help="Update labels based on PR merge state")
-    sub.add_parser(
-        "audit",
-        help="Periodic queue/PR consistency audit with stale-lock rollback and semantic analysis",
-    )
     audit_module_p = sub.add_parser(
         "audit-module",
         help=(
@@ -343,11 +233,6 @@ def main() -> int:
         choices=["good-practices", "code-reduction", "cost-reduction", "workflow-enhancement"],
         help="Per-module audit kind to dispatch",
     )
-    sub.add_parser("code-audit", help="Audit repo source code for inconsistencies")
-    sub.add_parser("agent-audit", help="Weekly audit of .claude/agents/ for consistency and usage")
-    sub.add_parser("propose", help="Weekly creative improvement proposal")
-    sub.add_parser("update-check", help="Check Claude Code releases for workspace improvements")
-    sub.add_parser("external-scout", help="Scout open-source libraries to replace in-house plumbing")
     sub.add_parser(
         "unblock",
         help="Resume :human-needed issues when an admin has commented",
@@ -356,8 +241,6 @@ def main() -> int:
         "rescue",
         help="Autonomously resume :human-needed issues that don't actually require human input (Opus cai-rescue agent)",
     )
-    sub.add_parser("cost-optimize", help="Weekly cost-reduction proposal or evaluation")
-    sub.add_parser("check-workflows", help="Check GitHub Actions for recent workflow failures and raise findings")
     sub.add_parser("cycle", help="One cycle tick: verify, audit, dispatch one actionable issue/PR")
     sub.add_parser(
         "transcript-sync",
@@ -382,15 +265,6 @@ def main() -> int:
         help="Aggregation grouping (default: category)",
     )
 
-    health_parser = sub.add_parser(
-        "health-report",
-        help="Automated pipeline health report with anomaly detection",
-    )
-    health_parser.add_argument(
-        "--dry-run", action="store_true", default=False,
-        help="Print report to stdout without posting a GitHub issue",
-    )
-
     args = parser.parse_args()
 
     # transcript-sync only shells out to rsync/ssh; it never touches GitHub
@@ -410,23 +284,13 @@ def main() -> int:
 
     handlers = {
         "init": cmd_init,
-        "analyze": cmd_analyze,
         "dispatch": cmd_dispatch,
         "verify": cmd_verify,
-        "audit": cmd_audit,
         "audit-module": cmd_audit_module,
-        "code-audit": cmd_code_audit,
-        "agent-audit": cmd_agent_audit,
-        "propose": cmd_propose,
-        "update-check": cmd_update_check,
-        "external-scout": cmd_external_scout,
         "unblock": cmd_unblock,
         "rescue": cmd_rescue,
         "cycle": cmd_cycle,
         "cost-report": cmd_cost_report,
-        "health-report": cmd_health_report,
-        "cost-optimize": cmd_cost_optimize,
-        "check-workflows": cmd_check_workflows,
         "transcript-sync": cmd_transcript_sync,
         "test": cmd_test,
     }

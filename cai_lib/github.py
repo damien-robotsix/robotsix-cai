@@ -291,7 +291,7 @@ def close_issue_not_planned(
 
 
 # ---------------------------------------------------------------------------
-# PR-linked-issue helpers (shared by cmd_verify and cmd_audit)
+# PR-linked-issue helpers (shared by cmd_verify and the queue audit)
 # ---------------------------------------------------------------------------
 
 def _find_linked_pr(issue_number: int):

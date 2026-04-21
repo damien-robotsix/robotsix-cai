@@ -74,14 +74,14 @@
 | `cai_lib/audit/cost.py` | TODO: add description |
 | `cai_lib/audit/modules.py` | YAML loader + coverage validator for docs/modules.yaml — parses module registry and checks file coverage |
 | `cai_lib/audit/runner.py` | TODO: add description |
-| `cai_lib/cmd_agents.py` | Agent-launch cmd_* functions: analyze, audit, propose, code-audit, agent-audit, update-check, cost-optimize, external-scout |
+| `cai_lib/cmd_agents.py` | on-demand per-module audit dispatcher: cmd_audit_module |
 | `cai_lib/cmd_cycle.py` | TODO: add description |
 | `cai_lib/cmd_helpers.py` | Cross-command helpers shared between cai.py and cai_lib/actions/* |
 | `cai_lib/cmd_helpers_git.py` | Git and worktree helpers for cai action wrappers |
 | `cai_lib/cmd_helpers_github.py` | GitHub API helpers for cai action wrappers |
 | `cai_lib/cmd_helpers_issues.py` | Issue-lifecycle helpers for cai action wrappers |
 | `cai_lib/cmd_implement.py` | Helpers for the implement-subagent pipeline |
-| `cai_lib/cmd_misc.py` | CLI subcommands extracted from cai.py: init, verify, cost-report, health-report, check-workflows, test |
+| `cai_lib/cmd_misc.py` | CLI subcommands extracted from cai.py: init, verify, cost-report, test |
 | `cai_lib/cmd_rescue.py` | Autonomous rescue pass for :human-needed issues lacking human:solved (calls cai-rescue) |
 | `cai_lib/cmd_unblock.py` | Admin-comment-driven FSM resume for :human-needed issues (calls cai-unblock) |
 | `cai_lib/config.py` | Shared constants and path definitions |
@@ -172,7 +172,6 @@
 | `tests/test_publish.py` | Tests for publish.py issue publishing |
 | `tests/test_remote_lock.py` | TODO: add description |
 | `tests/test_rescue_opus.py` | Tests for cai_lib.cmd_rescue — Opus-escalation verdict plumbing, schema, and one-shot label guard |
-| `tests/test_retroactive_sweep.py` | TODO: add description |
 | `tests/test_review_docs_manifest.py` | TODO: add description |
 | `tests/test_revise_filter.py` | TODO: add description |
 | `tests/test_rollback.py` | Tests for rollback functionality |

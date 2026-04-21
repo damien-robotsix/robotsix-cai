@@ -18,22 +18,13 @@
 
 Cron schedules are configurable via environment variables. Default values are set in `entrypoint.sh`; most are also explicitly configured in `docker-compose.yml`.
 
-`CAI_CYCLE_SCHEDULE` drives the unified dispatcher: each tick runs restart-recover → `dispatch_oldest_actionable()`, which picks the oldest open issue or PR whose lifecycle state has a handler and runs the matching handler in `cai_lib/actions/`. A flock serializes overlapping runs. The planner confidence gate: HIGH auto-promotes to `:plan-approved`; MEDIUM with explicit anchor-based risk mitigation also auto-promotes; MEDIUM documentation-only plans (those touching only `docs/` files) also auto-promote; plans flagged `requires_human_review=true` (when cai-select chose a plan knowingly diverging from refined-issue preference) divert with a bespoke "Plan diverges from preference" message; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker and a comment explaining why the plan didn't reach HIGH confidence (e.g., unverified assumptions, ambiguous scope). An admin comment resumes it via `cai unblock`. `cai dispatch --issue N` / `cai dispatch --pr N` remains callable manually or from GitHub Actions for targeted retries. Verify and audit run on their own independent cron schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`).
+`CAI_CYCLE_SCHEDULE` drives the unified dispatcher: each tick runs restart-recover → `dispatch_oldest_actionable()`, which picks the oldest open issue or PR whose lifecycle state has a handler and runs the matching handler in `cai_lib/actions/`. A flock serializes overlapping runs. The planner confidence gate: HIGH auto-promotes to `:plan-approved`; MEDIUM with explicit anchor-based risk mitigation also auto-promotes; MEDIUM documentation-only plans (those touching only `docs/` files) also auto-promote; plans flagged `requires_human_review=true` (when cai-select chose a plan knowingly diverging from refined-issue preference) divert with a bespoke "Plan diverges from preference" message; MEDIUM / LOW / missing diverts to `:human-needed` with a pending marker and a comment explaining why the plan didn't reach HIGH confidence (e.g., unverified assumptions, ambiguous scope). An admin comment resumes it via `cai unblock`. `cai dispatch --issue N` / `cai dispatch --pr N` remains callable manually or from GitHub Actions for targeted retries. Verify and rescue run on their own independent cron schedules (`CAI_VERIFY_SCHEDULE`, `CAI_RESCUE_SCHEDULE`).
 
 | Variable | Default | Description |
 |---|---|---|
 | `CAI_CYCLE_SCHEDULE` | `0 * * * *` | Restart-recovery + dispatch one actionable issue/PR |
-| `CAI_VERIFY_SCHEDULE` | `15 * * * *` | Label-state reconciliation (cmd_verify) — removes deprecated cai-managed labels from open issues, then keeps :pr-open / :merged / etc. consistent with actual GitHub state. |
-| `CAI_ANALYZER_SCHEDULE` | `0 0 * * *` | Daily transcript analysis and issue raising |
-| `CAI_AUDIT_SCHEDULE` | `0 */6 * * *` | Every 6 hours — queue/PR lifecycle audit |
-| `CAI_CODE_AUDIT_SCHEDULE` | `0 3 * * 0` | Weekly (Sunday 03:00 UTC) — source tree audit |
-| `CAI_PROPOSE_SCHEDULE` | `0 4 * * 0` | Weekly (Sunday 04:00 UTC) — creative proposals |
-| `CAI_COST_OPTIMIZE_SCHEDULE` | `0 5 * * 0` | Weekly (Sunday 05:00 UTC) — cost-reduction analysis |
-| `CAI_UPDATE_CHECK_SCHEDULE` | `0 4 * * 1` | Weekly (Monday 04:00 UTC) — Claude Code release check |
-| `CAI_EXTERNAL_SCOUT_SCHEDULE` | `0 6 * * 1` | Weekly (Monday 06:00 UTC) — scout for open-source libraries to replace in-house plumbing |
-| `CAI_HEALTH_REPORT_SCHEDULE` | `0 7 * * 1` | Weekly (Monday 07:00 UTC) — pipeline health report |
-| `CAI_CHECK_WORKFLOWS_SCHEDULE` | `0 */6 * * *` | Every 6 hours — GitHub Actions workflow check |
-| `CAI_AGENT_AUDIT_SCHEDULE` | `0 6 * * 0` | Weekly (Sunday 06:00 UTC) — agent audit |
+| `CAI_VERIFY_SCHEDULE` | `15 * * * *` | Label-state reconciliation — removes deprecated cai-managed labels from open issues, then keeps :pr-open / :merged / etc. consistent with actual GitHub state. |
+| `CAI_RESCUE_SCHEDULE` | `30 */4 * * *` | Every 4 hours at :30 — autonomously resume :human-needed issues without human:solved label |
 | `CAI_WORKSPACES_CONFIG` | `/app/workspaces.json` | Path to a JSON file listing additional repositories to maintain (optional; see Multi-workspace section below) |
 
 Schedule values use standard cron format: `minute hour day month weekday`. To disable a scheduled agent, set its variable to an empty string or a comment value.
@@ -49,13 +40,13 @@ Schedule values use standard cron format: `minute hour day month weekday`. To di
 
 When you run cai for the same repository on multiple machines, each
 container only sees the sessions that happened on its own host.
-`cai analyze` and `cai confirm` then only reason about a local slice of
-activity, missing signals from the rest of the fleet.
+`cai confirm` (the merged-PR verification phase) then only reasons about a
+local slice of activity, missing signals from the rest of the fleet.
 
 The transcript-sync feature addresses this by pushing each host's
 transcripts to a central SSH server you own (any cheap VPS works — OVH,
 Hetzner, a home lab box) and pulling the union back before
-analyze/confirm run.
+confirm runs.
 
 ### Enabling
 
@@ -198,4 +189,4 @@ Agent-level overrides live in `.claude/agents/<name>.md` YAML frontmatter (`tool
 | `/var/log/cai/cai.log` | Structured run log (JSON lines, one entry per `cai` invocation) |
 | `/var/log/cai/cai-cost.jsonl` | Per-invocation cost log (input/output tokens + USD) |
 | `/var/log/cai/cai-outcomes.jsonl` | Fix/revise outcome log (issue number, verdict, PR URL) |
-| `/var/log/cai/review-pr-patterns.jsonl` | Review-PR finding category log (used by `cai analyze`) |
+| `/var/log/cai/review-pr-patterns.jsonl` | Review-PR finding category log (used by the confirm phase for pipeline health analysis) |

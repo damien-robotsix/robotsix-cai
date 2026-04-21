@@ -109,18 +109,6 @@ def transcript_sync_enabled() -> bool:
 # Files baked into the image alongside cai.py.
 PARSE_SCRIPT = Path("/app/parse.py")
 PUBLISH_SCRIPT = Path("/app/publish.py")
-# Persistent memory file for the code-audit agent. Stored in the
-# named-volume log directory so it survives container restarts.
-CODE_AUDIT_MEMORY = Path("/var/log/cai/code-audit-memory.md")
-# Persistent memory file for the propose agent (same pattern).
-PROPOSE_MEMORY = Path("/var/log/cai/propose-memory.md")
-# Persistent memory file for the update-check agent.
-UPDATE_CHECK_MEMORY = Path("/var/log/cai/update-check-memory.md")
-# Persistent memory file for the cost-optimize agent.
-COST_OPTIMIZE_MEMORY = Path("/var/log/cai/cost-optimize-memory.md")
-# Persistent memory file for the agent-audit agent.
-AGENT_AUDIT_MEMORY = Path("/var/log/cai/agent-audit-memory.md")
-
 # Persistent per-agent memory directory. Each declarative subagent
 # has `memory: project` in its frontmatter, which Claude Code stores
 # under `.claude/agent-memory/<agent-name>/MEMORY.md` relative to
