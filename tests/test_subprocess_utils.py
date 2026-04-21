@@ -234,6 +234,101 @@ class TestStderrEnrichment(unittest.TestCase):
         self.assertIn("no_ResultMessage", proc.stderr)
 
 
+class TestCliStderrCapture(unittest.TestCase):
+    """The SDK's transport only pipes the `claude -p` subprocess's stderr
+    when ``ClaudeAgentOptions.stderr`` is set. Previously we never wired
+    that callback, so when the CLI crashed the SDK raised
+    ``ProcessError("Command failed with exit code 1", stderr="Check stderr
+    output for details")`` — the literal placeholder. The real crash
+    reason vanished into the parent's inherited stderr and we could not
+    diagnose the intermittent failures breaking the cycle loop.
+
+    These tests verify that ``_run_claude_p`` now attaches a stderr sink
+    and surfaces the captured lines in both the logged message and the
+    returned ``CompletedProcess.stderr``.
+    """
+
+    def test_exception_path_includes_captured_cli_stderr(self):
+        """SDK exception → stderr field must carry captured CLI stderr tail."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        cli_lines = [
+            "node: fatal: unexpected end of stream on stdin",
+            "    at /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js:42",
+        ]
+
+        async def _fake_query(*, prompt, options=None, transport=None):
+            # Simulate the SDK transport feeding stderr lines through the
+            # callback before raising ProcessError the same way the real
+            # transport does on a subprocess crash.
+            sink = options.stderr
+            if sink:
+                for line in cli_lines:
+                    sink(line)
+            raise RuntimeError(
+                "Fatal error in message reader: Command failed with exit code 1"
+            )
+            yield  # pragma: no cover — make it an async generator
+
+        with patch.object(subprocess_utils, "query", _fake_query):
+            with patch("builtins.print") as mock_print:
+                proc = _run_claude_p(
+                    ["claude", "-p", "--agent", "cai-implement"],
+                    category="implement", agent="cai-implement",
+                )
+
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("unexpected end of stream", proc.stderr)
+        self.assertIn("cli.js:42", proc.stderr)
+        self.assertIn("--- cli stderr ---", proc.stderr)
+        # Log line must also mention cli_stderr=... so grepping the
+        # wrapper's own log surfaces the real cause.
+        printed = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("cli_stderr=", printed)
+        self.assertIn("unexpected end of stream", printed)
+
+    def test_exception_without_captured_stderr_falls_back(self):
+        """When the CLI emitted no stderr, behaviour matches the pre-#1 contract."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        async def _fake_query(*, prompt, options=None, transport=None):
+            raise RuntimeError("boom")
+            yield  # pragma: no cover
+
+        with patch.object(subprocess_utils, "query", _fake_query):
+            with patch("builtins.print"):
+                proc = _run_claude_p(
+                    ["claude", "-p", "--agent", "cai-implement"],
+                    category="implement", agent="cai-implement",
+                )
+
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stderr, "boom")
+
+    def test_stderr_capture_is_bounded(self):
+        """The sink must cap at _CAPTURED_STDERR_MAX_LINES to avoid leaks."""
+        from cai_lib.subprocess_utils import (
+            _CAPTURED_STDERR_MAX_LINES,
+            _captured_stderr_text,
+            _make_stderr_sink,
+        )
+
+        buf: list[str] = []
+        sink = _make_stderr_sink(buf)
+        for i in range(_CAPTURED_STDERR_MAX_LINES * 3):
+            sink(f"line {i}")
+
+        self.assertEqual(len(buf), _CAPTURED_STDERR_MAX_LINES)
+        # Early lines are preserved (bounded-append keeps the head —
+        # matches the "first crash symptom wins" shape the transport
+        # tends to produce).
+        self.assertEqual(buf[0], "line 0")
+        text = _captured_stderr_text(buf)
+        self.assertTrue(text)
+
+
 class TestSdkErrorSummary(unittest.TestCase):
     """Direct unit tests for the issue-#1106 summary helper."""
 
