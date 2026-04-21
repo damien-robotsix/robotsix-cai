@@ -1229,5 +1229,268 @@ class TestAutoFlaggedScaleComplexityHelpers(unittest.TestCase):
         self.assertFalse(_prior_divert_cites_scale_complexity(None))
 
 
+class TestCountEditStepsHelper(unittest.TestCase):
+    """#1139 — structural counter for `#### Step N — Edit/Write` headers."""
+
+    def test_empty_and_none_return_zero(self):
+        from cai_lib.actions.plan import _count_edit_steps
+        self.assertEqual(_count_edit_steps(""), 0)
+        self.assertEqual(_count_edit_steps(None), 0)
+
+    def test_counts_edit_and_write_headers(self):
+        from cai_lib.actions.plan import _count_edit_steps
+        plan = (
+            "## Plan\n\n"
+            "### Detailed steps\n\n"
+            "#### Step 1 \u2014 Edit `foo.py`\n"
+            "body\n\n"
+            "#### Step 2 \u2014 Write `bar.py`\n"
+            "body\n\n"
+            "#### Step 3 \u2014 Edit `baz.py`\n"
+            "body\n"
+        )
+        self.assertEqual(_count_edit_steps(plan), 3)
+
+    def test_ignores_non_edit_step_verbs(self):
+        from cai_lib.actions.plan import _count_edit_steps
+        plan = (
+            "#### Step 1 \u2014 Read `foo.py`\n"
+            "#### Step 2 \u2014 Verify behaviour\n"
+            "#### Step 3 \u2014 Edit `bar.py`\n"
+        )
+        self.assertEqual(_count_edit_steps(plan), 1)
+
+    def test_accepts_em_dash_en_dash_and_hyphen(self):
+        from cai_lib.actions.plan import _count_edit_steps
+        plan = (
+            "#### Step 1 \u2014 Edit `a.py`\n"
+            "#### Step 2 \u2013 Edit `b.py`\n"
+            "#### Step 3 - Edit `c.py`\n"
+        )
+        self.assertEqual(_count_edit_steps(plan), 3)
+
+
+class TestPlanIsLargeMechanicalRefactorHelper(unittest.TestCase):
+    """#1139 — both-threshold gate for the large-mechanical-refactor
+    detection."""
+
+    def _plan(self, n_files, n_steps):
+        files_section = "### Files to change\n" + "".join(
+            f"- **`pkg/file_{i}.py`**: change\n" for i in range(n_files)
+        )
+        steps_section = "### Detailed steps\n" + "".join(
+            f"#### Step {i + 1} \u2014 Edit "
+            f"`pkg/file_{i % max(n_files, 1)}.py`\n\nbody\n\n"
+            for i in range(n_steps)
+        )
+        return f"## Plan\n\n{files_section}\n{steps_section}"
+
+    def test_fires_when_both_thresholds_met(self):
+        from cai_lib.actions.plan import _plan_is_large_mechanical_refactor
+        self.assertTrue(_plan_is_large_mechanical_refactor(
+            self._plan(n_files=8, n_steps=50)
+        ))
+
+    def test_fires_on_large_excess(self):
+        from cai_lib.actions.plan import _plan_is_large_mechanical_refactor
+        self.assertTrue(_plan_is_large_mechanical_refactor(
+            self._plan(n_files=20, n_steps=80)
+        ))
+
+    def test_below_file_threshold_returns_false(self):
+        from cai_lib.actions.plan import _plan_is_large_mechanical_refactor
+        self.assertFalse(_plan_is_large_mechanical_refactor(
+            self._plan(n_files=7, n_steps=60)
+        ))
+
+    def test_below_step_threshold_returns_false(self):
+        from cai_lib.actions.plan import _plan_is_large_mechanical_refactor
+        self.assertFalse(_plan_is_large_mechanical_refactor(
+            self._plan(n_files=12, n_steps=49)
+        ))
+
+    def test_empty_and_none_return_false(self):
+        from cai_lib.actions.plan import _plan_is_large_mechanical_refactor
+        self.assertFalse(_plan_is_large_mechanical_refactor(None))
+        self.assertFalse(_plan_is_large_mechanical_refactor(""))
+        self.assertFalse(_plan_is_large_mechanical_refactor(
+            "plan without sections"
+        ))
+
+
+class TestHandlePlanGateAppliesOpusLabel(unittest.TestCase):
+    """#1139 — handle_plan_gate applies LABEL_OPUS_ATTEMPTED directly on
+    a successfully-approved large-mechanical-refactor plan, so
+    handle_implement reads opus_escalation=True on the next tick."""
+
+    def _large_plan(self):
+        files = "### Files to change\n" + "".join(
+            f"- **`pkg/file_{i}.py`**: change\n" for i in range(10)
+        )
+        steps = "### Detailed steps\n" + "".join(
+            f"#### Step {i + 1} \u2014 Edit "
+            f"`pkg/file_{i % 10}.py`\n\nbody\n\n"
+            for i in range(60)
+        )
+        return f"## Plan\n\n{files}\n{steps}"
+
+    def _small_plan(self):
+        return (
+            "## Plan\n\n"
+            "### Files to change\n"
+            "- **`pkg/a.py`**: tweak\n\n"
+            "### Detailed steps\n"
+            "#### Step 1 \u2014 Edit `pkg/a.py`\n\nbody\n"
+        )
+
+    def _issue(self, *, plan_text, labels=None):
+        return {
+            "number": 1139,
+            "title": "t",
+            "body": "",
+            "labels": [
+                {"name": n} for n in (labels or ["auto-improve:planned"])
+            ],
+            "_cai_plan_confidence": Confidence.HIGH,
+            "_cai_plan_confidence_reason": "",
+            "_cai_plan_text": plan_text,
+            "_cai_plan_requires_human_review": False,
+            "_cai_plan_approvable_at_medium": False,
+        }
+
+    @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_large_plan_applies_opus_label_on_approval(
+        self, _mock_log, mock_fire, mock_set_labels, mock_post,
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_OPUS_ATTEMPTED
+        mock_fire.return_value = (True, False)  # approved, not diverted
+        mock_set_labels.return_value = True
+
+        rc = handle_plan_gate(self._issue(plan_text=self._large_plan()))
+
+        self.assertEqual(rc, 0)
+        # The gate transition fired with planned_to_plan_approved.
+        self.assertEqual(
+            mock_fire.call_args[0][1], "planned_to_plan_approved",
+        )
+        # The post-approval label application ran.
+        opus_calls = [
+            c for c in mock_set_labels.call_args_list
+            if LABEL_OPUS_ATTEMPTED in (c.kwargs.get("add") or [])
+        ]
+        self.assertEqual(len(opus_calls), 1)
+        # An informational comment was posted.
+        mock_post.assert_called_once()
+        self.assertIn(
+            "Pre-emptive Opus-tier escalation",
+            mock_post.call_args[0][1],
+        )
+
+    @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_small_plan_does_not_apply_opus_label(
+        self, _mock_log, mock_fire, mock_set_labels, mock_post,
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_OPUS_ATTEMPTED
+        mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = True
+
+        rc = handle_plan_gate(self._issue(plan_text=self._small_plan()))
+
+        self.assertEqual(rc, 0)
+        opus_calls = [
+            c for c in mock_set_labels.call_args_list
+            if LABEL_OPUS_ATTEMPTED in (c.kwargs.get("add") or [])
+        ]
+        self.assertEqual(opus_calls, [])
+        mock_post.assert_not_called()
+
+    @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_diverted_large_plan_does_not_apply_opus_label(
+        self, _mock_log, mock_fire, mock_set_labels, mock_post,
+    ):
+        """When the confidence gate diverts to :human-needed we MUST
+        NOT stamp LABEL_OPUS_ATTEMPTED — the admin should choose the
+        tier when resuming."""
+        from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_OPUS_ATTEMPTED
+        # approved-call succeeds but diverted=True (below-threshold).
+        mock_fire.return_value = (True, True)
+        mock_set_labels.return_value = True
+
+        issue = self._issue(plan_text=self._large_plan())
+        issue["_cai_plan_confidence"] = Confidence.LOW
+        rc = handle_plan_gate(issue)
+
+        self.assertEqual(rc, 0)
+        opus_calls = [
+            c for c in mock_set_labels.call_args_list
+            if LABEL_OPUS_ATTEMPTED in (c.kwargs.get("add") or [])
+        ]
+        self.assertEqual(opus_calls, [])
+        mock_post.assert_not_called()
+
+    @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_existing_opus_label_short_circuits(
+        self, _mock_log, mock_fire, mock_set_labels, mock_post,
+    ):
+        """A plan that already carries LABEL_OPUS_ATTEMPTED (e.g. this
+        is a re-plan after a rescue escalation) must NOT spam a second
+        comment or a redundant _set_labels call."""
+        from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_OPUS_ATTEMPTED
+        mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = True
+
+        rc = handle_plan_gate(self._issue(
+            plan_text=self._large_plan(),
+            labels=[
+                "auto-improve:planned",
+                LABEL_OPUS_ATTEMPTED,
+            ],
+        ))
+
+        self.assertEqual(rc, 0)
+        opus_calls = [
+            c for c in mock_set_labels.call_args_list
+            if LABEL_OPUS_ATTEMPTED in (c.kwargs.get("add") or [])
+        ]
+        self.assertEqual(opus_calls, [])
+        mock_post.assert_not_called()
+
+    @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_set_labels_failure_skips_comment_and_continues(
+        self, _mock_log, mock_fire, mock_set_labels, mock_post,
+    ):
+        """When _set_labels fails we must NOT post the comment (so the
+        admin doesn't see 'pre-empting to Opus' on an issue still
+        queued for Sonnet) and must still return 0 — the gate
+        transition already succeeded."""
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = False
+
+        rc = handle_plan_gate(self._issue(plan_text=self._large_plan()))
+
+        self.assertEqual(rc, 0)
+        mock_post.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

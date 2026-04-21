@@ -67,7 +67,11 @@ that diverges from the refined-issue's stated preference) divert to
 all others divert to `:human-needed` for admin review with a comment
 explaining why the plan didn't reach the required confidence (e.g.,
 unverified assumptions, ambiguous scope, missing edge cases). An admin
-comment resumes them via `cai unblock`.
+comment resumes them via `cai unblock`. Additionally, plans that qualify
+as large mechanical refactors (spanning ≥8 files and ≥50 individual edit
+steps) are automatically marked for pre-emptive Opus-tier implementation,
+bypassing the normal Sonnet-first attempt to avoid exhausting retries on
+large-scale refactoring tasks.
 
 A flock in `cmd_cycle` serializes overlapping runs. For manual or
 targeted invocation, `cai.py dispatch --issue N` and
