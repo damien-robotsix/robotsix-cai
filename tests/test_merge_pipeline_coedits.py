@@ -49,7 +49,7 @@ _PRE_MERGE_FINDINGS_BODY = (
     "\n"
     "### Finding: missing_co_change\n"
     "\n"
-    "**File(s):** scripts/generate-index.sh, CODEBASE_INDEX.md\n"
+    "**File(s):** docs/modules.yaml, docs/agents.md\n"
     "\n"
     "**Description:** missing references.\n"
     "\n"
@@ -191,15 +191,15 @@ class TestBuildPipelineCoeditsExemptionBlock(unittest.TestCase):
         self.assertTrue(
             result.startswith("## Pre-authorized pipeline co-edits")
         )
-        self.assertIn("- `scripts/generate-index.sh`", result)
-        self.assertIn("- `CODEBASE_INDEX.md`", result)
+        self.assertIn("- `docs/modules.yaml`", result)
+        self.assertIn("- `docs/agents.md`", result)
 
     def test_dedupe_preserves_first_seen_order(self):
         # Same file cited in two comments — should appear once,
         # at the position of its first appearance.
         comments = [
             _comment(_DOCS_APPLIED_BODY),  # README.md, docs/cli.md, cai.py
-            _comment(_PRE_MERGE_FINDINGS_BODY),  # generate-index.sh, CODEBASE_INDEX.md
+            _comment(_PRE_MERGE_FINDINGS_BODY),  # docs/modules.yaml, docs/agents.md
             _comment(
                 "## cai docs review (applied) \u2014 newersha\n"
                 "\n"
@@ -212,13 +212,13 @@ class TestBuildPipelineCoeditsExemptionBlock(unittest.TestCase):
         # README.md appears exactly once.
         self.assertEqual(result.count("- `README.md`"), 1)
         # Order: README.md (from first comment) before
-        # CODEBASE_INDEX.md (from second), before
+        # docs/modules.yaml (from second), before
         # scripts/check-modules-coverage.py (from third).
         readme_pos = result.find("- `README.md`")
-        idx_pos = result.find("- `CODEBASE_INDEX.md`")
+        modules_pos = result.find("- `docs/modules.yaml`")
         new_pos = result.find("- `scripts/check-modules-coverage.py`")
-        self.assertLess(readme_pos, idx_pos)
-        self.assertLess(idx_pos, new_pos)
+        self.assertLess(readme_pos, modules_pos)
+        self.assertLess(modules_pos, new_pos)
 
     def test_block_concatenates_cleanly_with_pr_changes_header(self):
         """End-to-end: simulate user_message concatenation to verify

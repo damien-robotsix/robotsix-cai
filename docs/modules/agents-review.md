@@ -45,8 +45,8 @@ REVIEWING_CODE → REVIEWING_DOCS → APPROVED pipeline.
   renames, or deletes a tracked source file must update
   `docs/modules.yaml` plus the matching `docs/modules/<name>.md`.
   `cai-review-docs` enforces this pre-merge; `cai-review-pr` must
-  NOT list `docs/**` or `CODEBASE_INDEX.md` as off-limits in its
-  scope guardrails (they are always allowed).
+  NOT list `docs/**` as off-limits in its scope guardrails
+  (it is always allowed).
 - **FSM invariant.** `cai-merge` emits a structured verdict; a
   missing/malformed `Confidence:` line defaults to STOP and keeps
   the PR in REVIEWING_CODE rather than merging.

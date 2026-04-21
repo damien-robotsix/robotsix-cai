@@ -143,8 +143,7 @@ def _extract_scope_guardrails_paths(refined_body: str) -> set[str]:
 def _detect_guardrail_contradictions(refined_body: str) -> list[str]:
     files = _extract_files_to_change(refined_body)
     guards = _extract_scope_guardrails_paths(refined_body)
-    ignorable = {"CODEBASE_INDEX.md"}
-    both = sorted((files & guards) - ignorable)
+    both = sorted(files & guards)
     return [p for p in both if not p.startswith("docs/")]
 
 

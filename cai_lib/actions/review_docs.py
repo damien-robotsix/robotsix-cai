@@ -100,7 +100,6 @@ def _run_generated_docs(work_dir: Path) -> str:
     ahead of the PR HEAD.
     """
     scripts = [
-        ("CODEBASE_INDEX.md", ["bash", "scripts/generate-index.sh"]),
         ("docs/fsm.md", ["python", "scripts/generate-fsm-docs.py"]),
     ]
     failures: list[str] = []
