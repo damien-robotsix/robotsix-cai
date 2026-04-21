@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import traceback
 import uuid
 
 from pathlib import Path
@@ -1475,6 +1476,7 @@ def handle_implement(issue: dict) -> int:
 
     except Exception as e:
         print(f"[cai implement] unexpected failure: {e!r}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         rollback()
         log_run("implement", repo=REPO, issue=issue_number,
                 result="unexpected_error", exit=1)
