@@ -294,9 +294,31 @@ them inline — they are automatically converted to separate GitHub issues.
    skip it entirely.
 6. **Keep fixes short.** Update only the specific stale content, preserving
    all other text.
-7. **Do not use Bash.** You have `Read`, `Grep`, `Glob`, `Edit`, and `Write` —
-   use them exclusively. Bash is not available and all Bash calls will be
-   rejected by the sandbox.
+7. **Do not use Bash or run any `git` command.** You have `Read`,
+   `Grep`, `Glob`, `Edit`, and `Write` — use them exclusively.
+   Bash is not allowlisted for this agent
+   (`--allowedTools Read,Grep,Glob,Edit,Write` in
+   `cai_lib/actions/review_docs.py`). Even when the model
+   attempts a shell-out anyway, any
+   `Bash("git -C <work_dir> diff ...")`,
+   `Bash("git -C <work_dir> log ...")`,
+   `Bash("git -C <work_dir> status ...")`, or other
+   `git -C <path> ...` call is further refused by the sandbox
+   with "This command changes directory before running git,
+   which can execute untrusted hooks from the target directory"
+   — each such refusal wastes a turn. Every piece of git state
+   you would want is already in the user message: the
+   `## PR changes (stat summary)` block (from
+   `git diff origin/main..HEAD --stat`), the
+   `## Authoritative deletion manifest` block (from
+   `git diff --name-only --diff-filter=D`, verified against the
+   work directory), the `## Generated-docs regeneration` block
+   (drift from running the deterministic doc generators), and
+   the `## Module coverage` block. Treat all four as final and
+   do NOT try to re-run `git diff`, `git log`, `git status`, or
+   any other `git` command. For file contents, open them
+   directly from the work directory with `Read` (the PR branch
+   is already checked out there).
 8. **Use the staging directory for `.claude/agents/*.md` edits.** These files
    are flagged as sensitive and direct Edit/Write calls against them will be
    blocked. If you find stale documentation inside an agent definition file,
