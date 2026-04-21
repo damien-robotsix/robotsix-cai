@@ -33,7 +33,7 @@ Terminal / parked states (`SOLVED`, `HUMAN_NEEDED`, `PR_HUMAN_NEEDED`, PR `MERGE
 
 Multi-step sequences (titled `[#N Step X/Y]`) are processed sequentially; Step N+1 is deferred if Step N is still open.
 
-Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai code-audit`, `cai agent-audit`, `cai audit`, or a human files an issue labeled `auto-improve:raised`. Low-confidence planner outcomes park at `:human-needed`; the admin resolves the issue in comments, applies the `human:solved` label, which `cai unblock` picks up to resume the FSM, and optionally proposes plan amendments that are merged into the stored plan. Issues parked at `:human-needed` without admin intervention can optionally be autonomously resumed via `cai rescue` when the divert is mechanically resolvable (e.g., transient infrastructure failures, parser glitches).
+Issues enter the pipeline when a human files an issue labeled `auto-improve:raised`, or when the `cai audit` or `cai audit-module` subcommands publish findings through the existing dedup/dup-check pipeline. Low-confidence planner outcomes park at `:human-needed`; the admin resolves the issue in comments, applies the `human:solved` label, which `cai unblock` picks up to resume the FSM, and optionally proposes plan amendments that are merged into the stored plan. Issues parked at `:human-needed` without admin intervention can optionally be autonomously resumed via `cai rescue` when the divert is mechanically resolvable (e.g., transient infrastructure failures, parser glitches).
 
 ## Lifecycle Labels
 
@@ -82,7 +82,7 @@ Issues still enter the pipeline the same way: `cai analyze`, `cai propose`, `cai
 
 A flock serializes overlapping runs so two cron ticks cannot dispatch the same item concurrently.
 
-Verify (`cai verify`) and audit (`cai audit`) are **independent cron jobs** — they run on their own schedules (`CAI_VERIFY_SCHEDULE`, `CAI_AUDIT_SCHEDULE`) rather than inside the cycle. Verify removes deprecated cai-managed labels from open issues, then syncs label state with actual PR/issue state (merged → `:merged`, closed → `:raised`, etc.); audit runs the queue/PR consistency audit. Maintain operations (Phase 3) are drained within the cycle rather than on a separate schedule because they are transient states that should unblock quickly.
+Verify (`cai verify`) is an **independent cron job** that runs on its own schedule (`CAI_VERIFY_SCHEDULE`) rather than inside the cycle. It removes deprecated cai-managed labels from open issues, then syncs label state with actual PR/issue state (merged → `:merged`, closed → `:raised`, etc.). Maintain operations (Phase 3) are drained within the cycle rather than on a separate schedule because they are transient states that should unblock quickly.
 
 ## Agent Execution Modes
 
@@ -107,4 +107,4 @@ For review and planning agents (`cai-code-audit`, `cai-external-scout`, `cai-git
 
 ### Read-only agents
 
-`cai-analyze`, `cai-audit`, `cai-confirm`, `cai-cost-optimize`, `cai-merge`, `cai-refine` receive all context in their prompt or read the live repo without a dedicated clone. They emit structured output (findings, verdicts, label transitions) that the wrapper acts on deterministically.
+`cai-audit`, `cai-confirm`, `cai-merge`, `cai-refine` receive all context in their prompt or read the live repo without a dedicated clone. They emit structured output (findings, verdicts, label transitions) that the wrapper acts on deterministically.

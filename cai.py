@@ -12,29 +12,6 @@ Subcommands:
                             claude -p, and publish findings via
                             publish.py.
 
-    python cai.py fix       Score eligible issues by age, category
-                            success rate, and prior fix attempts; pick
-                            the highest scorer labelled
-                            `auto-improve:plan-approved` (reached
-                            either automatically on a HIGH-confidence
-                            plan or via admin resume from
-                            `:human-needed`), run a cheap Haiku
-                            pre-screen to classify the issue;
-                            ambiguous issues are returned to their origin
-                            label without cloning, while spike-shaped
-                            issues are routed to :human-needed; if
-                            actionable, lock it
-                            via the `:in-progress` label, clone the repo
-                            into /tmp, load the stored implementation
-                            plan from the issue body (written by `cai
-                            plan` between `<!-- cai-plan-start/end -->`
-                            markers) if present, then run the fix
-                            subagent (full tool permissions) with that
-                            plan, and open a PR if the agent produced a
-                            diff. Does NOT re-plan — planning is a
-                            separate `cai plan` step. Rolls back the
-                            label on empty diff or any failure.
-
     python cai.py verify    Mechanical, no-LLM. Walk issues with
                             `:pr-open`, find their linked PR by `Refs`
                             search, and transition the label:
@@ -68,12 +45,6 @@ Subcommands:
                             cost-reduction, workflow-enhancement). Publishes
                             findings through the existing dedup/dup-check
                             pipeline.
-
-    python cai.py audit-triage  Autonomously resolve `auto-improve:raised`
-                            + `audit` findings without opening a PR. Calls
-                            `cai-audit-triage` which classifies each finding
-                            as `close_duplicate`, `close_resolved`,
-                            `passthrough`, or `escalate`.
 
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
@@ -118,67 +89,6 @@ Subcommands:
                             `auto-improve:planned`. Invoked as part
                             of `cai.py cycle`; also runnable manually.
 
-    python cai.py code-audit  Weekly source-code consistency audit.
-                            Clones the repo read-only, runs a Sonnet
-                            agent that checks for cross-file
-                            inconsistencies, dead code, missing
-                            references, and similar concrete problems.
-                            Findings are published as issues via
-                            publish.py with the `code-audit` namespace.
-
-    python cai.py agent-audit  Weekly audit of .claude/agents/**/*.md for
-                            Claude Code best-practice violations, unused
-                            agents (not invoked via `--agent` anywhere), and
-                            near-duplicate agents. Runs on Opus. Findings are
-                            published via publish.py with the `agent-audit`
-                            namespace.
-
-    python cai.py propose     Weekly creative improvement proposal.
-                            Clones the repo read-only, runs a creative
-                            agent to propose an ambitious improvement,
-                            then a review agent to evaluate feasibility.
-                            Approved proposals are filed as issues with
-                            `auto-improve:raised` so they flow through
-                            the refine → fix pipeline.
-
-    python cai.py update-check  Weekly Claude Code release check.
-                            Clones the repo, fetches the latest Claude
-                            Code releases from GitHub, and runs a Sonnet
-                            agent that compares the current pinned
-                            version against the latest releases. Findings
-                            (new versions, deprecated flags, best
-                            practices) are published via publish.py with
-                            the `update-check` namespace.
-
-    python cai.py external-scout  Weekly scout for open-source libraries
-                            that could replace in-house plumbing.
-                            Clones the repo, runs an Opus agent that
-                            walks the codebase, picks one category of
-                            in-house utility, searches the open-source
-                            ecosystem for mature alternatives, and emits
-                            a single adoption proposal (or No findings.).
-                            Findings are published via publish.py with
-                            the `external-scout` namespace. Uses the
-                            built-in `memory: project` pool to avoid
-                            re-proposing the same category or library.
-
-    python cai.py health-report  Automated pipeline health report with
-                            anomaly detection. Aggregates cost trends
-                            (last 7d vs prior 7d), issue queue counts,
-                            pipeline stalls, and fix quality metrics.
-                            Flags anomalies with 🔴/🟡/🟢 traffic-light
-                            indicators and posts the report as a GitHub
-                            issue with the `health-report` label. Use
-                            --dry-run to print to stdout without posting.
-
-    python cai.py check-workflows  Periodic GitHub Actions workflow failure
-                            monitor. Fetches recent workflow runs, filters
-                            out bot branches (auto-improve/), and runs a
-                            Haiku agent to identify persistent failures.
-                            Findings are published via publish.py with the
-                            `check-workflows` namespace. Runs every 6 hours
-                            by default (configurable via CAI_CHECK_WORKFLOWS_SCHEDULE).
-
     python cai.py unblock   Scan open issues/PRs parked at
                             `auto-improve:human-needed` (or
                             `auto-improve:pr-human-needed`) that an admin
@@ -212,16 +122,6 @@ Default schedules (all configurable via environment variables):
     ─────────────     ──────────────     ─────────────────────   ──────────────────────────
     cycle             0 * * * *          Hourly at :00           CAI_CYCLE_SCHEDULE
     verify            15 * * * *         Hourly at :15           CAI_VERIFY_SCHEDULE
-    analyze           0 0 * * *          Daily at midnight       CAI_ANALYZER_SCHEDULE
-    audit             0 */6 * * *        Every 6 hours           CAI_AUDIT_SCHEDULE
-    check-workflows   0 */6 * * *        Every 6 hours           CAI_CHECK_WORKFLOWS_SCHEDULE
-    code-audit        0 3 * * 0          Weekly, Sundays 03:00   CAI_CODE_AUDIT_SCHEDULE
-    propose           0 4 * * 0          Weekly, Sundays 04:00   CAI_PROPOSE_SCHEDULE
-    cost-optimize     0 5 * * 0          Weekly, Sundays 05:00   CAI_COST_OPTIMIZE_SCHEDULE
-    agent-audit       0 6 * * 0          Weekly, Sundays 06:00   CAI_AGENT_AUDIT_SCHEDULE
-    update-check      0 4 * * 1          Weekly, Mondays 04:00   CAI_UPDATE_CHECK_SCHEDULE
-    external-scout    0 6 * * 1          Weekly, Mondays 06:00   CAI_EXTERNAL_SCOUT_SCHEDULE
-    health-report     0 7 * * 1          Weekly, Mondays 07:00   CAI_HEALTH_REPORT_SCHEDULE
     rescue            30 */4 * * *       Every 4 hours at :30    CAI_RESCUE_SCHEDULE
 
 The container runs `entrypoint.sh`, which executes `cai.py cycle` once
