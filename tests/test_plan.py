@@ -228,7 +228,7 @@ class TestHandlePlanGateAnchorMitigation(unittest.TestCase):
             "_cai_plan_text": plan_text,
         }
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_medium_with_marker_uses_mitigated_transition(
         self, _mock_log, mock_apply
@@ -248,9 +248,9 @@ class TestHandlePlanGateAnchorMitigation(unittest.TestCase):
         self.assertEqual(args[1], "planned_to_plan_approved_mitigated")
         # Reported confidence is passed through unchanged — gating is a
         # property of the selected transition, not a confidence upgrade.
-        self.assertEqual(args[2], Confidence.MEDIUM)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.MEDIUM)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_medium_without_marker_uses_default_transition(
         self, _mock_log, mock_apply
@@ -267,9 +267,9 @@ class TestHandlePlanGateAnchorMitigation(unittest.TestCase):
         self.assertEqual(rc, 0)
         args = mock_apply.call_args[0]
         self.assertEqual(args[1], "planned_to_plan_approved")
-        self.assertEqual(args[2], Confidence.MEDIUM)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.MEDIUM)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_low_with_marker_still_diverts(
         self, _mock_log, mock_apply
@@ -287,9 +287,9 @@ class TestHandlePlanGateAnchorMitigation(unittest.TestCase):
         # Marker present → mitigated transition is picked; LOW < MEDIUM
         # so the gate still diverts (required=MEDIUM, reported=LOW).
         self.assertEqual(args[1], "planned_to_plan_approved_mitigated")
-        self.assertEqual(args[2], Confidence.LOW)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.LOW)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_high_with_marker_uses_mitigated_transition(
         self, _mock_log, mock_apply
@@ -307,9 +307,9 @@ class TestHandlePlanGateAnchorMitigation(unittest.TestCase):
         # Marker present → mitigated transition regardless of reported
         # confidence. HIGH >= MEDIUM so the gate passes.
         self.assertEqual(args[1], "planned_to_plan_approved_mitigated")
-        self.assertEqual(args[2], Confidence.HIGH)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.HIGH)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_high_without_marker_uses_default_transition(
         self, _mock_log, mock_apply
@@ -325,7 +325,7 @@ class TestHandlePlanGateAnchorMitigation(unittest.TestCase):
         self.assertEqual(rc, 0)
         args = mock_apply.call_args[0]
         self.assertEqual(args[1], "planned_to_plan_approved")
-        self.assertEqual(args[2], Confidence.HIGH)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.HIGH)
 
 
 class TestPlanHasAnchorMitigationHelper(unittest.TestCase):
@@ -392,14 +392,13 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         }
 
     @patch("cai_lib.actions.plan._post_issue_comment")
-    @patch("cai_lib.actions.plan.apply_transition")
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_requires_review_high_conf_still_diverts(
-        self, _mock_log, mock_gated, mock_apply, mock_post
+        self, _mock_log, mock_fire, mock_post
     ):
         from cai_lib.actions.plan import handle_plan_gate
-        mock_apply.return_value = True
+        mock_fire.return_value = (True, False)
 
         rc = handle_plan_gate(self._issue(
             confidence=Confidence.HIGH,
@@ -407,15 +406,18 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         ))
 
         self.assertEqual(rc, 0)
-        # The confidence-gated transition must NOT have been called.
-        mock_gated.assert_not_called()
-        # Instead, the direct planned_to_human transition must fire.
-        args, kwargs = mock_apply.call_args
-        self.assertEqual(args[0], 982)
-        self.assertEqual(args[1], "planned_to_human")
-        # The divert reason must be passed as a kwarg to apply_transition
-        # (which now posts the MARKER comment itself — no direct _post_issue_comment).
-        divert_reason = kwargs.get("divert_reason", "")
+        # fire_trigger must be called exactly once with the non-gated
+        # planned_to_human transition.
+        calls_by_name = [c.args[1] for c in mock_fire.call_args_list]
+        self.assertIn("planned_to_human", calls_by_name)
+        gated_calls = [
+            c for c in mock_fire.call_args_list
+            if c.kwargs.get("_confidence_gated")
+        ]
+        self.assertEqual(gated_calls, [])
+        # divert_reason kwarg must carry the admin-approval message.
+        fire_call_kwargs = mock_fire.call_args.kwargs
+        divert_reason = fire_call_kwargs.get("divert_reason", "")
         self.assertIn(
             "Plan diverges from refined-issue preference",
             divert_reason,
@@ -424,14 +426,13 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         mock_post.assert_not_called()
 
     @patch("cai_lib.actions.plan._post_issue_comment")
-    @patch("cai_lib.actions.plan.apply_transition")
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_requires_review_false_falls_through_to_confidence_gate(
-        self, _mock_log, mock_gated, mock_apply, mock_post
+        self, _mock_log, mock_fire, mock_post
     ):
         from cai_lib.actions.plan import handle_plan_gate
-        mock_gated.return_value = (True, False)
+        mock_fire.return_value = (True, False)
 
         rc = handle_plan_gate(self._issue(
             confidence=Confidence.HIGH,
@@ -439,23 +440,29 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         ))
 
         self.assertEqual(rc, 0)
-        # No bespoke divert — the confidence gate handles the promotion.
-        mock_apply.assert_not_called()
         mock_post.assert_not_called()
-        # apply_transition_with_confidence must have been called on the
-        # default transition because HIGH meets its threshold.
-        call_args = mock_gated.call_args[0]
-        self.assertEqual(call_args[1], "planned_to_plan_approved")
+        # The confidence-gated call must have been made with the default transition.
+        gated_calls = [
+            c for c in mock_fire.call_args_list
+            if c.kwargs.get("_confidence_gated")
+        ]
+        self.assertEqual(len(gated_calls), 1)
+        self.assertEqual(gated_calls[0].args[1], "planned_to_plan_approved")
+        # No non-gated call (human-review divert path must NOT fire).
+        non_gated_calls = [
+            c for c in mock_fire.call_args_list
+            if not c.kwargs.get("_confidence_gated")
+        ]
+        self.assertEqual(non_gated_calls, [])
 
     @patch("cai_lib.actions.plan._post_issue_comment")
-    @patch("cai_lib.actions.plan.apply_transition")
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_requires_review_refused_returns_1(
-        self, _mock_log, mock_gated, mock_apply, _mock_post
+        self, _mock_log, mock_fire, _mock_post
     ):
         from cai_lib.actions.plan import handle_plan_gate
-        mock_apply.return_value = False  # transition refused
+        mock_fire.return_value = (False, False)  # transition refused
 
         rc = handle_plan_gate(self._issue(
             confidence=Confidence.MEDIUM,
@@ -463,19 +470,22 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         ))
 
         self.assertEqual(rc, 1)
-        mock_gated.assert_not_called()
+        gated_calls = [
+            c for c in mock_fire.call_args_list
+            if c.kwargs.get("_confidence_gated")
+        ]
+        self.assertEqual(gated_calls, [])
 
     @patch("cai_lib.actions.plan._post_issue_comment")
-    @patch("cai_lib.actions.plan.apply_transition")
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_requires_review_reparsed_from_body_when_stash_missing(
-        self, _mock_log, mock_gated, mock_apply, mock_post
+        self, _mock_log, mock_fire, mock_post
     ):
         """When the in-process stash is absent, the flag must be
         re-parsed from the stored plan block in the issue body."""
         from cai_lib.actions.plan import handle_plan_gate
-        mock_apply.return_value = True
+        mock_fire.return_value = (True, False)
 
         body = (
             "<!-- cai-plan-start -->\n"
@@ -494,11 +504,15 @@ class TestHandlePlanGateRequiresHumanReview(unittest.TestCase):
         rc = handle_plan_gate(issue)
 
         self.assertEqual(rc, 0)
-        mock_gated.assert_not_called()
-        args, kwargs = mock_apply.call_args
-        self.assertEqual(args[1], "planned_to_human")
-        # divert_reason kwarg must carry the admin-approval message
-        divert_reason = kwargs.get("divert_reason", "")
+        gated_calls = [
+            c for c in mock_fire.call_args_list
+            if c.kwargs.get("_confidence_gated")
+        ]
+        self.assertEqual(gated_calls, [])
+        calls_by_name = [c.args[1] for c in mock_fire.call_args_list]
+        self.assertIn("planned_to_human", calls_by_name)
+        fire_call_kwargs = mock_fire.call_args.kwargs
+        divert_reason = fire_call_kwargs.get("divert_reason", "")
         self.assertIn("admin approval required", divert_reason)
         mock_post.assert_not_called()
 
@@ -682,7 +696,7 @@ class TestHandlePlanGateDocsOnly(unittest.TestCase):
             "_cai_plan_text": plan_text,
         }
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_medium_docs_only_uses_docs_only_transition(
         self, _mock_log, mock_apply
@@ -701,9 +715,9 @@ class TestHandlePlanGateDocsOnly(unittest.TestCase):
         self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
         # Reported confidence passes through unchanged — gating is a
         # property of the selected transition, not a confidence upgrade.
-        self.assertEqual(args[2], Confidence.MEDIUM)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.MEDIUM)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_low_docs_only_still_diverts(
         self, _mock_log, mock_apply
@@ -721,9 +735,9 @@ class TestHandlePlanGateDocsOnly(unittest.TestCase):
         # Docs-only transition is picked; LOW < MEDIUM so the gate
         # still diverts (required=MEDIUM, reported=LOW).
         self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
-        self.assertEqual(args[2], Confidence.LOW)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.LOW)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_high_docs_only_uses_docs_only_transition(
         self, _mock_log, mock_apply
@@ -741,9 +755,9 @@ class TestHandlePlanGateDocsOnly(unittest.TestCase):
         # HIGH-confidence docs-only plans route through the docs-only
         # transition too; HIGH >= MEDIUM so the gate passes.
         self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
-        self.assertEqual(args[2], Confidence.HIGH)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.HIGH)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_docs_only_takes_precedence_over_anchor_mitigation(
         self, _mock_log, mock_apply
@@ -767,7 +781,7 @@ class TestHandlePlanGateDocsOnly(unittest.TestCase):
         args = mock_apply.call_args[0]
         self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_medium_non_docs_falls_through_to_default(
         self, _mock_log, mock_apply
@@ -789,9 +803,9 @@ class TestHandlePlanGateDocsOnly(unittest.TestCase):
         self.assertEqual(rc, 0)
         args = mock_apply.call_args[0]
         self.assertEqual(args[1], "planned_to_plan_approved")
-        self.assertEqual(args[2], Confidence.MEDIUM)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.MEDIUM)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_mixed_docs_and_source_uses_default(
         self, _mock_log, mock_apply
@@ -840,7 +854,7 @@ class TestHandlePlanGateApprovableAtMedium(unittest.TestCase):
             "_cai_plan_approvable_at_medium": approvable,
         }
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_medium_approvable_uses_approvable_transition(
         self, _mock_log, mock_apply
@@ -859,9 +873,9 @@ class TestHandlePlanGateApprovableAtMedium(unittest.TestCase):
         self.assertEqual(args[1], "planned_to_plan_approved_approvable")
         # Reported confidence passes through unchanged — gating is a
         # property of the selected transition, not a confidence upgrade.
-        self.assertEqual(args[2], Confidence.MEDIUM)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.MEDIUM)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_low_approvable_still_diverts(
         self, _mock_log, mock_apply
@@ -879,9 +893,9 @@ class TestHandlePlanGateApprovableAtMedium(unittest.TestCase):
         # Flag picks the approvable transition; LOW < MEDIUM so the
         # gate still diverts (required=MEDIUM, reported=LOW).
         self.assertEqual(args[1], "planned_to_plan_approved_approvable")
-        self.assertEqual(args[2], Confidence.LOW)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.LOW)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_medium_not_approvable_falls_through_to_default(
         self, _mock_log, mock_apply
@@ -898,9 +912,9 @@ class TestHandlePlanGateApprovableAtMedium(unittest.TestCase):
         self.assertEqual(rc, 0)
         args = mock_apply.call_args[0]
         self.assertEqual(args[1], "planned_to_plan_approved")
-        self.assertEqual(args[2], Confidence.MEDIUM)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.MEDIUM)
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_docs_only_takes_precedence_over_approvable(
         self, _mock_log, mock_apply
@@ -925,7 +939,7 @@ class TestHandlePlanGateApprovableAtMedium(unittest.TestCase):
         args = mock_apply.call_args[0]
         self.assertEqual(args[1], "planned_to_plan_approved_docs_only")
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_anchor_mitigation_takes_precedence_over_approvable(
         self, _mock_log, mock_apply
@@ -948,7 +962,7 @@ class TestHandlePlanGateApprovableAtMedium(unittest.TestCase):
         args = mock_apply.call_args[0]
         self.assertEqual(args[1], "planned_to_plan_approved_mitigated")
 
-    @patch("cai_lib.actions.plan.apply_transition_with_confidence")
+    @patch("cai_lib.actions.plan.fire_trigger")
     @patch("cai_lib.actions.plan.log_run")
     def test_approvable_reparsed_from_body_when_stash_missing(
         self, _mock_log, mock_apply
@@ -978,7 +992,7 @@ class TestHandlePlanGateApprovableAtMedium(unittest.TestCase):
         self.assertEqual(rc, 0)
         args = mock_apply.call_args[0]
         self.assertEqual(args[1], "planned_to_plan_approved_approvable")
-        self.assertEqual(args[2], Confidence.MEDIUM)
+        self.assertEqual(mock_apply.call_args.kwargs.get("confidence"), Confidence.MEDIUM)
 
 
 class TestParseApprovableAtMedium(unittest.TestCase):

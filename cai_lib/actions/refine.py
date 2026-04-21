@@ -20,7 +20,7 @@ from cai_lib.config import (
     LABEL_DEPTH_PREFIX,
     MAX_DECOMPOSITION_DEPTH,
 )
-from cai_lib.fsm import apply_transition
+from cai_lib.fsm import fire_trigger
 from cai_lib.github import (
     _gh_json, _set_labels, _build_issue_block, _post_issue_comment,
 )
@@ -255,7 +255,7 @@ def handle_refine(issue: dict) -> int:
     # already in the working state.
     issue_label_names_initial = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
     if LABEL_RAISED in issue_label_names_initial:
-        apply_transition(
+        fire_trigger(
             issue_number, "raise_to_refining",
             current_labels=issue_label_names_initial,
             log_prefix="cai refine",
@@ -302,7 +302,7 @@ def handle_refine(issue: dict) -> int:
             f"advancing :refining → :refined",
             flush=True,
         )
-        apply_transition(
+        fire_trigger(
             issue_number, "refining_to_refined",
             current_labels=[LABEL_REFINING],
             log_prefix="cai refine",
@@ -374,7 +374,7 @@ def handle_refine(issue: dict) -> int:
             "editing) or split the forbidden work into a predecessor "
             "issue and drop it from **Files to change** here."
         )
-        apply_transition(
+        fire_trigger(
             issue_number, "refining_to_human",
             current_labels=[LABEL_REFINING],
             log_prefix="cai refine",
@@ -426,7 +426,7 @@ def handle_refine(issue: dict) -> int:
     # for cmd_plan to pick up.
     dur = f"{int(time.monotonic() - t0)}s"
     if next_step == "EXPLORE":
-        apply_transition(
+        fire_trigger(
             issue_number, "refining_to_exploration",
             current_labels=[LABEL_REFINING],
             log_prefix="cai refine",
@@ -440,7 +440,7 @@ def handle_refine(issue: dict) -> int:
                 duration=dur, result="refined_explore", exit=0)
         return 0
 
-    apply_transition(
+    fire_trigger(
         issue_number, "refining_to_refined",
         current_labels=[LABEL_REFINING],
         log_prefix="cai refine",

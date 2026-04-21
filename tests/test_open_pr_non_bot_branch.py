@@ -45,11 +45,11 @@ class TestHandleOpenToReviewNonBotBranch(unittest.TestCase):
         run_mock.return_value.returncode = 0
         run_mock.return_value.stdout = ""
         run_mock.return_value.stderr = ""
-        transition_mock = MagicMock(return_value=True)
+        transition_mock = MagicMock(return_value=(True, False))
         log_mock = MagicMock()
 
         with patch.object(open_pr_mod, "_run", run_mock), \
-             patch.object(open_pr_mod, "apply_pr_transition", transition_mock), \
+             patch.object(open_pr_mod, "fire_trigger", transition_mock), \
              patch.object(open_pr_mod, "log_run", log_mock):
             rc = open_pr_mod.handle_open_to_review(pr)
 
@@ -77,11 +77,11 @@ class TestHandleOpenToReviewNonBotBranch(unittest.TestCase):
         pr = _pr(946, "auto-improve/945-some-slug")
         run_mock = MagicMock()
         run_mock.return_value.returncode = 0
-        transition_mock = MagicMock(return_value=True)
+        transition_mock = MagicMock(return_value=(True, False))
         log_mock = MagicMock()
 
         with patch.object(open_pr_mod, "_run", run_mock), \
-             patch.object(open_pr_mod, "apply_pr_transition", transition_mock), \
+             patch.object(open_pr_mod, "fire_trigger", transition_mock), \
              patch.object(open_pr_mod, "log_run", log_mock):
             rc = open_pr_mod.handle_open_to_review(pr)
 
@@ -102,11 +102,11 @@ class TestHandleOpenToReviewNonBotBranch(unittest.TestCase):
         pr = _pr(947, "")
         run_mock = MagicMock()
         run_mock.return_value.returncode = 0
-        transition_mock = MagicMock(return_value=True)
+        transition_mock = MagicMock(return_value=(True, False))
         log_mock = MagicMock()
 
         with patch.object(open_pr_mod, "_run", run_mock), \
-             patch.object(open_pr_mod, "apply_pr_transition", transition_mock), \
+             patch.object(open_pr_mod, "fire_trigger", transition_mock), \
              patch.object(open_pr_mod, "log_run", log_mock):
             rc = open_pr_mod.handle_open_to_review(pr)
 

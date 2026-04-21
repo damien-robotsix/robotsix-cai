@@ -29,7 +29,7 @@ import sys
 from typing import Optional
 
 from cai_lib.config import REPO
-from cai_lib.fsm import apply_transition
+from cai_lib.fsm import fire_trigger
 from cai_lib.github import _gh_json
 
 
@@ -173,7 +173,7 @@ def handle_pr_bounce(issue: dict) -> int:
                 f"advancing pr_to_merged",
                 flush=True,
             )
-            ok = apply_transition(
+            ok, _ = fire_trigger(
                 issue_number, "pr_to_merged",
                 current_labels=label_names,
                 log_prefix="cai dispatch",
@@ -197,7 +197,7 @@ def handle_pr_bounce(issue: dict) -> int:
                 f"({close_actor}) — reverting pr_to_refined",
                 flush=True,
             )
-            ok = apply_transition(
+            ok, _ = fire_trigger(
                 issue_number, "pr_to_refined",
                 current_labels=label_names,
                 log_prefix="cai dispatch",
@@ -211,7 +211,7 @@ def handle_pr_bounce(issue: dict) -> int:
                 f"pr_to_human_needed",
                 flush=True,
             )
-            ok = apply_transition(
+            ok, _ = fire_trigger(
                 issue_number, "pr_to_human_needed",
                 current_labels=label_names,
                 log_prefix="cai dispatch",
@@ -233,7 +233,7 @@ def handle_pr_bounce(issue: dict) -> int:
         f"pr_to_human_needed",
         flush=True,
     )
-    ok = apply_transition(
+    ok, _ = fire_trigger(
         issue_number, "pr_to_human_needed",
         current_labels=label_names,
         log_prefix="cai dispatch",

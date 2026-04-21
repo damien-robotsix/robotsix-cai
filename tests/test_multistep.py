@@ -168,7 +168,7 @@ class TestCreateSubIssuesDepth(unittest.TestCase):
 
 class TestDepthGate(unittest.TestCase):
     @patch("cai_lib.actions.refine._run_claude_p")
-    @patch("cai_lib.actions.refine.apply_transition")
+    @patch("cai_lib.actions.refine.fire_trigger")
     @patch("cai_lib.actions.refine._build_issue_block", return_value="issue text")
     def test_max_depth_injects_no_decompose(self, mock_build, mock_transition, mock_claude):
         """At max depth, user_message should instruct agent not to decompose."""

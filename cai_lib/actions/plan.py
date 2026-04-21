@@ -43,8 +43,7 @@ from cai_lib.cmd_helpers import (
     _build_attempt_history_block,
 )
 from cai_lib.fsm import (
-    apply_transition,
-    apply_transition_with_confidence,
+    fire_trigger,
     IssueState,
     get_issue_state,
 )
@@ -526,7 +525,7 @@ def handle_plan(issue: dict) -> int:
 
     # 1. Entry transition :refined → :planning (only on fresh entry).
     if state == IssueState.REFINED:
-        apply_transition(
+        fire_trigger(
             issue_number, "refined_to_planning",
             current_labels=label_names,
             log_prefix="cai plan",
@@ -560,7 +559,7 @@ def handle_plan(issue: dict) -> int:
         if clone.returncode != 0:
             print(f"[cai plan] git clone failed:\n{clone.stderr}",
                   file=sys.stderr)
-            apply_transition(
+            fire_trigger(
                 issue_number, "planning_to_human",
                 current_labels=[LABEL_PLANNING],
                 log_prefix="cai plan",
@@ -592,7 +591,7 @@ def handle_plan(issue: dict) -> int:
         if pipeline_result is None:
             print(f"[cai plan] plan pipeline failed for #{issue_number}",
                   file=sys.stderr)
-            apply_transition(
+            fire_trigger(
                 issue_number, "planning_to_human",
                 current_labels=[LABEL_PLANNING],
                 log_prefix="cai plan",
@@ -640,7 +639,7 @@ def handle_plan(issue: dict) -> int:
         if update.returncode != 0:
             print(f"[cai plan] gh issue edit failed:\n{update.stderr}",
                   file=sys.stderr)
-            apply_transition(
+            fire_trigger(
                 issue_number, "planning_to_human",
                 current_labels=[LABEL_PLANNING],
                 log_prefix="cai plan",
@@ -677,7 +676,7 @@ def handle_plan(issue: dict) -> int:
         issue["_cai_plan_approvable_at_medium"] = plan_approvable_at_medium
 
         # 6. Transition labels: :planning → :planned (waypoint).
-        ok = apply_transition(
+        ok, _ = fire_trigger(
             issue_number, "planning_to_planned",
             current_labels=[LABEL_PLANNING],
             log_prefix="cai plan",
@@ -805,7 +804,7 @@ def handle_plan_gate(issue: dict) -> int:
         ]
         if plan_confidence_reason:
             reason_lines.extend(["", plan_confidence_reason.rstrip()])
-        ok = apply_transition(
+        ok, _ = fire_trigger(
             issue_number, "planned_to_human",
             current_labels=[LABEL_PLANNED],
             log_prefix="cai plan",
@@ -886,8 +885,10 @@ def handle_plan_gate(issue: dict) -> int:
 
     # Apply the gate. Threshold met → :plan-approved; below → :human-needed
     # via the configured divert target.
-    ok, diverted = apply_transition_with_confidence(
-        issue_number, transition_name, plan_confidence,
+    ok, diverted = fire_trigger(
+        issue_number, transition_name,
+        confidence=plan_confidence,
+        _confidence_gated=True,
         current_labels=[LABEL_PLANNED],
         log_prefix="cai plan",
         reason_extra=plan_confidence_reason or "",

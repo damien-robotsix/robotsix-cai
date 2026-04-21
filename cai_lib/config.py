@@ -178,7 +178,7 @@ LABEL_DEPTH_PREFIX = "depth:"
 MAX_DECOMPOSITION_DEPTH: int = int(os.environ.get("CAI_MAX_DECOMPOSITION_DEPTH", "2"))
 
 # PR pipeline-state labels — one per PRState. Set by FSM transitions
-# (apply_pr_transition) and read by dispatch.
+# (fire_trigger) and read by dispatch.
 LABEL_PR_REVIEWING_CODE   = "pr:reviewing-code"    # PRState.REVIEWING_CODE
 LABEL_PR_REVISION_PENDING = "pr:revision-pending"  # PRState.REVISION_PENDING
 LABEL_PR_REVIEWING_DOCS   = "pr:reviewing-docs"    # PRState.REVIEWING_DOCS

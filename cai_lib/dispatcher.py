@@ -207,7 +207,7 @@ def _build_pr_registry() -> dict[PRState, PRHandler]:
 # Maps each from-state to the canonical ``*_to_rebasing`` transition name.
 # REBASING itself, MERGED, and OPEN are intentionally
 # excluded — REBASING is already running it; OPEN doesn't have a label
-# so apply_pr_transition wouldn't have one to remove.
+# so fire_trigger wouldn't have one to remove.
 _REBASE_ENTRY_TRANSITIONS: dict[PRState, str] = {
     PRState.REVIEWING_CODE:   "reviewing_code_to_rebasing",
     PRState.REVISION_PENDING: "revision_pending_to_rebasing",
@@ -337,7 +337,7 @@ def dispatch_pr(pr_number: int) -> int:
 
     # Conflict override: divert to REBASING regardless of pipeline label.
     if state in _REBASE_ENTRY_TRANSITIONS and _pr_needs_rebase(pr):
-        from cai_lib.fsm import apply_pr_transition
+        from cai_lib.fsm import fire_trigger
         from cai_lib.actions.rebase import handle_rebase
         entry = _REBASE_ENTRY_TRANSITIONS[state]
         print(f"[cai dispatch] PR #{pr_number} at {state.name} has "
@@ -349,8 +349,8 @@ def dispatch_pr(pr_number: int) -> int:
                   flush=True)
             return 0
         try:
-            apply_pr_transition(pr_number, entry, current_pr=pr,
-                                log_prefix="cai dispatch")
+            fire_trigger(pr_number, entry, is_pr=True, current_pr=pr,
+                         log_prefix="cai dispatch")
             return handle_rebase(pr)
         finally:
             _release_remote_lock("pr", pr_number)

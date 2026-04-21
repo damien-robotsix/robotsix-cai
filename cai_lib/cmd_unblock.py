@@ -34,8 +34,7 @@ from cai_lib.config import (
 )
 from cai_lib.fsm import (
     Confidence,
-    apply_transition,
-    apply_pr_transition,
+    fire_trigger,
     resume_transition_for,
     resume_pr_transition_for,
 )
@@ -361,7 +360,7 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
     current_labels = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
     # The transition already clears :human-needed; also drop the
     # human:solved signal so the label is one-shot.
-    ok = apply_transition(
+    ok, _ = fire_trigger(
         issue_number, transition.name,
         current_labels=current_labels,
         extra_remove=[LABEL_HUMAN_SOLVED],
@@ -462,7 +461,7 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
     Mirrors :func:`_try_unblock_issue`. Resume target maps to a
     ``pr_human_to_<state>`` transition via
     :func:`resume_pr_transition_for`, applied with
-    :func:`apply_pr_transition`.
+    :func:`fire_trigger`.
     """
     pr_number = pr["number"]
 
@@ -531,10 +530,10 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
         return "no_target"
 
     # The transition already clears :pr-human-needed via labels_remove.
-    # The human:solved label needs an explicit removal pass — unlike the
-    # issue-side helper, apply_pr_transition has no ``extra_remove`` kw.
-    ok = apply_pr_transition(
+    # The human:solved label needs an explicit removal pass via _set_pr_labels.
+    ok, _ = fire_trigger(
         pr_number, transition.name,
+        is_pr=True,
         log_prefix="cai unblock",
     )
     if not ok:

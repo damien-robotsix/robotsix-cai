@@ -1,8 +1,8 @@
 """FSM transition data and logic for the auto-improve lifecycle.
 
 Defines the :class:`Transition` dataclass, the canonical transition lists
-(:data:`ISSUE_TRANSITIONS`, :data:`PR_TRANSITIONS`), and all functions that
-apply or query transitions. State enums live in :mod:`cai_lib.fsm_states`;
+(:data:`ISSUE_TRANSITIONS`, :data:`PR_TRANSITIONS`), and the :func:`fire_trigger`
+dispatch function. State enums live in :mod:`cai_lib.fsm_states`;
 confidence parsing lives in :mod:`cai_lib.fsm_confidence`.
 """
 from __future__ import annotations
@@ -211,7 +211,7 @@ ISSUE_TRANSITIONS: list[Transition] = [
     # spike verdict, subagent-no-change spike marker, repeated
     # test-failures on a non-MEDIUM plan). Caller-gated (no FSM-level
     # confidence threshold) — the handler decides when to park and
-    # supplies the divert_reason text that apply_transition renders
+    # supplies the divert_reason text that fire_trigger renders
     # into the MARKER-bearing comment the audit parser picks up. Added
     # in response to issue #1083: before this transition existed the
     # four code paths called ``_set_labels(add=[LABEL_HUMAN_NEEDED])``
@@ -529,8 +529,8 @@ def _confidence_ok(min_confidence: Optional[Confidence]) -> Callable:
     """Factory returning a pytransitions condition callable.
 
     When *_confidence_gated* is False in ``event_data.kwargs`` (e.g. from
-    the ``apply_transition`` shim which carries no confidence), the check is
-    bypassed so confidence-free callers never accidentally trigger a divert.
+    confidence-free callers), the check is
+    bypassed so such callers never accidentally trigger a divert.
     """
     def _check(event_data) -> bool:
         if not event_data.kwargs.get("_confidence_gated", False):
@@ -548,8 +548,7 @@ def _before_human_needed(event_data) -> None:
     Runs as a pytransitions ``before`` callback on all transitions whose
     destination is HUMAN_NEEDED or PR_HUMAN_NEEDED.  Raises ``MachineError``
     (cancelling the transition) when the caller has not supplied a non-empty
-    ``_divert_reason``, mirroring the invariant in the old ``apply_transition``
-    helper.
+    ``_divert_reason``, enforcing the divert-reason invariant.
     """
     divert_reason = event_data.kwargs.get("_divert_reason") or ""
     if not divert_reason.strip():
@@ -681,7 +680,7 @@ def _build_issue_machine(
     Returns ``(machine, model)``.  The model's initial state is derived from
     *current_labels*; when *current_labels* is ``None`` the state is set to
     the ``from_state`` of *trigger_name* so that state-mismatch validation is
-    skipped (backward-compat with ``apply_transition`` callers that omit
+    skipped (allows optional state validation for callers that omit
     ``current_labels``).
 
     Deprecation note: ``Transition.accepts()``, ``Transition.labels_add``,
@@ -832,10 +831,8 @@ def fire_trigger(
         confidence: Confidence level reported by the agent; only relevant
             when *_confidence_gated* is ``True``.
         _confidence_gated: When ``True`` the confidence check is applied and
-            a below-threshold confidence diverts to HUMAN_NEEDED.  Set by
-            the ``apply_transition_with_confidence`` shim; callers of the
-            bare ``apply_transition`` shim leave this ``False`` so the
-            transition fires unconditionally (no divert risk).
+            a below-threshold confidence diverts to HUMAN_NEEDED.  When
+            ``False`` the transition fires unconditionally (no divert risk).
         log_prefix: Prefix for log messages.
         current_labels: Current issue labels used to derive the initial FSM
             state.  When ``None`` the initial state is set to the
@@ -847,7 +844,7 @@ def fire_trigger(
             own ``labels_remove``.
         divert_reason: Non-empty string required when the transition's
             ``to_state`` is HUMAN_NEEDED / PR_HUMAN_NEEDED.  Enforces the
-            silent-divert invariant from apply_transition.
+            silent-divert invariant — human-needed transitions require a reason.
         reason_extra: Extra context appended to the confidence-gate divert
             comment posted when *_confidence_gated* is ``True`` and
             confidence falls below the threshold.
@@ -929,42 +926,6 @@ def fire_trigger(
         return False, False
 
 
-def apply_transition(
-    issue_number: int,
-    transition_name: str,
-    *,
-    current_labels: Optional[list[str]] = None,
-    extra_remove: Sequence[str] = (),
-    log_prefix: str = "cai",
-    set_labels=None,
-    divert_reason: Optional[str] = None,
-    post_comment=None,
-) -> bool:
-    """Shim: delegates to :func:`fire_trigger` (issue side, no confidence gate).
-
-    Preserves the full public signature of the original implementation so all
-    19 call-site files remain unchanged.  The HUMAN_NEEDED invariant
-    (*divert_reason* required), state-mismatch refusal, and label-change /
-    comment posting are enforced inside ``fire_trigger`` via the Machine
-    callbacks.
-
-    *set_labels* and *post_comment* are injectable for tests (forwarded to
-    ``fire_trigger``).
-    """
-    ok, _ = fire_trigger(
-        issue_number, transition_name,
-        is_pr=False,
-        _confidence_gated=False,
-        log_prefix=log_prefix,
-        current_labels=current_labels,
-        extra_remove=extra_remove,
-        divert_reason=divert_reason or "",
-        set_labels=set_labels,
-        post_comment=post_comment,
-    )
-    return ok
-
-
 def _render_human_divert_reason(
     *,
     transition_name: str,
@@ -1002,40 +963,6 @@ def _render_human_divert_reason(
     return "\n".join(lines)
 
 
-def apply_transition_with_confidence(
-    issue_number: int,
-    transition_name: str,
-    confidence: Optional[Confidence],
-    *,
-    current_labels: Optional[list[str]] = None,
-    extra_remove: Sequence[str] = (),
-    log_prefix: str = "cai",
-    set_labels=None,
-    post_comment=None,
-    reason_extra: str = "",
-) -> tuple[bool, bool]:
-    """Shim: delegates to :func:`fire_trigger` with confidence gating enabled.
-
-    Returns ``(ok, diverted)``.  When *confidence* is ``None`` or below the
-    transition's ``min_confidence``, the issue is moved to HUMAN_NEEDED
-    (diverted=True); otherwise the primary destination is applied
-    (diverted=False).  *set_labels* and *post_comment* are injectable for
-    tests.
-    """
-    return fire_trigger(
-        issue_number, transition_name,
-        is_pr=False,
-        confidence=confidence,
-        _confidence_gated=True,
-        log_prefix=log_prefix,
-        current_labels=current_labels,
-        extra_remove=extra_remove,
-        reason_extra=reason_extra,
-        set_labels=set_labels,
-        post_comment=post_comment,
-    )
-
-
 def resume_transition_for(target_state_name: str) -> Optional[Transition]:
     """Map a ``ResumeTo: <STATE>`` token to the matching ``human_to_<state>`` transition.
 
@@ -1053,68 +980,6 @@ def resume_transition_for(target_state_name: str) -> Optional[Transition]:
         if t.from_state == IssueState.HUMAN_NEEDED and t.to_state == target:
             return t
     return None
-
-
-def apply_pr_transition(
-    pr_number: int,
-    transition_name: str,
-    *,
-    current_pr: Optional[dict] = None,
-    log_prefix: str = "cai",
-    set_pr_labels=None,
-    divert_reason: Optional[str] = None,
-    post_comment=None,
-) -> bool:
-    """Shim: delegates to :func:`fire_trigger` (PR side, no confidence gate).
-
-    Preserves the full public signature of the original implementation.  The
-    PR_HUMAN_NEEDED invariant (*divert_reason* required), state-mismatch
-    refusal, and label-change / comment posting are enforced inside
-    ``fire_trigger`` via the Machine callbacks.
-
-    *set_pr_labels* and *post_comment* are injectable for tests.
-    """
-    ok, _ = fire_trigger(
-        pr_number, transition_name,
-        is_pr=True,
-        _confidence_gated=False,
-        log_prefix=log_prefix,
-        current_pr=current_pr,
-        divert_reason=divert_reason or "",
-        set_pr_labels=set_pr_labels,
-        post_comment=post_comment,
-    )
-    return ok
-
-
-def apply_pr_transition_with_confidence(
-    pr_number: int,
-    transition_name: str,
-    confidence: Optional[Confidence],
-    *,
-    current_pr: Optional[dict] = None,
-    log_prefix: str = "cai",
-    set_pr_labels=None,
-    post_comment=None,
-    reason_extra: str = "",
-) -> tuple[bool, bool]:
-    """Shim: delegates to :func:`fire_trigger` with confidence gating (PR side).
-
-    Returns ``(ok, diverted)``.  Mirrors :func:`apply_transition_with_confidence`
-    for the PR submachine.  *set_pr_labels* and *post_comment* are injectable
-    for tests.
-    """
-    return fire_trigger(
-        pr_number, transition_name,
-        is_pr=True,
-        confidence=confidence,
-        _confidence_gated=True,
-        log_prefix=log_prefix,
-        current_pr=current_pr,
-        reason_extra=reason_extra,
-        set_pr_labels=set_pr_labels,
-        post_comment=post_comment,
-    )
 
 
 def resume_pr_transition_for(target_state_name: str) -> Optional[Transition]:
@@ -1206,8 +1071,8 @@ def backfill_silent_human_needed_comments(
     post a retroactive MARKER-bearing backfill comment on any entry that
     has no MARKER comment in its history.
 
-    This is the self-healing counterpart to the ``apply_transition``
-    invariant added for issue #1009. The invariant guarantees *future*
+    This is the self-healing counterpart to the fire_trigger
+    divert-reason invariant added for issue #1009. The invariant guarantees *future*
     diverts carry a MARKER comment; the backfill sweep closes the gap
     for issues parked before the fix (e.g. #932) so the audit agent's
     ``human_needed_reason_missing`` finder and ``cai unblock`` have

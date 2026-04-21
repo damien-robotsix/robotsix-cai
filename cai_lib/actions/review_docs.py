@@ -19,7 +19,7 @@ import uuid
 from pathlib import Path
 
 from cai_lib.config import REPO
-from cai_lib.fsm import apply_pr_transition, get_pr_state, PRState
+from cai_lib.fsm import fire_trigger, get_pr_state, PRState
 from cai_lib.github import _gh_json, _fetch_linked_issue_block
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import (
@@ -198,8 +198,9 @@ def handle_review_docs(pr: dict) -> int:
                 f"{head_sha[:8]} — advancing to APPROVED",
                 flush=True,
             )
-            apply_pr_transition(
+            fire_trigger(
                 pr_number, "reviewing_docs_to_approved",
+                is_pr=True,
                 log_prefix="cai review-docs",
             )
             log_run("review_docs", repo=REPO, pr=pr_number,
@@ -215,8 +216,9 @@ def handle_review_docs(pr: dict) -> int:
                 f"{head_sha[:8]} — advancing to APPROVED",
                 flush=True,
             )
-            apply_pr_transition(
+            fire_trigger(
                 pr_number, "reviewing_docs_to_approved",
+                is_pr=True,
                 log_prefix="cai review-docs",
             )
             log_run("review_docs", repo=REPO, pr=pr_number,
@@ -425,8 +427,9 @@ def handle_review_docs(pr: dict) -> int:
         # and the merge handler decides whether to merge. Bouncing back
         # to REVIEWING_CODE on a doc push caused review/docs ping-pong
         # loops that produced no new code findings.
-        apply_pr_transition(
+        fire_trigger(
             pr_number, "reviewing_docs_to_approved",
+            is_pr=True,
             log_prefix="cai review-docs",
         )
         if has_doc_changes:

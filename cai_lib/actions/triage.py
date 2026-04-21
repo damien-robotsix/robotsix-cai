@@ -24,7 +24,7 @@ from cai_lib.dup_check import check_duplicate_or_resolved
 from cai_lib.fsm import (
     Confidence,
     IssueState,
-    apply_transition,
+    fire_trigger,
     get_issue_state,
 )
 from cai_lib.github import _post_issue_comment, _set_labels
@@ -175,7 +175,7 @@ def handle_triage(issue: dict) -> int:
 
     # 1. RAISED → TRIAGING (skip if already at :triaging — same handler resumes).
     if current_state == IssueState.RAISED:
-        apply_transition(
+        fire_trigger(
             issue_number, "raise_to_triaging",
             current_labels=issue_labels,
             log_prefix="cai triage",
@@ -299,7 +299,7 @@ def handle_triage(issue: dict) -> int:
 
     # 6. Execute verdict.
     if decision == "HUMAN":
-        apply_transition(
+        fire_trigger(
             issue_number, "triaging_to_human",
             current_labels=[LABEL_TRIAGING],
             log_prefix="cai triage",
@@ -328,7 +328,7 @@ def handle_triage(issue: dict) -> int:
                 f"[cai triage] #{issue_number}: {decision} {reason} — falling through to REFINE",
                 flush=True,
             )
-            apply_transition(
+            fire_trigger(
                 issue_number, "triaging_to_refining",
                 current_labels=[LABEL_TRIAGING],
                 log_prefix="cai triage",
@@ -358,7 +358,7 @@ def handle_triage(issue: dict) -> int:
                      "--repo", REPO, "--body", new_body],
                     capture_output=True, check=True,
                 )
-            apply_transition(
+            fire_trigger(
                 issue_number, "triaging_to_plan_approved",
                 current_labels=[LABEL_TRIAGING],
                 log_prefix="cai triage",
@@ -398,7 +398,7 @@ def handle_triage(issue: dict) -> int:
                      "--repo", REPO, "--body", new_body],
                     capture_output=True, check=True,
                 )
-                apply_transition(
+                fire_trigger(
                     issue_number, "triaging_to_applying",
                     current_labels=[LABEL_TRIAGING],
                     log_prefix="cai triage",
@@ -412,7 +412,7 @@ def handle_triage(issue: dict) -> int:
                 action_taken = "applying"
     else:
         # REFINE or any unrecognised decision → fall through to REFINE.
-        apply_transition(
+        fire_trigger(
             issue_number, "triaging_to_refining",
             current_labels=[LABEL_TRIAGING],
             log_prefix="cai triage",

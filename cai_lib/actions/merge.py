@@ -39,7 +39,7 @@ from cai_lib.config import (
     LABEL_PR_NEEDS_WORKFLOW_REVIEW,
     LABEL_OPUS_ATTEMPTED,
 )
-from cai_lib.fsm import apply_pr_transition, apply_transition, get_pr_state, PRState
+from cai_lib.fsm import fire_trigger, get_pr_state, PRState
 from cai_lib.github import _gh_json, _set_labels, _issue_has_label, close_issue_not_planned
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import (
@@ -681,8 +681,9 @@ def handle_merge(pr: dict) -> int:
             f"migrating to PR_HUMAN_NEEDED",
             flush=True,
         )
-        apply_pr_transition(
+        fire_trigger(
             pr["number"], "approved_to_human",
+            is_pr=True,
             log_prefix="cai merge",
             divert_reason=(
                 f"PR still carries the legacy "
@@ -745,8 +746,9 @@ def handle_merge(pr: dict) -> int:
              f"this state."],
             capture_output=True,
         )
-        apply_pr_transition(
+        fire_trigger(
             pr_number, "approved_to_human",
+            is_pr=True,
             log_prefix="cai merge",
             divert_reason=(
                 f"PR is on branch `{branch}`, which is not an "
@@ -863,8 +865,9 @@ def handle_merge(pr: dict) -> int:
                     f"checks; diverting to CI_FAILING",
                     flush=True,
                 )
-                apply_pr_transition(
+                fire_trigger(
                     pr_number, "approved_to_ci_failing",
+                    is_pr=True,
                     log_prefix="cai merge",
                 )
                 log_run("merge", repo=REPO, pr=pr_number,
@@ -982,8 +985,9 @@ def handle_merge(pr: dict) -> int:
             f"human-needed",
             flush=True,
         )
-        apply_pr_transition(
+        fire_trigger(
             pr_number, "approved_to_human",
+            is_pr=True,
             log_prefix="cai merge",
             divert_reason=(
                 f"PR contains {len(unauthorized_deletions)} unauthorized "
@@ -1153,8 +1157,9 @@ def handle_merge(pr: dict) -> int:
                 log_prefix="cai merge",
             )
             if not closed_ok:
-                apply_pr_transition(
+                fire_trigger(
                     pr_number, "approved_to_human",
+                    is_pr=True,
                     log_prefix="cai merge",
                     divert_reason=(
                         "cai-merge closed this PR as a high-confidence "
@@ -1188,8 +1193,9 @@ def handle_merge(pr: dict) -> int:
                         f"after close failure on PR #{pr_number}",
                         file=sys.stderr, flush=True,
                     )
-            apply_pr_transition(
+            fire_trigger(
                 pr_number, "approved_to_human",
+                is_pr=True,
                 log_prefix="cai merge",
                 divert_reason=(
                     "cai-merge tried to close this PR as a high-"
@@ -1252,8 +1258,9 @@ def handle_merge(pr: dict) -> int:
                             result="merge_label_failed", exit=0)
                     return 0
             # Apply the APPROVED → MERGED transition on the PR itself.
-            apply_pr_transition(
+            fire_trigger(
                 pr_number, "approved_to_merged",
+                is_pr=True,
                 log_prefix="cai merge",
             )
             log_run("merge", repo=REPO, pr=pr_number,
@@ -1265,8 +1272,9 @@ def handle_merge(pr: dict) -> int:
                 f"{merge_result.stderr}",
                 file=sys.stderr,
             )
-            apply_pr_transition(
+            fire_trigger(
                 pr_number, "approved_to_human",
+                is_pr=True,
                 log_prefix="cai merge",
                 divert_reason=(
                     "cai-merge verdict was to merge, but `gh pr merge` "
@@ -1323,8 +1331,9 @@ def handle_merge(pr: dict) -> int:
                 f"concrete code bug; routing to REVISION_PENDING",
                 flush=True,
             )
-            apply_pr_transition(
+            fire_trigger(
                 pr_number, "approved_to_revision_pending",
+                is_pr=True,
                 log_prefix="cai merge",
             )
             log_run("merge", repo=REPO, pr=pr_number,
@@ -1375,8 +1384,9 @@ def handle_merge(pr: dict) -> int:
                     f"close failed:\n{close_result.stderr}",
                     file=sys.stderr,
                 )
-                apply_pr_transition(
+                fire_trigger(
                     pr_number, "approved_to_human",
+                    is_pr=True,
                     log_prefix="cai merge",
                     divert_reason=(
                         "cai-merge returned a hold verdict with "
@@ -1405,7 +1415,7 @@ def handle_merge(pr: dict) -> int:
                 (lb.get("name") if isinstance(lb, dict) else lb)
                 for lb in (issue.get("labels") or [])
             ]
-            transition_ok = apply_transition(
+            transition_ok, _ = fire_trigger(
                 issue_number, "pr_to_plan_approved",
                 current_labels=issue_labels_now,
                 log_prefix="cai merge",
@@ -1472,8 +1482,9 @@ def handle_merge(pr: dict) -> int:
                     flush=True,
                 )
                 held_result_tag = "held_workflow_review"
-        apply_pr_transition(
+        fire_trigger(
             pr_number, "approved_to_human",
+            is_pr=True,
             log_prefix="cai merge",
             divert_reason=(
                 f"cai-merge verdict was `{confidence}` (below the "

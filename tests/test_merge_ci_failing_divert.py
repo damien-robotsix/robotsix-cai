@@ -61,7 +61,7 @@ class TestHandleMergeDivertsOnFailedCI(unittest.TestCase):
             return {}
 
         with patch.object(merge_mod, "_gh_json", side_effect=fake_gh_json), \
-             patch.object(merge_mod, "apply_pr_transition",
+             patch.object(merge_mod, "fire_trigger",
                           side_effect=fake_apply), \
              patch.object(merge_mod, "get_pr_state",
                           return_value=PRState.APPROVED), \

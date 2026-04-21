@@ -23,7 +23,7 @@ from cai_lib.config import (
 )
 from cai_lib.fsm import (
     PRState,
-    apply_pr_transition,
+    fire_trigger,
     get_pr_state,
 )
 from cai_lib.github import _gh_json, _set_labels
@@ -288,18 +288,21 @@ def handle_fix_ci(pr: dict) -> int:
         pr_now = {}
     current_state = get_pr_state(pr_now) if pr_now else None
     if current_state == PRState.REVIEWING_CODE:
-        apply_pr_transition(
+        fire_trigger(
             pr_number, "reviewing_code_to_ci_failing",
+            is_pr=True,
             log_prefix="cai fix-ci",
         )
     elif current_state == PRState.REVISION_PENDING:
-        apply_pr_transition(
+        fire_trigger(
             pr_number, "revision_pending_to_ci_failing",
+            is_pr=True,
             log_prefix="cai fix-ci",
         )
     elif current_state == PRState.REVIEWING_DOCS:
-        apply_pr_transition(
+        fire_trigger(
             pr_number, "reviewing_docs_to_ci_failing",
+            is_pr=True,
             log_prefix="cai fix-ci",
         )
     # OPEN / CI_FAILING / PR_HUMAN_NEEDED: no transition needed.
@@ -466,8 +469,9 @@ def handle_fix_ci(pr: dict) -> int:
                 # next tick re-evaluates check status, and if still
                 # red _select_ci_fix_targets re-queues the PR
                 # (which re-enters CI_FAILING via step 1a above).
-                apply_pr_transition(
+                fire_trigger(
                     pr_number, "ci_failing_to_reviewing_code",
+                    is_pr=True,
                     log_prefix="cai fix-ci",
                 )
         else:

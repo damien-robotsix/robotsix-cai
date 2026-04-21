@@ -17,9 +17,8 @@ import from `cai_lib.fsm` rather than the split modules directly.
 - [`cai_lib/fsm_transitions.py`](../../cai_lib/fsm_transitions.py) —
   `Transition` dataclass; `ISSUE_TRANSITIONS` and `PR_TRANSITIONS`
   tables; `get_issue_state`, `get_pr_state`, `find_transition`,
-  `apply_transition`, `apply_transition_with_confidence`,
-  `resume_transition_for`, `apply_pr_transition`,
-  `apply_pr_transition_with_confidence`, `resume_pr_transition_for`,
+  `fire_trigger` (the canonical FSM dispatch entry point),
+  `resume_transition_for`, `resume_pr_transition_for`,
   `render_fsm_mermaid` (library-backed via
   `transitions.extensions.GraphMachine`; the Mermaid source is
   post-processed to strip the library's YAML front matter and restore
@@ -60,7 +59,7 @@ import from `cai_lib.fsm` rather than the split modules directly.
 ## Operational notes
 - **Invariants.** A single issue must carry exactly one state label
   from the `IssueState` enum (same for PR ↔ `PRState`). The
-  dispatcher enforces this through `apply_transition`; setting a
+  dispatcher enforces this through `fire_trigger`; setting a
   label by hand can leave the FSM in an unreachable state.
 - **Confidence parsing.** `parse_confidence` looks for
   `Confidence: HIGH|MEDIUM|LOW|STOP` in agent output; missing or

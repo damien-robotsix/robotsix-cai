@@ -67,7 +67,7 @@ from cai_lib.actions.plan import (
     _FILES_TO_CHANGE_PATH_RE,
 )
 from cai_lib.fsm import (
-    apply_transition,
+    fire_trigger,
     Confidence,
     IssueState,
     get_issue_state,
@@ -126,7 +126,7 @@ def _park_in_progress_at_human_needed(
 ) -> bool:
     """Park an :in-progress issue at :human-needed with a parseable divert-reason comment.
 
-    Wraps :func:`apply_transition` for ``in_progress_to_human_needed``
+    Wraps :func:`fire_trigger` for ``in_progress_to_human_needed``
     so every implement-side escalation path goes through the PR #1072
     invariant (issue #1009) — which refuses silent HUMAN_NEEDED diverts
     and auto-posts a :func:`_render_human_divert_reason`-rendered
@@ -145,19 +145,19 @@ def _park_in_progress_at_human_needed(
     Returns True iff the park succeeded (labels changed + MARKER
     comment posted). Retries once on transient ``_set_labels`` failure
     — the same double-retry pattern the direct-label path had before
-    the refactor. The retry re-invokes ``apply_transition``; because
+    the refactor. The retry re-invokes ``fire_trigger``; because
     its comment post is gated on ``ok`` from ``_set_labels``, a failed
     first attempt does not double-post the comment on the second
     attempt.
     """
     for _attempt in range(2):
-        if apply_transition(
+        if fire_trigger(
             issue_number,
             "in_progress_to_human_needed",
             extra_remove=list(extra_remove),
             log_prefix=log_prefix,
             divert_reason=reason,
-        ):
+        )[0]:
             return True
     return False
 
@@ -939,11 +939,11 @@ def handle_implement(issue: dict) -> int:
 
     # 1. Entry transition — idempotent.
     if state == IssueState.PLAN_APPROVED:
-        if not apply_transition(
+        if not fire_trigger(
             issue_number, "approved_to_in_progress",
             current_labels=label_names,
             log_prefix="cai implement",
-        ):
+        )[0]:
             print(f"[cai implement] could not lock #{issue_number}", file=sys.stderr)
             log_run("implement", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
             return 1
@@ -1463,10 +1463,10 @@ def handle_implement(issue: dict) -> int:
                          "--body", comment_body],
                         capture_output=True,
                     )
-                    if not apply_transition(
+                    if not fire_trigger(
                         issue_number, "in_progress_to_refining",
                         log_prefix="cai implement",
-                    ):
+                    )[0]:
                         print(
                             f"[cai implement] WARNING: in_progress_to_refining "
                             f"failed for #{issue_number} — falling back to "
@@ -1586,18 +1586,18 @@ def handle_implement(issue: dict) -> int:
         pr_number = pr_url.rstrip("/").rsplit("/", 1)[-1]
 
         # 10. Transition label :in-progress -> :pr-open via the FSM.
-        if not apply_transition(
+        if not fire_trigger(
             issue_number, "in_progress_to_pr",
             log_prefix="cai implement",
-        ):
+        )[0]:
             print(
                 f"[cai implement] label transition to :pr-open failed for #{issue_number}; retrying",
                 flush=True,
             )
-            if not apply_transition(
+            if not fire_trigger(
                 issue_number, "in_progress_to_pr",
                 log_prefix="cai implement",
-            ):
+            )[0]:
                 print(
                     f"[cai implement] WARNING: label transition to :pr-open failed twice for "
                     f"#{issue_number} — issue may be orphaned from PR {pr_url}",

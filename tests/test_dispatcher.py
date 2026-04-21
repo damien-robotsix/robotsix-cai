@@ -224,11 +224,11 @@ class TestDispatchPR(_LockNoopMixin, unittest.TestCase):
 
         def fake_apply_pr_transition(pr_number, transition_name, **kw):
             applied.append((pr_number, transition_name))
-            return True
+            return (True, False)
 
         with patch.object(dispatcher, "_gh_json", return_value=pr), \
              patch.object(dispatcher, "_pr_registry", return_value=registry), \
-             patch("cai_lib.fsm.apply_pr_transition",
+             patch("cai_lib.fsm.fire_trigger",
                    side_effect=fake_apply_pr_transition), \
              patch("cai_lib.actions.rebase.handle_rebase",
                    side_effect=rebase_handler):
@@ -252,7 +252,7 @@ class TestDispatchPR(_LockNoopMixin, unittest.TestCase):
 
         with patch.object(dispatcher, "_gh_json", return_value=pr), \
              patch.object(dispatcher, "_pr_registry", return_value=registry), \
-             patch("cai_lib.fsm.apply_pr_transition", return_value=True), \
+             patch("cai_lib.fsm.fire_trigger", return_value=(True, False)), \
              patch("cai_lib.actions.rebase.handle_rebase",
                    side_effect=rebase_handler):
             rc = dispatcher.dispatch_pr(99)
