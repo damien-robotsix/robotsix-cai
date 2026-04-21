@@ -225,6 +225,14 @@ BLOCKED_ON_LABEL_RE = re.compile(r"^blocked-on:(\d+)$")
 
 LOG_PATH = Path("/var/log/cai/cai.log")
 COST_LOG_PATH = Path("/var/log/cai/cai-cost.jsonl")
+# When cross-host cost sync is enabled (CAI_TRANSCRIPT_SYNC_URL set), the
+# cost audit reads from this aggregate mirror — populated by `cai
+# transcript-sync` via rsync — instead of the local-only COST_LOG_PATH.
+# The mirror holds one subdir per machine-id:
+#
+#   /var/log/cai/cost-aggregate/<machine-id>/cai-cost.jsonl
+#
+COST_LOG_AGGREGATE_DIR = Path("/var/log/cai/cost-aggregate")
 REVIEW_PR_PATTERN_LOG = Path("/var/log/cai/review-pr-patterns.jsonl")
 OUTCOME_LOG_PATH = Path("/var/log/cai/cai-outcomes.jsonl")
 
