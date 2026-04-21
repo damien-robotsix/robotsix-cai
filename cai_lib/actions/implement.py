@@ -86,15 +86,49 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 # (see issues #748 / #695).
 _MAX_TESTS_FAILED_RETRIES = 2
 
-# Divert-reason marker prepended to every comment this module posts
-# alongside a direct `_set_labels(add=[LABEL_HUMAN_NEEDED])` call.
-# `cmd_agents.py` (see `MARKER` at line 126) scans for this literal
-# substring when compiling the `human_needed_reason_missing` audit
-# finding — comments that omit it are treated as missing a reason.
-# Format matches the `**🙋 Human attention needed**\n\n` convention
-# used by `cai_lib/fsm_transitions.py`, `actions/plan.py`, and
-# `actions/refine.py`.
-_HUMAN_NEEDED_MARKER = "**🙋 Human attention needed**\n\n"
+def _park_in_progress_at_human_needed(
+    issue_number: int,
+    *,
+    reason: str,
+    extra_remove: tuple[str, ...] = (),
+    log_prefix: str = "cai implement",
+) -> bool:
+    """Park an :in-progress issue at :human-needed with a parseable divert-reason comment.
+
+    Wraps :func:`apply_transition` for ``in_progress_to_human_needed``
+    so every implement-side escalation path goes through the PR #1072
+    invariant (issue #1009) — which refuses silent HUMAN_NEEDED diverts
+    and auto-posts a :func:`_render_human_divert_reason`-rendered
+    comment carrying the ``Automation paused ``<transition>```,
+    ``Required confidence: ``<val>``` and ``Reported confidence:
+    ``<val>``` lines that ``_fetch_human_needed_issues`` in
+    :mod:`cai_lib.cmd_agents` regex-matches for the audit agent's
+    ``human_needed_reason_missing`` finder.
+
+    Prior to issue #1083 this handler called
+    ``_set_labels(add=[LABEL_HUMAN_NEEDED])`` directly in four places
+    with a hand-rolled comment that only carried the marker header
+    and skipped the structured fields — leaving #1044 (and any future
+    opus-retry park) invisible to the audit parser.
+
+    Returns True iff the park succeeded (labels changed + MARKER
+    comment posted). Retries once on transient ``_set_labels`` failure
+    — the same double-retry pattern the direct-label path had before
+    the refactor. The retry re-invokes ``apply_transition``; because
+    its comment post is gated on ``ok`` from ``_set_labels``, a failed
+    first attempt does not double-post the comment on the second
+    attempt.
+    """
+    for _attempt in range(2):
+        if apply_transition(
+            issue_number,
+            "in_progress_to_human_needed",
+            extra_remove=list(extra_remove),
+            log_prefix=log_prefix,
+            divert_reason=reason,
+        ):
+            return True
+    return False
 
 
 def _slugify(text: str, max_len: int = 50) -> str:
@@ -869,8 +903,7 @@ def handle_implement(issue: dict) -> int:
                 f"and escalating to auto-improve:human-needed",
                 flush=True,
             )
-            comment_body = (
-                f"{_HUMAN_NEEDED_MARKER}"
+            reason = (
                 "## Implement subagent: pre-empted after repeated "
                 "test failures\n\n"
                 f"This issue already has {prior_fails} consecutive "
@@ -884,33 +917,19 @@ def handle_implement(issue: dict) -> int:
                 f"Re-label to `{LABEL_PLAN_APPROVED}` once the "
                 "underlying problem is resolved to retry._"
             )
-            _run(
-                ["gh", "issue", "comment", str(issue_number),
-                 "--repo", REPO,
-                 "--body", comment_body],
-                capture_output=True,
-            )
-            terminal_remove = [LABEL_IN_PROGRESS]
-            if not _set_labels(
-                issue_number,
-                add=[LABEL_HUMAN_NEEDED],
-                remove=terminal_remove,
+            if not _park_in_progress_at_human_needed(
+                issue_number, reason=reason,
             ):
-                if not _set_labels(
-                    issue_number,
-                    add=[LABEL_HUMAN_NEEDED],
-                    remove=terminal_remove,
-                ):
-                    print(
-                        f"[cai implement] WARNING: label transition "
-                        f"to auto-improve:human-needed failed twice "
-                        f"for #{issue_number} — issue may be stuck",
-                        file=sys.stderr, flush=True,
-                    )
-                    log_run("implement", repo=REPO,
-                            issue=issue_number,
-                            result="label_transition_failed", exit=1)
-                    return 1
+                print(
+                    f"[cai implement] WARNING: label transition "
+                    f"to auto-improve:human-needed failed twice "
+                    f"for #{issue_number} — issue may be stuck",
+                    file=sys.stderr, flush=True,
+                )
+                log_run("implement", repo=REPO,
+                        issue=issue_number,
+                        result="label_transition_failed", exit=1)
+                return 1
             log_run("implement", repo=REPO, issue=issue_number,
                     result="tests_failed_escalated_early", exit=0)
             return 0
@@ -921,24 +940,15 @@ def handle_implement(issue: dict) -> int:
     print(f"[cai implement] pre-screen: verdict={ps_verdict} reason={ps_reason}", flush=True)
 
     if ps_verdict == "spike":
-        _set_labels(
-            issue_number,
-            add=[LABEL_HUMAN_NEEDED],
-            remove=[LABEL_IN_PROGRESS],
+        reason = (
+            f"## Pre-screen: spike-shaped\n\n"
+            f"{ps_reason}\n\n---\n"
+            f"_Flagged by `cai implement` pre-screen (Haiku) as "
+            f"spike-shaped (needs research, not code). No spike agent "
+            f"exists — routed to human review. Re-label to "
+            f"`{LABEL_PLAN_APPROVED}` to retry._"
         )
-        _run(
-            ["gh", "issue", "comment", str(issue_number),
-             "--repo", REPO,
-             "--body",
-             f"{_HUMAN_NEEDED_MARKER}"
-             f"## Pre-screen: spike-shaped\n\n"
-             f"{ps_reason}\n\n---\n"
-             f"_Flagged by `cai implement` pre-screen (Haiku) as "
-             f"spike-shaped (needs research, not code). No spike agent "
-             f"exists — routed to human review. Re-label to "
-             f"`{LABEL_PLAN_APPROVED}` to retry._"],
-            capture_output=True,
-        )
+        _park_in_progress_at_human_needed(issue_number, reason=reason)
         log_run("implement", repo=REPO, issue=issue_number, result="pre_screen_human", exit=0)
         return 0
 
@@ -1161,8 +1171,7 @@ def handle_implement(issue: dict) -> int:
             ) is not None
 
             if is_spike:
-                comment_body = (
-                    f"{_HUMAN_NEEDED_MARKER}"
+                reason = (
                     "## Implement subagent: needs human review\n\n"
                     f"{reasoning}\n\n"
                     "---\n"
@@ -1178,34 +1187,22 @@ def handle_implement(issue: dict) -> int:
                     f"#{issue_number}; marking auto-improve:human-needed",
                     flush=True,
                 )
-                _run(
-                    ["gh", "issue", "comment", str(issue_number),
-                     "--repo", REPO,
-                     "--body", comment_body],
-                    capture_output=True,
-                )
-                terminal_remove = [LABEL_IN_PROGRESS, LABEL_PLAN_APPROVED]
-                if not _set_labels(
+                if not _park_in_progress_at_human_needed(
                     issue_number,
-                    add=[LABEL_HUMAN_NEEDED],
-                    remove=terminal_remove,
+                    reason=reason,
+                    extra_remove=(LABEL_PLAN_APPROVED,),
                 ):
-                    if not _set_labels(
-                        issue_number,
-                        add=[LABEL_HUMAN_NEEDED],
-                        remove=terminal_remove,
-                    ):
-                        print(
-                            f"[cai implement] WARNING: label transition to "
-                            f"auto-improve:human-needed failed twice for "
-                            f"#{issue_number} — issue may be stuck without "
-                            "a lifecycle label",
-                            file=sys.stderr, flush=True,
-                        )
-                        rollback()
-                        log_run("implement", repo=REPO, issue=issue_number,
-                                result="label_transition_failed", exit=1)
-                        return 1
+                    print(
+                        f"[cai implement] WARNING: label transition to "
+                        f"auto-improve:human-needed failed twice for "
+                        f"#{issue_number} — issue may be stuck without "
+                        "a lifecycle label",
+                        file=sys.stderr, flush=True,
+                    )
+                    rollback()
+                    log_run("implement", repo=REPO, issue=issue_number,
+                            result="label_transition_failed", exit=1)
+                    return 1
                 locked = False
                 log_run("implement", repo=REPO, issue=issue_number,
                         result="human_needed", exit=0)
@@ -1350,8 +1347,7 @@ def handle_implement(issue: dict) -> int:
                                 result="tests_failed_auto_refine", exit=0)
                         return 0
 
-                comment_body = (
-                    f"{_HUMAN_NEEDED_MARKER}"
+                reason = (
                     "## Implement subagent: repeated test failures\n\n"
                     f"Regression tests failed {consecutive} consecutive times "
                     f"for this issue. Escalating to human review to avoid "
@@ -1371,34 +1367,20 @@ def handle_implement(issue: dict) -> int:
                     f"for #{issue_number}; marking auto-improve:human-needed",
                     flush=True,
                 )
-                _run(
-                    ["gh", "issue", "comment", str(issue_number),
-                     "--repo", REPO,
-                     "--body", comment_body],
-                    capture_output=True,
-                )
-                terminal_remove = [LABEL_IN_PROGRESS]
-                if not _set_labels(
-                    issue_number,
-                    add=[LABEL_HUMAN_NEEDED],
-                    remove=terminal_remove,
+                if not _park_in_progress_at_human_needed(
+                    issue_number, reason=reason,
                 ):
-                    if not _set_labels(
-                        issue_number,
-                        add=[LABEL_HUMAN_NEEDED],
-                        remove=terminal_remove,
-                    ):
-                        print(
-                            f"[cai implement] WARNING: label transition to "
-                            f"auto-improve:human-needed failed twice for "
-                            f"#{issue_number} — issue may be stuck without "
-                            "a lifecycle label",
-                            file=sys.stderr, flush=True,
-                        )
-                        rollback()
-                        log_run("implement", repo=REPO, issue=issue_number,
-                                result="label_transition_failed", exit=1)
-                        return 1
+                    print(
+                        f"[cai implement] WARNING: label transition to "
+                        f"auto-improve:human-needed failed twice for "
+                        f"#{issue_number} — issue may be stuck without "
+                        "a lifecycle label",
+                        file=sys.stderr, flush=True,
+                    )
+                    rollback()
+                    log_run("implement", repo=REPO, issue=issue_number,
+                            result="label_transition_failed", exit=1)
+                    return 1
                 locked = False
                 log_run("implement", repo=REPO, issue=issue_number,
                         result="tests_failed_escalated", exit=0)
