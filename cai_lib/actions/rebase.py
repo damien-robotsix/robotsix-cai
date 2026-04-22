@@ -181,6 +181,8 @@ def handle_rebase(pr: dict) -> HandlerResult:
             agent="cai-rebase",
             input=user_message,
             cwd="/app",
+            target_kind="pr",
+            target_number=pr_number,
         )
         if agent.stdout:
             print(agent.stdout, flush=True)

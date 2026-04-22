@@ -585,6 +585,8 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
         agent="cai-plan",
         input=user_message,
         cwd="/app",
+        target_kind="issue",
+        target_number=issue["number"],
     )
     if result.returncode != 0:
         stderr_preview = (result.stderr or "")[:400].rstrip()
@@ -700,6 +702,8 @@ def _run_select_agent(
         agent="cai-select",
         input=user_message,
         cwd="/app",
+        target_kind="issue",
+        target_number=issue["number"],
     )
     if result.returncode != 0 or not (result.stdout or "").strip():
         stderr_preview = (result.stderr or "")[:400].rstrip()

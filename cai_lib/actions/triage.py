@@ -238,6 +238,8 @@ def handle_triage(issue: dict) -> int:
         category="triage",
         agent="cai-triage",
         input=user_message,
+        target_kind="issue",
+        target_number=issue_number,
     )
 
     if result.returncode != 0:

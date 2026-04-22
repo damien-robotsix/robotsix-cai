@@ -326,6 +326,8 @@ def handle_review_docs(pr: dict) -> HandlerResult:
             agent="cai-review-docs",
             input=user_message,
             cwd="/app",
+            target_kind="pr",
+            target_number=pr_number,
         )
         if agent.stdout:
             print(agent.stdout, flush=True)

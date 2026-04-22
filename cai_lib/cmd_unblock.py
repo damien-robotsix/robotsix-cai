@@ -292,6 +292,8 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
         category="unblock",
         agent="cai-unblock",
         input=user_message,
+        target_kind="issue",
+        target_number=issue_number,
     )
     if result.returncode != 0:
         print(
@@ -477,6 +479,8 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
         category="unblock",
         agent="cai-unblock",
         input=user_message,
+        target_kind="pr",
+        target_number=pr_number,
     )
     if result.returncode != 0:
         print(

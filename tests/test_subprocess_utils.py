@@ -359,5 +359,48 @@ class TestSdkErrorSummary(unittest.TestCase):
         self.assertIn("is_error=False", s)
 
 
+class TestCostCommentKwargsBackwardsCompat(unittest.TestCase):
+    """Issue #1168: ``target_kind`` / ``target_number`` must default to
+    ``None`` so every existing call site (27+) that never passes them
+    keeps working byte-for-byte identical to pre-#1168 behaviour."""
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_omitting_kwargs_does_not_change_returncode_or_stdout(self, _mock_log):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg = _mk_result(result="unchanged", total_cost_usd=0.01)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+            proc = _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan", agent="cai-plan",
+            )
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "unchanged")
+        self.assertEqual(proc.stderr, "")
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_kwargs_accept_issue_and_pr_values(self, _mock_log):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg = _mk_result(result="ok", total_cost_usd=0.01)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch("cai_lib.github._post_issue_comment", return_value=True), \
+             patch("cai_lib.github._post_pr_comment", return_value=True):
+            proc1 = _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan", agent="cai-plan",
+                target_kind="issue", target_number=1,
+            )
+            proc2 = _run_claude_p(
+                ["claude", "-p", "--agent", "cai-merge"],
+                category="merge", agent="cai-merge",
+                target_kind="pr", target_number=2,
+            )
+        self.assertEqual(proc1.returncode, 0)
+        self.assertEqual(proc2.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

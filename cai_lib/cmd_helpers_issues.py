@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 from cai_lib.config import REPO, LABEL_RAISED
-from cai_lib.github import _gh_json
+from cai_lib.github import _gh_json, _strip_cost_comments
 from cai_lib.subprocess_utils import _run
 
 
@@ -126,7 +126,7 @@ def _fetch_previous_fix_attempts(issue_number: int) -> list[dict]:
         except subprocess.CalledProcessError:
             continue
 
-        comments = pr_data.get("comments", [])
+        comments = _strip_cost_comments(pr_data.get("comments", []))
 
         merge_verdict = None
         review_summary = None

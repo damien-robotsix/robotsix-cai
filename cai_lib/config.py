@@ -246,6 +246,16 @@ CAI_LOCK_COMMENT_RE = re.compile(
     r"<!--\s*cai-lock\s+owner=(?P<owner>\S+)\s+acquired=(?P<acquired>\S+)\s*-->"
 )
 
+# Marker comment posted by ``_run_claude_p`` after every target-scoped
+# agent invocation to attribute the cost of the run to the issue/PR it
+# worked on. The HTML-comment prefix carries machine-parsable key=value
+# attributes (agent, category, cost_usd, turns, duration_ms, tokens,
+# is_error, ts); the visible Markdown that follows is a short
+# human-readable summary. Matched by ``_strip_cost_comments`` so the
+# marker bodies never feed back into agent prompts while remaining
+# visible to humans and audit tools that read comments via ``gh``.
+CAI_COST_COMMENT_RE = re.compile(r"<!--\s*cai-cost\s+.*?-->", re.DOTALL)
+
 BLOCKED_ON_LABEL_RE = re.compile(r"^blocked-on:(\d+)$")
 
 

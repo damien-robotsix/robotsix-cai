@@ -210,6 +210,102 @@ def _sdk_error_summary(result) -> str:
     return f"sdk_subtype={subtype} is_error={is_error}"
 
 
+# Maximum length of the machine-parsable marker body on a cost comment.
+# The marker carries a handful of short key=value tokens; cap defensively
+# so a huge ``agent`` or ``category`` string cannot blow past GitHub's
+# 65 536-char comment limit.
+_COST_COMMENT_MAX_CHARS = 800
+
+
+def _post_cost_comment(
+    target_kind: str,
+    target_number: int,
+    row: dict,
+    agent: str,
+) -> None:
+    """Best-effort post of a cost-attribution comment on an issue or PR.
+
+    Runs immediately after ``log_cost(row)`` when ``_run_claude_p`` is
+    called with both ``target_kind`` and ``target_number`` set. The
+    comment body has a machine-parsable ``<!-- cai-cost … -->`` HTML
+    marker (matched by ``CAI_COST_COMMENT_RE`` in ``cai_lib.config``
+    and stripped out of agent-input comment streams by
+    ``_strip_cost_comments``) followed by a short human-readable
+    summary line so humans scanning the issue/PR see the cost in the
+    GitHub UI without the marker leaking back into subsequent agent
+    prompts.
+
+    Swallows every exception: a failed ``gh issue comment`` / ``gh pr
+    comment`` must never change the returned ``CompletedProcess`` or
+    the wrapped agent's behaviour — the cost comment is informational
+    context, not a gating signal.
+    """
+    try:
+        from cai_lib.github import _post_issue_comment, _post_pr_comment
+    except Exception as exc:  # noqa: BLE001 — defensive import guard
+        print(
+            f"[cai cost] failed to import comment helpers: {exc}",
+            file=sys.stderr, flush=True,
+        )
+        return
+
+    try:
+        cost_usd = float(row.get("cost_usd") or 0.0)
+        turns = int(row.get("num_turns") or 0)
+        duration_ms = int(row.get("duration_ms") or 0)
+        in_tokens = int(row.get("input_tokens") or 0)
+        out_tokens = int(row.get("output_tokens") or 0)
+        is_error = bool(row.get("is_error"))
+        category = str(row.get("category") or "")
+        ts = str(row.get("ts") or "")
+        models_field = row.get("models") or {}
+        primary_model = ""
+        if isinstance(models_field, dict) and models_field:
+            primary_model = next(iter(models_field.keys()))
+        marker = (
+            f"<!-- cai-cost agent={agent} category={category} "
+            f"model={primary_model} cost_usd={cost_usd:.4f} "
+            f"turns={turns} duration_ms={duration_ms} "
+            f"input_tokens={in_tokens} output_tokens={out_tokens} "
+            f"is_error={is_error} ts={ts} -->"
+        )
+        if len(marker) > _COST_COMMENT_MAX_CHARS:
+            marker = marker[: _COST_COMMENT_MAX_CHARS - 4] + " -->"
+        seconds = duration_ms / 1000.0
+        summary = (
+            f"**Agent cost:** `{agent or '(no agent)'}` on "
+            f"`{primary_model or 'unknown'}` — "
+            f"${cost_usd:.4f} / {turns} turn(s) / {seconds:.1f}s "
+            f"(category=`{category}`)"
+        )
+        body = f"{marker}\n{summary}"
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[cai cost] failed to format cost comment for "
+            f"{target_kind} #{target_number}: {exc}",
+            file=sys.stderr, flush=True,
+        )
+        return
+
+    try:
+        if target_kind == "issue":
+            _post_issue_comment(target_number, body, log_prefix="cai cost")
+        elif target_kind == "pr":
+            _post_pr_comment(target_number, body, log_prefix="cai cost")
+        else:
+            print(
+                f"[cai cost] unknown target_kind={target_kind!r}; "
+                f"skipping cost comment",
+                file=sys.stderr, flush=True,
+            )
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[cai cost] failed to post cost comment on "
+            f"{target_kind} #{target_number}: {exc}",
+            file=sys.stderr, flush=True,
+        )
+
+
 def _run_claude_p(
     cmd: list[str],
     *,
@@ -217,6 +313,8 @@ def _run_claude_p(
     agent: str = "",
     input: str | None = None,
     cwd: str | None = None,
+    target_kind: str | None = None,
+    target_number: int | None = None,
     **kwargs,
 ) -> subprocess.CompletedProcess:
     """Run a ``claude -p`` command via the Claude Agent SDK and record its cost.
@@ -343,6 +441,16 @@ def _run_claude_p(
     if models:
         row["models"] = models
     log_cost(row)
+
+    # Post a per-target cost-attribution comment on the issue/PR the
+    # agent worked on, when the caller identified a target. Marker
+    # body is stripped out of agent-input comment streams by
+    # ``_strip_cost_comments`` (keyed on ``CAI_COST_COMMENT_RE``) so
+    # it never pollutes downstream prompts, while remaining visible
+    # to humans and audit tools that read comments via ``gh``.
+    # Best-effort — ``_post_cost_comment`` swallows all exceptions.
+    if target_kind is not None and target_number is not None:
+        _post_cost_comment(target_kind, target_number, row, agent)
 
     # Priority: structured_output → error_max_structured_output_retries →
     # result text → last-assistant salvage.

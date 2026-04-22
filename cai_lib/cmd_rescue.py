@@ -499,6 +499,8 @@ def _try_rescue_issue(
         category="rescue",
         agent="cai-rescue",
         input=user_message,
+        target_kind="issue",
+        target_number=issue_number,
     )
     if result.returncode != 0:
         print(
@@ -635,6 +637,8 @@ def _try_rescue_pr(
         category="rescue",
         agent="cai-rescue",
         input=user_message,
+        target_kind="pr",
+        target_number=pr_number,
     )
     if result.returncode != 0:
         print(

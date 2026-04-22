@@ -114,6 +114,8 @@ def handle_split(issue: dict) -> int:
         category="split",
         agent="cai-split",
         input=user_message,
+        target_kind="issue",
+        target_number=issue_number,
     )
     print(result.stdout, flush=True)
 

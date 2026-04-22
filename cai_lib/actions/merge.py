@@ -41,7 +41,10 @@ from cai_lib.config import (
 )
 from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm import fire_trigger, get_pr_state, PRState
-from cai_lib.github import _gh_json, _set_labels, _issue_has_label, close_issue_not_planned
+from cai_lib.github import (
+    _gh_json, _set_labels, _issue_has_label, close_issue_not_planned,
+    _strip_cost_comments,
+)
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import (
     _pr_set_needs_human,
@@ -819,7 +822,9 @@ def handle_merge(pr: dict) -> HandlerResult:
     # Safety filter 4: unaddressed review comments → let revise handle.
     # Mirror the revise subcommand's filter logic via the shared helper
     # so a "no additional changes" reply correctly suppresses the loop.
-    all_comments = list(pr.get("comments", []))
+    # Strip cost-attribution marker comments so they never reach the
+    # haiku comment filter or the cai-merge prompt downstream.
+    all_comments = list(_strip_cost_comments(pr.get("comments", [])))
     try:
         all_comments.extend(_fetch_review_comments(pr_number))
     except Exception:
@@ -1054,6 +1059,8 @@ def handle_merge(pr: dict) -> HandlerResult:
             category="merge",
             agent="cai-merge",
             input=user_message,
+            target_kind="pr",
+            target_number=pr_number,
         )
     finally:
         if work_dir.exists():
