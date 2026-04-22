@@ -19,7 +19,9 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cai_lib import cmd_rescue as R  # noqa: E402
+from cai_lib.actions import implement as impl_mod  # noqa: E402
 from cai_lib.config import LABEL_OPUS_ATTEMPTED  # noqa: E402
+from cai_lib.fsm import find_transition  # noqa: E402
 
 
 _PLAN_BLOCK = (
@@ -291,6 +293,81 @@ class TestPrHumanNeededLister(unittest.TestCase):
         with mock.patch.object(R, "_gh_json", return_value=[resolved, unresolved]):
             out = R._list_unresolved_pr_human_needed_prs()
         self.assertEqual([p["number"] for p in out], [2])
+
+
+class TestInProgressHumanNeededPreservesOpusAttempted(unittest.TestCase):
+    """Regression (#1146): the ``in_progress_to_human_needed`` park must
+    never strip ``LABEL_OPUS_ATTEMPTED``.
+
+    ``cai rescue``'s one-shot escalation guard
+    (``_issue_has_opus_attempted`` in ``cai_lib/cmd_rescue.py``) relies
+    on that label surviving every re-park so subsequent rescue passes
+    detect the burned one-shot and refuse a second escalation. If a
+    future refactor adds ``LABEL_OPUS_ATTEMPTED`` to ``labels_remove``
+    on the transition or to a caller's ``extra_remove`` tuple, the
+    guard silently becomes a no-op and Opus would be re-invoked on
+    every park — these tests fail fast on that class of regression.
+    """
+
+    def _install_fakes(self):
+        calls = {"set_labels": []}
+
+        def _fake_set_labels(issue_number, *, add=(), remove=(), log_prefix="cai"):
+            calls["set_labels"].append({
+                "issue": issue_number,
+                "add": list(add),
+                "remove": list(remove),
+            })
+            return True
+
+        def _fake_post_comment(issue_number, body, *, log_prefix="cai"):
+            return True
+
+        p1 = mock.patch("cai_lib.github._set_labels", _fake_set_labels)
+        p2 = mock.patch("cai_lib.github._post_issue_comment", _fake_post_comment)
+        p1.start()
+        p2.start()
+        self.addCleanup(p1.stop)
+        self.addCleanup(p2.stop)
+        return calls
+
+    def test_transition_labels_remove_excludes_opus_attempted(self):
+        """Structural assertion on the transition definition itself."""
+        t = find_transition("in_progress_to_human_needed")
+        self.assertNotIn(LABEL_OPUS_ATTEMPTED, t.labels_remove)
+
+    def test_park_does_not_strip_opus_attempted(self):
+        """End-to-end through ``_park_in_progress_at_human_needed`` →
+        ``fire_trigger`` → the patched ``_set_labels`` shim."""
+        calls = self._install_fakes()
+        ok = impl_mod._park_in_progress_at_human_needed(
+            1141, reason="## Test park\n\nregression #1146",
+        )
+        self.assertTrue(ok)
+        self.assertEqual(len(calls["set_labels"]), 1)
+        self.assertNotIn(
+            LABEL_OPUS_ATTEMPTED, calls["set_labels"][0]["remove"]
+        )
+
+    def test_spike_extra_remove_still_preserves_opus_attempted(self):
+        """The subagent-no-change spike path in ``cai_lib/actions/implement.py``
+        passes ``extra_remove=(LABEL_PLAN_APPROVED,)`` (~line 1389); that
+        code path must still NOT strip ``LABEL_OPUS_ATTEMPTED``."""
+        from cai_lib.config import LABEL_PLAN_APPROVED
+        calls = self._install_fakes()
+        ok = impl_mod._park_in_progress_at_human_needed(
+            1141,
+            reason="## Spike\n\nneeds research",
+            extra_remove=(LABEL_PLAN_APPROVED,),
+        )
+        self.assertTrue(ok)
+        self.assertEqual(len(calls["set_labels"]), 1)
+        remove = calls["set_labels"][0]["remove"]
+        # Plan-approved is intentionally stripped on the spike path.
+        self.assertIn(LABEL_PLAN_APPROVED, remove)
+        # Opus-attempted must NOT be stripped — that is the invariant
+        # this test class exists to pin.
+        self.assertNotIn(LABEL_OPUS_ATTEMPTED, remove)
 
 
 if __name__ == "__main__":
