@@ -115,6 +115,71 @@ Once the rebase is complete (or was already clean):
 4. Use the original issue and current PR diff as context only — don't
    re-implement from scratch.
 
+### Verify tests pass before the dossier update
+
+Once the review-comment edits look complete, run the regression suite via
+the `cai-test-runner` haiku subagent **before** writing the dossier
+revision block and emitting final stdout. This mirrors the ordering
+`cai-implement` uses (verify → dossier → summary) so the dossier you
+persist describes the post-verification tree, and so a PR routed back
+here for failing tests actually gets re-measured rather than
+re-entering the same routing loop on the next review cycle.
+
+**Trigger the runner only when at least one of these is true:**
+
+- **(a)** One of the unaddressed review comments you were handed
+  contains the literal marker `## Local regression tests failed`
+  posted by `cai-implement`'s post-commit push-gate (or by an
+  earlier `cai-revise` iteration on the same PR).
+- **(b)** The edits you applied in this revision touched code under
+  `cai_lib/` — this is the heuristic that catches the common case
+  where a review-comment fix might break an unrelated test even
+  when no explicit failure marker is present.
+
+**Skip the runner entirely when any of these is true:**
+
+- You are exiting with zero diff (all comments skipped as
+  out-of-scope or unclear, nothing actionable) — there is nothing
+  to measure.
+- You aborted the rebase on ambiguous conflicts and did not address
+  any review comments.
+- Your edits are wholly outside `cai_lib/` **and** none of the
+  unaddressed comments carry the `## Local regression tests
+  failed` marker — no trigger fired, and a haiku call with no
+  signal is waste.
+
+Invoke the runner with the absolute path of the work directory:
+
+~~~
+Agent(
+  subagent_type="cai-test-runner",
+  description="Run regression tests",
+  prompt="work_dir=<work_dir>"
+)
+~~~
+
+Parse the reply's `## Test Result` header. On `PASS`, proceed to the
+dossier update. On `FAIL`:
+
+1. Read the `## Failures` block to identify which tests broke and why.
+2. Decide which side is correct:
+   - **Your fix is wrong** — edit the code again.
+   - **The test pins obsolete behavior** — update the failing test
+     (hard rule 6 under "editing and efficiency" permits this when
+     your change legitimately changed behavior).
+3. Re-invoke `cai-test-runner` to confirm the fix.
+4. **Cap yourself at two iterations.** If the same or a new failure
+   is still present after two fix attempts, stop and exit anyway —
+   do not burn the rest of your turn budget chasing a test you
+   cannot reason about. The wrapper pushes the PR regardless; if
+   tests still fail post-push, the next review cycle catches it
+   via the same `## Local regression tests failed` marker that
+   triggered this run.
+
+A green run is strongly preferred but not mandatory. Your goal is
+to avoid re-entering the same routing loop on the next review
+cycle — not to guarantee zero failures.
+
 ### Update the PR context dossier before you exit
 
 Append a new section to `<work_dir>/.cai/pr-context.md`:
