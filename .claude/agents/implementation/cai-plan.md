@@ -73,6 +73,20 @@ The user message contains:
    (`class FooTest(unittest.TestCase): ...`). Do NOT introduce a
    different framework from the one the existing suite uses, even
    if the issue body or a peer plan suggests otherwise.
+4. **Verbatim bytes for every `Edit` step — no small-change
+   exception.** Every `Edit` step in your plan must include a
+   literal `old_string` / `new_string` pair, regardless of how
+   small the change is. Single-line additions — a new import, a
+   new config key, a new list entry — are **not** exempt. Prose
+   "locate-and-modify" instructions such as "locate the
+   `from cai_lib.github import` block near the top of the file
+   and append `_strip_cost_comments` to its import list" give
+   `cai-implement` no `old_string` anchor to feed the `Edit` tool,
+   forcing it to improvise. `cai-select` caps any such step at
+   MEDIUM per its criterion 5, routing the issue to
+   `:human-needed` at the `planned_to_plan_approved` gate. If you
+   have not `Read` the target file to capture the exact existing
+   bytes, do so before drafting the plan.
 
 ## Co-change awareness
 
@@ -180,17 +194,17 @@ fenced block is required.>
 
 ### Anti-pattern vs correct pattern
 
-The example below shows the one failure mode the template exists
-to prevent. Copy the shape of the "correct" example; never emit
-the "anti-pattern" shape.
+The examples below show the two failure modes the template exists
+to prevent. Copy the shape of the "correct" examples; never emit
+the "anti-pattern" shapes.
 
-✗ **Anti-pattern (prose description — cai-select will cap at MEDIUM):**
+✗ **Anti-pattern 1 (prose summary of the new body — cai-select will cap at MEDIUM):**
 
     #### Step 1 — Edit `/tmp/work/foo.py`
     Rewrite the docstring of `parse_config` keeping only the
     surviving paragraphs and drop the YAML example.
 
-✓ **Correct (verbatim literal bytes):**
+✓ **Correct 1 (verbatim literal bytes for both `old_string` and `new_string`):**
 
     #### Step 1 — Edit `/tmp/work/foo.py`
 
@@ -219,8 +233,40 @@ the "anti-pattern" shape.
     """
     ```
 
+✗ **Anti-pattern 2 (natural-language-only edit target — the same MEDIUM cap applies even for a one-line import addition):**
+
+    #### Step 2 — Edit `/tmp/work/bar.py`
+    Locate the `from cai_lib.github import` block near the top
+    of the file and append `_strip_cost_comments` to its import
+    list.
+
+✓ **Correct 2 (verbatim `old_string` / `new_string`, even for a single-line import addition):**
+
+    #### Step 2 — Edit `/tmp/work/bar.py`
+
+    **Locate:** top-of-file import block, line 12.
+
+    **old_string:**
+
+    ```
+    from cai_lib.github import (
+        _foo,
+        _bar,
+    )
+    ```
+
+    **new_string:**
+
+    ```
+    from cai_lib.github import (
+        _foo,
+        _bar,
+        _strip_cost_comments,
+    )
+    ```
+
 Be concrete and specific. Name functions, variables, and line
 numbers. The fix agent will follow your plan literally and copy
 your `new_string` / file body directly into the Edit / Write call
-— vague instructions like "update the logic" force the fix agent
-to improvise and waste a plan cycle.
+— vague instructions like "update the logic" or "locate X and
+append Y" force the fix agent to improvise and waste a plan cycle.
