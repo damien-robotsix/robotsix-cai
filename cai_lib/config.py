@@ -186,7 +186,7 @@ LABEL_TRIAGING         = "auto-improve:triaging"
 LABEL_KIND_CODE        = "kind:code"
 LABEL_KIND_MAINTENANCE = "kind:maintenance"
 LABEL_DEPTH_PREFIX = "depth:"
-MAX_DECOMPOSITION_DEPTH: int = int(os.environ.get("CAI_MAX_DECOMPOSITION_DEPTH", "2"))
+MAX_DECOMPOSITION_DEPTH: int = int(os.environ.get("CAI_MAX_DECOMPOSITION_DEPTH", "5"))
 
 # PR pipeline-state labels — one per PRState. Set by FSM transitions
 # (fire_trigger) and read by dispatch.

@@ -235,7 +235,7 @@ If the refine subagent detects that work requires multiple independent steps, it
 2. Creates one sub-issue per step, with titles formatted as `[#{parent} Step X/Y] <title>` (e.g. `[#123 Step 1/3] Add schema migration`) so you can identify the parent from a list view. Each sub-issue is labeled with `depth:N` (where N is the decomposition depth, starting at 1 for top-level decompositions). Each sub-issue body includes a back-reference to the parent.
 3. Adds a checklist to the parent issue to track sub-issue completion
 
-Decomposition supports recursion: sub-issues can themselves be decomposed into further sub-issues up to a maximum depth (controlled by `CAI_MAX_DECOMPOSITION_DEPTH`, default: 2). Issues at maximum depth will not be decomposed further and will be refined as single units of work.
+Decomposition supports recursion: sub-issues can themselves be decomposed into further sub-issues up to a maximum depth (controlled by `CAI_MAX_DECOMPOSITION_DEPTH`, default: 5). Issues at maximum depth will not be decomposed further and will be refined as single units of work.
 
 You can watch the parent issue's checklist to monitor progress. Note: if an issue already has a structured `### Plan` section when filed, the refine subagent will skip refinement, and no sub-issues will be created — the implement subagent will execute the steps directly from the issue body.
 
@@ -662,7 +662,7 @@ the same global window settings.
   the [Confidence-gated auto-merge](#confidence-gated-auto-merge)
   section for details.
 - **`CAI_MAX_DECOMPOSITION_DEPTH`** — maximum recursion depth for
-  multi-step decomposition. Default: `2`. Sub-issues at this depth will
+  multi-step decomposition. Default: `5`. Sub-issues at this depth will
   be refined as single units of work without further decomposition. Increase
   to support deeper hierarchies of sub-issues, or decrease to limit
   decomposition to shallower hierarchies.
