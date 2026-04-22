@@ -132,6 +132,10 @@ AUDIT_WORKFLOW_ENHANCEMENT_CATEGORIES = {
     "deterministic_replacement",
 }
 
+AUDIT_HEALTH_CATEGORIES = {
+    "audit-health",
+}
+
 # Labels we ensure exist before creating issues. These include FSM/lifecycle
 # state labels (auto-improve:*), PR state labels (pr:*), and kind labels (kind:*).
 # Category information is now stored in the issue body, not as labels. Idempotent —
@@ -279,6 +283,7 @@ AUDIT_GOOD_PRACTICES_LABELS = _AUTO_IMPROVE_RAISED_ONLY
 AUDIT_CODE_REDUCTION_LABELS = _AUTO_IMPROVE_RAISED_ONLY
 AUDIT_COST_REDUCTION_LABELS = _AUTO_IMPROVE_RAISED_ONLY
 AUDIT_WORKFLOW_ENHANCEMENT_LABELS = _AUTO_IMPROVE_RAISED_ONLY
+AUDIT_HEALTH_LABELS = _AUTO_IMPROVE_RAISED_ONLY
 
 
 @dataclass
@@ -417,6 +422,8 @@ def _label_set_for(namespace: str):
         return AUDIT_COST_REDUCTION_LABELS
     if namespace == "audit-workflow-enhancement":
         return AUDIT_WORKFLOW_ENHANCEMENT_LABELS
+    if namespace == "audit-health":
+        return AUDIT_HEALTH_LABELS
     return LABELS
 
 
@@ -444,6 +451,8 @@ def _category_set_for(namespace: str) -> set[str]:
         return AUDIT_COST_REDUCTION_CATEGORIES
     if namespace == "audit-workflow-enhancement":
         return AUDIT_WORKFLOW_ENHANCEMENT_CATEGORIES
+    if namespace == "audit-health":
+        return AUDIT_HEALTH_CATEGORIES
     return VALID_CATEGORIES
 
 
@@ -471,7 +480,7 @@ def ensure_all_labels() -> None:
     and CODE_AUDIT_LABELS).
     """
     seen: set[str] = set()
-    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS, AGENT_AUDIT_LABELS, EXTERNAL_SCOUT_LABELS, AUDIT_EXTERNAL_LIBS_LABELS, AUDIT_GOOD_PRACTICES_LABELS, AUDIT_CODE_REDUCTION_LABELS, AUDIT_COST_REDUCTION_LABELS, AUDIT_WORKFLOW_ENHANCEMENT_LABELS):
+    for label_set in (LABELS, AUDIT_LABELS, CODE_AUDIT_LABELS, UPDATE_CHECK_LABELS, CHECK_WORKFLOWS_LABELS, AGENT_AUDIT_LABELS, EXTERNAL_SCOUT_LABELS, AUDIT_EXTERNAL_LIBS_LABELS, AUDIT_GOOD_PRACTICES_LABELS, AUDIT_CODE_REDUCTION_LABELS, AUDIT_COST_REDUCTION_LABELS, AUDIT_WORKFLOW_ENHANCEMENT_LABELS, AUDIT_HEALTH_LABELS):
         for name, color, description in label_set:
             if name in seen:
                 continue
@@ -562,6 +571,9 @@ def create_issue(
     elif namespace == "audit-workflow-enhancement":
         source_note = "cai workflow-enhancement audit agent"
         source_file = ".claude/agents/audit/cai-audit-workflow-enhancement.md"
+    elif namespace == "audit-health":
+        source_note = "cai audit-health monitor agent"
+        source_file = ".claude/agents/audit/cai-audit-audit-health.md"
     else:
         source_note = "cai self-analyzer"
         source_file = ".claude/agents/cai-refine.md"
@@ -727,7 +739,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Publish findings as GitHub issues")
     parser.add_argument(
         "--namespace", default="auto-improve",
-        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit", "external-scout", "audit-external-libs", "audit-good-practices", "audit-code-reduction", "audit-cost-reduction", "audit-workflow-enhancement"],
+        choices=["auto-improve", "audit", "code-audit", "update-check", "check-workflows", "agent-audit", "external-scout", "audit-external-libs", "audit-good-practices", "audit-code-reduction", "audit-cost-reduction", "audit-workflow-enhancement", "audit-health"],
         help="Label namespace to use (default: auto-improve)",
     )
     parser.add_argument(
