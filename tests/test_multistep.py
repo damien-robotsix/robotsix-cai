@@ -295,6 +295,59 @@ class TestGuardrailContradictionLint(unittest.TestCase):
         self.assertEqual(_detect_guardrail_contradictions(body), [])
 
 
+class TestHandleRefinePostsBodyBeforeContradictionDivert(unittest.TestCase):
+    """Regression for #1161: when the guardrail-contradiction lint trips,
+    handle_refine must still post the refined body to the issue so the
+    admin handling the :human-needed divert can see the proposed Files
+    to change / Scope guardrails sections.
+    """
+
+    @patch("cai_lib.actions.refine.log_run")
+    @patch("cai_lib.actions.refine.fire_trigger")
+    @patch("cai_lib.actions.refine._run")
+    @patch("cai_lib.actions.refine._run_claude_p")
+    def test_issue_body_is_updated_before_divert(
+        self, mock_claude, mock_run, mock_fire, mock_log,
+    ):
+        stdout = (
+            "## Refined Issue\n\n"
+            "### Problem\n\nSomething.\n\n"
+            "### Files to change\n"
+            "- `cai_lib/publish.py`\n\n"
+            "### Scope guardrails\n"
+            "- Do not modify `cai_lib/publish.py`\n"
+        )
+        mock_claude.return_value = MagicMock(
+            returncode=0, stdout=stdout, stderr="",
+        )
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        issue = {
+            "number": 1161,
+            "title": "Test",
+            "body": "original text",
+            "labels": [{"name": "auto-improve:refining"}],
+        }
+        handle_refine(issue)
+
+        edit_calls = [
+            c for c in mock_run.call_args_list
+            if c.args and c.args[0][:3] == ["gh", "issue", "edit"]
+        ]
+        self.assertEqual(len(edit_calls), 1,
+                         "handle_refine must post the refined body before diverting")
+        body_arg = edit_calls[0].args[0][-1]
+        self.assertIn("### Files to change", body_arg)
+        self.assertIn("### Scope guardrails", body_arg)
+        self.assertIn("`cai_lib/publish.py`", body_arg)
+        self.assertIn("> original text", body_arg)
+
+        divert_calls = [
+            c for c in mock_fire.call_args_list
+            if c.args and c.args[1] == "refining_to_human"
+        ]
+        self.assertEqual(len(divert_calls), 1)
+
+
 class TestExtractPathsHelper(unittest.TestCase):
     """Tests for the _extract_paths pre-strips (clone-prefix + leading ./).
 

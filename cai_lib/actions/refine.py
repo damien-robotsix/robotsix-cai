@@ -322,6 +322,36 @@ def handle_refine(issue: dict) -> int:
 
     refined_body = stdout[marker_pos:].strip()
 
+    # Build the new issue body: refined content + original text quoted.
+    # Post it BEFORE the contradiction lint so an admin handling the
+    # :human-needed divert can see the agent's proposed Files-to-change
+    # and Scope guardrails sections when deciding how to resolve the
+    # contradiction.
+    next_step = _parse_refine_next_step(stdout)
+    original_body = _strip_stored_plan_block(issue.get("body") or "(no body)")
+    quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
+    new_body = (
+        f"{refined_body}\n\n"
+        f"---\n\n"
+        f"> **Original issue text:**\n>\n"
+        f"{quoted_original}\n"
+    )
+
+    update = _run(
+        ["gh", "issue", "edit", str(issue_number),
+         "--repo", REPO, "--body", new_body],
+        capture_output=True,
+    )
+    if update.returncode != 0:
+        print(
+            f"[cai refine] gh issue edit failed:\n{update.stderr}",
+            file=sys.stderr,
+        )
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("refine", repo=REPO, issue=issue_number,
+                duration=dur, result="edit_failed", exit=1)
+        return 1
+
     # Scope-guardrail contradiction lint (issue #919).
     contradictions = _detect_guardrail_contradictions(refined_body)
     if contradictions:
@@ -354,33 +384,6 @@ def handle_refine(issue: dict) -> int:
             contradictions=",".join(contradictions), exit=0,
         )
         return 0
-
-    # Build the new issue body: refined content + original text quoted.
-    next_step = _parse_refine_next_step(stdout)
-    original_body = _strip_stored_plan_block(issue.get("body") or "(no body)")
-    quoted_original = "\n".join(f"> {line}" for line in original_body.splitlines())
-    new_body = (
-        f"{refined_body}\n\n"
-        f"---\n\n"
-        f"> **Original issue text:**\n>\n"
-        f"{quoted_original}\n"
-    )
-
-    # Update the issue body.
-    update = _run(
-        ["gh", "issue", "edit", str(issue_number),
-         "--repo", REPO, "--body", new_body],
-        capture_output=True,
-    )
-    if update.returncode != 0:
-        print(
-            f"[cai refine] gh issue edit failed:\n{update.stderr}",
-            file=sys.stderr,
-        )
-        dur = f"{int(time.monotonic() - t0)}s"
-        log_run("refine", repo=REPO, issue=issue_number,
-                duration=dur, result="edit_failed", exit=1)
-        return 1
 
     # Transition out of :refining. NextStep: EXPLORE routes the
     # issue to :needs-exploration; anything else advances to :refined
