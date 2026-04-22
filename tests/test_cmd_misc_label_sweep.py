@@ -15,7 +15,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cai_lib import cmd_misc as M  # noqa: E402
-from cai_lib.config import LABEL_OPUS_ATTEMPTED  # noqa: E402
+from cai_lib.config import LABEL_OPUS_ATTEMPTED, LABEL_RESCUE_ATTEMPTED  # noqa: E402
 
 
 class TestManagedIssueLabelsWhitelist(unittest.TestCase):
@@ -25,6 +25,12 @@ class TestManagedIssueLabelsWhitelist(unittest.TestCase):
         # Issue #944: without this entry, the hourly sweep strips the
         # label and the one-shot Opus-escalation guard becomes a no-op.
         self.assertIn(LABEL_OPUS_ATTEMPTED, M._ALL_MANAGED_ISSUE_LABELS)
+
+    def test_rescue_attempted_label_is_whitelisted(self):
+        # Same shape as `LABEL_OPUS_ATTEMPTED`: without this entry, the
+        # hourly sweep would strip the rescue-already-attempted marker
+        # and `cai rescue` would re-evaluate the same parks every tick.
+        self.assertIn(LABEL_RESCUE_ATTEMPTED, M._ALL_MANAGED_ISSUE_LABELS)
 
 
 class TestIssueLabelSweepRetainsOpusAttempted(unittest.TestCase):

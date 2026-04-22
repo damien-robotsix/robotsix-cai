@@ -21,7 +21,7 @@ from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGED, LABEL_SOLVED,
     LABEL_NEEDS_EXPLORATION, LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED,
     LABEL_TRIAGING, LABEL_APPLYING, LABEL_APPLIED,
-    LABEL_PLAN_NEEDS_REVIEW,
+    LABEL_PLAN_NEEDS_REVIEW, LABEL_RESCUE_ATTEMPTED,
     LABEL_PR_REVIEWING_CODE, LABEL_PR_REVISION_PENDING,
     LABEL_PR_REVIEWING_DOCS, LABEL_PR_APPROVED, LABEL_PR_REBASING,
     LABEL_PR_CI_FAILING,
@@ -269,14 +269,14 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_MERGED],            labels_add=[LABEL_SOLVED]),
 
     # Every `human_to_*` resume transition also strips the
-    # supplementary LABEL_PLAN_NEEDS_REVIEW marker (#1128) so the
-    # "plan explicitly flagged for admin review" signal never
-    # lingers after the admin has actually resolved the divert.
-    # `gh issue edit --remove-label` is idempotent when the label is
-    # not present, so the extra entry is a no-op for the common case
-    # where the label was never applied.
+    # supplementary LABEL_PLAN_NEEDS_REVIEW marker (#1128) and the
+    # LABEL_RESCUE_ATTEMPTED marker so neither signal lingers after the
+    # admin has actually resolved the divert. `gh issue edit
+    # --remove-label` is idempotent when a label is not present, so the
+    # extra entries are no-ops for the common case where the labels were
+    # never applied.
     Transition("human_to_raised",            IssueState.HUMAN_NEEDED,      IssueState.RAISED,
-               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_RAISED]),
     # Admin-comment-driven re-entries out of HUMAN_NEEDED. Fired by
     # cmd_unblock after a Haiku agent classifies the admin's reply.
@@ -284,24 +284,24 @@ ISSUE_TRANSITIONS: list[Transition] = [
     # with the admin's input in context — REFINED is an auto-advance
     # waypoint, not a sensible re-entry point.
     Transition("human_to_refining",          IssueState.HUMAN_NEEDED,      IssueState.REFINING,
-               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_REFINING]),
     # Admin wants cai-split to re-evaluate scope without re-running
     # cai-refine (e.g. they've manually narrowed the refined body and
     # want a fresh atomic/decompose verdict).
     Transition("human_to_splitting",         IssueState.HUMAN_NEEDED,      IssueState.SPLITTING,
-               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_SPLITTING]),
     # Admin greenlights the already-stored plan — jump past the
     # planned→approved gate.
     Transition("human_to_plan_approved",     IssueState.HUMAN_NEEDED,      IssueState.PLAN_APPROVED,
-               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_PLAN_APPROVED]),
     Transition("human_to_exploration",       IssueState.HUMAN_NEEDED,      IssueState.NEEDS_EXPLORATION,
-               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_NEEDS_EXPLORATION]),
     Transition("human_to_solved",            IssueState.HUMAN_NEEDED,      IssueState.SOLVED,
-               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW],
+               labels_remove=[LABEL_HUMAN_NEEDED, LABEL_PLAN_NEEDS_REVIEW, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_SOLVED]),
 ]
 
@@ -475,24 +475,27 @@ PR_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_PR_APPROVED],
                labels_add=[LABEL_PR_REVISION_PENDING],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
+    # PR-side resume transitions also strip LABEL_RESCUE_ATTEMPTED so a
+    # PR that re-enters PR_HUMAN_NEEDED later gets a fresh autonomous
+    # rescue evaluation (matches the issue-side `human_to_*` policy).
     Transition("pr_human_to_reviewing_code",
                PRState.PR_HUMAN_NEEDED, PRState.REVIEWING_CODE,
-               labels_remove=[LABEL_PR_HUMAN_NEEDED],
+               labels_remove=[LABEL_PR_HUMAN_NEEDED, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_PR_REVIEWING_CODE],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     Transition("pr_human_to_revision_pending",
                PRState.PR_HUMAN_NEEDED, PRState.REVISION_PENDING,
-               labels_remove=[LABEL_PR_HUMAN_NEEDED],
+               labels_remove=[LABEL_PR_HUMAN_NEEDED, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_PR_REVISION_PENDING],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     Transition("pr_human_to_reviewing_docs",
                PRState.PR_HUMAN_NEEDED, PRState.REVIEWING_DOCS,
-               labels_remove=[LABEL_PR_HUMAN_NEEDED],
+               labels_remove=[LABEL_PR_HUMAN_NEEDED, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_PR_REVIEWING_DOCS],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     Transition("pr_human_to_approved",
                PRState.PR_HUMAN_NEEDED, PRState.APPROVED,
-               labels_remove=[LABEL_PR_HUMAN_NEEDED],
+               labels_remove=[LABEL_PR_HUMAN_NEEDED, LABEL_RESCUE_ATTEMPTED],
                labels_add=[LABEL_PR_APPROVED],
                human_label_if_below=LABEL_PR_HUMAN_NEEDED),
     # NOTE: no pr_human_to_merged — PR_HUMAN_NEEDED must funnel back

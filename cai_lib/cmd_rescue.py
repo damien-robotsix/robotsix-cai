@@ -33,6 +33,7 @@ from cai_lib.config import (
     LABEL_OPUS_ATTEMPTED,
     LABEL_PLAN_NEEDS_REVIEW,
     LABEL_PR_HUMAN_NEEDED,
+    LABEL_RESCUE_ATTEMPTED,
 )
 from cai_lib.fsm import (
     Confidence,
@@ -45,6 +46,7 @@ from cai_lib.github import (
     _post_issue_comment,
     _post_pr_comment,
     _set_labels,
+    _set_pr_labels,
     close_issue_completed,
     blocking_issue_numbers,
     open_blockers,
@@ -132,6 +134,18 @@ def _list_unresolved_human_needed_issues() -> list[dict]:
         if LABEL_HUMAN_SOLVED in names:
             # Admin already opted-in — leave it to cmd_unblock.
             continue
+        if LABEL_RESCUE_ATTEMPTED in names:
+            # A previous rescue tick already evaluated this park and
+            # could not resume it. Skip until something clears the
+            # marker — every `human_to_*` transition strips it on the
+            # way out, so a `human:solved`-driven resume or any other
+            # exit from HUMAN_NEEDED naturally re-opens the door.
+            print(
+                f"[cai rescue] #{issue['number']}: carries "
+                f"{LABEL_RESCUE_ATTEMPTED} — already evaluated, skipping",
+                flush=True,
+            )
+            continue
         if LABEL_PLAN_NEEDS_REVIEW in names:
             # `handle_plan_gate` flagged this park for mandatory admin
             # sign-off via cai-select's requires_human_review=true
@@ -194,6 +208,16 @@ def _list_unresolved_pr_human_needed_prs() -> list[dict]:
             for lb in pr.get("labels", [])
         }
         if LABEL_HUMAN_SOLVED in names:
+            continue
+        if LABEL_RESCUE_ATTEMPTED in names:
+            # Mirror the issue-side skip: a prior rescue tick already
+            # evaluated this PR park and could not resume it. The label
+            # is stripped by every `pr_human_to_*` transition.
+            print(
+                f"[cai rescue] PR #{pr['number']}: carries "
+                f"{LABEL_RESCUE_ATTEMPTED} — already evaluated, skipping",
+                flush=True,
+            )
             continue
         blockers = blocking_issue_numbers(pr.get("labels", []))
         if blockers:
@@ -713,6 +737,42 @@ def _try_rescue_pr(
     return "resumed"
 
 
+# Tags returned by `_try_rescue_*` for which the rescue agent did NOT
+# resume the target — applying ``LABEL_RESCUE_ATTEMPTED`` after these
+# verdicts prevents the next cron tick from re-evaluating the same park
+# until the label is cleared (every `human_to_*` / `pr_human_to_*`
+# transition strips it). ``agent_failed`` is intentionally excluded so
+# transient claude / network failures still get retried.
+_NON_RESUMING_TAGS: frozenset[str] = frozenset({
+    "truly_human_needed",
+    "low_confidence",
+    "no_target",
+    "opus_already_attempted",
+    "opus_no_plan",
+})
+
+
+def _mark_rescue_attempted(target_number: int, *, is_pr: bool) -> None:
+    """Stamp ``LABEL_RESCUE_ATTEMPTED`` on a non-resumed target.
+
+    Best-effort: a label-set failure is logged but not raised — the
+    next rescue tick will simply re-evaluate the target, which is the
+    pre-#XXXX behaviour and harmless beyond the wasted invocation.
+    """
+    setter = _set_pr_labels if is_pr else _set_labels
+    if not setter(
+        target_number,
+        add=[LABEL_RESCUE_ATTEMPTED],
+        log_prefix="cai rescue",
+    ):
+        kind = "PR" if is_pr else "issue"
+        print(
+            f"[cai rescue] {kind} #{target_number}: failed to apply "
+            f"{LABEL_RESCUE_ATTEMPTED}; will re-evaluate next tick",
+            file=sys.stderr, flush=True,
+        )
+
+
 def cmd_rescue(args) -> int:
     """Scan parked :human-needed issues and :pr-human-needed PRs and
     attempt autonomous resume.
@@ -737,9 +797,13 @@ def cmd_rescue(args) -> int:
     prevention_findings: list[dict] = []
     for issue in issues:
         tag = _try_rescue_issue(issue, prevention_findings) or "skipped"
+        if tag in _NON_RESUMING_TAGS:
+            _mark_rescue_attempted(issue["number"], is_pr=False)
         counters[f"issue_{tag}"] = counters.get(f"issue_{tag}", 0) + 1
     for pr in prs:
         tag = _try_rescue_pr(pr, prevention_findings) or "skipped"
+        if tag in _NON_RESUMING_TAGS:
+            _mark_rescue_attempted(pr["number"], is_pr=True)
         counters[f"pr_{tag}"] = counters.get(f"pr_{tag}", 0) + 1
 
     _publish_prevention_findings(prevention_findings)
