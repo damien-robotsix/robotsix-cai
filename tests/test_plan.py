@@ -1318,6 +1318,204 @@ class TestPlanIsLargeMechanicalRefactorHelper(unittest.TestCase):
         ))
 
 
+class TestPlanQualifiesForExtendedRetries(unittest.TestCase):
+    """#1151 — both-threshold gate for the medium-scale-refactor
+    detection that drives the LABEL_EXTENDED_RETRIES stamping."""
+
+    def _plan(self, n_files, n_steps):
+        files_section = "### Files to change\n" + "".join(
+            f"- **`pkg/file_{i}.py`**: change\n" for i in range(n_files)
+        )
+        steps_section = "### Detailed steps\n" + "".join(
+            f"#### Step {i + 1} — Edit "
+            f"`pkg/file_{i % max(n_files, 1)}.py`\n\nbody\n\n"
+            for i in range(n_steps)
+        )
+        return f"## Plan\n\n{files_section}\n{steps_section}"
+
+    def test_fires_when_both_thresholds_met(self):
+        from cai_lib.actions.plan import _plan_qualifies_for_extended_retries
+        self.assertTrue(_plan_qualifies_for_extended_retries(
+            self._plan(n_files=5, n_steps=40)
+        ))
+
+    def test_fires_on_excess(self):
+        from cai_lib.actions.plan import _plan_qualifies_for_extended_retries
+        self.assertTrue(_plan_qualifies_for_extended_retries(
+            self._plan(n_files=7, n_steps=49)
+        ))
+
+    def test_below_file_threshold_returns_false(self):
+        from cai_lib.actions.plan import _plan_qualifies_for_extended_retries
+        self.assertFalse(_plan_qualifies_for_extended_retries(
+            self._plan(n_files=4, n_steps=45)
+        ))
+
+    def test_below_step_threshold_returns_false(self):
+        from cai_lib.actions.plan import _plan_qualifies_for_extended_retries
+        self.assertFalse(_plan_qualifies_for_extended_retries(
+            self._plan(n_files=6, n_steps=39)
+        ))
+
+    def test_empty_and_none_return_false(self):
+        from cai_lib.actions.plan import _plan_qualifies_for_extended_retries
+        self.assertFalse(_plan_qualifies_for_extended_retries(None))
+        self.assertFalse(_plan_qualifies_for_extended_retries(""))
+        self.assertFalse(_plan_qualifies_for_extended_retries(
+            "plan without sections"
+        ))
+
+    def test_large_refactor_also_qualifies_for_extended(self):
+        """A plan meeting BOTH the #1139 and #1151 thresholds must
+        qualify for extended retries — stacking is intentional (the
+        Opus-tier run silently no-ops the label lookup)."""
+        from cai_lib.actions.plan import (
+            _plan_qualifies_for_extended_retries,
+            _plan_is_large_mechanical_refactor,
+        )
+        plan = self._plan(n_files=10, n_steps=60)
+        self.assertTrue(_plan_is_large_mechanical_refactor(plan))
+        self.assertTrue(_plan_qualifies_for_extended_retries(plan))
+
+
+class TestHandlePlanGateAppliesExtendedRetriesLabel(unittest.TestCase):
+    """#1151 — handle_plan_gate stamps LABEL_EXTENDED_RETRIES directly
+    on a successfully-approved medium-scale plan, mirroring the #1139
+    Opus-label stamping pattern."""
+
+    def _medium_plan(self):
+        files = "### Files to change\n" + "".join(
+            f"- **`pkg/file_{i}.py`**: change\n" for i in range(5)
+        )
+        steps = "### Detailed steps\n" + "".join(
+            f"#### Step {i + 1} — Edit "
+            f"`pkg/file_{i % 5}.py`\n\nbody\n\n"
+            for i in range(40)
+        )
+        return f"## Plan\n\n{files}\n{steps}"
+
+    def _small_plan(self):
+        return (
+            "## Plan\n\n"
+            "### Files to change\n"
+            "- **`pkg/a.py`**: tweak\n\n"
+            "### Detailed steps\n"
+            "#### Step 1 — Edit `pkg/a.py`\n\nbody\n"
+        )
+
+    def _issue(self, *, plan_text, labels=None):
+        return {
+            "number": 1151,
+            "title": "t",
+            "body": "",
+            "labels": [
+                {"name": n} for n in (labels or ["auto-improve:planned"])
+            ],
+            "_cai_plan_confidence": Confidence.HIGH,
+            "_cai_plan_confidence_reason": "",
+            "_cai_plan_text": plan_text,
+            "_cai_plan_requires_human_review": False,
+            "_cai_plan_approvable_at_medium": False,
+        }
+
+    @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_medium_plan_applies_extended_retries_label(
+        self, _mock_log, mock_fire, mock_set_labels, mock_post,
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_EXTENDED_RETRIES
+        mock_fire.return_value = (True, False)  # approved, not diverted
+        mock_set_labels.return_value = True
+
+        rc = handle_plan_gate(self._issue(plan_text=self._medium_plan()))
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            mock_fire.call_args[0][1], "planned_to_plan_approved",
+        )
+        extended_calls = [
+            c for c in mock_set_labels.call_args_list
+            if LABEL_EXTENDED_RETRIES in (c.kwargs.get("add") or [])
+        ]
+        self.assertEqual(len(extended_calls), 1)
+        posted_bodies = [c.args[1] for c in mock_post.call_args_list]
+        self.assertTrue(any(
+            "Extended Sonnet-tier retries budget" in b for b in posted_bodies
+        ))
+
+    @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_small_plan_does_not_apply_extended_retries_label(
+        self, _mock_log, mock_fire, mock_set_labels, mock_post,
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_EXTENDED_RETRIES
+        mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = True
+
+        rc = handle_plan_gate(self._issue(plan_text=self._small_plan()))
+
+        self.assertEqual(rc, 0)
+        extended_calls = [
+            c for c in mock_set_labels.call_args_list
+            if LABEL_EXTENDED_RETRIES in (c.kwargs.get("add") or [])
+        ]
+        self.assertEqual(len(extended_calls), 0)
+
+    @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_diverted_plan_does_not_apply_extended_retries_label(
+        self, _mock_log, mock_fire, mock_set_labels, mock_post,
+    ):
+        """Divert paths (gate rejection, requires_human_review,
+        #1131 scale auto-flag) must NOT stamp the label — admin
+        should pick the retry budget when resuming."""
+        from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_EXTENDED_RETRIES
+        mock_fire.return_value = (True, True)  # applied, but diverted
+        mock_set_labels.return_value = True
+
+        rc = handle_plan_gate(self._issue(plan_text=self._medium_plan()))
+
+        self.assertEqual(rc, 0)
+        extended_calls = [
+            c for c in mock_set_labels.call_args_list
+            if LABEL_EXTENDED_RETRIES in (c.kwargs.get("add") or [])
+        ]
+        self.assertEqual(len(extended_calls), 0)
+
+    @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_already_labelled_issue_does_not_double_stamp(
+        self, _mock_log, mock_fire, mock_set_labels, mock_post,
+    ):
+        from cai_lib.actions.plan import handle_plan_gate
+        from cai_lib.config import LABEL_EXTENDED_RETRIES
+        mock_fire.return_value = (True, False)
+        mock_set_labels.return_value = True
+
+        rc = handle_plan_gate(self._issue(
+            plan_text=self._medium_plan(),
+            labels=["auto-improve:planned", LABEL_EXTENDED_RETRIES],
+        ))
+
+        self.assertEqual(rc, 0)
+        extended_calls = [
+            c for c in mock_set_labels.call_args_list
+            if LABEL_EXTENDED_RETRIES in (c.kwargs.get("add") or [])
+        ]
+        self.assertEqual(len(extended_calls), 0)
+
+
 class TestHandlePlanGateAppliesOpusLabel(unittest.TestCase):
     """#1139 — handle_plan_gate applies LABEL_OPUS_ATTEMPTED directly on
     a successfully-approved large-mechanical-refactor plan, so
@@ -1383,12 +1581,15 @@ class TestHandlePlanGateAppliesOpusLabel(unittest.TestCase):
             if LABEL_OPUS_ATTEMPTED in (c.kwargs.get("add") or [])
         ]
         self.assertEqual(len(opus_calls), 1)
-        # An informational comment was posted.
-        mock_post.assert_called_once()
-        self.assertIn(
-            "Pre-emptive Opus-tier escalation",
-            mock_post.call_args[0][1],
-        )
+        # An informational comment was posted for the Opus label.
+        # (The extended-retries label also posts a comment on this
+        # plan since 10/60 meets both thresholds — #1151 stacking is
+        # intentional, see TestHandlePlanGateAppliesExtendedRetriesLabel.)
+        opus_posts = [
+            c for c in mock_post.call_args_list
+            if "Pre-emptive Opus-tier escalation" in c.args[1]
+        ]
+        self.assertEqual(len(opus_posts), 1)
 
     @patch("cai_lib.actions.plan._post_issue_comment", return_value=True)
     @patch("cai_lib.actions.plan._set_labels")
@@ -1449,17 +1650,23 @@ class TestHandlePlanGateAppliesOpusLabel(unittest.TestCase):
     ):
         """A plan that already carries LABEL_OPUS_ATTEMPTED (e.g. this
         is a re-plan after a rescue escalation) must NOT spam a second
-        comment or a redundant _set_labels call."""
+        Opus-specific comment or a redundant _set_labels call."""
         from cai_lib.actions.plan import handle_plan_gate
-        from cai_lib.config import LABEL_OPUS_ATTEMPTED
+        from cai_lib.config import (
+            LABEL_OPUS_ATTEMPTED,
+            LABEL_EXTENDED_RETRIES,
+        )
         mock_fire.return_value = (True, False)
         mock_set_labels.return_value = True
 
+        # Pre-stamp both labels so both short-circuit guards fire.
+        # (A 10/60 plan meets both the #1139 and #1151 thresholds.)
         rc = handle_plan_gate(self._issue(
             plan_text=self._large_plan(),
             labels=[
                 "auto-improve:planned",
                 LABEL_OPUS_ATTEMPTED,
+                LABEL_EXTENDED_RETRIES,
             ],
         ))
 

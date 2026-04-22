@@ -29,6 +29,7 @@ from cai_lib.config import (
     REPO,
     LABEL_IN_PROGRESS,
     LABEL_OPUS_ATTEMPTED,
+    LABEL_EXTENDED_RETRIES,
     LABEL_PR_OPEN,
     LABEL_PLAN_NEEDS_REVIEW,
     LABEL_REFINED,
@@ -415,6 +416,79 @@ def _plan_is_large_mechanical_refactor(plan_text):
     if _count_files_to_change(plan_text) < _LARGE_REFACTOR_FILE_THRESHOLD:
         return False
     if _count_edit_steps(plan_text) < _LARGE_REFACTOR_EDIT_SITE_THRESHOLD:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Extended Sonnet-tier retries budget for medium-scale refactors (#1151).
+#
+# A plan whose ``### Files to change`` section lists at least
+# ``_EXTENDED_RETRY_FILE_THRESHOLD`` unique backticked path tokens AND
+# whose body contains at least ``_EXTENDED_RETRY_EDIT_SITE_THRESHOLD``
+# ``#### Step N — Edit/Write`` headers is treated as a medium-scale
+# refactor: large enough that transient infra / tooling flakes (network
+# hiccups, fetch-existing blips, short-lived tool-call errors) compound
+# across many edit sites, but NOT large enough to pre-empt Sonnet
+# entirely via the #1139 ``_plan_is_large_mechanical_refactor``
+# escalation (which requires BOTH >=8 files AND >=50 steps and stamps
+# ``LABEL_OPUS_ATTEMPTED`` at plan-gate time).
+#
+# On successful ``planned_to_plan_approved*`` transition,
+# :func:`handle_plan_gate` stamps :data:`LABEL_EXTENDED_RETRIES`
+# on the issue. :func:`cai_lib.actions.implement.handle_implement`
+# reads the label via ``LABEL_EXTENDED_RETRIES in label_names`` and
+# raises its broad consecutive-failure cap (#1088) from 3 to 5 at
+# the Sonnet tier — giving Sonnet two extra attempts on transient
+# failures before burning the Opus one-shot. The label is a no-op
+# at the Opus tier because the rescue ``_issue_has_opus_attempted``
+# guard already refuses a second escalation, so more Opus retries
+# would just loop indefinitely.
+#
+# The signal is stored as an FSM label (not a plan-body marker) so
+# the decision is (a) visible in the GitHub UI, (b) admin-overridable
+# (add/remove to force the 5-cap or restore the 3-cap on an edge-case
+# plan), and (c) frozen at plan-gate time — handle_implement cannot
+# observe a different scope than handle_plan_gate saw when it stamped
+# the label.
+#
+# The label is applied only when the gate has already successfully
+# transitioned the issue to ``:plan-approved`` (non-diverted outcome
+# of the ``planned_to_plan_approved*`` siblings). Divert paths
+# (``planned_to_human`` via confidence gate, requires_human_review,
+# or #1131 scale/complexity auto-flag) skip the label so the admin
+# can choose the tier and retry budget when resuming.
+# ---------------------------------------------------------------------------
+_EXTENDED_RETRY_FILE_THRESHOLD = 5
+
+_EXTENDED_RETRY_EDIT_SITE_THRESHOLD = 40
+
+
+def _plan_qualifies_for_extended_retries(plan_text):
+    """Return ``True`` when *plan_text* is a medium-scale refactor
+    worth running with the extended Sonnet-tier retries budget
+    (issue #1151).
+
+    Both thresholds must be met:
+
+      * ``_count_files_to_change(plan_text) >= _EXTENDED_RETRY_FILE_THRESHOLD``
+        — at least 5 unique backticked ``path/with.ext`` tokens in the
+        plan's ``### Files to change`` section.
+      * ``_count_edit_steps(plan_text) >= _EXTENDED_RETRY_EDIT_SITE_THRESHOLD``
+        — at least 40 ``#### Step N — Edit/Write`` headers.
+
+    Returns ``False`` on empty or ``None`` input. Used by
+    :func:`handle_plan_gate` to stamp :data:`LABEL_EXTENDED_RETRIES`
+    on the issue after a successful ``planned_to_plan_approved*``
+    transition — so :func:`cai_lib.actions.implement.handle_implement`
+    raises its broad consecutive-failure cap from 3 to 5 at the
+    Sonnet tier on the next dispatch tick.
+    """
+    if not plan_text:
+        return False
+    if _count_files_to_change(plan_text) < _EXTENDED_RETRY_FILE_THRESHOLD:
+        return False
+    if _count_edit_steps(plan_text) < _EXTENDED_RETRY_EDIT_SITE_THRESHOLD:
         return False
     return True
 
@@ -1304,6 +1378,79 @@ def handle_plan_gate(issue: dict) -> int:
                     f"[cai plan] #{issue_number} failed to apply "
                     f"{LABEL_OPUS_ATTEMPTED}; implement will run at "
                     f"the Sonnet tier as a fallback",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+    # Extended-retries budget label for medium-scale refactors (#1151).
+    # Independent of the #1139 Opus-label block above: a plan meeting
+    # BOTH #1139 thresholds (>=8 files AND >=50 steps) also meets the
+    # #1151 thresholds (>=5 files AND >=40 steps), and we stamp both
+    # labels on such plans. At the Opus tier the extended-retries
+    # label is inert (``handle_implement`` consults it only when
+    # ``opus_escalation`` is False), so the double-stamp is safe —
+    # it preserves the correct behaviour if an admin later removes
+    # LABEL_OPUS_ATTEMPTED to force a Sonnet attempt on a large plan.
+    #
+    # Guarded by ``not diverted`` so the label never lands on a plan
+    # the gate just parked at :human-needed — the admin can then
+    # choose the implement tier and retry budget when resuming.
+    # Also short-circuits if the label is already present (e.g. the
+    # plan was re-run after a rescue escalation) so we don't spam
+    # duplicate comments.
+    if not diverted and _plan_qualifies_for_extended_retries(plan_text):
+        current_labels = {
+            lbl["name"] for lbl in issue.get("labels", [])
+        }
+        if LABEL_EXTENDED_RETRIES not in current_labels:
+            file_count = _count_files_to_change(plan_text)
+            step_count = _count_edit_steps(plan_text)
+            print(
+                f"[cai plan] #{issue_number} plan qualifies for "
+                f"extended Sonnet-tier retries "
+                f"(files={file_count} "
+                f">= {_EXTENDED_RETRY_FILE_THRESHOLD}, "
+                f"edit_steps={step_count} "
+                f">= {_EXTENDED_RETRY_EDIT_SITE_THRESHOLD}); "
+                f"applying {LABEL_EXTENDED_RETRIES} so the broad "
+                f"consecutive-failure cap in `cai implement` is "
+                f"raised from 3 to 5 at the Sonnet tier (#1151)",
+                flush=True,
+            )
+            if _set_labels(
+                issue_number,
+                add=[LABEL_EXTENDED_RETRIES],
+                log_prefix="cai plan",
+            ):
+                _post_issue_comment(
+                    issue_number,
+                    (
+                        "## Extended Sonnet-tier retries budget (#1151)\n\n"
+                        f"This plan lists **{file_count} files** in "
+                        f"`### Files to change` and **{step_count} "
+                        f"`#### Step N — Edit/Write` headers**, both at "
+                        f"or above the medium-scale-refactor thresholds "
+                        f"({_EXTENDED_RETRY_FILE_THRESHOLD} files / "
+                        f"{_EXTENDED_RETRY_EDIT_SITE_THRESHOLD} edit "
+                        f"sites). `cai implement`'s broad "
+                        f"consecutive-failure cap will therefore be "
+                        f"raised from 3 to 5 at the Sonnet tier, giving "
+                        f"Sonnet two extra attempts on transient "
+                        f"infra / tooling flakes before the Opus "
+                        f"one-shot is burned. The cap stays at 3 at "
+                        f"the Opus tier.\n\n"
+                        f"---\n"
+                        f"_Applied by `cai plan` structural detector. "
+                        f"Remove `{LABEL_EXTENDED_RETRIES}` manually "
+                        f"to restore the 3-failure cap on this issue._"
+                    ),
+                    log_prefix="cai plan",
+                )
+            else:
+                print(
+                    f"[cai plan] #{issue_number} failed to apply "
+                    f"{LABEL_EXTENDED_RETRIES}; implement will use "
+                    f"the default 3-failure cap as a fallback",
                     file=sys.stderr,
                     flush=True,
                 )

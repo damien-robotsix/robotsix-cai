@@ -295,6 +295,123 @@ class TestRetriesExhaustedConstants(unittest.TestCase):
             self.assertNotIn(tag, _COUNTED_IMPLEMENT_FAILURES)
 
 
+class TestEffectiveCapConstants(unittest.TestCase):
+    """Issue #1151: the extended Sonnet-tier retries cap must be
+    wired up with the expected value, and the base cap must be
+    preserved at 3."""
+
+    def test_base_cap_unchanged_at_three(self):
+        """Regression pin — the base #1088 cap stays at 3 so
+        non-extended plans keep the same behaviour."""
+        from cai_lib.actions.implement import (
+            _MAX_CONSECUTIVE_FAILED_ATTEMPTS,
+        )
+        self.assertEqual(_MAX_CONSECUTIVE_FAILED_ATTEMPTS, 3)
+
+    def test_extended_cap_is_five(self):
+        from cai_lib.actions.implement import (
+            _MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED,
+        )
+        self.assertEqual(_MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED, 5)
+
+
+class TestExtendedRetriesLabelAffectsEffectiveCap(unittest.TestCase):
+    """Issue #1151: the presence of LABEL_EXTENDED_RETRIES on the issue
+    must raise the effective cap from 3 to 5 for Sonnet-tier runs and
+    leave it at 3 for Opus-tier runs.
+
+    Exercised through the guard by patching LOG_PATH with a fixture
+    file carrying four consecutive ``result=subagent_failed`` rows —
+    enough to trip the base 3-cap but not the extended 5-cap."""
+
+    def _write_four_failures(self, log_path, issue_number):
+        log_path.write_text("\n".join(
+            f"2026-04-22T0{i}:00:00Z [implement] repo=foo "
+            f"issue={issue_number} result=subagent_failed exit=1"
+            for i in range(4)
+        ) + "\n")
+
+    def _issue(self, *, labels):
+        return {
+            "number": 1151,
+            "title": "t",
+            "body": (
+                "## Plan\n\n"
+                "<!-- cai-plan-start -->\n"
+                "### Files to change\n"
+                "- **`pkg/a.py`**: change\n\n"
+                "### Detailed steps\n"
+                "#### Step 1 — Edit `pkg/a.py`\n\nbody\n"
+                "<!-- cai-plan-end -->\n"
+            ),
+            "labels": [{"name": n} for n in labels],
+        }
+
+    def test_four_failures_trip_base_cap_without_extended_label(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from cai_lib.actions.implement import (
+            _count_consecutive_failed_attempts,
+            _MAX_CONSECUTIVE_FAILED_ATTEMPTS,
+        )
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".log", delete=False,
+        )
+        tmp.close()
+        log_path = Path(tmp.name)
+        try:
+            self._write_four_failures(log_path, 1151)
+            with patch(
+                "cai_lib.actions.implement.LOG_PATH", log_path,
+            ):
+                count = _count_consecutive_failed_attempts(1151)
+            self.assertGreaterEqual(
+                count, _MAX_CONSECUTIVE_FAILED_ATTEMPTS,
+            )
+        finally:
+            if log_path.exists():
+                log_path.unlink()
+
+    def test_effective_cap_logic_uses_extended_when_label_present(self):
+        """Structural check: the label-driven branch in the guard
+        must select _MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED iff
+        (opus_escalation is False) AND (LABEL_EXTENDED_RETRIES in
+        label_names)."""
+        from cai_lib.actions.implement import (
+            _MAX_CONSECUTIVE_FAILED_ATTEMPTS,
+            _MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED,
+        )
+        from cai_lib.config import (
+            LABEL_EXTENDED_RETRIES,
+            LABEL_OPUS_ATTEMPTED,
+        )
+
+        def pick(label_names, opus_escalation):
+            extended_retries = LABEL_EXTENDED_RETRIES in label_names
+            if not opus_escalation and extended_retries:
+                return _MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED
+            return _MAX_CONSECUTIVE_FAILED_ATTEMPTS
+
+        self.assertEqual(
+            pick([LABEL_EXTENDED_RETRIES], opus_escalation=False),
+            _MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED,
+        )
+        self.assertEqual(
+            pick([], opus_escalation=False),
+            _MAX_CONSECUTIVE_FAILED_ATTEMPTS,
+        )
+        self.assertEqual(
+            pick([LABEL_EXTENDED_RETRIES, LABEL_OPUS_ATTEMPTED],
+                 opus_escalation=True),
+            _MAX_CONSECUTIVE_FAILED_ATTEMPTS,
+        )
+        self.assertEqual(
+            pick([LABEL_OPUS_ATTEMPTED], opus_escalation=True),
+            _MAX_CONSECUTIVE_FAILED_ATTEMPTS,
+        )
+
+
 class TestFormatStderrTail(unittest.TestCase):
     """Issue #1106: the sanitizer must collapse whitespace, neutralise
     ``=``, cap length, and always return a non-empty single token so

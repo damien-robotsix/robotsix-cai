@@ -35,6 +35,7 @@ from cai_lib.config import (
     LABEL_REFINED,
     LABEL_HUMAN_NEEDED,
     LABEL_OPUS_ATTEMPTED,
+    LABEL_EXTENDED_RETRIES,
     LABEL_RAISED,
     LOG_PATH,
 )
@@ -99,6 +100,18 @@ _MAX_TESTS_FAILED_RETRIES = 2
 # _issue_has_opus_attempted guard); at the Sonnet tier rescue may
 # still escalate to Opus (different model may handle it).
 _MAX_CONSECUTIVE_FAILED_ATTEMPTS = 3
+
+# Extended cap used when LABEL_EXTENDED_RETRIES is present on the
+# issue AND opus_escalation is False — i.e. for Sonnet-tier runs on
+# plans that handle_plan_gate tagged as medium-scale refactors
+# (issue #1151 — >=5 files AND >=40 edit steps). Raises the broad
+# consecutive-failure cap from 3 to 5, giving Sonnet two extra
+# attempts on transient infra / tooling flakes across many edit
+# sites before the Opus one-shot is burned. At the Opus tier the
+# cap stays at :data:`_MAX_CONSECUTIVE_FAILED_ATTEMPTS` because the
+# rescue ``_issue_has_opus_attempted`` guard already refuses a
+# second escalation, so more Opus retries would just loop.
+_MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED = 5
 
 # Result tags that count as implement failures for
 # :func:`_count_consecutive_failed_attempts`. Transition tags such as
@@ -1055,24 +1068,44 @@ def handle_implement(issue: dict) -> int:
                     result="tests_failed_escalated_early", exit=0)
             return 0
 
-    # General consecutive-failure cap (issue #1088). Fires for both
-    # tiers as a broader safety net than the tests-only counter above.
-    # If this issue has already burned through
-    # _MAX_CONSECUTIVE_FAILED_ATTEMPTS implement failures of any kind
-    # (tests_failed, subagent_failed, unexpected_error, and the git/gh
-    # transport failures), park at :human-needed for admin review.
+    # General consecutive-failure cap (issue #1088 / #1151). Fires for
+    # both tiers as a broader safety net than the tests-only counter
+    # above. If this issue has already burned through the *effective*
+    # cap of implement failures of any kind (tests_failed,
+    # subagent_failed, unexpected_error, and the git/gh transport
+    # failures), park at :human-needed for admin review.
+    #
+    # The effective cap is
+    # :data:`_MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED` (5) when
+    # ``opus_escalation`` is False AND the issue carries
+    # ``LABEL_EXTENDED_RETRIES`` (stamped by ``handle_plan_gate`` on
+    # plans meeting the #1151 structural thresholds — >=5 files AND
+    # >=40 edit steps). Otherwise the cap is
+    # :data:`_MAX_CONSECUTIVE_FAILED_ATTEMPTS` (3). The extension
+    # gives Sonnet two extra attempts on transient infra / tooling
+    # flakes for plans whose blast radius is large enough that a
+    # flaky run is more likely over many edit sites, without
+    # inviting further Opus retries (the rescue
+    # ``_issue_has_opus_attempted`` guard refuses a second Opus
+    # escalation anyway, so raising the Opus cap would just loop).
+    #
     # At the Opus tier the LABEL_OPUS_ATTEMPTED label will naturally
     # prevent rescue from re-escalating (see cmd_rescue's
     # _issue_has_opus_attempted guard); at the Sonnet tier rescue may
     # still escalate to Opus, which is desirable (different model may
     # handle it).
+    extended_retries = LABEL_EXTENDED_RETRIES in label_names
+    if not opus_escalation and extended_retries:
+        effective_cap = _MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED
+    else:
+        effective_cap = _MAX_CONSECUTIVE_FAILED_ATTEMPTS
     consecutive_any = _count_consecutive_failed_attempts(issue_number)
-    if consecutive_any >= _MAX_CONSECUTIVE_FAILED_ATTEMPTS:
+    if consecutive_any >= effective_cap:
         tier = "Opus" if opus_escalation else "Sonnet"
         print(
             f"[cai implement] #{issue_number} has {consecutive_any} "
             f"consecutive failed implement attempts at the {tier} "
-            f"tier (>= {_MAX_CONSECUTIVE_FAILED_ATTEMPTS}); skipping "
+            f"tier (>= {effective_cap}); skipping "
             f"subagent and parking at auto-improve:human-needed",
             flush=True,
         )
@@ -1087,9 +1120,9 @@ def handle_implement(issue: dict) -> int:
             "escalating to human review.\n\n"
             "---\n"
             f"_Pre-empted by `cai implement` retries-exhausted guard "
-            f"after {_MAX_CONSECUTIVE_FAILED_ATTEMPTS} consecutive "
+            f"after {effective_cap} consecutive "
             f"failures. Re-label to `{LABEL_PLAN_APPROVED}` once the "
-            "underlying problem is resolved to retry. Issue #1088._"
+            "underlying problem is resolved to retry. Issue #1088 / #1151._"
         )
         if not _park_in_progress_at_human_needed(
             issue_number, reason=reason,

@@ -38,6 +38,16 @@ _ALL_MANAGED_ISSUE_LABELS: frozenset[str] = frozenset({
     # sweep so the next rescue pass can detect the one-shot has
     # already been burned and refuse a second escalation (#944).
     LABEL_OPUS_ATTEMPTED,
+    # Extended-retries budget marker set by `handle_plan_gate` on
+    # plans meeting the >=5-file / >=40-edit-step structural
+    # thresholds (#1151). Must survive the hourly sweep so the
+    # label-driven effective cap in `handle_implement` keeps reading
+    # True across dispatch ticks for the whole lifetime of the
+    # plan-approved state. No separate auto-clear on `human_to_*`
+    # transitions is needed: the label becomes moot on any
+    # re-planning (fresh approval will re-stamp) and is a no-op at
+    # the Opus tier anyway.
+    LABEL_EXTENDED_RETRIES,
     # Supplementary plan-needs-review marker (#1128) — set alongside
     # :human-needed by `handle_plan_gate` when cai-select emitted
     # requires_human_review=true. Must survive the hourly sweep so
