@@ -22,11 +22,7 @@ from cai_lib.config import (
     LABEL_MERGE_BLOCKED,
 )
 from cai_lib.dispatcher import HandlerResult
-from cai_lib.fsm import (
-    PRState,
-    fire_trigger,
-    get_pr_state,
-)
+from cai_lib.fsm import PRState
 from cai_lib.github import _gh_json, _set_labels
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
@@ -278,36 +274,10 @@ def handle_fix_ci(pr: dict) -> HandlerResult:
         log_run("fix-ci", repo=REPO, pr=pr_number, result="lock_failed", exit=1)
         return HandlerResult(trigger="")
 
-    # 1a. Advance PR FSM into CI_FAILING. The wrapper detected red
-    # checks via _select_ci_fix_targets; formalize that in the FSM
-    # so the diagram matches what's actually happening.
-    try:
-        pr_now = _gh_json([
-            "pr", "view", str(pr_number),
-            "--repo", REPO, "--json", "labels,mergedAt,state",
-        ])
-    except subprocess.CalledProcessError:
-        pr_now = {}
-    current_state = get_pr_state(pr_now) if pr_now else None
-    if current_state == PRState.REVIEWING_CODE:
-        fire_trigger(
-            pr_number, "reviewing_code_to_ci_failing",
-            is_pr=True,
-            log_prefix="cai fix-ci",
-        )
-    elif current_state == PRState.REVISION_PENDING:
-        fire_trigger(
-            pr_number, "revision_pending_to_ci_failing",
-            is_pr=True,
-            log_prefix="cai fix-ci",
-        )
-    elif current_state == PRState.REVIEWING_DOCS:
-        fire_trigger(
-            pr_number, "reviewing_docs_to_ci_failing",
-            is_pr=True,
-            log_prefix="cai fix-ci",
-        )
-    # OPEN / CI_FAILING / PR_HUMAN_NEEDED: no transition needed.
+    # 1a. CI_FAILING entry is now fired by ``drive_pr`` before this handler
+    # runs (see ``cai_lib/dispatcher.py``), which inspects the pre-call
+    # state and fires the matching ``*_to_ci_failing`` transition. By the
+    # time we get here the PR is at :ci-failing.
 
     _run(["gh", "auth", "setup-git"], capture_output=True)
 

@@ -28,7 +28,7 @@ State transitions between these rows are rendered in [the lifecycle FSM diagram]
 | `PLANNED` | [`handle_plan_gate`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/plan.py) | *(confidence gate; no subagent)* |
 | `PLAN_APPROVED` | [`handle_implement`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/implement.py) | `cai-implement` |
 | `IN_PROGRESS` | [`handle_implement`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/implement.py) (resume) | `cai-implement` |
-| `PR` | [`handle_pr_bounce`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/pr_bounce.py) | *(label transition only; no subagent)* |
+| `PR` | [`_resolve_pr_state`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/dispatcher.py) (inline in `drive_issue`) | *(label transition only; no subagent)* |
 | `MERGED` | [`handle_confirm`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/actions/confirm.py) | `cai-confirm` (and `cai-memorize` post-verification) |
 | `HUMAN_NEEDED` | [`handle_human_needed`](https://github.com/damien-robotsix/robotsix-cai/blob/main/cai_lib/cmd_unblock.py) | `cai-unblock` (only when `human:solved` label present) |
 | `SOLVED` | *terminal* | *(no handler)* |

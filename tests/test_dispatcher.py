@@ -982,5 +982,279 @@ class TestBuildOrderingGate(unittest.TestCase):
         self.assertEqual(gate[61], (51, 60))
 
 
+# ---------------------------------------------------------------------------
+# Collapsed-registry shape + drive_issue / drive_pr fallback routing
+# ---------------------------------------------------------------------------
+
+class TestCollapsedRegistry(unittest.TestCase):
+    """The collapsed registry holds only the entry state and
+    terminal/parked-resume states; every other actionable state must
+    fall through to ``drive_issue`` / ``drive_pr``."""
+
+    def test_issue_registry_has_only_entry_merged_human(self):
+        reg = dispatcher._build_issue_registry()
+        self.assertEqual(
+            set(reg.keys()),
+            {IssueState.RAISED, IssueState.HUMAN_NEEDED, IssueState.MERGED},
+        )
+        self.assertIs(reg[IssueState.RAISED], dispatcher.drive_issue)
+
+    def test_pr_registry_has_only_entry_and_human(self):
+        reg = dispatcher._build_pr_registry()
+        self.assertEqual(
+            set(reg.keys()),
+            {PRState.OPEN, PRState.PR_HUMAN_NEEDED},
+        )
+        self.assertIs(reg[PRState.OPEN], dispatcher.drive_pr)
+
+
+class TestActionableFallback(_LockNoopMixin, unittest.TestCase):
+    """Actionable states absent from the collapsed registry must fall
+    through to ``drive_issue`` / ``drive_pr``."""
+
+    def test_refining_falls_through_to_drive_issue(self):
+        issue = _issue(42, "auto-improve:refining")
+        drive_mock = MagicMock(return_value=0)
+        drive_mock.__name__ = "drive_issue"
+        with patch.object(dispatcher, "_gh_json", return_value=issue), \
+             patch.object(dispatcher, "_issue_registry", return_value={}), \
+             patch.object(dispatcher, "drive_issue", new=drive_mock):
+            rc = dispatcher.dispatch_issue(42)
+        self.assertEqual(rc, 0)
+        drive_mock.assert_called_once_with(issue)
+
+    def test_reviewing_code_falls_through_to_drive_pr(self):
+        pr = _pr(99, "pr:reviewing-code")
+        drive_mock = MagicMock(return_value=0)
+        drive_mock.__name__ = "drive_pr"
+        with patch.object(dispatcher, "_gh_json", return_value=pr), \
+             patch.object(dispatcher, "_pr_registry", return_value={}), \
+             patch.object(dispatcher, "drive_pr", new=drive_mock):
+            rc = dispatcher.dispatch_pr(99)
+        self.assertEqual(rc, 0)
+        drive_mock.assert_called_once_with(pr)
+
+    def test_terminal_state_not_actionable_returns_zero(self):
+        """States not in ``_ACTIONABLE_PR_STATES`` (MERGED) must not
+        trigger the fallback — they return 0 with no handler call."""
+        pr = _pr(99, None, merged=True)
+        drive_mock = MagicMock()
+        with patch.object(dispatcher, "_gh_json", return_value=pr), \
+             patch.object(dispatcher, "_pr_registry", return_value={}), \
+             patch.object(dispatcher, "drive_pr", new=drive_mock):
+            rc = dispatcher.dispatch_pr(99)
+        self.assertEqual(rc, 0)
+        drive_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# drive_issue — single-step driver with Pattern A entry transitions
+# ---------------------------------------------------------------------------
+
+class TestDriveIssue(unittest.TestCase):
+    """``drive_issue`` fires the Pattern A entry transition inline for
+    entry states (RAISED, REFINED, PLAN_APPROVED) then dispatches the
+    handler for the pre-entry state. Other actionable states call the
+    handler directly without an entry transition. ``IssueState.PR`` is
+    handled inline via :func:`_resolve_pr_state`."""
+
+    def _run(self, state: IssueState, handler_rv):
+        issue = _issue(42, state.value if state else None)
+        handler = MagicMock(return_value=handler_rv)
+        handler.__name__ = "mock_handler"
+        fire_mock = MagicMock(return_value=(True, False))
+        handlers = {state: handler}
+        with patch.object(dispatcher, "_drive_issue_handlers",
+                          return_value=handlers), \
+             patch("cai_lib.fsm.fire_trigger", new=fire_mock):
+            rc = dispatcher.drive_issue(issue)
+        return rc, handler, fire_mock
+
+    def test_raised_fires_raise_to_triaging_and_calls_handler(self):
+        rc, handler, fire = self._run(IssueState.RAISED, 0)
+        self.assertEqual(rc, 0)
+        handler.assert_called_once()
+        # Pattern A entry fired before handler.
+        self.assertEqual(fire.call_args.args, (42, "raise_to_triaging"))
+
+    def test_refined_fires_refined_to_splitting_and_calls_handler(self):
+        rc, handler, fire = self._run(IssueState.REFINED, 0)
+        self.assertEqual(rc, 0)
+        handler.assert_called_once()
+        self.assertEqual(fire.call_args.args, (42, "refined_to_splitting"))
+
+    def test_plan_approved_fires_approved_to_in_progress(self):
+        rc, handler, fire = self._run(IssueState.PLAN_APPROVED, 0)
+        self.assertEqual(rc, 0)
+        handler.assert_called_once()
+        self.assertEqual(fire.call_args.args, (42, "approved_to_in_progress"))
+
+    def test_triaging_calls_handler_without_entry(self):
+        rc, handler, fire = self._run(IssueState.TRIAGING, 0)
+        self.assertEqual(rc, 0)
+        handler.assert_called_once()
+        fire.assert_not_called()
+
+    def test_handler_result_routes_through_driver_fire(self):
+        hr = HandlerResult(trigger="refined_to_planning")
+        issue = _issue(42, "auto-improve:refining")
+        handler = MagicMock(return_value=hr)
+        handler.__name__ = "mock_handler"
+        handlers = {IssueState.REFINING: handler}
+        with patch.object(dispatcher, "_drive_issue_handlers",
+                          return_value=handlers), \
+             patch.object(dispatcher, "_driver_fire",
+                          return_value=(True, False)) as df:
+            rc = dispatcher.drive_issue(issue)
+        self.assertEqual(rc, 0)
+        df.assert_called_once()
+
+    def test_entry_divert_short_circuits(self):
+        """If the entry transition diverts (confidence gate), the
+        handler must not run."""
+        issue = _issue(42, "auto-improve:raised")
+        handler = MagicMock()
+        handlers = {IssueState.RAISED: handler}
+        with patch.object(dispatcher, "_drive_issue_handlers",
+                          return_value=handlers), \
+             patch("cai_lib.fsm.fire_trigger",
+                   return_value=(True, True)) as fire:
+            rc = dispatcher.drive_issue(issue)
+        self.assertEqual(rc, 0)
+        fire.assert_called_once()
+        handler.assert_not_called()
+
+    def test_pr_state_routes_through_resolve_pr_state(self):
+        issue = _issue(42, "auto-improve:pr-open")
+        resolve = MagicMock(return_value=0)
+        with patch.object(dispatcher, "_resolve_pr_state", new=resolve):
+            rc = dispatcher.drive_issue(issue)
+        self.assertEqual(rc, 0)
+        resolve.assert_called_once_with(issue)
+
+
+# ---------------------------------------------------------------------------
+# drive_pr — single-step PR driver with Pattern A entry transitions
+# ---------------------------------------------------------------------------
+
+class TestDrivePR(unittest.TestCase):
+    """``drive_pr`` fires the Pattern A entry transition inline for
+    REVISION_PENDING (moves to REVIEWING_CODE before
+    ``handle_revise``) and calls the handler for every other actionable
+    state directly. All PR-side handlers return
+    :class:`HandlerResult`."""
+
+    def _run(self, state: PRState):
+        pr = _pr(99, state.value if state else None)
+        handler = MagicMock(return_value=HandlerResult(trigger=""))
+        handler.__name__ = "mock_handler"
+        fire_mock = MagicMock(return_value=(True, False))
+        handlers = {state: handler}
+        with patch.object(dispatcher, "_drive_pr_handlers",
+                          return_value=handlers), \
+             patch("cai_lib.fsm.fire_trigger", new=fire_mock):
+            rc = dispatcher.drive_pr(pr)
+        return rc, handler, fire_mock
+
+    def test_revision_pending_fires_entry_before_handler(self):
+        rc, handler, fire = self._run(PRState.REVISION_PENDING)
+        self.assertEqual(rc, 0)
+        handler.assert_called_once()
+        self.assertEqual(
+            fire.call_args.args, (99, "revision_pending_to_reviewing_code"))
+
+    def test_reviewing_code_calls_handler_without_entry(self):
+        rc, handler, fire = self._run(PRState.REVIEWING_CODE)
+        self.assertEqual(rc, 0)
+        handler.assert_called_once()
+        fire.assert_not_called()
+
+    def test_ci_failing_calls_handler_without_entry(self):
+        """The pre-refactor fix_ci.py handler fired
+        ``*_to_ci_failing`` itself. The new flow assumes the PR is
+        already at CI_FAILING (via ``approved_to_ci_failing`` from
+        merge, or via label sweep) — no entry fired here."""
+        rc, handler, fire = self._run(PRState.CI_FAILING)
+        self.assertEqual(rc, 0)
+        handler.assert_called_once()
+        fire.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Inlined pr-bounce helpers (used to live in cai_lib.actions.pr_bounce)
+# ---------------------------------------------------------------------------
+
+class TestResolvePRState(unittest.TestCase):
+    """Recovery decision tree at ``IssueState.PR``. Mirrors the old
+    ``handle_pr_bounce`` tests; the logic now lives inline in
+    :func:`dispatcher._resolve_pr_state`."""
+
+    def _issue_pr(self, number: int = 620) -> dict:
+        return {"number": number, "title": "t", "body": "b",
+                "labels": [{"name": "auto-improve:pr-open"}]}
+
+    def test_open_pr_routes_to_dispatch_pr(self):
+        open_pr = {"number": 643, "headRefName": "auto-improve/620-foo"}
+        with patch.object(dispatcher, "_find_open_linked_pr",
+                          return_value=open_pr), \
+             patch.object(dispatcher, "_find_recent_closed_linked_pr") as cl, \
+             patch.object(dispatcher, "dispatch_pr", return_value=0) as dpr:
+            rc = dispatcher._resolve_pr_state(self._issue_pr())
+        self.assertEqual(rc, 0)
+        dpr.assert_called_once_with(643)
+        cl.assert_not_called()
+
+    def test_closed_merged_advances_to_merged(self):
+        closed_pr = {
+            "number": 643, "headRefName": "auto-improve/620-foo",
+            "state": "MERGED", "mergedAt": "2024-01-02T00:00:00Z",
+        }
+        with patch.object(dispatcher, "_find_open_linked_pr", return_value=None), \
+             patch.object(dispatcher, "_find_recent_closed_linked_pr",
+                          return_value=closed_pr):
+            rc = dispatcher._resolve_pr_state(self._issue_pr())
+        self.assertIsInstance(rc, HandlerResult)
+        self.assertEqual(rc.trigger, "pr_to_merged")
+
+    def test_closed_unmerged_by_bot_reverts_to_refined(self):
+        closed_pr = {
+            "number": 645, "headRefName": "auto-improve/644-foo",
+            "state": "CLOSED", "mergedAt": None,
+        }
+        with patch.object(dispatcher, "_find_open_linked_pr", return_value=None), \
+             patch.object(dispatcher, "_find_recent_closed_linked_pr",
+                          return_value=closed_pr), \
+             patch.object(dispatcher, "_pr_close_actor", return_value="cai-bot"), \
+             patch.object(dispatcher, "_our_gh_login", return_value="cai-bot"):
+            rc = dispatcher._resolve_pr_state(self._issue_pr(644))
+        self.assertIsInstance(rc, HandlerResult)
+        self.assertEqual(rc.trigger, "pr_to_refined")
+
+    def test_closed_unmerged_by_human_diverts_to_human_needed(self):
+        closed_pr = {
+            "number": 645, "headRefName": "auto-improve/644-foo",
+            "state": "CLOSED", "mergedAt": None,
+        }
+        with patch.object(dispatcher, "_find_open_linked_pr", return_value=None), \
+             patch.object(dispatcher, "_find_recent_closed_linked_pr",
+                          return_value=closed_pr), \
+             patch.object(dispatcher, "_pr_close_actor",
+                          return_value="damien-robotsix"), \
+             patch.object(dispatcher, "_our_gh_login", return_value="cai-bot"):
+            rc = dispatcher._resolve_pr_state(self._issue_pr(644))
+        self.assertIsInstance(rc, HandlerResult)
+        self.assertEqual(rc.trigger, "pr_to_human_needed")
+        self.assertTrue(rc.divert_reason)
+
+    def test_no_pr_diverts_to_human_needed(self):
+        with patch.object(dispatcher, "_find_open_linked_pr", return_value=None), \
+             patch.object(dispatcher, "_find_recent_closed_linked_pr",
+                          return_value=None):
+            rc = dispatcher._resolve_pr_state(self._issue_pr(700))
+        self.assertIsInstance(rc, HandlerResult)
+        self.assertEqual(rc.trigger, "pr_to_human_needed")
+        self.assertTrue(rc.divert_reason)
+
+
 if __name__ == "__main__":
     unittest.main()

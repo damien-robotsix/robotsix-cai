@@ -848,19 +848,11 @@ def handle_plan(issue: dict) -> int:
 
     print(f"[cai plan] picked #{issue_number}: {title}", flush=True)
 
-    # 1. Entry transition :refined → :planning (only on fresh entry).
-    if state == IssueState.REFINED:
-        fire_trigger(
-            issue_number, "refined_to_planning",
-            current_labels=label_names,
-            log_prefix="cai plan",
-        )
-    elif state == IssueState.PLANNING:
-        print(
-            f"[cai plan] resuming #{issue_number} already at :planning",
-            flush=True,
-        )
-    else:
+    # 1. :refined → :planning entry is now fired by ``drive_issue`` before
+    # this handler runs (see ``cai_lib/dispatcher.py``). By the time we get
+    # here the issue is always at :planning; any other state is a label
+    # corruption we refuse to process.
+    if state != IssueState.PLANNING:
         print(
             f"[cai plan] #{issue_number} unexpected state {state!r} "
             f"— aborting to prevent label corruption",
