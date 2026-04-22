@@ -38,8 +38,6 @@ from cai_lib.config import (
 from cai_lib.fsm import (
     Confidence,
     fire_trigger,
-    resume_pr_transition_for,
-    resume_transition_for,
 )
 from cai_lib.github import (
     _gh_json,
@@ -53,6 +51,32 @@ from cai_lib.github import (
 )
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run_claude_p
+
+
+# Resume-transition lookup tables. Replace the former
+# ``resume_transition_for`` / ``resume_pr_transition_for`` FSM helpers
+# with a local state-name → trigger-name map — the ``human_to_*`` /
+# ``pr_human_to_*`` edges are enumerated in ``ISSUE_TRANSITIONS`` /
+# ``PR_TRANSITIONS`` (cai_lib/fsm_transitions.py) and never change per
+# call, so a plain dict is sufficient. Issue #1172 / prerequisite for
+# #1129 (which deletes the FSM-side resolvers). Kept in sync with the
+# identical dicts in ``cai_lib/cmd_unblock.py`` — the scope guardrails
+# explicitly reject a shared helper module for these six entries.
+_ISSUE_RESUME_TRANSITIONS: dict[str, str] = {
+    "RAISED":            "human_to_raised",
+    "REFINING":          "human_to_refining",
+    "SPLITTING":         "human_to_splitting",
+    "PLAN_APPROVED":     "human_to_plan_approved",
+    "NEEDS_EXPLORATION": "human_to_exploration",
+    "SOLVED":            "human_to_solved",
+}
+
+_PR_RESUME_TRANSITIONS: dict[str, str] = {
+    "REVIEWING_CODE":   "pr_human_to_reviewing_code",
+    "REVISION_PENDING": "pr_human_to_revision_pending",
+    "REVIEWING_DOCS":   "pr_human_to_reviewing_docs",
+    "APPROVED":         "pr_human_to_approved",
+}
 
 
 # JSON schema for the cai-rescue verdict (forced via --json-schema).
@@ -571,8 +595,8 @@ def _try_rescue_issue(
         )
         return "no_target"
 
-    transition = resume_transition_for(target)
-    if transition is None:
+    trigger_name = _ISSUE_RESUME_TRANSITIONS.get(target)
+    if not trigger_name:
         print(
             f"[cai rescue] #{issue_number} unknown resume target {target!r}; "
             f"leaving parked",
@@ -584,13 +608,13 @@ def _try_rescue_issue(
     # operator something to anchor on if the FSM call later fails.
     _post_rescue_comment(
         issue_number,
-        target=transition.to_state.name,
+        target=target,
         reasoning=reasoning,
     )
 
     current_labels = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
     ok, _ = fire_trigger(
-        issue_number, transition.name,
+        issue_number, trigger_name,
         current_labels=current_labels,
         log_prefix="cai rescue",
     )
@@ -598,12 +622,12 @@ def _try_rescue_issue(
         return "agent_failed"
 
     print(
-        f"[cai rescue] #{issue_number} resumed via {transition.name} "
-        f"→ {transition.to_state.name}",
+        f"[cai rescue] #{issue_number} resumed via {trigger_name} "
+        f"→ {target}",
         flush=True,
     )
 
-    if transition.name == "human_to_solved":
+    if trigger_name == "human_to_solved":
         close_issue_completed(
             issue_number,
             f"Resumed to SOLVED by autonomous rescue: {reasoning}. "
@@ -704,8 +728,8 @@ def _try_rescue_pr(
         )
         return "no_target"
 
-    transition = resume_pr_transition_for(target)
-    if transition is None:
+    trigger_name = _PR_RESUME_TRANSITIONS.get(target)
+    if not trigger_name:
         print(
             f"[cai rescue] PR #{pr_number} unknown resume target {target!r}; "
             f"leaving parked",
@@ -717,12 +741,12 @@ def _try_rescue_pr(
     # an operator something to anchor on.
     _post_pr_rescue_comment(
         pr_number,
-        target=transition.to_state.name,
+        target=target,
         reasoning=reasoning,
     )
 
     ok, _ = fire_trigger(
-        pr_number, transition.name,
+        pr_number, trigger_name,
         is_pr=True,
         log_prefix="cai rescue",
     )
@@ -730,8 +754,8 @@ def _try_rescue_pr(
         return "agent_failed"
 
     print(
-        f"[cai rescue] PR #{pr_number} resumed via {transition.name} "
-        f"→ {transition.to_state.name}",
+        f"[cai rescue] PR #{pr_number} resumed via {trigger_name} "
+        f"→ {target}",
         flush=True,
     )
     return "resumed"

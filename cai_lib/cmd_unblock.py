@@ -35,8 +35,6 @@ from cai_lib.config import (
 from cai_lib.fsm import (
     Confidence,
     fire_trigger,
-    resume_transition_for,
-    resume_pr_transition_for,
 )
 from cai_lib.cmd_helpers_issues import (
     _extract_stored_plan,
@@ -51,6 +49,30 @@ from cai_lib.github import (
 )
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run, _run_claude_p
+
+
+# Resume-transition lookup tables. Replace the former
+# ``resume_transition_for`` / ``resume_pr_transition_for`` FSM helpers
+# with a local state-name → trigger-name map — the ``human_to_*`` /
+# ``pr_human_to_*`` edges are enumerated in ``ISSUE_TRANSITIONS`` /
+# ``PR_TRANSITIONS`` (cai_lib/fsm_transitions.py) and never change per
+# call, so a plain dict is sufficient. Issue #1172 / prerequisite for
+# #1129 (which deletes the FSM-side resolvers).
+_ISSUE_RESUME_TRANSITIONS: dict[str, str] = {
+    "RAISED":            "human_to_raised",
+    "REFINING":          "human_to_refining",
+    "SPLITTING":         "human_to_splitting",
+    "PLAN_APPROVED":     "human_to_plan_approved",
+    "NEEDS_EXPLORATION": "human_to_exploration",
+    "SOLVED":            "human_to_solved",
+}
+
+_PR_RESUME_TRANSITIONS: dict[str, str] = {
+    "REVIEWING_CODE":   "pr_human_to_reviewing_code",
+    "REVISION_PENDING": "pr_human_to_revision_pending",
+    "REVIEWING_DOCS":   "pr_human_to_reviewing_docs",
+    "APPROVED":         "pr_human_to_approved",
+}
 
 
 # JSON schema for structured unblock verdict (forced tool-use via --json-schema).
@@ -335,8 +357,8 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
               flush=True)
         return "no_target"
 
-    transition = resume_transition_for(target)
-    if transition is None:
+    trigger_name = _ISSUE_RESUME_TRANSITIONS.get(target)
+    if not trigger_name:
         print(
             f"[cai unblock] #{issue_number} unknown resume target {target!r}; "
             f"leaving parked",
@@ -350,7 +372,7 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
     # cai-implement on the next tick. Without this step, admin comments
     # that propose plan amendments are advisory-only and the stored
     # plan silently drifts from admin intent.
-    if transition.name == "human_to_plan_approved":
+    if trigger_name == "human_to_plan_approved":
         amendments = _collect_amendment_comments(admin_comments)
         if amendments:
             _append_admin_amendments_to_plan(
@@ -361,7 +383,7 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
     # The transition already clears :human-needed; also drop the
     # human:solved signal so the label is one-shot.
     ok, _ = fire_trigger(
-        issue_number, transition.name,
+        issue_number, trigger_name,
         current_labels=current_labels,
         extra_remove=[LABEL_HUMAN_SOLVED],
         log_prefix="cai unblock",
@@ -370,12 +392,12 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
         return "agent_failed"
 
     print(
-        f"[cai unblock] #{issue_number} resumed via {transition.name} "
-        f"→ {transition.to_state.name}",
+        f"[cai unblock] #{issue_number} resumed via {trigger_name} "
+        f"→ {target}",
         flush=True,
     )
 
-    if transition.name == "human_to_solved":
+    if trigger_name == "human_to_solved":
         close_issue_completed(
             issue_number,
             f"Resumed to SOLVED per admin direction: {reasoning}. "
@@ -459,8 +481,8 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
     """Attempt to resume *pr* from :pr-human-needed. Returns the result tag.
 
     Mirrors :func:`_try_unblock_issue`. Resume target maps to a
-    ``pr_human_to_<state>`` transition via
-    :func:`resume_pr_transition_for`, applied with
+    ``pr_human_to_<state>`` trigger name via the local
+    ``_PR_RESUME_TRANSITIONS`` lookup, applied with
     :func:`fire_trigger`.
     """
     pr_number = pr["number"]
@@ -520,8 +542,8 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
               flush=True)
         return "no_target"
 
-    transition = resume_pr_transition_for(target)
-    if transition is None:
+    trigger_name = _PR_RESUME_TRANSITIONS.get(target)
+    if not trigger_name:
         print(
             f"[cai unblock] PR #{pr_number} unknown resume target {target!r}; "
             f"leaving parked",
@@ -532,7 +554,7 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
     # The transition already clears :pr-human-needed via labels_remove.
     # The human:solved label needs an explicit removal pass via _set_pr_labels.
     ok, _ = fire_trigger(
-        pr_number, transition.name,
+        pr_number, trigger_name,
         is_pr=True,
         log_prefix="cai unblock",
     )
@@ -547,15 +569,15 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
         # Log and surface as a non-fatal agent_failed so the wrapper can
         # retry or a human can intervene.
         print(
-            f"[cai unblock] PR #{pr_number} resumed via {transition.name} "
+            f"[cai unblock] PR #{pr_number} resumed via {trigger_name} "
             f"but failed to clear {LABEL_HUMAN_SOLVED}",
             file=sys.stderr,
         )
         return "agent_failed"
 
     print(
-        f"[cai unblock] PR #{pr_number} resumed via {transition.name} "
-        f"→ {transition.to_state.name}",
+        f"[cai unblock] PR #{pr_number} resumed via {trigger_name} "
+        f"→ {target}",
         flush=True,
     )
     return "resumed"
