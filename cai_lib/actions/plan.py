@@ -35,6 +35,9 @@ from cai_lib.config import (
     LABEL_REFINED,
     LABEL_PLANNING,
     LABEL_PLANNED,
+    LABEL_SPLITTING,
+    LABEL_PARENT,
+    MAX_DECOMPOSITION_DEPTH,
 )
 from cai_lib.github import (
     _gh_json,
@@ -46,10 +49,13 @@ from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import (
     _work_directory_block,
+    _extract_stored_plan,
     _strip_stored_plan_block,
     _fetch_previous_fix_attempts,
     _build_attempt_history_block,
 )
+from cai_lib.cmd_implement import _parse_decomposition
+from cai_lib.actions.refine import _create_sub_issues, _issue_depth
 from cai_lib.fsm import (
     fire_trigger,
     IssueState,
@@ -491,6 +497,235 @@ def _plan_qualifies_for_extended_retries(plan_text):
     if _count_edit_steps(plan_text) < _EXTENDED_RETRY_EDIT_SITE_THRESHOLD:
         return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# Post-plan re-split checkpoint (#1167).
+#
+# ``cai-split`` runs BEFORE ``cai-plan`` and decides atomic vs. decompose
+# from the refined-issue prose only. It has never seen the concrete edit
+# plan — so ATOMIC verdicts can "feel correct" from the refined body but
+# explode into 15-file / 27-edit-step plans once ``cai-plan`` enumerates
+# imports, docs, tests, and scope-guardrail cleanups (the #1138 class of
+# miss). The safety nets in ``handle_plan_gate`` (#1131 auto-flag,
+# confidence-gate divert) catch the scale AFTER a plan is generated, but
+# only park the issue at ``:human-needed``; they do not automatically
+# decompose.
+#
+# The post-plan checkpoint closes that gap. ``_run_post_plan_resplit``
+# re-invokes ``cai-split`` in a new *post-plan mode* — the user message
+# carries both the refined body AND the stored implementation plan — and
+# the agent emits one of two verdicts:
+#
+#   * ``VERDICT: KEEP`` — plan scale matches the pre-plan verdict; the
+#     helper returns ``None`` and ``handle_plan_gate`` runs unchanged.
+#   * ``## Multi-Step Decomposition`` + ``VERDICT: RESPLIT`` — plan scale
+#     contradicts the pre-plan verdict; the helper tombstones the stored
+#     plan, fires ``planned_to_splitting``, calls ``_create_sub_issues``
+#     on the agent's decomposition, applies ``LABEL_PARENT`` / removes
+#     ``LABEL_SPLITTING`` (identical to ``handle_split``'s decompose
+#     branch), and returns 0.
+#
+# The helper is the structural sibling of the ``<!-- cai-resplit -->``
+# admin sigil (see ``cai_lib/admin_sigils.py`` + Phase 0.7 in
+# ``cai_lib/cmd_cycle.py``): the sigil stays as the manual fallback for
+# ``:plan-approved`` issues that slipped past this automated checkpoint,
+# and the two paths share the same decompose-and-label-parent machinery.
+# ---------------------------------------------------------------------------
+_POST_PLAN_RESPLIT_MARKER = "VERDICT: RESPLIT"
+_POST_PLAN_KEEP_MARKER = "VERDICT: KEEP"
+_POST_PLAN_DECOMPOSITION_MARKER = "## Multi-Step Decomposition"
+_STORED_PLAN_SECTION_HEADER = "## Stored Implementation Plan"
+
+
+def _run_post_plan_resplit(issue, plan_text):
+    """Re-invoke ``cai-split`` in post-plan mode to catch #1138-class scale misses.
+
+    Gating (any failing precondition returns ``None`` so
+    :func:`handle_plan_gate` runs its existing flow unchanged):
+
+      * The issue must carry a stored plan block — absent plan blocks
+        (raw ``:planned`` labels, stale resume state) are short-circuited
+        before any ``_run_claude_p`` spend.
+      * The parent must not already sit at
+        :data:`~cai_lib.config.MAX_DECOMPOSITION_DEPTH` — re-splitting
+        further would exceed the allowed depth, so we leave the plan in
+        place and let the existing safety nets (#1131 auto-flag,
+        confidence gate) decide.
+
+    Agent input: ``_build_issue_block(issue)`` plus a fenced
+    ``## Stored Implementation Plan`` section containing *plan_text*.
+    The structural presence of that section is the sole mode switch —
+    ``cai-split`` picks KEEP/RESPLIT semantics when it sees the block,
+    and continues with the legacy ATOMIC / decompose / UNCLEAR path
+    when it does not.
+
+    Verdict routing:
+
+      * Any output containing the ``## Multi-Step Decomposition`` marker
+        or the ``VERDICT: RESPLIT`` marker is treated as a RESPLIT
+        intent. HIGH confidence AND at least two well-formed steps are
+        required before the helper actually decomposes; LOW / MISSING
+        confidence or a malformed decomposition returns ``None`` so
+        ``handle_plan_gate``'s existing LOW-plan diverts (#1131) still
+        catch the concern.
+      * All other output (including explicit ``VERDICT: KEEP``) returns
+        ``None`` — KEEP means "plan scale is fine, just run the gate".
+
+    Returns an int exit code on the handled RESPLIT path (0 on success,
+    1 when a mid-flight FSM transition refuses), or ``None`` to fall
+    through to the rest of :func:`handle_plan_gate`.
+    """
+    issue_number = issue["number"]
+    issue_body = issue.get("body", "") or ""
+
+    # Structural gate: skip entirely when no stored plan block exists.
+    # This avoids spending a full cai-split invocation on stale
+    # handle_plan_gate resumes that land at :planned without a plan
+    # block persisted (e.g. retry after a pre-persist crash).
+    if _extract_stored_plan(issue_body) is None:
+        return None
+
+    # Depth gate: refuse to re-split a parent that is already at the
+    # configured depth cap. handle_split's decompose branch performs
+    # the same check; duplicating it here avoids a wasted agent call
+    # plus a mid-flight divert we would otherwise have to handle.
+    try:
+        current_depth = _issue_depth(issue_number)
+    except Exception as exc:  # pragma: no cover - defensive
+        print(
+            f"[cai plan] #{issue_number} post-plan resplit: "
+            f"_issue_depth raised {exc!r}; falling through",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+    if current_depth >= MAX_DECOMPOSITION_DEPTH:
+        print(
+            f"[cai plan] #{issue_number} already at decomposition depth "
+            f"{current_depth} (max {MAX_DECOMPOSITION_DEPTH}); "
+            f"skipping post-plan re-split checkpoint",
+            flush=True,
+        )
+        return None
+
+    user_message = (
+        _build_issue_block(issue)
+        + "\n\n"
+        + _STORED_PLAN_SECTION_HEADER
+        + "\n\n"
+        + (plan_text or "")
+    )
+
+    result = _run_claude_p(
+        ["claude", "-p", "--agent", "cai-split",
+         "--dangerously-skip-permissions"],
+        category="plan.resplit",
+        agent="cai-split",
+        input=user_message,
+    )
+    if result.returncode != 0:
+        print(
+            f"[cai plan] #{issue_number} post-plan resplit agent failed "
+            f"(exit {result.returncode}); falling through to normal gate",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+    print(result.stdout, flush=True)
+
+    stdout = result.stdout or ""
+    has_decomposition = _POST_PLAN_DECOMPOSITION_MARKER in stdout
+    has_resplit_marker = _POST_PLAN_RESPLIT_MARKER in stdout
+    if not (has_decomposition or has_resplit_marker):
+        # KEEP verdict or ambiguous/missing marker — the pre-plan
+        # verdict stands. Fall through so the rest of handle_plan_gate
+        # runs (confidence gate, #1131 auto-flag, #1139 opus label).
+        return None
+
+    from cai_lib.fsm_confidence import Confidence, parse_confidence
+    confidence = parse_confidence(stdout)
+    if confidence != Confidence.HIGH:
+        print(
+            f"[cai plan] #{issue_number} post-plan resplit at confidence "
+            f"{confidence.name if confidence else 'MISSING'} "
+            f"(HIGH required); falling through to normal gate",
+            flush=True,
+        )
+        return None
+
+    steps = _parse_decomposition(stdout)
+    if not steps or len(steps) < 2:
+        print(
+            f"[cai plan] #{issue_number} post-plan resplit yielded "
+            f"{len(steps)} step(s) (>= 2 required); falling through "
+            f"to normal gate",
+            flush=True,
+        )
+        return None
+
+    # Tombstone the stored plan block before we change state so the
+    # re-entry path (if a later tick re-reads this issue) does not see
+    # a stale plan advising it is plan-approvable.
+    stripped_body = _strip_stored_plan_block(issue_body)
+    edit = _run(
+        ["gh", "issue", "edit", str(issue_number),
+         "--repo", REPO, "--body", stripped_body],
+        capture_output=True,
+    )
+    if edit.returncode != 0:
+        print(
+            f"[cai plan] #{issue_number} failed to strip stored plan "
+            f"block (gh exit {edit.returncode}); falling through to "
+            f"normal gate",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+
+    # Move PLANNED → SPLITTING so the label trail reflects the re-split
+    # before we create sub-issues. Mirrors the pre-plan decompose path
+    # which also decomposes from IssueState.SPLITTING.
+    ok, _ = fire_trigger(
+        issue_number, "planned_to_splitting",
+        current_labels=[LABEL_PLANNED],
+        log_prefix="cai plan",
+    )
+    if not ok:
+        print(
+            f"[cai plan] #{issue_number} planned_to_splitting refused; "
+            f"aborting post-plan re-split",
+            file=sys.stderr,
+            flush=True,
+        )
+        log_run("plan", repo=REPO, issue=issue_number,
+                result="post_plan_resplit_transition_refused", exit=1)
+        return 1
+
+    sub_nums = _create_sub_issues(steps, issue_number, issue["title"])
+    if not _set_labels(
+        issue_number,
+        add=[LABEL_PARENT],
+        remove=[LABEL_SPLITTING],
+        log_prefix="cai plan",
+    ):
+        print(
+            f"[cai plan] #{issue_number} failed to apply {LABEL_PARENT} "
+            f"after resplit; sub-issues {sub_nums} were created but "
+            f"the parent label trail is incomplete",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    print(
+        f"[cai plan] #{issue_number} post-plan resplit: created "
+        f"{len(sub_nums)} sub-issue(s) from stored plan",
+        flush=True,
+    )
+    log_run("plan", repo=REPO, issue=issue_number,
+            result="post_plan_resplit", sub_issues=len(sub_nums),
+            steps=len(steps), exit=0)
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1106,6 +1341,19 @@ def handle_plan_gate(issue: dict) -> int:
     plan_text = issue.get("_cai_plan_text")
     if plan_text is None:
         plan_text = _extract_stored_plan(issue.get("body", "") or "") or ""
+
+    # Post-plan re-split checkpoint (#1167). Runs before the #1131
+    # scale/complexity auto-flag, before the #982 requires_human_review
+    # short-circuit, and before the confidence-gated
+    # planned_to_plan_approved* fire_trigger so an automated RESPLIT
+    # can preempt the human-needed divert when the plan can be
+    # cleanly decomposed. Returns None to fall through (KEEP verdict,
+    # no plan block, depth-capped, LOW confidence, or any mechanical
+    # failure); returns an int exit code when the helper has taken
+    # ownership of the issue (sub-issues created, parent labelled).
+    resplit_rc = _run_post_plan_resplit(issue, plan_text)
+    if resplit_rc is not None:
+        return resplit_rc
 
     # Recover the explicit human-review flag (#982). Prefer the
     # in-process stash; fall back to re-parsing the stored plan block.

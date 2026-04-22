@@ -1699,5 +1699,96 @@ class TestHandlePlanGateAppliesOpusLabel(unittest.TestCase):
         mock_post.assert_not_called()
 
 
+class TestHandlePlanGatePostPlanResplit(unittest.TestCase):
+    """#1167 — the post-plan re-split checkpoint runs before every
+    other branch of handle_plan_gate. Tests here assert:
+
+      (a) a RESPLIT-handled response short-circuits the rest of the
+          gate (including the #1131 auto-flag);
+      (b) a KEEP-handled response (helper returns None) falls
+          through to the confidence gate unchanged;
+      (c) an issue whose body lacks a stored plan block skips the
+          helper entirely so no agent call is spent.
+    """
+
+    def _issue(self, *, body="", confidence=Confidence.LOW, comments=None):
+        return {
+            "number": 1167,
+            "title": "t",
+            "body": body,
+            "labels": [{"name": "auto-improve:planned"}],
+            "comments": comments or [],
+            "_cai_plan_confidence": confidence,
+            "_cai_plan_confidence_reason": "",
+            "_cai_plan_text": body,
+            "_cai_plan_requires_human_review": False,
+            "_cai_plan_approvable_at_medium": False,
+        }
+
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan._run_post_plan_resplit", return_value=0)
+    @patch("cai_lib.actions.plan.log_run")
+    def test_resplit_preempts_1131_auto_flag(
+        self, _mock_log, mock_resplit, mock_fire, mock_set_labels,
+    ):
+        """When the same issue would also trip the #1131 15-files
+        auto-flag, RESPLIT wins: fire_trigger must NOT see
+        planned_to_human and _set_labels must NOT be asked to apply
+        LABEL_PLAN_NEEDS_REVIEW."""
+        from cai_lib.actions.plan import handle_plan_gate
+        body = "### Files to change\n" + "\n".join(
+            f"- `pkg/file{i}.py`" for i in range(20)
+        ) + "\n"
+        rc = handle_plan_gate(self._issue(body=body))
+        self.assertEqual(rc, 0)
+        mock_resplit.assert_called_once()
+        # No divert, no label stamp.
+        mock_fire.assert_not_called()
+        mock_set_labels.assert_not_called()
+
+    @patch("cai_lib.actions.plan._set_labels")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan._run_post_plan_resplit", return_value=None)
+    @patch("cai_lib.actions.plan.log_run")
+    def test_keep_falls_through_to_confidence_gate(
+        self, _mock_log, mock_resplit, mock_fire, _mock_set_labels,
+    ):
+        """When the helper returns None (KEEP verdict), the default
+        confidence gate must still fire with the default transition."""
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_fire.return_value = (True, False)
+        issue = self._issue(
+            body="", confidence=Confidence.HIGH,
+        )
+        rc = handle_plan_gate(issue)
+        self.assertEqual(rc, 0)
+        mock_resplit.assert_called_once()
+        # Default confidence-gated transition must have fired.
+        gated_calls = [
+            c for c in mock_fire.call_args_list
+            if c.kwargs.get("_confidence_gated")
+        ]
+        self.assertEqual(len(gated_calls), 1)
+        self.assertEqual(gated_calls[0].args[1], "planned_to_plan_approved")
+
+    @patch("cai_lib.actions.plan._run_claude_p")
+    @patch("cai_lib.actions.plan.fire_trigger")
+    @patch("cai_lib.actions.plan.log_run")
+    def test_no_plan_block_skips_claude_invocation(
+        self, _mock_log, mock_fire, mock_claude,
+    ):
+        """An issue whose body carries no stored plan block must
+        short-circuit the post-plan helper without spending a
+        cai-split call — guards against stale :planned resumes."""
+        from cai_lib.actions.plan import handle_plan_gate
+        mock_fire.return_value = (True, False)
+        issue = self._issue(body="", confidence=Confidence.HIGH)
+        rc = handle_plan_gate(issue)
+        self.assertEqual(rc, 0)
+        # _run_claude_p must not have been called inside the helper.
+        mock_claude.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

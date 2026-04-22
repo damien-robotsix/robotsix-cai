@@ -36,7 +36,13 @@ Issue-side handlers (take an issue dict):
   on LOW confidence / malformed output / depth-gate violations.
 - [`plan.py`](../../cai_lib/actions/plan.py) — `handle_plan`
   (dual-planner + `cai-select` pipeline) and `handle_plan_gate`
-  (confidence-based gate into PLAN_APPROVED / HUMAN).
+  (confidence-based gate into PLAN_APPROVED / HUMAN). The gate
+  also runs a post-plan re-split checkpoint
+  (`_run_post_plan_resplit`, issue #1167) that re-invokes
+  `cai-split` in post-plan mode with both the refined body and
+  the stored plan; on HIGH-confidence RESPLIT it fires
+  `planned_to_splitting`, decomposes via `_create_sub_issues`,
+  and labels the parent `:parent`.
 - [`implement.py`](../../cai_lib/actions/implement.py) —
   `handle_implement`: runs `cai-implement` on a fresh worktree,
   opens a PR, and handles multi-step suggested sub-issues.

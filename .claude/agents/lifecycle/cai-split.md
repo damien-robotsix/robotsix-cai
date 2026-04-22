@@ -29,6 +29,12 @@ next:
 If you are not confident in either verdict, report LOW confidence
 and the wrapper parks the issue in `:human-needed` for admin review.
 
+You are ALSO invoked in a second mode — the **post-plan re-split
+checkpoint** (#1167) — after `cai-plan` has produced a concrete
+implementation plan. See the "Post-plan re-split mode" section at
+the end of this file for the separate output contract that applies
+there.
+
 ## What you receive
 
 The user message contains the full refined issue body (including
@@ -37,6 +43,10 @@ guardrails`, and `### Files to change`) plus the parent GitHub
 issue number and any relevant metadata. Treat the refined body
 as authoritative — do not re-refine. Your decision space is only
 atomic vs. decompose.
+
+In post-plan mode the same user message ALSO carries a
+`## Stored Implementation Plan` section after the refined body —
+that section's presence is the sole mode switch. See below.
 
 ## Memory
 
@@ -204,3 +214,121 @@ If you emit a Multi-Step Decomposition block, these apply:
 - **Each step's Files to change list must be non-empty.** If a
   step has no concrete edits, collapse it into the adjacent
   step or drop it.
+
+## Post-plan re-split mode (issue #1167)
+
+You are running in this mode when — and only when — the user
+message carries a `## Stored Implementation Plan` section AFTER
+the refined issue body. The structural presence of that header is
+the sole mode switch. In this mode the wrapper has already run
+`cai-plan`; your job is no longer atomic-vs-decompose from prose,
+but **KEEP vs. RESPLIT** against the concrete plan the planner
+produced.
+
+### What this mode is for
+
+`cai-split` ordinarily runs on refined prose only and has no
+feedback loop from `cai-plan`. That causes a class of miss where
+the refined issue reads as one coherent change but the planner's
+enumeration of imports, docs, tests, and scope-guardrail
+cleanups produces 15+ files / 25+ edit steps. The post-plan
+checkpoint closes that gap: you re-evaluate scope against the
+plan's own `### Files to change` list and `#### Step N — Edit`
+headers.
+
+### Mode-specific output contract
+
+Emit EXACTLY ONE of the two blocks below, followed by a
+`Confidence: HIGH | LOW` line on its own line. The legacy
+`VERDICT: ATOMIC` / `VERDICT: UNCLEAR` / three-block output does
+not apply here — do not use it.
+
+#### Keep verdict
+
+Use this when the plan's concrete scope is consistent with the
+pre-plan ATOMIC verdict: the planner enumerated the work the
+refined body foreshadowed, with no surprise cross-module scope
+creep. A modest headcount bump from docs / test co-changes is
+fine and is a KEEP signal.
+
+~~~
+## Split Verdict
+
+VERDICT: KEEP
+
+### Reasoning
+<2–4 sentences: why the plan's file count and edit-site count
+are consistent with ATOMIC. Cite the plan's `### Files to
+change` count and the `#### Step N — Edit/Write` header count.>
+~~~
+
+Confidence: HIGH
+
+#### Resplit verdict
+
+Use this when the plan's concrete scope materially contradicts
+the pre-plan ATOMIC verdict — typical signals: 15+ files in the
+plan's `### Files to change` list, 25+ `#### Step N —
+Edit/Write` headers, unexpected cross-module edits, or plan
+steps that look like independent PRs glued together.
+
+Emit a `## Multi-Step Decomposition` block whose step groupings
+are derived from the plan's OWN `#### Step N — Edit` clusters
+and `### Files to change` clusters. Do not invent new work that
+is not in the plan. The wrapper parses this block with the same
+`_parse_decomposition` helper used by the pre-plan decompose
+path. Append the literal `VERDICT: RESPLIT` marker after the
+last step so the wrapper's mode detector can tell the post-plan
+decomposition apart from the legacy pre-plan one.
+
+~~~
+## Multi-Step Decomposition
+
+### Step 1: <title>
+
+### Description
+<what this step fixes or adds — standalone value>
+
+### Plan
+1. <concrete step — cite the stored plan's file names and
+   function names; do NOT introduce files the stored plan
+   did not list>
+
+### Verification
+...
+
+### Scope guardrails
+...
+
+### Files to change
+...
+
+### Step 2: <title>
+
+...
+
+VERDICT: RESPLIT
+~~~
+
+Confidence: HIGH
+
+### Post-plan mode rules
+
+- **LOW confidence is a KEEP signal in this mode.** If you are
+  uncertain whether the plan merits a re-split, emit KEEP with
+  `Confidence: LOW` and let the downstream safety nets (#1131
+  scale/complexity auto-flag, the admin `<!-- cai-resplit -->`
+  sigil) decide. The wrapper refuses to act on RESPLIT unless
+  `Confidence: HIGH`.
+- 2–5 steps is typical in the RESPLIT decomposition. The
+  wrapper refuses to act on RESPLIT decompositions with fewer
+  than 2 steps.
+- Every step's `### Files to change` list must be non-empty and
+  must be a subset (or rename-equivalent) of the stored plan's
+  file targets. Do NOT add files the stored plan did not list.
+- Scope-guardrail rules for pre-plan decompositions apply here
+  too — never forbid `docs/`, never list a file under both
+  "Files to change" and "Scope guardrails" on the same step.
+- Do NOT emit the legacy `VERDICT: ATOMIC` or `VERDICT: UNCLEAR`
+  markers in post-plan mode. The wrapper treats them as KEEP
+  (fall-through); explicit KEEP is clearer.
