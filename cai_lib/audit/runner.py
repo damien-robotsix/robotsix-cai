@@ -24,6 +24,7 @@ import time
 import uuid
 from pathlib import Path
 
+from cai_lib.audit_logging import audit_log_finish, audit_log_start
 from cai_lib.config import PUBLISH_SCRIPT
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run, _run_claude_p
@@ -92,6 +93,9 @@ def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-unt
     work_dir.mkdir(parents=True, exist_ok=True)
     findings_file = work_dir / "findings.json"
 
+    audit_log_start(kind, entry.name, agent)
+    proc = None  # set inside try block; kept for exception-handler visibility
+
     try:
         user_message = _build_module_prompt(entry, findings_file)
         proc = _run_claude_p(
@@ -118,10 +122,25 @@ def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-unt
                 file=sys.stderr,
                 flush=True,
             )
+            audit_log_finish(
+                kind, entry.name, agent,
+                proc=proc,
+                findings_count=None,
+                exit_code=1,
+                error_class="agent_nonzero",
+                message=f"agent {agent} exited {proc.returncode}",
+            )
             return 1
 
         if not findings_file.exists():
             # No findings is a valid outcome — nothing to publish.
+            audit_log_finish(
+                kind, entry.name, agent,
+                proc=proc,
+                findings_count=0,
+                exit_code=0,
+                message="no findings written",
+            )
             return 0
 
         # Quick shape check before invoking publish.py. A malformed
@@ -137,6 +156,14 @@ def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-unt
                     file=sys.stderr,
                     flush=True,
                 )
+                audit_log_finish(
+                    kind, entry.name, agent,
+                    proc=proc,
+                    findings_count=None,
+                    exit_code=1,
+                    error_class="findings_missing_list",
+                    message="findings.json missing top-level 'findings' list",
+                )
                 return 1
         except (json.JSONDecodeError, OSError) as exc:
             print(
@@ -144,6 +171,14 @@ def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-unt
                 f"could not read findings.json: {exc}",
                 file=sys.stderr,
                 flush=True,
+            )
+            audit_log_finish(
+                kind, entry.name, agent,
+                proc=proc,
+                findings_count=None,
+                exit_code=1,
+                error_class="findings_parse_error",
+                message=f"could not read findings.json: {exc}",
             )
             return 1
 
@@ -163,7 +198,22 @@ def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-unt
                 file=sys.stderr,
                 flush=True,
             )
+            audit_log_finish(
+                kind, entry.name, agent,
+                proc=proc,
+                findings_count=len(data.get("findings", [])),
+                exit_code=1,
+                error_class="publish_failed",
+                message=f"publish.py returned {published.returncode}",
+            )
             return 1
+
+        audit_log_finish(
+            kind, entry.name, agent,
+            proc=proc,
+            findings_count=len(data.get("findings", [])),
+            exit_code=0,
+        )
         return 0
     except Exception as exc:  # noqa: BLE001
         print(
@@ -171,6 +221,14 @@ def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-unt
             f"unexpected exception: {exc}",
             file=sys.stderr,
             flush=True,
+        )
+        audit_log_finish(
+            kind, entry.name, agent,
+            proc=proc,
+            findings_count=None,
+            exit_code=1,
+            error_class="unexpected_exception",
+            message=f"unexpected exception: {exc}",
         )
         return 1
     finally:
