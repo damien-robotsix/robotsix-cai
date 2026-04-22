@@ -175,6 +175,8 @@ def handle_confirm(issue: dict) -> int:
         category="confirm",
         agent="cai-confirm",
         input=user_message,
+        target_kind="issue",
+        target_number=issue["number"],
     )
     if confirm.returncode != 0:
         print(
@@ -236,6 +238,8 @@ def handle_confirm(issue: dict) -> int:
                     category="confirm",
                     agent="cai-memorize",
                     input=memorize_msg,
+                    target_kind="issue",
+                    target_number=issue_num,
                 )
                 if mem.returncode != 0:
                     print(

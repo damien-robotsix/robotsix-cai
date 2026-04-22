@@ -25,7 +25,7 @@ from cai_lib.config import (
     LABEL_PR_OPEN,
 )
 from cai_lib.fsm import PRState
-from cai_lib.github import _gh_json, _set_labels
+from cai_lib.github import _gh_json, _set_labels, _strip_cost_comments
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run, log_run as _log_run_alias  # noqa: F401
 from cai_lib.cmd_helpers import (
@@ -212,6 +212,8 @@ def _filter_comments_with_haiku(
         agent="cai-comment-filter",
         input=user_message,
         cwd="/app",
+        target_kind="pr",
+        target_number=pr_number,
     )
 
     if result.returncode != 0 or not (result.stdout or "").strip():
@@ -310,7 +312,9 @@ def _recover_stuck_rebase_prs() -> int:
         # latest commit — that means the resolver tried, failed, and
         # nothing has moved since.
         stuck = False
-        for c in pr.get("comments", []):
+        # Strip cost-attribution marker comments so they never reach the
+        # rebase-failed marker scan below.
+        for c in _strip_cost_comments(pr.get("comments", [])):
             body = (c.get("body") or "").lstrip()
             if not body.startswith(_REBASE_FAILED_MARKER):
                 continue
@@ -430,8 +434,10 @@ def handle_revise(pr: dict) -> HandlerResult:
         log_run("revise", repo=REPO, pr=pr_number_in, result="not_auto_improve", exit=1)
         return HandlerResult(trigger="")
     issue_number = int(m.group(1))
-    # Collect comments (issue-level + line-by-line review).
-    issue_comments = pr_detail.get("comments", [])
+    # Collect comments (issue-level + line-by-line review). Strip cost-
+    # attribution marker comments so they never flow into the haiku
+    # comment filter or the cai-revise prompt downstream.
+    issue_comments = _strip_cost_comments(pr_detail.get("comments", []))
     line_comments = _fetch_review_comments(pr_detail["number"])
     all_comments = issue_comments + line_comments
     # Filter to genuinely unresolved comments using the haiku agent.
@@ -779,6 +785,8 @@ def handle_revise(pr: dict) -> HandlerResult:
                 agent=agent_name,
                 input=user_message,
                 cwd="/app",
+                target_kind="pr",
+                target_number=pr_number,
             )
             if agent.stdout:
                 print(agent.stdout, flush=True)

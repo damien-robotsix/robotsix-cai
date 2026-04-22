@@ -101,6 +101,8 @@ def handle_maintain(issue: dict) -> int:
         input=user_message,
         cwd="/app",
         timeout=1800,
+        target_kind="issue",
+        target_number=issue_number,
     )
     if result.stdout:
         print(result.stdout, flush=True)

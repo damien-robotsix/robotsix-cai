@@ -1234,6 +1234,8 @@ def handle_implement(issue: dict) -> int:
             agent="cai-implement",
             input=user_message,
             cwd="/app",
+            target_kind="issue",
+            target_number=issue_number,
         )
         if agent.stdout:
             print(agent.stdout, flush=True)

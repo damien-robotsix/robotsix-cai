@@ -23,7 +23,7 @@ from cai_lib.config import (
 )
 from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm import PRState
-from cai_lib.github import _gh_json, _set_labels
+from cai_lib.github import _gh_json, _set_labels, _strip_cost_comments
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import (
@@ -139,7 +139,9 @@ def _select_ci_fix_targets() -> list[dict]:
             continue
 
         # Skip if there are unaddressed review comments — leave for cai revise.
-        issue_comments = pr.get("comments", [])
+        # Strip cost-attribution marker comments so they never reach the
+        # haiku comment filter or cai-fix-ci's prompt downstream.
+        issue_comments = _strip_cost_comments(pr.get("comments", []))
         line_comments = _fetch_review_comments(pr["number"])
         all_comments = issue_comments + line_comments
         unaddressed = _filter_comments_with_haiku(all_comments, pr["number"])
@@ -389,6 +391,8 @@ def handle_fix_ci(pr: dict) -> HandlerResult:
             agent="cai-fix-ci",
             input=user_message,
             cwd="/app",
+            target_kind="pr",
+            target_number=pr_number,
         )
         if agent.stdout:
             print(agent.stdout, flush=True)

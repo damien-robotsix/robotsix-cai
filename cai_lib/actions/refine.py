@@ -260,6 +260,8 @@ def handle_refine(issue: dict) -> int:
         category="refine",
         agent="cai-refine",
         input=user_message,
+        target_kind="issue",
+        target_number=issue_number,
     )
     print(result.stdout, flush=True)
 

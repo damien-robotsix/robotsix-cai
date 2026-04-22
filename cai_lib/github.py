@@ -14,6 +14,7 @@ from cai_lib.config import (
     LABEL_IN_PROGRESS, LABEL_PR_OPEN, LABEL_MERGE_BLOCKED,
     LABEL_REVISING, LABEL_RAISED, LABEL_REFINED,
     LABEL_LOCKED, INSTANCE_ID, CAI_LOCK_COMMENT_RE,
+    CAI_COST_COMMENT_RE,
     BLOCKED_ON_LABEL_RE,
 )
 from cai_lib.logging_utils import log_run
@@ -185,6 +186,28 @@ def _issue_has_label(issue_number: int, label: str) -> bool:
     return label in [l["name"] for l in (issue or {}).get("labels", [])]  # noqa: E741
 
 
+def _strip_cost_comments(comments: list[dict]) -> list[dict]:
+    """Return *comments* minus any carrying a ``<!-- cai-cost … -->`` marker.
+
+    Cost-attribution comments are posted by ``_run_claude_p`` after
+    every target-scoped agent invocation for human / audit visibility.
+    They must NOT be re-injected into subsequent agent prompts — they
+    are informational noise from the agent's point of view and would
+    otherwise grow unboundedly as the issue/PR accumulates more
+    invocations. This helper is the single choke point every
+    comment-to-agent-prompt assembly path funnels through.
+
+    Non-destructive: returns a new list; the input is not mutated.
+    """
+    out: list[dict] = []
+    for c in comments or []:
+        body = (c.get("body") or "") if isinstance(c, dict) else ""
+        if CAI_COST_COMMENT_RE.search(body):
+            continue
+        out.append(c)
+    return out
+
+
 def _build_issue_block(issue: dict) -> str:
     """Build the issue block shared by plan, select, and fix agents."""
     block = (
@@ -192,7 +215,7 @@ def _build_issue_block(issue: dict) -> str:
         f"### #{issue['number']} — {issue['title']}\n\n"
         f"{issue.get('body') or '(no body)'}\n"
     )
-    comments = issue.get("comments") or []
+    comments = _strip_cost_comments(issue.get("comments") or [])
     if comments:
         block += "\n### Comments\n\n"
         for c in comments:
