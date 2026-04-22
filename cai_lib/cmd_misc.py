@@ -45,6 +45,13 @@ _ALL_MANAGED_ISSUE_LABELS: frozenset[str] = frozenset({
     # it; auto-cleared on any `human_to_*` resume transition via
     # the transition's `labels_remove`.
     LABEL_PLAN_NEEDS_REVIEW,
+    # Rescue-already-attempted marker — set by `cai rescue` when a
+    # tick finishes without resuming a parked target. Must survive
+    # the hourly sweep so subsequent rescue passes keep skipping the
+    # target; auto-cleared on any `human_to_*` resume transition via
+    # the transition's `labels_remove`. Same lifecycle pattern as
+    # LABEL_PLAN_NEEDS_REVIEW above.
+    LABEL_RESCUE_ATTEMPTED,
     "auto-improve", "audit", "check-workflows", "check-workflows:raised",
 })
 

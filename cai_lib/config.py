@@ -160,6 +160,16 @@ LABEL_HUMAN_SOLVED = "human:solved"
 # and prevents a second escalation on the same issue if the Opus run
 # also parks at :human-needed.
 LABEL_OPUS_ATTEMPTED = "auto-improve:opus-attempted"
+# Marker that `cai rescue` applies when an autonomous attempt did NOT
+# resume the target (verdict `TRULY_HUMAN_NEEDED`, low confidence, or
+# no recognized resume target). Subsequent rescue passes skip targets
+# carrying this label so the agent stops re-evaluating the same parks
+# every cron tick. Cleared automatically by every `human_to_*` and
+# `pr_human_to_*` resume transition (declared in `labels_remove` in
+# `cai_lib/fsm_transitions.py`), so a `human:solved`-driven resume or
+# any other exit from HUMAN_NEEDED naturally re-opens the door for a
+# fresh rescue evaluation if the issue later parks again.
+LABEL_RESCUE_ATTEMPTED = "auto-improve:rescue-attempted"
 # Supplementary marker applied by `handle_plan_gate` (in addition to the
 # standard :human-needed state label) when `cai-select`'s structured
 # output set `requires_human_review=true` — i.e. the planner itself

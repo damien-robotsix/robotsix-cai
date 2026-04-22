@@ -69,6 +69,18 @@ issues move through their state machine.
   escalation that flips an `opus-attempted` label on the target
   issue. See `cai_lib/cmd_rescue.py::_issue_has_opus_attempted` —
   the label guard prevents repeat escalations.
+- **Rescue idempotence.** Every `cai rescue` tick that finishes
+  without resuming a target stamps `auto-improve:rescue-attempted`
+  on the issue or PR (see `_mark_rescue_attempted` /
+  `_NON_RESUMING_TAGS` in `cai_lib/cmd_rescue.py`). Subsequent
+  ticks skip labelled targets so the agent stops re-evaluating
+  the same parks every cron interval. The marker is stripped by
+  every `human_to_*` and `pr_human_to_*` transition (declared in
+  `labels_remove`, `cai_lib/fsm_transitions.py`), so any exit
+  from `HUMAN_NEEDED` / `PR_HUMAN_NEEDED` re-opens the door for
+  a fresh evaluation if the target later re-parks.
 - **CI implications.** No dedicated tests; behaviour is exercised
   via `tests/test_dup_check.py`, `tests/test_unblock.py`,
-  `tests/test_rescue_opus.py` which stub the agent output.
+  `tests/test_rescue_opus.py`, and
+  `tests/test_rescue_attempted_label.py`, which stub the agent
+  output.
