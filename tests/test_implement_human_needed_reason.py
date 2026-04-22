@@ -32,7 +32,7 @@ from cai_lib.config import (  # noqa: E402
     LABEL_HUMAN_NEEDED, LABEL_IN_PROGRESS, LABEL_PLAN_APPROVED,
 )
 from cai_lib.fsm import (  # noqa: E402
-    Confidence, ISSUE_TRANSITIONS, IssueState, Transition, find_transition,
+    Confidence, ISSUE_TRANSITIONS, IssueState, Transition,
 )
 from cai_lib.fsm_transitions import _render_human_divert_reason  # noqa: E402
 
@@ -41,18 +41,18 @@ class TestInProgressToHumanNeededTransition(unittest.TestCase):
     """The new FSM transition for implement-side parks (#1083)."""
 
     def test_transition_registered(self):
-        t = find_transition("in_progress_to_human_needed")
+        t = next(tt for tt in ISSUE_TRANSITIONS if tt.name == "in_progress_to_human_needed")
         self.assertEqual(t.from_state, IssueState.IN_PROGRESS)
         self.assertEqual(t.to_state, IssueState.HUMAN_NEEDED)
         self.assertIn(t, ISSUE_TRANSITIONS)
 
     def test_transition_is_caller_gated(self):
         """No FSM-level confidence threshold — the handler decides."""
-        t = find_transition("in_progress_to_human_needed")
+        t = next(tt for tt in ISSUE_TRANSITIONS if tt.name == "in_progress_to_human_needed")
         self.assertIsNone(t.min_confidence)
 
     def test_transition_label_deltas(self):
-        t = find_transition("in_progress_to_human_needed")
+        t = next(tt for tt in ISSUE_TRANSITIONS if tt.name == "in_progress_to_human_needed")
         self.assertIn(LABEL_IN_PROGRESS, t.labels_remove)
         self.assertIn(LABEL_HUMAN_NEEDED, t.labels_add)
 

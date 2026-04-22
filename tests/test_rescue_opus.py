@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cai_lib import cmd_rescue as R  # noqa: E402
 from cai_lib.actions import implement as impl_mod  # noqa: E402
 from cai_lib.config import LABEL_OPUS_ATTEMPTED  # noqa: E402
-from cai_lib.fsm import find_transition  # noqa: E402
+from cai_lib.fsm import ISSUE_TRANSITIONS  # noqa: E402
 
 
 _PLAN_BLOCK = (
@@ -333,7 +333,7 @@ class TestInProgressHumanNeededPreservesOpusAttempted(unittest.TestCase):
 
     def test_transition_labels_remove_excludes_opus_attempted(self):
         """Structural assertion on the transition definition itself."""
-        t = find_transition("in_progress_to_human_needed")
+        t = next(tt for tt in ISSUE_TRANSITIONS if tt.name == "in_progress_to_human_needed")
         self.assertNotIn(LABEL_OPUS_ATTEMPTED, t.labels_remove)
 
     def test_park_does_not_strip_opus_attempted(self):
