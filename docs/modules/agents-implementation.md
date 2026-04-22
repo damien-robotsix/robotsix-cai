@@ -17,7 +17,11 @@ the Python caller.
   confidence verdict.
 - [`.claude/agents/implementation/cai-implement.md`](../../.claude/agents/implementation/cai-implement.md)
   — sonnet code-editing agent. Has no git/gh — the caller
-  (`handle_implement`) owns remote state and PR creation.
+  (`handle_implement`) owns remote state and PR creation. Invokes
+  `cai-test-runner` (haiku) in-session to verify tests before
+  exiting; the caller runs the suite again post-exit and pushes the
+  PR regardless, routing any residual failure to `cai-revise` via a
+  top-level PR comment.
 - [`.claude/agents/implementation/cai-revise.md`](../../.claude/agents/implementation/cai-revise.md)
   — sonnet review-comment addresser. Runs only when the
   haiku-filtered comment set is non-empty.
@@ -33,6 +37,9 @@ the Python caller.
   `handle_implement` (cai-implement), `handle_revise` (cai-revise,
   cai-comment-filter), `handle_rebase` (cai-rebase),
   `handle_fix_ci` (cai-fix-ci).
+- Delegates to **agents-utility** — `cai-implement` calls
+  `cai-test-runner` (haiku) for regression test runs;
+  `cai-revise` / `cai-rebase` call `cai-git` for git plumbing.
 - Consumes **docs** — the root `CLAUDE.md` is loaded by
   claude-code in headless mode for every subagent invocation.
 - Uses **agents-config** — permission allowlist, hook, and env

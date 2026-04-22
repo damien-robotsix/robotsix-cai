@@ -78,7 +78,7 @@ modules:
     doc: "docs/modules/agents-ops.md"
 
   - name: agents-utility
-    summary: Utility subagents — memorize, git, cost-optimize, external-scout.
+    summary: Utility subagents — memorize, git, test-runner, cost-optimize, external-scout.
     globs:
       - ".claude/agents/utility/*.md"
     doc: "docs/modules/agents-utility.md"

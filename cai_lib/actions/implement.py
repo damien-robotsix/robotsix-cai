@@ -69,10 +69,8 @@ from cai_lib.actions.plan import (
 )
 from cai_lib.fsm import (
     fire_trigger,
-    Confidence,
     IssueState,
     get_issue_state,
-    parse_confidence,
 )
 
 
@@ -82,23 +80,18 @@ from cai_lib.fsm import (
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
-# Max consecutive `tests_failed` entries for the same issue before we
-# escalate to :human-needed instead of rolling back. Prevents the
-# implement loop from monopolising cycles on an unresolvable issue
-# (see issues #748 / #695).
-_MAX_TESTS_FAILED_RETRIES = 2
-
 # Broader safety net (issue #1088): max consecutive implement-failure
-# runs of ANY kind (tests_failed, subagent_failed, unexpected_error,
-# clone_failed, fetch_existing_failed, push_failed, pr_create_failed)
-# for the same issue before we park at :human-needed. Catches the
+# runs of ANY kind (subagent_failed, unexpected_error, clone_failed,
+# fetch_existing_failed, push_failed, pr_create_failed) for the same
+# issue before we park at :human-needed. `tests_failed` used to count
+# here too, but local test failures no longer roll back to
+# :plan-approved — the implement handler pushes the PR anyway and
+# routes it to REVISION_PENDING so cai-revise fixes the tests on the
+# PR side, which means a failing test never produces a second
+# implement entry for the same issue in the first place. Catches the
 # post-escalation loop observed on issue #1065 where Opus (resumed
-# with LABEL_OPUS_ATTEMPTED after `tests_failed_escalated`) kept
-# retrying because `tests_failed_escalated` breaks the narrower
-# `tests_failed`-only counter's streak. At the Opus tier rescue will
-# naturally refuse to re-escalate (see cmd_rescue's
-# _issue_has_opus_attempted guard); at the Sonnet tier rescue may
-# still escalate to Opus (different model may handle it).
+# with LABEL_OPUS_ATTEMPTED) kept retrying on git/gh transport
+# flakes.
 _MAX_CONSECUTIVE_FAILED_ATTEMPTS = 3
 
 # Extended cap used when LABEL_EXTENDED_RETRIES is present on the
@@ -114,14 +107,13 @@ _MAX_CONSECUTIVE_FAILED_ATTEMPTS = 3
 _MAX_CONSECUTIVE_FAILED_ATTEMPTS_EXTENDED = 5
 
 # Result tags that count as implement failures for
-# :func:`_count_consecutive_failed_attempts`. Transition tags such as
-# ``tests_failed_escalated`` / ``tests_failed_escalated_early`` /
-# ``tests_failed_auto_refine`` / ``retries_exhausted`` and bail-outs
-# such as ``no_stored_plan`` / ``bad_state`` / ``lock_failed`` are
-# deliberately excluded — they are not evidence of a stuck retry
-# loop (they signal the pipeline already responded to the failure).
+# :func:`_count_consecutive_failed_attempts`. ``tests_failed_pushed`` is
+# NOT counted — it tags a successful PR open (tests failed locally but
+# the PR was routed to cai-revise), not a stuck retry. Bail-outs such as
+# ``no_stored_plan`` / ``bad_state`` / ``lock_failed`` and the legacy
+# transition tags (``tests_failed_escalated`` / ``retries_exhausted``)
+# are also excluded — they signal the pipeline already responded.
 _COUNTED_IMPLEMENT_FAILURES: frozenset[str] = frozenset({
-    "tests_failed",
     "subagent_failed",
     "unexpected_error",
     "clone_failed",
@@ -604,39 +596,9 @@ def _extract_referenced_helpers(
     return joined
 
 
-def _count_consecutive_tests_failed(issue_number: int) -> int:
-    """Count trailing consecutive ``result=tests_failed`` log entries
-    for *issue_number* in LOG_PATH.
-
-    Walks the [implement] entries for this issue in reverse and
-    counts how many trailing entries have ``result=tests_failed``.
-    Returns 0 on any I/O failure (the guard is best-effort — we
-    must never block the implement pipeline on log read errors).
-    """
-    try:
-        if not LOG_PATH.exists():
-            return 0
-        lines = LOG_PATH.read_text().splitlines()
-    except OSError:
-        return 0
-    issue_tag = f" issue={issue_number} "
-    relevant = [
-        ln for ln in lines
-        if "[implement]" in ln and issue_tag in (ln + " ") and "result=" in ln
-    ]
-    count = 0
-    for ln in reversed(relevant):
-        if " result=tests_failed " in f" {ln} ":
-            count += 1
-        else:
-            break
-    return count
-
-
 # Match ``result=<tag>`` where <tag> is a space-bounded token. Used by
-# :func:`_count_consecutive_failed_attempts` to classify each log
-# line without the substring pitfalls of plain ``in`` checks
-# (``tests_failed`` vs. ``tests_failed_escalated``).
+# :func:`_count_consecutive_failed_attempts` to classify each log line
+# without the substring pitfalls of plain ``in`` checks.
 _RESULT_TAG_RE = re.compile(r" result=(\S+)")
 
 
@@ -646,22 +608,17 @@ def _count_consecutive_failed_attempts(issue_number: int) -> int:
 
     A "failure" is any ``[implement]`` entry whose ``result=`` token
     is in :data:`_COUNTED_IMPLEMENT_FAILURES`. Walks the entries for
-    this issue in reverse and counts how many trailing entries
-    match. The walk stops at the first non-failure entry — including
-    transition tags such as ``tests_failed_escalated`` /
-    ``tests_failed_escalated_early`` / ``tests_failed_auto_refine``
-    and successful PR-open entries (which have no ``result=`` field
-    at all).
+    this issue in reverse and counts how many trailing entries match.
+    The walk stops at the first non-failure entry — ``tests_failed_pushed``
+    (a successful PR open with failing local tests) and plain PR-open
+    entries (which have no ``result=`` field) both end the streak.
 
     Returns 0 on any I/O failure (the guard is best-effort — we must
     never block the implement pipeline on log read errors).
 
-    Added in issue #1088 as a broader safety net than
-    :func:`_count_consecutive_tests_failed`: it catches post-Opus
-    escalation loops (the canonical failure was issue #1065, which
-    accumulated three ``unexpected_error`` runs after a
-    ``tests_failed_escalated`` transition without being caught by
-    the narrower tests-only counter).
+    Added in issue #1088 to catch post-escalation loops — the canonical
+    failure was issue #1065, which accumulated three ``unexpected_error``
+    runs in a row without any dedicated counter noticing.
     """
     try:
         if not LOG_PATH.exists():
@@ -1021,52 +978,13 @@ def handle_implement(issue: dict) -> int:
 
     opus_escalation = LABEL_OPUS_ATTEMPTED in label_names
 
-    # Early-abort guard: if this issue has already burned through
-    # _MAX_TESTS_FAILED_RETRIES consecutive `tests_failed` runs at
-    # the Sonnet tier, skip the expensive clone + subagent call and
-    # escalate to :human-needed now. The rescue loop will pick it up
-    # and re-enter with LABEL_OPUS_ATTEMPTED if appropriate. The
-    # Opus one-shot itself is never pre-empted (it's the last resort).
-    if not opus_escalation:
-        prior_fails = _count_consecutive_tests_failed(issue_number)
-        if prior_fails >= _MAX_TESTS_FAILED_RETRIES:
-            print(
-                f"[cai implement] #{issue_number} has {prior_fails} "
-                f"consecutive tests_failed runs "
-                f"(>= {_MAX_TESTS_FAILED_RETRIES}); skipping subagent "
-                f"and escalating to auto-improve:human-needed",
-                flush=True,
-            )
-            reason = (
-                "## Implement subagent: pre-empted after repeated "
-                "test failures\n\n"
-                f"This issue already has {prior_fails} consecutive "
-                "`tests_failed` implement runs in the run log. "
-                "Skipping the Sonnet subagent call to avoid burning "
-                "another 60+ turns on a plan the test suite cannot "
-                "pass. Escalating to human review (rescue may "
-                "re-enter with Opus).\n\n"
-                "---\n"
-                f"_Pre-empted by `cai implement` early-abort guard. "
-                f"Re-label to `{LABEL_PLAN_APPROVED}` once the "
-                "underlying problem is resolved to retry._"
-            )
-            if not _park_in_progress_at_human_needed(
-                issue_number, reason=reason,
-            ):
-                print(
-                    f"[cai implement] WARNING: label transition "
-                    f"to auto-improve:human-needed failed twice "
-                    f"for #{issue_number} — issue may be stuck",
-                    file=sys.stderr, flush=True,
-                )
-                log_run("implement", repo=REPO,
-                        issue=issue_number,
-                        result="label_transition_failed", exit=1)
-                return 1
-            log_run("implement", repo=REPO, issue=issue_number,
-                    result="tests_failed_escalated_early", exit=0)
-            return 0
+    # Note: the dedicated "N consecutive `tests_failed` runs" early-abort
+    # guard was removed when the test-failure handler stopped rolling
+    # back to :plan-approved (issues open a PR even on failing local
+    # tests and route to cai-revise via the PR pipeline), so consecutive
+    # tests_failed streaks no longer accumulate. The broader
+    # :data:`_MAX_CONSECUTIVE_FAILED_ATTEMPTS` cap below still catches
+    # loops across other failure kinds.
 
     # General consecutive-failure cap (issue #1088 / #1151). Fires for
     # both tiers as a broader safety net than the tests-only counter
@@ -1479,144 +1397,42 @@ def handle_implement(issue: dict) -> int:
         )
         _git(work_dir, "commit", "-m", commit_msg)
 
-        # 7b. Run regression tests against the clone's working tree before
-        # pushing.
+        # 7b. Run regression tests against the clone's working tree for
+        # observability. A local failure is no longer terminal: cai-implement
+        # already invokes cai-test-runner in-session and may have iterated
+        # on failures, and the PR pipeline has cai-revise as a safety net
+        # for any residual breakage. So we push the PR anyway and route
+        # it to REVISION_PENDING with a failure-summary comment, letting
+        # cai-revise fix the tests on the PR side instead of rolling the
+        # issue back to :plan-approved for another full implement cycle.
         test_result = _run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
             cwd=str(work_dir),
             capture_output=True,
         )
-        if test_result.returncode != 0:
+        tests_failed_locally = test_result.returncode != 0
+        failure_summary = ""
+        helpers_section = ""
+        if tests_failed_locally:
             failure_output = (
                 f"{test_result.stdout or ''}\n"
                 f"{test_result.stderr or ''}"
             ).strip()
-            print(
-                f"[cai implement] regression tests failed — not opening PR\n"
-                f"{failure_output}",
-                file=sys.stderr,
+            failure_summary = _extract_test_failures(failure_output)
+            helpers_block = _extract_referenced_helpers(
+                failure_output, work_dir,
             )
-            # Log the failure first so it is visible to the consecutive-failure
-            # counter immediately below.
-            log_run("implement", repo=REPO, issue=issue_number,
-                    result="tests_failed", exit=1)
-
-            consecutive = _count_consecutive_tests_failed(issue_number)
-            if consecutive >= _MAX_TESTS_FAILED_RETRIES:
-                # Escalate out of the implement loop. Two exit paths:
-                #
-                # 1. MEDIUM plan (#923) — the stored plan already tripped a
-                #    confidence gate (admin approved it after a divert, or
-                #    the anchor-mitigated gate let it through at MEDIUM).
-                #    Three failures on top of that are strong evidence the
-                #    plan itself is wrong, so re-plan autonomously via
-                #    in_progress_to_refining rather than parking at
-                #    :human-needed. cai-refine will strip the stale plan
-                #    block when it runs.
-                # 2. HIGH / MISSING plan — fall through to the established
-                #    human-needed escalation so an admin can investigate.
-                stored_plan_confidence = parse_confidence(
-                    issue.get("body", "") or ""
-                )
-                failure_summary = _extract_test_failures(failure_output)
-                helpers_block = _extract_referenced_helpers(
-                    failure_output, work_dir,
-                )
+            if helpers_block:
                 helpers_section = (
                     "### Helper implementations referenced by failures\n\n"
                     f"{helpers_block}\n\n"
-                ) if helpers_block else ""
-
-                if stored_plan_confidence == Confidence.MEDIUM:
-                    comment_body = (
-                        "## Implement subagent: re-planning after repeated test failures\n\n"
-                        f"Regression tests failed {consecutive} consecutive "
-                        f"times for this issue. The stored plan was approved "
-                        f"at `MEDIUM` confidence (it already tripped a gate), "
-                        f"so three strikes are strong evidence the plan "
-                        f"itself is wrong. Routing back to `:refining` for "
-                        f"autonomous re-planning instead of human review.\n\n"
-                        "### Failing tests\n\n"
-                        f"```\n{failure_summary}\n```\n\n"
-                        f"{helpers_section}"
-                        "---\n"
-                        "_Set by `cai implement` after "
-                        f"{_MAX_TESTS_FAILED_RETRIES} consecutive "
-                        f"`tests_failed` log entries on a MEDIUM-confidence "
-                        "plan. Issue #923._"
-                    )
-                    print(
-                        f"[cai implement] {consecutive} consecutive "
-                        f"tests_failed for #{issue_number} on MEDIUM plan; "
-                        f"routing to :refining via in_progress_to_refining",
-                        flush=True,
-                    )
-                    _run(
-                        ["gh", "issue", "comment", str(issue_number),
-                         "--repo", REPO,
-                         "--body", comment_body],
-                        capture_output=True,
-                    )
-                    if not fire_trigger(
-                        issue_number, "in_progress_to_refining",
-                        log_prefix="cai implement",
-                    )[0]:
-                        print(
-                            f"[cai implement] WARNING: in_progress_to_refining "
-                            f"failed for #{issue_number} — falling back to "
-                            f"auto-improve:human-needed",
-                            file=sys.stderr, flush=True,
-                        )
-                        # Fall through to the human-needed path as a safety
-                        # net rather than leaving the issue stuck at
-                        # :in-progress.
-                    else:
-                        locked = False
-                        log_run("implement", repo=REPO, issue=issue_number,
-                                result="tests_failed_auto_refine", exit=0)
-                        return 0
-
-                reason = (
-                    "## Implement subagent: repeated test failures\n\n"
-                    f"Regression tests failed {consecutive} consecutive times "
-                    f"for this issue. Escalating to human review to avoid "
-                    f"monopolising the implement loop.\n\n"
-                    "### Failing tests\n\n"
-                    f"```\n{failure_summary}\n```\n\n"
-                    f"{helpers_section}"
-                    "---\n"
-                    "_Set by `cai implement` after "
-                    f"{_MAX_TESTS_FAILED_RETRIES} consecutive `tests_failed` "
-                    "log entries. Re-label to "
-                    f"`{LABEL_PLAN_APPROVED}` to retry once the underlying "
-                    "problem is resolved._"
                 )
-                print(
-                    f"[cai implement] {consecutive} consecutive tests_failed "
-                    f"for #{issue_number}; marking auto-improve:human-needed",
-                    flush=True,
-                )
-                if not _park_in_progress_at_human_needed(
-                    issue_number, reason=reason,
-                ):
-                    print(
-                        f"[cai implement] WARNING: label transition to "
-                        f"auto-improve:human-needed failed twice for "
-                        f"#{issue_number} — issue may be stuck without "
-                        "a lifecycle label",
-                        file=sys.stderr, flush=True,
-                    )
-                    rollback()
-                    log_run("implement", repo=REPO, issue=issue_number,
-                            result="label_transition_failed", exit=1)
-                    return 1
-                locked = False
-                log_run("implement", repo=REPO, issue=issue_number,
-                        result="tests_failed_escalated", exit=0)
-                return 0
-
-            rollback()
-            return 1
+            print(
+                f"[cai implement] regression tests failed — pushing PR "
+                f"anyway; cai-revise will address the failures\n"
+                f"{failure_summary}",
+                file=sys.stderr,
+            )
 
         # 8. Push.
         push = _run(
@@ -1698,6 +1514,51 @@ def handle_implement(issue: dict) -> int:
                     file=sys.stderr, flush=True,
                 )
         locked = False
+
+        # If the local regression run failed, post a top-level PR
+        # comment with the failure summary and route the PR to
+        # REVISION_PENDING so cai-revise picks up the failures as an
+        # unaddressed reviewer finding. This replaces the former
+        # rollback-to-:plan-approved path: instead of throwing away a
+        # PR's worth of work and re-running the whole implement cycle,
+        # we let cai-revise patch the tests on the PR side.
+        if tests_failed_locally:
+            comment_body = (
+                "## Local regression tests failed\n\n"
+                "The implement subagent opened this PR even though the "
+                "local `python -m unittest` run failed after commit. "
+                "The failures below are posted here as a reviewer "
+                "finding so `cai-revise` picks them up and addresses "
+                "them on the PR side rather than rolling the issue "
+                "back through another full implement cycle.\n\n"
+                "### Failing tests\n\n"
+                f"```\n{failure_summary}\n```\n\n"
+                f"{helpers_section}"
+                "---\n"
+                "_Posted by `cai implement`. Addressing this comment "
+                "clears the finding; the PR continues through review → "
+                "merge as usual._"
+            )
+            _run(
+                ["gh", "pr", "comment", pr_number,
+                 "--repo", REPO, "--body", comment_body],
+                capture_output=True,
+            )
+            # Walk the PR FSM: OPEN → REVIEWING_CODE → REVISION_PENDING
+            # so cai-revise becomes the selector for this PR.
+            fire_trigger(
+                int(pr_number), "open_to_reviewing_code",
+                is_pr=True, log_prefix="cai implement",
+            )
+            fire_trigger(
+                int(pr_number), "reviewing_code_to_revision_pending",
+                is_pr=True, log_prefix="cai implement",
+            )
+            log_run("implement", repo=REPO, issue=issue_number, branch=branch,
+                    pr=pr_number, diff_files=diff_files,
+                    result="tests_failed_pushed", exit=0)
+            return 0
+
         log_run("implement", repo=REPO, issue=issue_number, branch=branch,
                 pr=pr_number, diff_files=diff_files, exit=0)
         return 0

@@ -105,12 +105,15 @@ Only emit when ALL of the following hold:
   `auto-improve:opus-attempted` (the one-shot has been burned).
 - The divert reason is implementer-side horsepower, not ambiguity:
   - the spike-marker branch of `cai-implement` (divert comment
-    titled "Implement subagent: needs human review" or
-    "Implement subagent: repeated test failures"),
+    titled "Implement subagent: needs human review"),
   - the Haiku pre-screen emitting `spike` on an issue whose stored
     plan is clearly concrete (pre-screen mis-classification), or
-  - the 2-consecutive-`tests_failed` escalation, where the plan is
-    plausible but Sonnet could not produce passing tests.
+  - the broad ``retries_exhausted`` park after multiple
+    `subagent_failed` / `unexpected_error` runs, where the plan is
+    plausible but Sonnet could not drive the implement run to a
+    clean PR open. (Note: dedicated `tests_failed` escalation was
+    removed — test failures now push the PR anyway and route to
+    `cai-revise` via a reviewer comment.)
 - **The plan still matches the current source tree — this is a
   mandatory pre-condition, not a soft hint.** Extract every primary
   file path the stored plan names as an Edit / Write target (the

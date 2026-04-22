@@ -14,6 +14,10 @@ small-scope capability is needed.
 - [`.claude/agents/utility/cai-git.md`](../../.claude/agents/utility/cai-git.md)
   — lightweight haiku subagent that runs git commands on behalf
   of other subagents. Never modifies code.
+- [`.claude/agents/utility/cai-test-runner.md`](../../.claude/agents/utility/cai-test-runner.md)
+  — lightweight haiku subagent that runs the unittest suite on
+  behalf of `cai-implement` and returns a pass/fail verdict plus
+  filtered failure summary. Bash-only, no file access.
 - [`.claude/agents/utility/cai-cost-optimize.md`](../../.claude/agents/utility/cai-cost-optimize.md)
   — weekly opus cost-reduction proposer. Analyses spending trends
   and proposes one optimisation per run.
@@ -24,7 +28,8 @@ small-scope capability is needed.
 ## Inter-module dependencies
 - Invoked by **actions** — `handle_confirm` launches
   `cai-memorize` on merged PRs; several handlers delegate git
-  operations to `cai-git`.
+  operations to `cai-git`; `cai-implement` delegates regression
+  test runs to `cai-test-runner`.
 - Invoked by **cli** — `cmd_cost_optimize` (cai-cost-optimize),
   `cmd_external_scout` (cai-external-scout).
 - Consumes **docs** — root `CLAUDE.md`; `cai-memorize` also
@@ -39,6 +44,11 @@ small-scope capability is needed.
   entries would blow up every downstream subagent's token usage.
 - **Git agent is pure plumbing.** `cai-git` has only Bash and is
   never asked to reason about code — keep its prompts tight.
+- **Test-runner agent is a measurement instrument.** `cai-test-runner`
+  also has only Bash. It executes `python -m unittest` and reports
+  the verdict via a structured `## Test Result` / `## Failures` block;
+  it never interprets, suggests fixes, or edits. Keeping it dumb is
+  what makes its output trustworthy for `cai-implement` to act on.
 - **Cost tiers.** `cai-cost-optimize` and `cai-external-scout` are
   opus weekly (proposal quality matters); their output is graded
   by `cai-propose-review` before a human ever sees it.
