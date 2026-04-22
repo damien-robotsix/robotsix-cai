@@ -31,6 +31,7 @@ through this module.
   sub-issues API wrappers: `create_issue(title, body, labels)`,
   `link_sub_issue(parent_number, child_id)`,
   `list_sub_issues(parent_number)`,
+  `get_parent_issue(issue_number)` (walks GitHub parent chain),
   `all_sub_issues_closed(parent_number)`.
 - [`cai_lib/dup_check.py`](../../cai_lib/dup_check.py) —
   `DupCheckVerdict` dataclass; `parse_dup_check_verdict(text)`,

@@ -16,14 +16,13 @@ from cai_lib.config import (
     REPO,
     LABEL_RAISED,
     LABEL_REFINING,
-    LABEL_DEPTH_PREFIX,
 )
 from cai_lib.fsm import fire_trigger
 from cai_lib.github import _build_issue_block
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import _strip_stored_plan_block
-from cai_lib.issues import create_issue, link_sub_issue, list_sub_issues
+from cai_lib.issues import create_issue, get_parent_issue, link_sub_issue, list_sub_issues
 
 
 _REFINE_NEXT_STEP_RE = re.compile(
@@ -142,19 +141,21 @@ def _detect_guardrail_contradictions(refined_body: str) -> list[str]:
     return [p for p in both if not p.startswith("docs/")]
 
 
-def _issue_depth(issue: dict) -> int:
-    """Return the decomposition depth of *issue* from its ``depth:N`` label.
+def _issue_depth(issue_number: int) -> int:
+    """Compute decomposition depth by walking the native GitHub sub-issue parent chain.
 
-    Returns 0 if no ``depth:`` label is present (top-level issue).
+    Depth 0 means the issue has no parent (top-level).
+    Depth N means the issue's parent has depth N-1.
+    Treats any API failure as "no parent" so the loop terminates safely.
     """
-    for label in issue.get("labels", []):
-        name = label if isinstance(label, str) else label.get("name", "")
-        if name.startswith(LABEL_DEPTH_PREFIX):
-            try:
-                return int(name[len(LABEL_DEPTH_PREFIX):])
-            except ValueError:
-                pass
-    return 0
+    depth = 0
+    current = issue_number
+    while True:
+        parent = get_parent_issue(current)
+        if parent is None:
+            return depth
+        depth += 1
+        current = parent["number"]
 
 
 def _find_sub_issue(parent_number: int, step: int) -> "int | None":
@@ -175,7 +176,6 @@ def _find_sub_issue(parent_number: int, step: int) -> "int | None":
 
 def _create_sub_issues(
     steps: list[dict], parent_number: int, parent_title: str,
-    depth: int = 0,
 ) -> list[int]:
     """Create GitHub sub-issues for a multi-step decomposition.
 
@@ -212,7 +212,7 @@ def _create_sub_issues(
             f"Step {s['step']} of {total}._\n"
         )
         title = f"[#{parent_number} Step {s['step']}/{total}] {s['title']}"
-        labels = ["auto-improve", LABEL_RAISED, f"{LABEL_DEPTH_PREFIX}{depth}"]
+        labels = ["auto-improve", LABEL_RAISED]
         # Use create_issue() (REST API) instead of gh issue create so we
         # get back the internal `id` needed for link_sub_issue().
         meta = create_issue(title, body, labels)

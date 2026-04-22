@@ -101,6 +101,44 @@ def list_sub_issues(parent_number: int) -> list[dict]:
         return []
 
 
+def get_parent_issue(issue_number: int) -> dict | None:
+    """Return the parent issue of *issue_number* via GraphQL, or None.
+
+    Walks the GitHub native sub-issues parent relation (``subIssuesParent``
+    GraphQL field).  Returns a dict with at least ``{'number': int}`` if a
+    parent exists, or ``None`` if the issue has no parent.  Treats any API
+    failure as "no parent" so callers can safely loop.
+    """
+    owner, name = REPO.split("/", 1)
+    query = (
+        "query($owner: String!, $name: String!, $number: Int!) {"
+        "  repository(owner: $owner, name: $name) {"
+        "    issue(number: $number) {"
+        "      subIssuesParent { number }"
+        "    }"
+        "  }"
+        "}"
+    )
+    try:
+        result = _gh_json([
+            "api", "graphql",
+            "-f", f"query={query}",
+            "-F", f"owner={owner}",
+            "-F", f"name={name}",
+            "-F", f"number={issue_number}",
+        ])
+        parent = (
+            (result or {})
+            .get("data", {})
+            .get("repository", {})
+            .get("issue", {})
+            .get("subIssuesParent")
+        )
+        return parent if parent else None
+    except (subprocess.CalledProcessError, AttributeError, TypeError):
+        return None
+
+
 def all_sub_issues_closed(parent_number: int) -> bool | None:
     """Check whether every native sub-issue of *parent_number* is closed.
 

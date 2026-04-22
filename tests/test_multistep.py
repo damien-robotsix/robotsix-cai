@@ -129,41 +129,35 @@ from cai_lib.actions.refine import _issue_depth, _create_sub_issues, handle_refi
 
 
 class TestIssueDepth(unittest.TestCase):
-    def test_no_depth_label_returns_zero(self):
-        issue = {"labels": [{"name": "auto-improve"}, {"name": "auto-improve:raised"}]}
-        self.assertEqual(_issue_depth(issue), 0)
+    @patch("cai_lib.actions.refine.get_parent_issue", return_value=None)
+    def test_no_parent_returns_zero(self, mock_parent):
+        self.assertEqual(_issue_depth(42), 0)
 
-    def test_depth_label_returns_n(self):
-        issue = {"labels": [{"name": "auto-improve"}, {"name": "depth:1"}]}
-        self.assertEqual(_issue_depth(issue), 1)
+    @patch("cai_lib.actions.refine.get_parent_issue")
+    def test_one_parent_returns_one(self, mock_parent):
+        mock_parent.side_effect = [{"number": 5}, None]
+        self.assertEqual(_issue_depth(42), 1)
 
-    def test_depth_two(self):
-        issue = {"labels": [{"name": "depth:2"}, {"name": "auto-improve:raised"}]}
-        self.assertEqual(_issue_depth(issue), 2)
+    @patch("cai_lib.actions.refine.get_parent_issue")
+    def test_two_parents_returns_two(self, mock_parent):
+        mock_parent.side_effect = [{"number": 5}, {"number": 3}, None]
+        self.assertEqual(_issue_depth(42), 2)
 
-    def test_empty_labels(self):
-        issue = {"labels": []}
-        self.assertEqual(_issue_depth(issue), 0)
-
-    def test_no_labels_key(self):
-        issue = {}
-        self.assertEqual(_issue_depth(issue), 0)
-
-    def test_malformed_depth_label_ignored(self):
-        issue = {"labels": [{"name": "depth:abc"}]}
-        self.assertEqual(_issue_depth(issue), 0)
+    @patch("cai_lib.actions.refine.get_parent_issue", return_value=None)
+    def test_top_level_issue_returns_zero(self, mock_parent):
+        self.assertEqual(_issue_depth(99), 0)
 
 
-class TestCreateSubIssuesDepth(unittest.TestCase):
+class TestCreateSubIssuesNoDepthLabel(unittest.TestCase):
     @patch("cai_lib.actions.refine.link_sub_issue")
     @patch("cai_lib.actions.refine.create_issue")
     @patch("cai_lib.actions.refine._find_sub_issue", return_value=None)
-    def test_depth_label_applied(self, mock_find, mock_create, mock_link):
+    def test_no_depth_label_applied(self, mock_find, mock_create, mock_link):
         mock_create.return_value = {"number": 42, "id": 999, "html_url": "http://x"}
         steps = [{"step": 1, "title": "T", "body": "B"}]
-        _create_sub_issues(steps, 10, "Parent", depth=1)
+        _create_sub_issues(steps, 10, "Parent")
         labels = mock_create.call_args[0][2]
-        self.assertIn("depth:1", labels)
+        self.assertFalse(any(l.startswith("depth:") for l in labels))
 
 
 class TestSplitDepthGate(unittest.TestCase):
@@ -176,8 +170,9 @@ class TestSplitDepthGate(unittest.TestCase):
     @patch("cai_lib.actions.split._run_claude_p")
     @patch("cai_lib.actions.split.fire_trigger")
     @patch("cai_lib.actions.split._build_issue_block", return_value="issue text")
+    @patch("cai_lib.actions.split._issue_depth", return_value=2)
     def test_max_depth_injects_no_decompose(
-        self, mock_build, mock_transition, mock_claude, mock_log_run,
+        self, mock_depth, mock_build, mock_transition, mock_claude, mock_log_run,
     ):
         mock_claude.return_value = MagicMock(
             returncode=0,
@@ -188,7 +183,7 @@ class TestSplitDepthGate(unittest.TestCase):
             from cai_lib.actions.split import handle_split
             issue = {
                 "number": 5, "title": "Test",
-                "labels": [{"name": "depth:2"}, {"name": "auto-improve:refined"}],
+                "labels": [{"name": "auto-improve:refined"}],
                 "body": "test body",
             }
             handle_split(issue)
