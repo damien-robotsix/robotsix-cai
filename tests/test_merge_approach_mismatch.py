@@ -19,6 +19,7 @@ from cai_lib.config import (
     LABEL_PLAN_APPROVED,
     LABEL_PR_OPEN,
 )
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm_states import IssueState
 from cai_lib.fsm_transitions import ISSUE_TRANSITIONS
 
@@ -125,22 +126,21 @@ class TestHandleMergeApproachMismatchRouting(unittest.TestCase):
              patch.object(merge_mod, "fire_trigger",
                           fire_trigger_mock), \
              patch.object(merge_mod, "log_run", log_mock):
-            rc = merge_mod.handle_merge(pr)
+            result = merge_mod.handle_merge(pr)
 
-        self.assertEqual(rc, 0)
+        self.assertIsInstance(result, HandlerResult)
         return {
-            "pr_transition": fire_trigger_mock,
+            "result": result,
             "issue_transition": fire_trigger_mock,
             "set_labels": set_labels_mock,
             "run": run_mock,
         }
 
-    def _pr_transition_names(self, fire_trigger_mock) -> list:
-        return [
-            c.args[1] for c in fire_trigger_mock.call_args_list
-            if len(c.args) >= 2 and isinstance(c.args[1], str)
-            and c.kwargs.get("is_pr", False)
-        ]
+    def _pr_transition_names(self, mocks) -> list:
+        """PR-side transitions are returned in the HandlerResult. Empty
+        trigger is the no-op sentinel."""
+        trig = mocks["result"].trigger
+        return [trig] if trig else []
 
     def _issue_transition_names(self, fire_trigger_mock) -> list:
         return [
@@ -156,7 +156,7 @@ class TestHandleMergeApproachMismatchRouting(unittest.TestCase):
         )
         # No PR FSM transition fires on the success path (close + issue
         # transition is the entire recovery).
-        self.assertEqual(self._pr_transition_names(mocks["pr_transition"]), [])
+        self.assertEqual(self._pr_transition_names(mocks), [])
         # Exactly one issue FSM transition, pointing at PLAN_APPROVED.
         self.assertEqual(
             self._issue_transition_names(mocks["issue_transition"]),
@@ -185,7 +185,7 @@ class TestHandleMergeApproachMismatchRouting(unittest.TestCase):
             issue_type="<omit>",
         )
         self.assertEqual(
-            self._pr_transition_names(mocks["pr_transition"]),
+            self._pr_transition_names(mocks),
             ["approved_to_human"],
         )
         self.assertEqual(
@@ -199,7 +199,7 @@ class TestHandleMergeApproachMismatchRouting(unittest.TestCase):
             issue_type=None,
         )
         self.assertEqual(
-            self._pr_transition_names(mocks["pr_transition"]),
+            self._pr_transition_names(mocks),
             ["approved_to_human"],
         )
         self.assertEqual(
@@ -213,7 +213,7 @@ class TestHandleMergeApproachMismatchRouting(unittest.TestCase):
             issue_type="other",
         )
         self.assertEqual(
-            self._pr_transition_names(mocks["pr_transition"]),
+            self._pr_transition_names(mocks),
             ["approved_to_human"],
         )
         self.assertEqual(
@@ -229,7 +229,7 @@ class TestHandleMergeApproachMismatchRouting(unittest.TestCase):
             issue_type="scope_creep",
         )
         self.assertEqual(
-            self._pr_transition_names(mocks["pr_transition"]),
+            self._pr_transition_names(mocks),
             ["approved_to_human"],
         )
         self.assertEqual(

@@ -29,7 +29,7 @@ import sys
 from typing import Optional
 
 from cai_lib.config import REPO
-from cai_lib.fsm import fire_trigger
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.github import _gh_json
 
 
@@ -148,15 +148,20 @@ def _was_merged(pr: dict) -> bool:
     return bool(pr.get("mergedAt")) or pr.get("state") == "MERGED"
 
 
-def handle_pr_bounce(issue: dict) -> int:
+def handle_pr_bounce(issue: dict) -> HandlerResult | int:
     """Bounce to the linked PR if open; otherwise recover the issue's state.
 
     See module docstring for the recovery decision tree.
+
+    Returns an ``int`` exit code only for the bounce case (where the
+    caller fully delegates processing to :func:`dispatch_pr` on the
+    linked PR). Every recovery path returns a :class:`HandlerResult`
+    so ``dispatch_issue`` fires the recovery transition via
+    ``_driver_fire``.
     """
     from cai_lib.dispatcher import dispatch_pr  # local to avoid import cycle
 
     issue_number = issue["number"]
-    label_names = [lb["name"] for lb in issue.get("labels", [])]
 
     # 1. Open PR? Bounce to it.
     open_pr = _find_open_linked_pr(issue_number)
@@ -173,12 +178,7 @@ def handle_pr_bounce(issue: dict) -> int:
                 f"advancing pr_to_merged",
                 flush=True,
             )
-            ok, _ = fire_trigger(
-                issue_number, "pr_to_merged",
-                current_labels=label_names,
-                log_prefix="cai dispatch",
-            )
-            return 0 if ok else 1
+            return HandlerResult(trigger="pr_to_merged")
 
         # Closed unmerged — inspect who closed it. If it's us (the bot),
         # safely re-plan. If it's a human or another account, the close
@@ -197,34 +197,27 @@ def handle_pr_bounce(issue: dict) -> int:
                 f"({close_actor}) — reverting pr_to_refined",
                 flush=True,
             )
-            ok, _ = fire_trigger(
-                issue_number, "pr_to_refined",
-                current_labels=label_names,
-                log_prefix="cai dispatch",
-            )
-        else:
-            actor_str = close_actor or "unknown"
-            print(
-                f"[cai dispatch] issue #{issue_number}: linked PR "
-                f"#{closed_pr['number']} closed unmerged by {actor_str} "
-                f"(our login: {our_login or 'unknown'}) — diverting "
-                f"pr_to_human_needed",
-                flush=True,
-            )
-            ok, _ = fire_trigger(
-                issue_number, "pr_to_human_needed",
-                current_labels=label_names,
-                log_prefix="cai dispatch",
-                divert_reason=(
-                    f"Linked PR #{closed_pr['number']} was closed "
-                    f"unmerged by `{actor_str}` (our login: "
-                    f"`{our_login or 'unknown'}`). Because the closer "
-                    f"is not this container, the close was a deliberate "
-                    f"human decision — a human must decide the next "
-                    f"move for this issue."
-                ),
-            )
-        return 0 if ok else 1
+            return HandlerResult(trigger="pr_to_refined")
+
+        actor_str = close_actor or "unknown"
+        print(
+            f"[cai dispatch] issue #{issue_number}: linked PR "
+            f"#{closed_pr['number']} closed unmerged by {actor_str} "
+            f"(our login: {our_login or 'unknown'}) — diverting "
+            f"pr_to_human_needed",
+            flush=True,
+        )
+        return HandlerResult(
+            trigger="pr_to_human_needed",
+            divert_reason=(
+                f"Linked PR #{closed_pr['number']} was closed "
+                f"unmerged by `{actor_str}` (our login: "
+                f"`{our_login or 'unknown'}`). Because the closer "
+                f"is not this container, the close was a deliberate "
+                f"human decision — a human must decide the next "
+                f"move for this issue."
+            ),
+        )
 
     # 3. No PR found at all — orphaned :pr-open label, needs a human.
     print(
@@ -233,10 +226,8 @@ def handle_pr_bounce(issue: dict) -> int:
         f"pr_to_human_needed",
         flush=True,
     )
-    ok, _ = fire_trigger(
-        issue_number, "pr_to_human_needed",
-        current_labels=label_names,
-        log_prefix="cai dispatch",
+    return HandlerResult(
+        trigger="pr_to_human_needed",
         divert_reason=(
             f"Issue was at `:pr-open` but no PR (open or recently "
             f"closed) could be found for branch "
@@ -245,4 +236,3 @@ def handle_pr_bounce(issue: dict) -> int:
             f"reopen a PR or revert the issue to a pre-PR state."
         ),
     )
-    return 0 if ok else 1

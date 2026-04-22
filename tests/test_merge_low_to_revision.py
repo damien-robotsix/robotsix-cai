@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cai_lib.actions import merge as merge_mod
 from cai_lib.actions.merge import _verdict_cites_concrete_code_bug
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm_transitions import PR_TRANSITIONS
 
 
@@ -138,7 +139,7 @@ class TestHandleMergeLowHoldRouting(unittest.TestCase):
     """handle_merge must pick the right transition for a held verdict."""
 
     def _invoke(self, reasoning: str, confidence: str = "low",
-                action: str = "hold") -> tuple[MagicMock, MagicMock]:
+                action: str = "hold") -> tuple[HandlerResult, MagicMock]:
         pr = _pr_fixture()
 
         # Mock gh + git subprocess calls used by filters + verdict post.
@@ -195,10 +196,10 @@ class TestHandleMergeLowHoldRouting(unittest.TestCase):
              patch.object(merge_mod, "fire_trigger",
                           transition_mock), \
              patch.object(merge_mod, "log_run", log_mock):
-            rc = merge_mod.handle_merge(pr)
+            result = merge_mod.handle_merge(pr)
 
-        self.assertEqual(rc, 0)
-        return transition_mock, run_mock
+        self.assertIsInstance(result, HandlerResult)
+        return result, run_mock
 
     def test_low_hold_with_attribute_error_routes_to_revision(self):
         reasoning = (
@@ -206,15 +207,8 @@ class TestHandleMergeLowHoldRouting(unittest.TestCase):
             "defines a `globs` field. Any invocation crashes with "
             "AttributeError inside _build_module_message."
         )
-        transition_mock, run_mock = self._invoke(reasoning)
-        transition_calls = [
-            c for c in transition_mock.call_args_list
-            if c.args and isinstance(c.args[1], str)
-        ]
-        # Exactly one FSM transition, pointing at REVISION_PENDING.
-        self.assertEqual(len(transition_calls), 1)
-        self.assertEqual(transition_calls[0].args[1],
-                         "approved_to_revision_pending")
+        result, run_mock = self._invoke(reasoning)
+        self.assertEqual(result.trigger, "approved_to_revision_pending")
         # A follow-up comment with the new heading must be posted
         # so cai-comment-filter does NOT silently resolve it.
         comment_bodies = [
@@ -232,13 +226,8 @@ class TestHandleMergeLowHoldRouting(unittest.TestCase):
             "PR scope is broader than the issue requested; extra file "
             "edits under scripts/ are not mentioned in the remediation."
         )
-        transition_mock, _run_mock = self._invoke(reasoning)
-        transition_calls = [
-            c for c in transition_mock.call_args_list
-            if c.args and isinstance(c.args[1], str)
-        ]
-        self.assertEqual(len(transition_calls), 1)
-        self.assertEqual(transition_calls[0].args[1], "approved_to_human")
+        result, _run_mock = self._invoke(reasoning)
+        self.assertEqual(result.trigger, "approved_to_human")
 
     def test_medium_hold_with_attribute_error_still_parks_as_human(self):
         """The redirect is gated on confidence=='low' only — MEDIUM
@@ -248,15 +237,10 @@ class TestHandleMergeLowHoldRouting(unittest.TestCase):
             "Possible AttributeError on the new helper's return path, "
             "but unclear whether the branch is reachable."
         )
-        transition_mock, _run_mock = self._invoke(
+        result, _run_mock = self._invoke(
             reasoning, confidence="medium"
         )
-        transition_calls = [
-            c for c in transition_mock.call_args_list
-            if c.args and isinstance(c.args[1], str)
-        ]
-        self.assertEqual(len(transition_calls), 1)
-        self.assertEqual(transition_calls[0].args[1], "approved_to_human")
+        self.assertEqual(result.trigger, "approved_to_human")
 
 
 if __name__ == "__main__":

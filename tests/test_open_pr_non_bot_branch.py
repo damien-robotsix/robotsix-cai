@@ -2,13 +2,17 @@
 
 Issue #1065: when a human-authored PR is opened on a non-
 ``auto-improve/<N>-…`` branch, ``handle_open_to_review`` must
-immediately apply the ``open_to_human`` transition so the PR parks
+immediately request the ``open_to_human`` transition so the PR parks
 at ``pr:human-needed`` **before** any review / rebase / docs cycle
 is spent. The prior behaviour tagged every fresh PR
 ``pr:reviewing-code`` and only parked at merge time via
 ``not_bot_branch`` in ``handle_merge``, wasting agent time and
 polluting the audit log with downstream pipeline transitions for
 a PR that would never auto-merge.
+
+``handle_open_to_review`` returns a :class:`HandlerResult` that the
+dispatcher converts to the corresponding ``fire_trigger`` call via
+``_driver_fire``.
 """
 import os
 import sys
@@ -18,6 +22,7 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cai_lib.actions import open_pr as open_pr_mod
+from cai_lib.dispatcher import HandlerResult
 
 
 def _pr(number: int, branch: str) -> dict:
@@ -45,19 +50,16 @@ class TestHandleOpenToReviewNonBotBranch(unittest.TestCase):
         run_mock.return_value.returncode = 0
         run_mock.return_value.stdout = ""
         run_mock.return_value.stderr = ""
-        transition_mock = MagicMock(return_value=(True, False))
         log_mock = MagicMock()
 
         with patch.object(open_pr_mod, "_run", run_mock), \
-             patch.object(open_pr_mod, "fire_trigger", transition_mock), \
              patch.object(open_pr_mod, "log_run", log_mock):
-            rc = open_pr_mod.handle_open_to_review(pr)
+            result = open_pr_mod.handle_open_to_review(pr)
 
-        self.assertEqual(rc, 0)
-        transition_mock.assert_called_once()
-        args, _ = transition_mock.call_args
-        self.assertEqual(args[0], 945)
-        self.assertEqual(args[1], "open_to_human")
+        self.assertIsInstance(result, HandlerResult)
+        self.assertEqual(result.trigger, "open_to_human")
+        self.assertIn("feat/audit-modules-loader-886",
+                      result.divert_reason or "")
 
         gh_comment_calls = [
             call for call in run_mock.call_args_list
@@ -77,19 +79,14 @@ class TestHandleOpenToReviewNonBotBranch(unittest.TestCase):
         pr = _pr(946, "auto-improve/945-some-slug")
         run_mock = MagicMock()
         run_mock.return_value.returncode = 0
-        transition_mock = MagicMock(return_value=(True, False))
         log_mock = MagicMock()
 
         with patch.object(open_pr_mod, "_run", run_mock), \
-             patch.object(open_pr_mod, "fire_trigger", transition_mock), \
              patch.object(open_pr_mod, "log_run", log_mock):
-            rc = open_pr_mod.handle_open_to_review(pr)
+            result = open_pr_mod.handle_open_to_review(pr)
 
-        self.assertEqual(rc, 0)
-        transition_mock.assert_called_once()
-        args, _ = transition_mock.call_args
-        self.assertEqual(args[0], 946)
-        self.assertEqual(args[1], "open_to_reviewing_code")
+        self.assertIsInstance(result, HandlerResult)
+        self.assertEqual(result.trigger, "open_to_reviewing_code")
 
         gh_comment_calls = [
             call for call in run_mock.call_args_list
@@ -102,19 +99,14 @@ class TestHandleOpenToReviewNonBotBranch(unittest.TestCase):
         pr = _pr(947, "")
         run_mock = MagicMock()
         run_mock.return_value.returncode = 0
-        transition_mock = MagicMock(return_value=(True, False))
         log_mock = MagicMock()
 
         with patch.object(open_pr_mod, "_run", run_mock), \
-             patch.object(open_pr_mod, "fire_trigger", transition_mock), \
              patch.object(open_pr_mod, "log_run", log_mock):
-            rc = open_pr_mod.handle_open_to_review(pr)
+            result = open_pr_mod.handle_open_to_review(pr)
 
-        self.assertEqual(rc, 0)
-        transition_mock.assert_called_once()
-        args, _ = transition_mock.call_args
-        self.assertEqual(args[0], 947)
-        self.assertEqual(args[1], "open_to_human")
+        self.assertIsInstance(result, HandlerResult)
+        self.assertEqual(result.trigger, "open_to_human")
 
 
 if __name__ == "__main__":

@@ -245,7 +245,7 @@ class TestDispatchPR(_LockNoopMixin, unittest.TestCase):
     """dispatch_pr fetches the PR and routes by FSM label / merged flag."""
 
     def _run_routing(self, pr: dict, expected_state: PRState):
-        handler = MagicMock(return_value=0)
+        handler = MagicMock(return_value=HandlerResult(trigger=""))
         handler.__name__ = "mock_handler"
         registry = {expected_state: handler}
         with patch.object(dispatcher, "_gh_json", return_value=pr), \
@@ -277,9 +277,11 @@ class TestDispatchPR(_LockNoopMixin, unittest.TestCase):
         """mergeable=CONFLICTING overrides the pipeline label and routes to handle_rebase."""
         pr = _pr(99, "pr:reviewing-code")
         pr["mergeable"] = "CONFLICTING"
-        rebase_handler = MagicMock(return_value=0)
+        rebase_handler = MagicMock(
+            return_value=HandlerResult(trigger="rebasing_to_reviewing_code"))
         rebase_handler.__name__ = "handle_rebase"
-        review_handler = MagicMock(return_value=0)
+        review_handler = MagicMock(
+            return_value=HandlerResult(trigger=""))
         review_handler.__name__ = "handle_review_pr"
         registry = {PRState.REVIEWING_CODE: review_handler}
         applied: list[tuple[int, str]] = []
@@ -299,16 +301,19 @@ class TestDispatchPR(_LockNoopMixin, unittest.TestCase):
         self.assertEqual(rc, 0)
         review_handler.assert_not_called()
         rebase_handler.assert_called_once_with(pr)
-        self.assertEqual(applied, [(99, "reviewing_code_to_rebasing")])
+        self.assertIn((99, "reviewing_code_to_rebasing"), applied)
+        self.assertIn((99, "rebasing_to_reviewing_code"), applied)
 
     def test_dirty_merge_state_diverts_to_rebase(self):
         """mergeStateStatus=DIRTY also triggers the rebase divert."""
         pr = _pr(99, "pr:approved")
         pr["mergeable"] = "MERGEABLE"
         pr["mergeStateStatus"] = "DIRTY"
-        rebase_handler = MagicMock(return_value=0)
+        rebase_handler = MagicMock(
+            return_value=HandlerResult(trigger="rebasing_to_reviewing_code"))
         rebase_handler.__name__ = "handle_rebase"
-        merge_handler = MagicMock(return_value=0)
+        merge_handler = MagicMock(
+            return_value=HandlerResult(trigger=""))
         merge_handler.__name__ = "handle_merge"
         registry = {PRState.APPROVED: merge_handler}
 
@@ -327,12 +332,14 @@ class TestDispatchPR(_LockNoopMixin, unittest.TestCase):
         """A PR already at REBASING runs handle_rebase normally without re-applying entry transition."""
         pr = _pr(99, "pr:rebasing")
         pr["mergeable"] = "CONFLICTING"
-        rebase_handler = MagicMock(return_value=0)
+        rebase_handler = MagicMock(
+            return_value=HandlerResult(trigger="rebasing_to_reviewing_code"))
         rebase_handler.__name__ = "handle_rebase"
         registry = {PRState.REBASING: rebase_handler}
 
         with patch.object(dispatcher, "_gh_json", return_value=pr), \
-             patch.object(dispatcher, "_pr_registry", return_value=registry):
+             patch.object(dispatcher, "_pr_registry", return_value=registry), \
+             patch("cai_lib.fsm.fire_trigger", return_value=(True, False)):
             rc = dispatcher.dispatch_pr(99)
 
         self.assertEqual(rc, 0)
