@@ -336,16 +336,23 @@ class TestBackfillSilentHumanNeeded(unittest.TestCase):
         from cai_lib.fsm import backfill_silent_human_needed_comments
 
         # Simulate two parked issues: one silent (no MARKER comment),
-        # one already has a MARKER comment and must be skipped.
+        # one already has a MARKER comment and must be skipped. Both
+        # are normal implementation issues — neither carries the
+        # rescue-prev fingerprint, so the auto-close branch must NOT
+        # fire even though close_issue defaults to the real helper.
         issue_lists = {
             LABEL_HUMAN_NEEDED: [
                 {
                     "number": 932,
+                    "title": "Refactor frobnicator",
+                    "body": "Move the frobnicator into cai_lib/frob.py.",
                     "labels": [{"name": LABEL_HUMAN_NEEDED}],
                     "comments": [{"body": "some unrelated comment"}],
                 },
                 {
                     "number": 980,
+                    "title": "Already-resolved divert",
+                    "body": "(implementation task body)",
                     "labels": [{"name": LABEL_HUMAN_NEEDED}],
                     "comments": [
                         {"body": "**🙋 Human attention needed**\n\n..."}
@@ -362,6 +369,7 @@ class TestBackfillSilentHumanNeeded(unittest.TestCase):
             return []
 
         posted = []
+        closed = []
 
         def _fake_post_issue(n, body, *, log_prefix="cai"):
             posted.append({"n": n, "body": body})
@@ -369,16 +377,200 @@ class TestBackfillSilentHumanNeeded(unittest.TestCase):
         def _fake_post_pr(n, body, *, log_prefix="cai"):
             posted.append({"n": n, "body": body})
 
+        def _fake_close(n, body, *, log_prefix="cai"):
+            closed.append({"n": n, "body": body})
+
         backfilled = backfill_silent_human_needed_comments(
             gh_json=_fake_gh_json,
             post_issue_comment=_fake_post_issue,
             post_pr_comment=_fake_post_pr,
+            close_issue=_fake_close,
         )
 
         self.assertEqual(backfilled, [("issue", 932)])
         self.assertEqual(len(posted), 1)
         self.assertEqual(posted[0]["n"], 932)
         self.assertIn("🙋 Human attention needed", posted[0]["body"])
+        # Implementation-task suggested-action paragraph.
+        self.assertIn("human:solved", posted[0]["body"])
+        # Auto-close branch must not fire for non-prevention issues.
+        self.assertEqual(closed, [])
+
+    def test_auto_closes_prevention_finding_with_no_structural_prevention(self):
+        """#1150 — rescue prevention findings whose remediation is
+        'No structural prevention needed' must be auto-closed (not
+        backfilled) so they stop cycling through the rescue agent."""
+        from cai_lib.fsm import backfill_silent_human_needed_comments
+
+        issue_lists = {
+            LABEL_HUMAN_NEEDED: [
+                {
+                    "number": 1145,
+                    "title": (
+                        "Rescue prevention: The retries-exhausted guard "
+                        "is working correctly."
+                    ),
+                    "body": (
+                        "<!-- fingerprint: rescue-prev-1fdf080c5e26341c -->\n"
+                        "**Category:** `reliability`\n\n"
+                        "## Remediation\n\n"
+                        "The guard is fine. No structural prevention "
+                        "needed — the Opus escalation path is the "
+                        "intended resolution.\n"
+                    ),
+                    "labels": [{"name": LABEL_HUMAN_NEEDED}],
+                    "comments": [],
+                },
+            ],
+        }
+
+        def _fake_gh_json(argv):
+            for i, tok in enumerate(argv):
+                if tok == "--label" and i + 1 < len(argv):
+                    return issue_lists.get(argv[i + 1], [])
+            return []
+
+        posted = []
+        closed = []
+
+        def _fake_post(n, body, *, log_prefix="cai"):
+            posted.append({"n": n, "body": body})
+
+        def _fake_close(n, body, *, log_prefix="cai"):
+            closed.append({"n": n, "body": body})
+
+        handled = backfill_silent_human_needed_comments(
+            gh_json=_fake_gh_json,
+            post_issue_comment=_fake_post,
+            post_pr_comment=_fake_post,
+            close_issue=_fake_close,
+        )
+
+        self.assertEqual(handled, [("issue", 1145)])
+        # Comment posters MUST NOT fire on the auto-close path.
+        self.assertEqual(posted, [])
+        # close_issue MUST be called with a body that names the
+        # auto-close path so the audit trail is unambiguous.
+        self.assertEqual(len(closed), 1)
+        self.assertEqual(closed[0]["n"], 1145)
+        self.assertIn("No structural prevention needed", closed[0]["body"])
+        self.assertIn("Auto-closed", closed[0]["body"])
+        self.assertIn("issue #1150", closed[0]["body"])
+
+    def test_prevention_finding_without_phrase_gets_typed_comment(self):
+        """#1150 — a rescue prevention finding lacking the auto-close
+        phrase must still be backfilled, and the comment must contain
+        the prevention-typed suggested-action paragraph rather than
+        the generic implementation-task wording."""
+        from cai_lib.fsm import backfill_silent_human_needed_comments
+
+        issue_lists = {
+            LABEL_HUMAN_NEEDED: [
+                {
+                    "number": 1146,
+                    "title": (
+                        "Rescue prevention: Add a blocked-on label "
+                        "for cyclic dependencies"
+                    ),
+                    "body": (
+                        "<!-- fingerprint: rescue-prev-deadbeefcafebabe -->\n"
+                        "**Category:** `reliability`\n\n"
+                        "## Remediation\n\n"
+                        "Add a `blocked-on:<N>` label mechanic to the "
+                        "rescue dispatcher.\n"
+                    ),
+                    "labels": [{"name": LABEL_HUMAN_NEEDED}],
+                    "comments": [],
+                },
+            ],
+        }
+
+        def _fake_gh_json(argv):
+            for i, tok in enumerate(argv):
+                if tok == "--label" and i + 1 < len(argv):
+                    return issue_lists.get(argv[i + 1], [])
+            return []
+
+        posted = []
+        closed = []
+
+        def _fake_post(n, body, *, log_prefix="cai"):
+            posted.append({"n": n, "body": body})
+
+        def _fake_close(n, body, *, log_prefix="cai"):
+            closed.append({"n": n, "body": body})
+
+        handled = backfill_silent_human_needed_comments(
+            gh_json=_fake_gh_json,
+            post_issue_comment=_fake_post,
+            post_pr_comment=_fake_post,
+            close_issue=_fake_close,
+        )
+
+        self.assertEqual(handled, [("issue", 1146)])
+        self.assertEqual(closed, [])
+        self.assertEqual(len(posted), 1)
+        self.assertEqual(posted[0]["n"], 1146)
+        # Prevention-typed suggested-action paragraph must mention the
+        # three options the admin can take.
+        self.assertIn("rescue prevention finding", posted[0]["body"])
+        self.assertIn("close this issue as completed", posted[0]["body"])
+        self.assertIn("close this issue as not planned", posted[0]["body"])
+        self.assertIn("human:solved", posted[0]["body"])
+
+    def test_pr_targets_never_take_auto_close_path(self):
+        """#1150 — the auto-close branch is issue-only. Even if a PR
+        body coincidentally contains the prevention-finding fingerprint
+        and the auto-close phrase (impossible in practice but worth
+        pinning), the PR must be backfilled via comment, not closed."""
+        from cai_lib.config import LABEL_PR_HUMAN_NEEDED
+        from cai_lib.fsm import backfill_silent_human_needed_comments
+
+        issue_lists = {
+            LABEL_PR_HUMAN_NEEDED: [
+                {
+                    "number": 4242,
+                    "title": "PR with weird body",
+                    "body": (
+                        "<!-- fingerprint: rescue-prev-faketoken -->\n"
+                        "No structural prevention needed."
+                    ),
+                    "labels": [{"name": LABEL_PR_HUMAN_NEEDED}],
+                    "comments": [],
+                },
+            ],
+        }
+
+        def _fake_gh_json(argv):
+            for i, tok in enumerate(argv):
+                if tok == "--label" and i + 1 < len(argv):
+                    return issue_lists.get(argv[i + 1], [])
+            return []
+
+        posted = []
+        closed = []
+
+        def _fake_post(n, body, *, log_prefix="cai"):
+            posted.append({"n": n, "body": body})
+
+        def _fake_close(n, body, *, log_prefix="cai"):
+            closed.append({"n": n, "body": body})
+
+        handled = backfill_silent_human_needed_comments(
+            gh_json=_fake_gh_json,
+            post_issue_comment=_fake_post,
+            post_pr_comment=_fake_post,
+            close_issue=_fake_close,
+        )
+
+        self.assertEqual(handled, [("pr", 4242)])
+        self.assertEqual(closed, [])
+        self.assertEqual(len(posted), 1)
+        self.assertEqual(posted[0]["n"], 4242)
+        # PR comments use the implementation-task suggested action
+        # (PRs are never rescue prevention findings even if their body
+        # happens to contain the fingerprint string).
+        self.assertIn("human:solved", posted[0]["body"])
 
 
 class TestResumeFromHuman(unittest.TestCase):

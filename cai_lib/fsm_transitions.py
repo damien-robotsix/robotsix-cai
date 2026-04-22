@@ -1107,28 +1107,70 @@ def _build_mermaid_machine(transitions_list: list[Transition]) -> GraphMachine:
     )
 
 
+# Detection patterns for cai-rescue prevention findings (issue #1150).
+# Findings carry a fingerprint comment of the form
+# ``<!-- fingerprint: rescue-prev-<hex> -->`` written by
+# :func:`cai_lib.cmd_rescue._stage_prevention_finding` and emitted
+# verbatim by :func:`cai_lib.publish.create_issue` (publish.py ~line
+# 579). The fingerprint prefix is the canonical structural signal
+# that an issue is a rescue prevention finding rather than a normal
+# implementation task; title-prefix matching is intentionally NOT
+# used because admins may rename titles on park, but the fingerprint
+# stays in the body forever.
+_PREVENTION_FINDING_FINGERPRINT_PREFIX = "<!-- fingerprint: rescue-prev-"
+_NO_STRUCTURAL_PREVENTION_PHRASE = "No structural prevention needed"
+
+
+def _is_rescue_prevention_finding(body: str) -> bool:
+    """True when *body* carries the canonical ``rescue-prev-``
+    fingerprint comment written by ``cai_lib.publish.create_issue``."""
+    return _PREVENTION_FINDING_FINGERPRINT_PREFIX in (body or "")
+
+
+def _has_no_structural_prevention(body: str) -> bool:
+    """True when *body* contains the literal phrase
+    ``No structural prevention needed`` (case-insensitive). Used by
+    :func:`backfill_silent_human_needed_comments` to auto-close
+    prevention findings whose recommendation is explicitly "no code
+    change required" — they would otherwise be parked indefinitely."""
+    return _NO_STRUCTURAL_PREVENTION_PHRASE.lower() in (body or "").lower()
+
+
 def backfill_silent_human_needed_comments(
     *,
     gh_json=None,
     post_issue_comment=None,
     post_pr_comment=None,
+    close_issue=None,
     log_prefix: str = "cai cycle",
 ) -> list[tuple[str, int]]:
     """Scan open issues/PRs parked at HUMAN_NEEDED / PR_HUMAN_NEEDED and
-    post a retroactive MARKER-bearing backfill comment on any entry that
-    has no MARKER comment in its history.
+    either post a retroactive MARKER-bearing backfill comment **or** —
+    for cai-rescue prevention findings whose body says "No structural
+    prevention needed" (issue #1150) — auto-close the issue as
+    ``not planned`` so it stops cycling through the rescue agent on
+    every tick.
 
-    This is the self-healing counterpart to the fire_trigger
-    divert-reason invariant added for issue #1009. The invariant guarantees *future*
+    For non-auto-close paths, the generated comment now includes a
+    suggested-action paragraph tuned to the issue type (prevention
+    finding vs. implementation task), so admins triaging the queue
+    see a concrete next step rather than a generic "review and
+    signal".
+
+    Self-healing counterpart to the fire_trigger divert-reason
+    invariant added for issue #1009. The invariant guarantees *future*
     diverts carry a MARKER comment; the backfill sweep closes the gap
     for issues parked before the fix (e.g. #932) so the audit agent's
     ``human_needed_reason_missing`` finder and ``cai unblock`` have
     context on pre-existing silent diverts. Returns the list of
-    ``(kind, number)`` tuples that were backfilled (empty when nothing
-    was missing). The caller is responsible for logging the result.
+    ``(kind, number)`` tuples that were *handled* — either backfilled
+    via comment OR auto-closed. The caller is responsible for logging
+    the returned count; per-item lines are emitted inside this
+    function so the two paths remain distinguishable in the log.
 
-    All dependencies (``gh_json``, the two comment posters) are
-    injectable for tests; defaults read from ``cai_lib.github``.
+    All dependencies (``gh_json``, the two comment posters, and
+    ``close_issue``) are injectable for tests; defaults read from
+    :mod:`cai_lib.github`.
     """
     MARKER = "🙋 Human attention needed"
     from cai_lib.config import LABEL_HUMAN_NEEDED, LABEL_PR_HUMAN_NEEDED, REPO
@@ -1139,8 +1181,10 @@ def backfill_silent_human_needed_comments(
         from cai_lib.github import _post_issue_comment as post_issue_comment
     if post_pr_comment is None:
         from cai_lib.github import _post_pr_comment as post_pr_comment
+    if close_issue is None:
+        from cai_lib.github import close_issue_not_planned as close_issue
 
-    backfilled: list[tuple[str, int]] = []
+    handled: list[tuple[str, int]] = []
     checks = [
         ("issue", LABEL_HUMAN_NEEDED, post_issue_comment),
         ("pr", LABEL_PR_HUMAN_NEEDED, post_pr_comment),
@@ -1152,7 +1196,7 @@ def backfill_silent_human_needed_comments(
                 "--repo", REPO,
                 "--label", label,
                 "--state", "open",
-                "--json", "number,labels,comments",
+                "--json", "number,title,body,labels,comments",
                 "--limit", "100",
             ]) or []
         except Exception as exc:
@@ -1168,6 +1212,69 @@ def backfill_silent_human_needed_comments(
             comments = it.get("comments") or []
             if any(MARKER in (c.get("body") or "") for c in comments):
                 continue
+
+            issue_body = it.get("body") or ""
+            is_prevention = (
+                kind == "issue"
+                and _is_rescue_prevention_finding(issue_body)
+            )
+
+            # Auto-close prevention findings explicitly tagged
+            # "No structural prevention needed" — they have no
+            # remediation work and only burn rescue cycles when parked.
+            if is_prevention and _has_no_structural_prevention(issue_body):
+                close_body = (
+                    f"**{MARKER}**\n\n"
+                    f"This rescue prevention finding states **No "
+                    f"structural prevention needed**, so there is no "
+                    f"code change to perform. Closing as `not planned` "
+                    f"to stop the rescue agent from re-attempting it "
+                    f"on every cycle. The recommendation in the body "
+                    f"is preserved for the audit trail; reopen if a "
+                    f"structural prevention is identified later.\n"
+                    f"\n"
+                    f"_Auto-closed by `cai cycle` self-heal "
+                    f"(issue #1150)._"
+                )
+                try:
+                    close_issue(number, close_body, log_prefix=log_prefix)
+                    handled.append((kind, number))
+                    print(
+                        f"[{log_prefix}] auto-closed prevention finding "
+                        f"with no structural remediation on "
+                        f"{kind} #{number}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    print(
+                        f"[{log_prefix}] auto-close failed for {kind} "
+                        f"#{number}: {exc}",
+                        file=sys.stderr,
+                    )
+                continue
+
+            # Choose a per-type suggested-action paragraph.
+            if is_prevention:
+                suggested_action = (
+                    "Review the **rescue prevention finding** above "
+                    "and choose one:\n"
+                    "- adopt the recommendation (open a follow-up "
+                    "issue or implement the change), then **close "
+                    "this issue as completed**, or\n"
+                    "- dismiss the recommendation as not actionable "
+                    "and **close this issue as not planned**, or\n"
+                    "- apply the `human:solved` label after leaving a "
+                    "comment to signal further action and have the "
+                    "FSM resume."
+                )
+            else:
+                suggested_action = (
+                    "Review the issue/PR body and recent logs to "
+                    "decide next steps. Apply the `human:solved` "
+                    "label after leaving a comment to signal the "
+                    "divert is resolved and have the FSM resume."
+                )
+
             body = (
                 f"**{MARKER}**\n\n"
                 f"Automation paused `(unknown)` — this {kind} was parked "
@@ -1178,17 +1285,14 @@ def backfill_silent_human_needed_comments(
                 f"- Required confidence: `(unknown)`\n"
                 f"- Reported confidence: `(unknown)`\n"
                 f"\n"
-                f"Review the issue/PR body and recent logs to decide "
-                f"next steps. Apply the `human:solved` label after "
-                f"leaving a comment to signal the divert is resolved "
-                f"and have the FSM resume.\n"
+                f"{suggested_action}\n"
                 f"\n"
                 f"_Retroactively posted by `cai cycle` self-heal "
                 f"(issue #1009)._"
             )
             try:
                 poster(number, body, log_prefix=log_prefix)
-                backfilled.append((kind, number))
+                handled.append((kind, number))
                 print(
                     f"[{log_prefix}] backfilled silent divert on "
                     f"{kind} #{number}",
@@ -1200,7 +1304,7 @@ def backfill_silent_human_needed_comments(
                     f"#{number}: {exc}",
                     file=sys.stderr,
                 )
-    return backfilled
+    return handled
 
 
 def render_fsm_mermaid(transitions: list[Transition], title: str = "FSM") -> str:
