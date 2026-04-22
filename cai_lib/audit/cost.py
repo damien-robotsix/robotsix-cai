@@ -126,7 +126,8 @@ def _primary_model(row: dict) -> str:
 
 
 def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
-    """Build a markdown cost summary for the cai-audit user message.
+    """Build a markdown cost summary for the on-demand
+    cost-reduction audit user message.
 
     Returns an empty string if no cost rows exist for the window.
     Otherwise emits a section with per-category aggregates and the

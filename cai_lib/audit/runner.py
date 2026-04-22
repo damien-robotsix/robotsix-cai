@@ -5,7 +5,7 @@ For a given audit kind, iterates every module declared in
 publishes the agent's ``findings.json`` through the existing publish
 pipeline by shelling out to ``publish.py`` — the same pattern every
 other audit caller (``cmd_external_scout``, ``cmd_update_check``,
-``cmd_code_audit``, etc.) already uses.
+etc.) already uses.
 
 Each created issue carries a ``<!-- module: <name> -->`` body footer
 (emitted by ``publish.py`` when the runner passes ``--module``) so

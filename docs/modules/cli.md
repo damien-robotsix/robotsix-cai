@@ -61,11 +61,10 @@ lifecycle FSM.
   and cron, which invoke `python cai.py <subcommand>`.
 
 ## Operational notes
-- **Cost sensitivity — HIGH for audit subcommands.** `cmd_analyze`,
-  `cmd_propose`, `cmd_cost_optimize`, `cmd_external_scout`,
-  `cmd_update_check`, `cmd_agent_audit`, `cmd_code_audit`,
-  and the agents they call (cai-analyze, cai-propose, etc.) are
-  among the largest single-invocation token spenders.
+- **Cost sensitivity — HIGH for audit subcommands.** `cmd_propose`,
+  `cmd_cost_optimize`, `cmd_external_scout`, `cmd_update_check`,
+  and the agents they call (cai-propose, cai-external-scout,
+  etc.) are among the largest single-invocation token spenders.
 - **FSM invariant.** `cmd_dispatch` is the only production path
   that advances FSM state outside a handler; anything else that
   flips labels bypasses the watchdog rollback and remote lock.

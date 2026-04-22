@@ -36,8 +36,8 @@ the subagents under `.claude/agents/`.
   every subagent globally; prefer narrowing permissions via
   per-agent `tools:` frontmatter when possible.
 - **CI implications.** None directly; misconfiguration surfaces
-  as runtime errors in the live pipeline. The weekly
-  `cai-agent-audit` flags frontmatter drift that this file's
-  defaults cannot catch.
+  as runtime errors in the live pipeline. The on-demand
+  `cai-audit-good-practices` auditor flags frontmatter drift that
+  this file's defaults cannot catch.
 - **Cost sensitivity.** Indirect — hooks or default models set
   here can change cost across the entire agent fleet.

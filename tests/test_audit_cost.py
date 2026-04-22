@@ -69,9 +69,9 @@ class TestLoadCostLogAggregation(unittest.TestCase):
     })
     _RECENT_ROW_B = json.dumps({
         "ts": "2099-01-02T00:00:00Z",
-        "category": "cai-audit",
+        "category": "cai-refine",
         "cost_usd": 0.02,
-        "agent": "cai-audit",
+        "agent": "cai-refine",
     })
 
     def test_falls_back_to_local_when_aggregate_missing(self):
@@ -122,7 +122,7 @@ class TestLoadCostLogAggregation(unittest.TestCase):
             categories = {r["category"] for r in rows}
             self.assertEqual(len(rows), 2)
             self.assertIn("cai-implement", categories)
-            self.assertIn("cai-audit", categories)
+            self.assertIn("cai-refine", categories)
 
     def test_aggregate_excludes_old_rows(self):
         """Only rows within the `days` window are returned from aggregate."""

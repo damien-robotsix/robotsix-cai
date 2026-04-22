@@ -35,17 +35,18 @@ This file is loaded by all Claude Code subagents in headless mode.
 `.claude/agents/` is organized into six subfolders, each holding
 the agent prompt files for that category:
 
-  - `audit/` — scheduled and on-demand audit agents that write to
-    `findings.json`, plus transcript-search helpers (cai-agent-audit,
-    cai-analyze, cai-audit, cai-audit-code-reduction,
-    cai-audit-cost-reduction, cai-audit-workflow-enhancement,
-    cai-code-audit, cai-confirm, cai-transcript-finder).
+  - `audit/` — on-demand audit agents that write to
+    `findings.json`, plus transcript-search helpers
+    (cai-audit-code-reduction, cai-audit-cost-reduction,
+    cai-audit-external-libs, cai-audit-good-practices,
+    cai-audit-workflow-enhancement, cai-transcript-finder).
   - `implementation/` — code-editing and planning agents invoked
     by the FSM (cai-fix-ci, cai-implement, cai-plan, cai-rebase,
     cai-revise, cai-select).
   - `lifecycle/` — FSM lifecycle handlers and helpers
-    (cai-dup-check, cai-explore, cai-propose, cai-propose-review,
-    cai-refine, cai-rescue, cai-triage, cai-unblock).
+    (cai-confirm, cai-dup-check, cai-explore, cai-propose,
+    cai-propose-review, cai-refine, cai-rescue, cai-resume-locator,
+    cai-split, cai-triage, cai-unblock).
   - `ops/` — operational / maintenance agents
     (cai-check-workflows, cai-maintain, cai-update-check).
   - `review/` — pre-merge code and docs review plus merge

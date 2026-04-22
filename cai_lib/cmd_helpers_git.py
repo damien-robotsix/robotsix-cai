@@ -69,8 +69,8 @@ def _work_directory_block(work_dir: Path) -> str:
     files via the staging directory.
 
     All cloned-worktree subagents (cai-implement, cai-revise, cai-rebase,
-    cai-review-pr, cai-review-docs, cai-code-audit, cai-propose, cai-propose-review,
-    cai-update-check, cai-plan, cai-select, cai-git, cai-agent-audit, cai-external-scout) are invoked with `cwd=/app`
+    cai-review-pr, cai-review-docs, cai-propose, cai-propose-review,
+    cai-update-check, cai-plan, cai-select, cai-git) are invoked with `cwd=/app`
     rather than `cwd=<clone>`. This makes their canonical agent
     definition (`/app/.claude/agents/<name>.md`) and per-agent memory
     (`/app/.claude/agent-memory/<name>/`) directly available via

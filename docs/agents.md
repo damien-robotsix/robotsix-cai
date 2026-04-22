@@ -51,36 +51,28 @@ State transitions between these rows are rendered in [the lifecycle FSM diagram]
 
 Agents under `.claude/agents/audit/` write their output to
 `findings.json` for later conversion into `auto-improve:raised`
-issues. They are either cron-scheduled, on-demand, or inline
-helpers; none correspond to an FSM issue/PR state transition
-except `cai-confirm` (MERGED).
+issues. They are on-demand or inline helpers; none correspond to
+an FSM issue/PR state transition.
 
 | Agent | Trigger | Description |
 |---|---|---|
-| `cai-agent-audit` | Weekly cron | Audits `.claude/agents/**/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. |
-| `cai-analyze` | Cron | Analyzes parsed signals from the cai container's own Claude Code session transcripts and raises code/prompt/workflow findings. |
-| `cai-audit` | Cron | Audits the GitHub issue queue, recent PRs, and log tail for inconsistencies in the auto-improve FSM. Findings are duplicate-filtered via `cai-dup-check` at publish time. |
 | `cai-audit-code-reduction` | On-demand | Runs a code-reduction audit on a single `robotsix-cai` module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers. |
 | `cai-audit-cost-reduction` | On-demand | Runs a cost-reduction audit on a single `robotsix-cai` module — analyzes agent token/dollar spend and proposes concrete savings. |
 | `cai-audit-external-libs` | On-demand | Audits a single `robotsix-cai` module for in-house code that could be safely replaced by mature, well-maintained open-source libraries. |
+| `cai-audit-good-practices` | On-demand | Audits a single `robotsix-cai` module for Claude Code best practices and documentation-vs-implementation drift. |
 | `cai-audit-workflow-enhancement` | On-demand | Spots recurring inefficiencies in agent workflows and proposes targeted remediations. |
-| `cai-code-audit` | Weekly cron | Audits the `robotsix-cai` source tree for concrete inconsistencies, dead code, and missing cross-file references. |
-| `cai-confirm` | PR-solved (MERGED) | INTERNAL — Verifies that each `auto-improve:merged` issue is actually resolved by checking the merged PR's diff against the issue's remediation. |
 
 ## Agent catalog
 
 | Agent | Description | Tools | Model | Lifecycle trigger | Mode |
 |---|---|---|---|---|---|
-| `cai-analyze` | Analyze parsed signals from the cai container's own Claude Code session transcripts and raise auto-improve findings for code, prompt, or workflow issues; writes findings to findings.json | Read, Grep, Glob, Skill, Write | sonnet | Scheduled (cron) | Read-only |
-| `cai-agent-audit` | Weekly Opus audit of `.claude/agents/**/*.md` for Claude Code best-practice violations, unused agents, and near-duplicate purposes. Read-only; writes findings to findings.json plus a memory update | Read, Grep, Glob, Write | opus | Scheduled (weekly, cron) | Read-only |
-| `cai-audit` | Audit the current GitHub issue queue, recent PRs, and log tail to find inconsistencies in the auto-improve lifecycle state machine. Findings are pre-screened for duplicates/resolved at publish time via cai-dup-check; survivors enter the standard auto-improve:raised cycle. Writes findings to findings.json | Read, Grep, Glob, Write | opus | Scheduled (cron) | Read-only |
+| `cai-audit-code-reduction` | On-demand code-reduction audit for a `robotsix-cai` module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers, and writes concrete line-count reduction proposals to findings.json | Read, Grep, Glob, Agent, Write | opus | On-demand | Worktree |
 | `cai-audit-cost-reduction` | On-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings | Read, Grep, Glob, Agent, Write | opus | On-demand | Worktree |
 | `cai-audit-external-libs` | On-demand auditor for spotting in-house code replaceable by mature open-source libraries — external-libs audit for a declared module scope | Read, Grep, Glob, Agent, Write, WebSearch, WebFetch | opus | On-demand | Worktree |
 | `cai-audit-good-practices` | On-demand auditor for Claude Code best practices and documentation-vs-implementation drift in a declared module scope | Read, Grep, Glob, Agent, Write | opus | On-demand | Worktree |
 | `cai-audit-workflow-enhancement` | On-demand workflow-enhancement audit for a module — identifies recurring inefficiencies in agent workflows and proposes targeted remediations | Read, Grep, Glob, Agent, Write | opus | On-demand | Worktree |
 | `cai-check-workflows` | Analyze recent GitHub Actions workflow failures and write structured findings to findings.json for new, unreported failures. Groups related failures and identifies root causes | Read, Grep, Glob, Write | haiku | Scheduled (cron) | Read-only |
 | `cai-comment-filter` | INTERNAL — Classify PR comments as resolved or unresolved, replacing the commit-timestamp watermark in the revise handler | Read | haiku | Inline, invoked by handle_revise (REVISION_PENDING) | Inline-only |
-| `cai-code-audit` | Read-only audit of the `robotsix-cai` source tree for concrete inconsistencies, dead code, and missing cross-file references the session-based analyzer cannot catch. Runs in a fresh clone and writes findings to findings.json plus a memory update for the next run | Read, Grep, Glob, Write | sonnet | Scheduled (weekly, cron) | Worktree |
 | `cai-confirm` | INTERNAL — Verify each `auto-improve:merged` issue is actually resolved; close resolved issues in GitHub as "completed" | Read, Grep, Glob | sonnet | Issue state MERGED | Read-only |
 | `cai-cost-optimize` | Weekly cost-reduction agent — analyzes spending trends, proposes one optimization | Read, Grep, Glob | sonnet | Scheduled (weekly, cron) | Read-only |
 | `cai-dup-check` | INTERNAL — Check whether an issue (or a staged finding about to be raised) is a duplicate of another open issue or has already been resolved by a recent commit/PR. Inline-only — all context (target, other open issues, recent commits/PRs) is provided in the user message. Minimal tool use. | Read | haiku | Helper: invoked inline by handle_triage AND pre-publish by publish.py | Inline-only |
@@ -106,7 +98,7 @@ except `cai-confirm` (MERGED).
 | `cai-unblock` | Classify an admin's GitHub comment on an issue or PR parked in the human-needed state into a FSM resume target so the auto-improve pipeline can continue. Also collects substantive admin amendments to stored plans and merges them when resuming to PLAN_APPROVED. | Read | haiku | States HUMAN_NEEDED / PR_HUMAN_NEEDED (gated by human:solved) | Inline-only |
 | `cai-update-check` | Periodic Claude Code release checker that compares the current pinned version against the latest releases and writes findings to findings.json for new versions, feature adoptions, deprecations, and best-practice changes | Read, Grep, Glob, Write | sonnet | Scheduled (cron) | Worktree |
 
-**Inline-only** agents receive all context in the user message and require no file access. **Worktree** agents run in a fresh git clone provided by the wrapper; code-editing agents (`cai-implement`, `cai-revise`, `cai-rebase`) commit changes and open PRs, while review/planning agents (`cai-code-audit`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-docs`, `cai-review-pr`, `cai-select`, `cai-update-check`) read from the clone and emit structured output. The plan-selector (`cai-select`) is additionally invoked with Claude Code's `--json-schema` flag so its final output is a validated JSON object the wrapper can consume without regex extraction. **Clone** agents (`cai-explore`) also run against a fresh repo clone but post outcomes directly to GitHub issues rather than opening PRs. **Read-only** agents read the repo or external data without writing anything.
+**Inline-only** agents receive all context in the user message and require no file access. **Worktree** agents run in a fresh git clone provided by the wrapper; code-editing agents (`cai-implement`, `cai-revise`, `cai-rebase`) commit changes and open PRs, while review/planning agents (`cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-docs`, `cai-review-pr`, `cai-select`, `cai-update-check`) read from the clone and emit structured output. The plan-selector (`cai-select`) is additionally invoked with Claude Code's `--json-schema` flag so its final output is a validated JSON object the wrapper can consume without regex extraction. **Clone** agents (`cai-explore`) also run against a fresh repo clone but post outcomes directly to GitHub issues rather than opening PRs. **Read-only** agents read the repo or external data without writing anything.
 
 ## Scheduled / on-demand agents
 
@@ -114,11 +106,7 @@ These agents run on a recurring schedule rather than being triggered by issue or
 
 | Agent | Cadence |
 |---|---|
-| `cai-analyze` | Cron-scheduled (parses session transcripts) |
-| `cai-agent-audit` | Weekly (cron) |
-| `cai-audit` | Cron-scheduled (issue queue audit) |
 | `cai-check-workflows` | Cron-scheduled (GitHub Actions failure analysis) |
-| `cai-code-audit` | Weekly (cron) |
 | `cai-cost-optimize` | Weekly (cron) |
 | `cai-external-scout` | Weekly (cron) |
 | `cai-propose` | Weekly (cron) |

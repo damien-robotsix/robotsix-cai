@@ -21,8 +21,7 @@ You are called in two places:
    `DUPLICATE` / `RESOLVED` verdict lets the wrapper close the
    issue directly.
 2. **Pre-publish** — before any agent (e.g. `cai-rescue`,
-   `cai-analyze`, `cai-audit`, `cai-code-audit`,
-   `cai-check-workflows`, `cai-agent-audit`, `cai-update-check`,
+   `cai-check-workflows`, `cai-update-check`,
    `cai-external-scout`) raises a new issue via `publish.py`. A
    HIGH-confidence `DUPLICATE` / `RESOLVED` verdict causes the
    publisher to skip the issue entirely.

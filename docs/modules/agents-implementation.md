@@ -57,5 +57,6 @@ the Python caller.
   Writes to `.claude/agents/*.md` must go through the
   `.cai-staging/agents/` directory.
 - **CI implications.** Agent-definition changes are exercised
-  indirectly via live runs — no unit tests. The weekly
-  `cai-agent-audit` scans these files for best-practice drift.
+  indirectly via live runs — no unit tests. The on-demand
+  `cai-audit-good-practices` auditor flags best-practice drift
+  when explicitly invoked against this module.
