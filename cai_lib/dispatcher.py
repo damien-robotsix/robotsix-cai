@@ -1,5 +1,5 @@
-"""FSM dispatcher — single entry point that routes issues and PRs to the
-handler registered for their current state.
+"""FSM dispatcher — single entry point that routes issues and PRs through
+flat inline driver pipelines.
 
 State IS the program counter: when an issue is labelled ``:refining``, the
 refine handler runs; if that run crashes, the next tick picks up the same
@@ -8,19 +8,30 @@ every handler is written to be safely re-enterable.
 
 Public API:
 
-- :func:`dispatch_issue` — given an issue number, fetch it, look up its
-  state, call the matching handler.
-- :func:`dispatch_pr` — same for PRs.
-- :func:`dispatch_oldest_actionable` — list every open issue and PR in a
-  state with a handler; pick the oldest (by ``createdAt``) and dispatch
-  it. Used by ``cai cycle``.
+- :func:`dispatch_issue` — given an issue number, fetch it, derive its
+  state, hand off to :func:`drive_issue` (or to the specialised MERGED /
+  HUMAN_NEEDED handler).
+- :func:`dispatch_pr` — same for PRs, via :func:`drive_pr`.
+- :func:`dispatch_drain` — list every open issue and PR in a handled
+  state; pick the oldest (by ``createdAt``) and drive it end-to-end.
+  Used by ``cai cycle``.
 
-The registries (``ISSUE_STATE_ACTIONS`` / ``PR_STATE_ACTIONS``) live here
-rather than in :mod:`cai_lib.fsm` so handlers can ``import *`` FSM helpers
-without creating an import cycle.
+``drive_issue`` / ``drive_pr`` are the single-step drivers: each call
+fires the Pattern A entry transition inline (if any) before invoking
+the handler for the current state. The outer loop in
+:func:`_drive_target_to_completion` re-fetches state and loops for
+multi-step walks.
+
+Registries (``_build_issue_registry`` / ``_build_pr_registry``)
+collapse to the minimum: the common entry state routes to the driver,
+and MERGED / HUMAN_NEEDED (issue) and PR_HUMAN_NEEDED (PR) keep
+specialised handlers. Every other actionable state falls through to
+the driver via the actionable-state fallback in :func:`dispatch_issue`
+/ :func:`dispatch_pr`.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from typing import Callable, NamedTuple, Optional, Union
@@ -46,14 +57,6 @@ from cai_lib.issues import list_sub_issues
 # ---------------------------------------------------------------------------
 # Structured handler return shape (issue #1124 infrastructure)
 # ---------------------------------------------------------------------------
-#
-# ``HandlerResult`` is the target return type for the FSM-handler migration
-# tracked in #1124. Handler migration itself happens in follow-up sub-issues
-# (#1137 PR-side, #1138 dispatcher rewrite, #1141 implement/explore). This
-# module lands the type and the :func:`_driver_fire` helper only — no
-# handler is migrated here. Existing ``int``-returning handlers continue to
-# dispatch unchanged because ``dispatch_issue`` / ``dispatch_pr`` only
-# activate the shim when the handler's return value is a ``HandlerResult``.
 
 class HandlerResult(NamedTuple):
     """Structured return for FSM handlers.
@@ -74,11 +77,10 @@ class HandlerResult(NamedTuple):
         forwarded to ``fire_trigger``), ``extra_add`` (used only by
         the empty-trigger sentinel), ``reason_extra`` (forwarded to
         ``fire_trigger`` as ``reason_extra=`` when present).
-      * ``stop_driving`` — reserved for future use by the inner
-        drive loop in :func:`_drive_target_to_completion` (stop
-        driving the target within the same tick). Included in the
-        shape now so migrated handlers can declare it without a
-        second round of churn.
+      * ``stop_driving`` — set by a handler to signal the inner drive
+        loop in :func:`_drive_target_to_completion` that it should
+        stop driving this target within the same tick (even if the
+        state changed).
     """
     trigger: str
     confidence: Optional[Confidence] = None
@@ -137,10 +139,6 @@ def _driver_fire(
             )
         return (bool(ok), False)
 
-    # Non-empty trigger → fire_trigger with one retry on transient failure.
-    # Lazy import mirrors the pattern used by ``dispatch_pr`` for the
-    # rebase override (see line ~342) and avoids pulling the FSM module
-    # into the import graph of every caller that touches the dispatcher.
     from cai_lib.fsm import fire_trigger
 
     fire_kwargs: dict = dict(
@@ -190,8 +188,6 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
         return {}
 
     gate: dict[int, tuple[int, int]] = {}
-    # Memoize list_sub_issues calls to avoid duplicate API requests when
-    # the tree is deep or shared.
     subtree_cache: dict[int, list[dict]] = {}
 
     def _cached_sub_issues(num: int) -> list[dict]:
@@ -214,7 +210,7 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
                 last_open_sibling = child_num
 
     # Second pass: propagate gates from nested parents down to their
-    # descendants.  When a sub-issue P is itself a parent (carries
+    # descendants. When a sub-issue P is itself a parent (carries
     # LABEL_PARENT) and P is gated (gate[P] is set), then every
     # descendant of P that is not already locally gated should inherit
     # P's blocker so the picker skips them too.
@@ -222,10 +218,6 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
     _propagate_visited: set[int] = set()
 
     def _propagate(p: int, inherited: tuple[int, int]) -> None:
-        """Walk descendants of ``p`` and assign ``inherited`` to any that
-        are not yet gated.  Always recurse into nested-parent children so
-        that arbitrarily deep subtrees are covered.  A visited guard
-        prevents re-entering the same node if the tree branches."""
         if p in _propagate_visited:
             return
         _propagate_visited.add(p)
@@ -235,9 +227,6 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
                 continue
             if child_num not in gate:
                 gate[child_num] = inherited
-            # Recurse into nested parents regardless of their own gate
-            # status — their children may still be ungated and need the
-            # ancestor's inherited blocker.
             if child_num in parent_nums:
                 _propagate(child_num, inherited)
 
@@ -249,26 +238,111 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
 
 
 # ---------------------------------------------------------------------------
-# Handler registries
+# Actionable state sets (hardcoded, decoupled from registry derivation)
 # ---------------------------------------------------------------------------
 #
-# Some states share a handler: e.g. both RAISED and TRIAGING route to
-# ``handle_triage`` — the handler itself decides whether it's a fresh
-# entry (apply the raise_to_triaging transition first) or a resume
-# (skip the entry transition).
+# These drive the queue picker (:func:`_pick_oldest_actionable_target`)
+# and the inner drive-loop termination in
+# :func:`_drive_target_to_completion`. Kept in a frozenset so the picker
+# sees the full state set regardless of which states are in the
+# collapsed registry.
+
+_ACTIONABLE_ISSUE_STATES: frozenset[IssueState] = frozenset({
+    IssueState.RAISED,
+    IssueState.TRIAGING,
+    IssueState.REFINING,
+    IssueState.NEEDS_EXPLORATION,
+    IssueState.REFINED,
+    IssueState.SPLITTING,
+    IssueState.PLANNING,
+    IssueState.PLANNED,
+    IssueState.PLAN_APPROVED,
+    IssueState.IN_PROGRESS,
+    IssueState.APPLYING,
+    IssueState.APPLIED,
+    IssueState.PR,
+    IssueState.MERGED,
+    IssueState.HUMAN_NEEDED,
+})
+
+_ACTIONABLE_PR_STATES: frozenset[PRState] = frozenset({
+    PRState.OPEN,
+    PRState.REVIEWING_CODE,
+    PRState.REVISION_PENDING,
+    PRState.REVIEWING_DOCS,
+    PRState.APPROVED,
+    PRState.REBASING,
+    PRState.CI_FAILING,
+    PRState.PR_HUMAN_NEEDED,
+})
+
+
+# ---------------------------------------------------------------------------
+# Pattern A entry transitions fired by ``drive_issue`` / ``drive_pr``
+# ---------------------------------------------------------------------------
 #
-# States with no handler (SOLVED, MERGED on the PR
-# side) are terminal or parked and the dispatcher returns without doing
-# anything. HUMAN_NEEDED has a handler that auto-resumes the FSM when
-# the admin has applied ``human:solved`` and no-ops otherwise.
+# ``drive_issue`` fires the mapped transition before calling the
+# handler for its pre-entry state. Example: RAISED fires
+# ``raise_to_triaging`` so the issue is at :triaging when
+# ``handle_triage`` runs. States absent from the map have no entry
+# transition (resume paths or states that are already at their
+# working label).
+
+_ISSUE_ENTRY_TRANSITIONS: dict[IssueState, str] = {
+    IssueState.RAISED:        "raise_to_triaging",
+    IssueState.REFINED:       "refined_to_splitting",
+    IssueState.PLAN_APPROVED: "approved_to_in_progress",
+}
+
+# ``drive_pr`` fires the mapped transition before calling the handler
+# for its pre-entry state. Example: REVISION_PENDING fires
+# ``revision_pending_to_reviewing_code`` so the PR is at
+# :reviewing-code by the time ``handle_revise`` force-pushes its
+# commit. The semantic shift (fired pre-handler rather than post-push)
+# means a crashing subagent leaves the PR at :reviewing-code; the
+# re-review on the next tick routes it back to REVISION_PENDING when
+# it spots the still-unaddressed comments.
+
+_PR_ENTRY_TRANSITIONS: dict[PRState, str] = {
+    PRState.REVISION_PENDING: "revision_pending_to_reviewing_code",
+}
+
+
+# Transitions present in ``cai_lib/fsm_transitions.py`` that are
+# unreachable from the collapsed-registry dispatch flow. Kept here as
+# documentation so the catalog-trim follow-up (#1129) can audit them
+# and decide which to delete.
+_UNREACHABLE_ISSUE_TRANSITIONS: tuple[str, ...] = (
+    "raise_to_refining",       # superseded by raise_to_triaging entry
+    "refined_to_planning",     # superseded by refined_to_splitting entry
+)
+
+_UNREACHABLE_PR_TRANSITIONS: tuple[str, ...] = (
+    "reviewing_code_to_ci_failing",
+    "revision_pending_to_ci_failing",
+    "reviewing_docs_to_ci_failing",
+    "reviewing_docs_to_reviewing_code",
+)
+
+
+# ---------------------------------------------------------------------------
+# Handler tables
+# ---------------------------------------------------------------------------
 
 IssueHandler = Callable[[dict], Union[int, HandlerResult]]
 PRHandler    = Callable[[dict], HandlerResult]
 
 
-def _build_issue_registry() -> dict[IssueState, IssueHandler]:
-    # Deferred imports — handlers import from cai_lib.fsm, so registering
-    # them at module load would create a cycle.
+def _build_drive_issue_handlers() -> dict[IssueState, IssueHandler]:
+    """Lazy handler lookup for :func:`drive_issue`.
+
+    Keyed by the **pre-entry** state. Handlers that share an enum (e.g.
+    ``handle_triage`` for RAISED + TRIAGING) appear twice. Deferred
+    imports mirror :func:`_build_issue_registry` so handlers can
+    ``import *`` FSM helpers without creating an import cycle.
+    ``IssueState.PR`` is intentionally absent — ``drive_issue`` handles
+    it with the inlined bounce logic (:func:`_resolve_pr_state`).
+    """
     from cai_lib.actions.triage    import handle_triage
     from cai_lib.actions.refine    import handle_refine
     from cai_lib.actions.explore   import handle_explore
@@ -276,33 +350,29 @@ def _build_issue_registry() -> dict[IssueState, IssueHandler]:
     from cai_lib.actions.plan      import handle_plan, handle_plan_gate
     from cai_lib.actions.implement import handle_implement
     from cai_lib.actions.maintain  import handle_maintain, handle_applied
-    from cai_lib.actions.confirm   import handle_confirm
-    from cai_lib.actions.pr_bounce import handle_pr_bounce
-    from cai_lib.cmd_unblock       import handle_human_needed
 
     return {
         IssueState.RAISED:            handle_triage,
-        IssueState.TRIAGING:          handle_triage,      # resume
+        IssueState.TRIAGING:          handle_triage,
         IssueState.REFINING:          handle_refine,
         IssueState.NEEDS_EXPLORATION: handle_explore,
         IssueState.REFINED:           handle_split,
-        IssueState.SPLITTING:         handle_split,       # resume
-        IssueState.PLANNING:          handle_plan,        # resume
+        IssueState.SPLITTING:         handle_split,
+        IssueState.PLANNING:          handle_plan,
         IssueState.PLANNED:           handle_plan_gate,
         IssueState.PLAN_APPROVED:     handle_implement,
-        IssueState.IN_PROGRESS:       handle_implement,   # resume
+        IssueState.IN_PROGRESS:       handle_implement,
         IssueState.APPLYING:          handle_maintain,
         IssueState.APPLIED:           handle_applied,
-        IssueState.PR:                handle_pr_bounce,
-        IssueState.MERGED:            handle_confirm,
-        # HUMAN_NEEDED is only picked up when the admin has applied
-        # ``human:solved`` (see filter in _pick_oldest_actionable_target).
-        IssueState.HUMAN_NEEDED:      handle_human_needed,
-        # SOLVED → no handler (terminal)
     }
 
 
-def _build_pr_registry() -> dict[PRState, PRHandler]:
+def _build_drive_pr_handlers() -> dict[PRState, PRHandler]:
+    """Lazy handler lookup for :func:`drive_pr`.
+
+    Keyed by the **pre-entry** state. Handlers that share an enum would
+    appear twice; currently every PR-side handler maps one state.
+    """
     from cai_lib.actions.open_pr     import handle_open_to_review
     from cai_lib.actions.review_pr   import handle_review_pr
     from cai_lib.actions.revise      import handle_revise
@@ -310,7 +380,6 @@ def _build_pr_registry() -> dict[PRState, PRHandler]:
     from cai_lib.actions.fix_ci      import handle_fix_ci
     from cai_lib.actions.merge       import handle_merge
     from cai_lib.actions.rebase      import handle_rebase
-    from cai_lib.cmd_unblock          import handle_pr_human_needed
 
     return {
         PRState.OPEN:             handle_open_to_review,
@@ -320,11 +389,55 @@ def _build_pr_registry() -> dict[PRState, PRHandler]:
         PRState.APPROVED:         handle_merge,
         PRState.REBASING:         handle_rebase,
         PRState.CI_FAILING:       handle_fix_ci,
-        # PR_HUMAN_NEEDED is actionable via handle_pr_human_needed —
-        # the picker filters to only those PRs carrying ``human:solved``
-        # so parked-waiting PRs stay out of the queue.
-        PRState.PR_HUMAN_NEEDED:  handle_pr_human_needed,
-        # MERGED → no handler (terminal)
+    }
+
+
+_DRIVE_ISSUE_HANDLERS: Optional[dict[IssueState, IssueHandler]] = None
+_DRIVE_PR_HANDLERS:    Optional[dict[PRState, PRHandler]]       = None
+
+
+def _drive_issue_handlers() -> dict[IssueState, IssueHandler]:
+    global _DRIVE_ISSUE_HANDLERS
+    if _DRIVE_ISSUE_HANDLERS is None:
+        _DRIVE_ISSUE_HANDLERS = _build_drive_issue_handlers()
+    return _DRIVE_ISSUE_HANDLERS
+
+
+def _drive_pr_handlers() -> dict[PRState, PRHandler]:
+    global _DRIVE_PR_HANDLERS
+    if _DRIVE_PR_HANDLERS is None:
+        _DRIVE_PR_HANDLERS = _build_drive_pr_handlers()
+    return _DRIVE_PR_HANDLERS
+
+
+# ---------------------------------------------------------------------------
+# Collapsed dispatch registries
+# ---------------------------------------------------------------------------
+#
+# The collapsed registry holds only the entry state (RAISED / OPEN) —
+# which routes to the driver — and the terminal / parked-resume states
+# (MERGED / HUMAN_NEEDED / PR_HUMAN_NEEDED) that need specialised
+# handlers. Every other actionable state falls through to the driver
+# via the actionable-state fallback in :func:`dispatch_issue` /
+# :func:`dispatch_pr`.
+
+def _build_issue_registry() -> dict[IssueState, IssueHandler]:
+    from cai_lib.actions.confirm   import handle_confirm
+    from cai_lib.cmd_unblock       import handle_human_needed
+
+    return {
+        IssueState.RAISED:       drive_issue,
+        IssueState.HUMAN_NEEDED: handle_human_needed,
+        IssueState.MERGED:       handle_confirm,
+    }
+
+
+def _build_pr_registry() -> dict[PRState, PRHandler]:
+    from cai_lib.cmd_unblock import handle_pr_human_needed
+
+    return {
+        PRState.OPEN:            drive_pr,
+        PRState.PR_HUMAN_NEEDED: handle_pr_human_needed,
     }
 
 
@@ -351,7 +464,6 @@ def _pr_needs_rebase(pr: dict) -> bool:
     )
 
 
-# Lazily built on first use to keep module import cheap and cycle-free.
 _ISSUE_REGISTRY: Optional[dict[IssueState, IssueHandler]] = None
 _PR_REGISTRY:    Optional[dict[PRState, PRHandler]]       = None
 
@@ -371,13 +483,338 @@ def _pr_registry() -> dict[PRState, PRHandler]:
 
 
 def actionable_issue_states() -> set[IssueState]:
-    """Set of IssueStates that have a registered handler."""
-    return set(_issue_registry().keys())
+    """Set of issue states that are actionable by the dispatcher."""
+    return set(_ACTIONABLE_ISSUE_STATES)
 
 
 def actionable_pr_states() -> set[PRState]:
-    """Set of PRStates that have a registered handler."""
-    return set(_pr_registry().keys())
+    """Set of PR states that are actionable by the dispatcher."""
+    return set(_ACTIONABLE_PR_STATES)
+
+
+# ---------------------------------------------------------------------------
+# Inlined PR-bounce helpers (used by ``drive_issue`` at IssueState.PR)
+# ---------------------------------------------------------------------------
+#
+# When an issue reaches :pr-open, ``drive_issue`` either follows the
+# linked open PR (the happy path) or recovers from an orphaned label by
+# inspecting the recently-closed PRs for that branch and routing the
+# issue to the appropriate recovery state.
+
+_BRANCH_PREFIX_TEMPLATE = "auto-improve/{n}-"
+
+
+def _find_open_linked_pr(issue_number: int) -> Optional[dict]:
+    """Return the first open PR whose head branch starts with ``auto-improve/<N>-``."""
+    prefix = _BRANCH_PREFIX_TEMPLATE.format(n=issue_number)
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "open",
+            "--json", "number,headRefName",
+            "--limit", "100",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai dispatch] gh pr list (open) failed for issue #{issue_number}:\n"
+            f"{e.stderr}",
+            file=sys.stderr,
+        )
+        return None
+
+    for pr in prs:
+        if pr.get("headRefName", "").startswith(prefix):
+            return pr
+    return None
+
+
+def _find_recent_closed_linked_pr(issue_number: int) -> Optional[dict]:
+    """Return the most recent closed PR whose branch matches ``auto-improve/<N>-``.
+
+    Includes ``state`` and ``mergedAt`` so the caller can tell merged vs
+    closed-unmerged apart.
+    """
+    prefix = _BRANCH_PREFIX_TEMPLATE.format(n=issue_number)
+    try:
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", REPO,
+            "--state", "closed",
+            "--json", "number,headRefName,state,mergedAt,closedAt",
+            "--limit", "200",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai dispatch] gh pr list (closed) failed for issue #{issue_number}:\n"
+            f"{e.stderr}",
+            file=sys.stderr,
+        )
+        return None
+
+    matches = [pr for pr in prs if pr.get("headRefName", "").startswith(prefix)]
+    if not matches:
+        return None
+    matches.sort(
+        key=lambda pr: pr.get("closedAt") or pr.get("mergedAt") or "",
+        reverse=True,
+    )
+    return matches[0]
+
+
+def _our_gh_login() -> Optional[str]:
+    """Return the authenticated GitHub login (the cai container's identity)."""
+    try:
+        out = _gh_json(["api", "user", "--jq", ".login"])
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai dispatch] gh api user failed (cannot determine our login):\n"
+            f"{e.stderr}",
+            file=sys.stderr,
+        )
+        return None
+    if isinstance(out, str):
+        return out.strip() or None
+    if isinstance(out, dict):
+        return (out.get("login") or "").strip() or None
+    return None
+
+
+def _pr_close_actor(pr_number: int) -> Optional[str]:
+    """Return the GitHub login of whoever last closed PR #pr_number, or None.
+
+    Walks the issue timeline newest-first and returns the actor of the
+    most recent ``closed`` event.
+    """
+    try:
+        events = _gh_json([
+            "api",
+            f"repos/{REPO}/issues/{pr_number}/timeline",
+            "--paginate",
+        ]) or []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[cai dispatch] gh api timeline failed for PR #{pr_number}:\n"
+            f"{e.stderr}",
+            file=sys.stderr,
+        )
+        return None
+    if not isinstance(events, list):
+        return None
+    closed_events = [e for e in events if (e.get("event") == "closed")]
+    if not closed_events:
+        return None
+    latest = closed_events[-1]
+    actor = latest.get("actor") or {}
+    login = actor.get("login")
+    return login or None
+
+
+def _was_merged(pr: dict) -> bool:
+    return bool(pr.get("mergedAt")) or pr.get("state") == "MERGED"
+
+
+def _resolve_pr_state(issue: dict) -> Union[int, HandlerResult]:
+    """Decide what to do for an issue at ``IssueState.PR``.
+
+    Happy path: an open linked PR exists → bounce via
+    :func:`dispatch_pr`. Otherwise scan recently-closed PRs for the
+    branch and route the issue to the appropriate recovery transition
+    (merged → ``pr_to_merged``; bot-closed unmerged → ``pr_to_refined``;
+    human-closed unmerged or orphan → ``pr_to_human_needed``).
+    """
+    issue_number = issue["number"]
+
+    open_pr = _find_open_linked_pr(issue_number)
+    if open_pr is not None:
+        return dispatch_pr(open_pr["number"])
+
+    closed_pr = _find_recent_closed_linked_pr(issue_number)
+    if closed_pr is not None:
+        if _was_merged(closed_pr):
+            print(
+                f"[cai dispatch] issue #{issue_number}: linked PR "
+                f"#{closed_pr['number']} merged but issue still at :pr-open — "
+                f"advancing pr_to_merged",
+                flush=True,
+            )
+            return HandlerResult(trigger="pr_to_merged")
+
+        close_actor = _pr_close_actor(closed_pr["number"])
+        our_login = _our_gh_login()
+        bot_closed = (
+            close_actor is not None
+            and our_login is not None
+            and close_actor == our_login
+        )
+        if bot_closed:
+            print(
+                f"[cai dispatch] issue #{issue_number}: linked PR "
+                f"#{closed_pr['number']} closed unmerged by us "
+                f"({close_actor}) — reverting pr_to_refined",
+                flush=True,
+            )
+            return HandlerResult(trigger="pr_to_refined")
+
+        actor_str = close_actor or "unknown"
+        print(
+            f"[cai dispatch] issue #{issue_number}: linked PR "
+            f"#{closed_pr['number']} closed unmerged by {actor_str} "
+            f"(our login: {our_login or 'unknown'}) — diverting "
+            f"pr_to_human_needed",
+            flush=True,
+        )
+        return HandlerResult(
+            trigger="pr_to_human_needed",
+            divert_reason=(
+                f"Linked PR #{closed_pr['number']} was closed "
+                f"unmerged by `{actor_str}` (our login: "
+                f"`{our_login or 'unknown'}`). Because the closer "
+                f"is not this container, the close was a deliberate "
+                f"human decision — a human must decide the next "
+                f"move for this issue."
+            ),
+        )
+
+    print(
+        f"[cai dispatch] issue #{issue_number}: no PR found (open or recently "
+        f"closed) for branch auto-improve/{issue_number}-* — diverting "
+        f"pr_to_human_needed",
+        flush=True,
+    )
+    return HandlerResult(
+        trigger="pr_to_human_needed",
+        divert_reason=(
+            f"Issue was at `:pr-open` but no PR (open or recently "
+            f"closed) could be found for branch "
+            f"`auto-improve/{issue_number}-*`. The label was applied "
+            f"without provenance — a human must decide whether to "
+            f"reopen a PR or revert the issue to a pre-PR state."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Drivers — one handler step with inline Pattern A entry transition
+# ---------------------------------------------------------------------------
+
+def drive_issue(issue: dict) -> int:
+    """One dispatch step for an issue at a non-registry actionable state.
+
+    Fires the Pattern A entry transition inline (if ``state`` is in
+    :data:`_ISSUE_ENTRY_TRANSITIONS`), then invokes the handler for
+    ``state`` from :func:`_drive_issue_handlers`. The handler's return
+    value — ``int`` or :class:`HandlerResult` — is adapted to the
+    dispatcher's ``int`` exit code. ``IssueState.PR`` is handled
+    inline via :func:`_resolve_pr_state` (the old ``handle_pr_bounce``
+    is gone).
+    """
+    issue_number = issue["number"]
+    label_names = [lb["name"] for lb in issue.get("labels", [])]
+    state = get_issue_state(label_names)
+    if state is None:
+        return 0
+
+    # PR state is handled inline — no entry transition, no handler table.
+    if state == IssueState.PR:
+        rc = _resolve_pr_state(issue)
+        if isinstance(rc, HandlerResult):
+            ok, _ = _driver_fire(
+                issue_number, rc,
+                is_pr=False, current_labels=label_names,
+            )
+            return 0 if ok else 1
+        return rc
+
+    # Fire Pattern A entry transition if applicable.
+    entry = _ISSUE_ENTRY_TRANSITIONS.get(state)
+    if entry is not None:
+        from cai_lib.fsm import fire_trigger
+        ok, diverted = fire_trigger(
+            issue_number, entry,
+            current_labels=label_names,
+            log_prefix="cai dispatch",
+        )
+        if not ok:
+            print(
+                f"[cai dispatch] issue #{issue_number}: entry {entry} "
+                "failed", file=sys.stderr, flush=True,
+            )
+            return 1
+        if diverted:
+            return 0
+
+    handler = _drive_issue_handlers().get(state)
+    if handler is None:
+        print(
+            f"[cai dispatch] issue #{issue_number} at {state.name} — "
+            "no drive handler", flush=True,
+        )
+        return 0
+
+    print(
+        f"[cai dispatch] issue #{issue_number} at {state.name} → "
+        f"{handler.__name__}", flush=True,
+    )
+    rc = handler(issue)
+    if isinstance(rc, HandlerResult):
+        ok, _ = _driver_fire(
+            issue_number, rc,
+            is_pr=False, current_labels=label_names,
+        )
+        return 0 if ok else 1
+    return rc
+
+
+def drive_pr(pr: dict) -> int:
+    """One dispatch step for a PR at a non-registry actionable state.
+
+    Fires the Pattern A entry transition inline (if ``state`` is in
+    :data:`_PR_ENTRY_TRANSITIONS`), then invokes the handler for
+    ``state`` from :func:`_drive_pr_handlers`. All PR-side handlers
+    return :class:`HandlerResult`; the result is threaded through
+    :func:`_driver_fire`.
+    """
+    pr_number = pr["number"]
+    state = get_pr_state(pr)
+    if state is None:
+        return 0
+
+    entry = _PR_ENTRY_TRANSITIONS.get(state)
+    if entry is not None:
+        from cai_lib.fsm import fire_trigger
+        ok, diverted = fire_trigger(
+            pr_number, entry,
+            is_pr=True, current_pr=pr,
+            log_prefix="cai dispatch",
+        )
+        if not ok:
+            print(
+                f"[cai dispatch] PR #{pr_number}: entry {entry} failed",
+                file=sys.stderr, flush=True,
+            )
+            return 1
+        if diverted:
+            return 0
+
+    handler = _drive_pr_handlers().get(state)
+    if handler is None:
+        print(
+            f"[cai dispatch] PR #{pr_number} at {state.name} — "
+            "no drive handler", flush=True,
+        )
+        return 0
+
+    print(
+        f"[cai dispatch] PR #{pr_number} at {state.name} → "
+        f"{handler.__name__}", flush=True,
+    )
+    result = handler(pr)
+    ok, _ = _driver_fire(
+        pr_number, result,
+        is_pr=True, current_pr=pr,
+    )
+    return 0 if ok else 1
 
 
 # ---------------------------------------------------------------------------
@@ -387,9 +824,10 @@ def actionable_pr_states() -> set[PRState]:
 def dispatch_issue(issue_number: int) -> int:
     """Dispatch a single issue by number.
 
-    Fetches the issue, derives state from labels, looks up the handler.
-    Returns 0 if the issue is terminal / has no handler; otherwise the
-    handler's exit code.
+    Fetches the issue, derives state from labels, looks up the handler
+    in the collapsed registry; for any other actionable state, falls
+    back to :func:`drive_issue`. Returns 0 if the issue is terminal /
+    unlabelled / parked-without-resume.
     """
     try:
         issue = _gh_json([
@@ -418,9 +856,12 @@ def dispatch_issue(issue_number: int) -> int:
 
     handler = _issue_registry().get(state)
     if handler is None:
-        print(f"[cai dispatch] issue #{issue_number} at {state.name} — "
-              "no handler (terminal / parked)", flush=True)
-        return 0
+        if state in _ACTIONABLE_ISSUE_STATES:
+            handler = drive_issue
+        else:
+            print(f"[cai dispatch] issue #{issue_number} at {state.name} — "
+                  "no handler (terminal / parked)", flush=True)
+            return 0
 
     print(f"[cai dispatch] issue #{issue_number} at {state.name} → {handler.__name__}",
           flush=True)
@@ -445,11 +886,13 @@ def dispatch_pr(pr_number: int) -> int:
     """Dispatch a single PR by number.
 
     Fetches the PR, derives state from labels. If the PR is mergeable
-    against main, runs the registered handler for its state. If a
-    rebase against main is needed, applies the matching ``*_to_rebasing``
-    transition first and routes to ``handle_rebase`` regardless of the
-    pipeline label — the rebase handler always exits to REVIEWING_CODE
-    so the next tick re-reviews the rebased SHA.
+    against main, runs the registered handler for its state (or
+    :func:`drive_pr` for any actionable state not in the collapsed
+    registry). If a rebase against main is needed, applies the
+    matching ``*_to_rebasing`` transition first and routes to
+    ``handle_rebase`` regardless of the pipeline label — the rebase
+    handler always exits to REVIEWING_CODE so the next tick re-reviews
+    the rebased SHA.
     """
     try:
         pr = _gh_json([
@@ -495,9 +938,12 @@ def dispatch_pr(pr_number: int) -> int:
 
     handler = _pr_registry().get(state)
     if handler is None:
-        print(f"[cai dispatch] PR #{pr_number} at {state.name} — "
-              "no handler (terminal / parked)", flush=True)
-        return 0
+        if state in _ACTIONABLE_PR_STATES:
+            handler = drive_pr
+        else:
+            print(f"[cai dispatch] PR #{pr_number} at {state.name} — "
+                  "no handler (terminal / parked)", flush=True)
+            return 0
 
     print(f"[cai dispatch] PR #{pr_number} at {state.name} → {handler.__name__}",
           flush=True)
@@ -507,11 +953,13 @@ def dispatch_pr(pr_number: int) -> int:
         return 0
     try:
         result = handler(pr)
-        ok, _ = _driver_fire(
-            pr_number, result,
-            is_pr=True, current_pr=pr,
-        )
-        return 0 if ok else 1
+        if isinstance(result, HandlerResult):
+            ok, _ = _driver_fire(
+                pr_number, result,
+                is_pr=True, current_pr=pr,
+            )
+            return 0 if ok else 1
+        return result
     finally:
         _release_remote_lock("pr", pr_number)
 
@@ -551,12 +999,6 @@ def _pick_oldest_actionable_target(
         print(f"[cai dispatch] gh issue list failed:\n{e.stderr}", file=sys.stderr)
         issues = []
 
-    # Build the ordering gate from GitHub's native sub-issues API: for
-    # each parent issue (label ``auto-improve:parent``), fetch its
-    # ordered sub-issues and record, for every child, the immediately
-    # prior sibling that is still open. A child present in ``gate`` is
-    # blocked until that prior sibling closes. See the "ordering gate"
-    # referenced in cai_lib/actions/refine.py::_create_sub_issues.
     gate = _build_ordering_gate()
 
     try:
@@ -591,9 +1033,6 @@ def _pick_oldest_actionable_target(
                     flush=True,
                 )
                 continue
-            # HUMAN_NEEDED is actionable only when the admin has signalled
-            # ready-to-resume via ``human:solved``. Other parked issues
-            # stay out of the queue so we don't spin on them each tick.
             if (state == IssueState.HUMAN_NEEDED
                     and LABEL_HUMAN_SOLVED not in label_names):
                 continue
@@ -616,9 +1055,6 @@ def _pick_oldest_actionable_target(
         if state in pr_states:
             if ("pr", pr["number"]) in skip:
                 continue
-            # PR_HUMAN_NEEDED is actionable only when the admin has
-            # signalled ready-to-resume via ``human:solved``. Mirrors
-            # the issue-side gate above.
             if state == PRState.PR_HUMAN_NEEDED:
                 pr_label_names = [
                     (lb.get("name") if isinstance(lb, dict) else lb)
@@ -726,15 +1162,12 @@ def _pr_ci_pending(pr: dict) -> bool:
 
 def _linked_open_pr_number(issue_number: int) -> Optional[int]:
     """Return the open ``auto-improve/<N>-...`` PR number for this issue, or None."""
-    # Local import — pr_bounce imports from dispatcher for dispatch_pr.
-    from cai_lib.actions.pr_bounce import _find_open_linked_pr
     pr = _find_open_linked_pr(issue_number)
     return pr["number"] if pr else None
 
 
 def _issue_number_from_pr_branch(pr: dict) -> Optional[int]:
     """Parse the issue number from an ``auto-improve/<N>-...`` branch."""
-    import re
     head = pr.get("headRefName", "") or ""
     m = re.match(r"auto-improve/(\d+)-", head)
     return int(m.group(1)) if m else None
@@ -834,8 +1267,6 @@ def _drive_target_to_completion(
                     if linked is not None and ("pr", linked) not in touched:
                         print(f"[cai dispatch] issue #{number} advanced to PR — "
                               f"following PR #{linked}", flush=True)
-                        # Manual release/acquire — finally can't sequence
-                        # release-old-then-acquire-new across a continue.
                         if held is not None:
                             _release_remote_lock(*held)
                             held = None
@@ -848,15 +1279,12 @@ def _drive_target_to_completion(
                         held = (kind, number)
                         ci_polled = False
                         continue
-                    # No linked open PR found (orphan) or already driven.
                     return worst_rc
                 if post_state == pre_state:
-                    # Handler ran but did not advance state → blocked.
                     print(f"[cai dispatch] issue #{number} at "
                           f"{post_state.name}: no state change — blocked, "
                           f"moving on", flush=True)
                     return worst_rc
-                # State advanced on the same issue — keep driving.
                 continue
 
             # kind == "pr"

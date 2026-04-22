@@ -946,23 +946,11 @@ def handle_implement(issue: dict) -> int:
         log_run("implement", repo=REPO, issue=issue_number, result="no_stored_plan", exit=0)
         return 0
 
-    # 1. Entry transition — idempotent.
-    if state == IssueState.PLAN_APPROVED:
-        if not fire_trigger(
-            issue_number, "approved_to_in_progress",
-            current_labels=label_names,
-            log_prefix="cai implement",
-        )[0]:
-            print(f"[cai implement] could not lock #{issue_number}", file=sys.stderr)
-            log_run("implement", repo=REPO, issue=issue_number, result="lock_failed", exit=1)
-            return 1
-        print(f"[cai implement] locked #{issue_number} (label {LABEL_IN_PROGRESS})", flush=True)
-    elif state == IssueState.IN_PROGRESS:
-        print(
-            f"[cai implement] resuming #{issue_number} already at :in-progress",
-            flush=True,
-        )
-    else:
+    # 1. :plan-approved → :in-progress entry is now fired by ``drive_issue``
+    # before this handler runs (see ``cai_lib/dispatcher.py``). By the time
+    # we get here the issue is always at :in-progress; any other state is a
+    # label corruption we refuse to process.
+    if state != IssueState.IN_PROGRESS:
         print(
             f"[cai implement] unexpected state {state} for #{issue_number}; skipping",
             file=sys.stderr,

@@ -243,17 +243,9 @@ def handle_refine(issue: dict) -> int:
     title = issue["title"]
     print(f"[cai refine] targeting #{issue_number}: {title}", flush=True)
 
-    # Move :raised → :refining before the agent runs so observers see
-    # the transient working state (useful for audits + the unified
-    # driver). :refining issues picked up from the second pool are
-    # already in the working state.
-    issue_label_names_initial = [l["name"] for l in issue.get("labels", [])]  # noqa: E741
-    if LABEL_RAISED in issue_label_names_initial:
-        fire_trigger(
-            issue_number, "raise_to_refining",
-            current_labels=issue_label_names_initial,
-            log_prefix="cai refine",
-        )
+    # :raised → :refining entry is now fired by ``drive_issue`` before this
+    # handler runs (see ``cai_lib/dispatcher.py``). :refining issues picked
+    # up from the resume pool are already in the working state.
 
     # Build user message. Every invocation is treated as a fresh pass —
     # the agent may rewrite the body to incorporate exploration findings

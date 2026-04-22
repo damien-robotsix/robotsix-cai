@@ -38,8 +38,10 @@ Issue-side handlers (take an issue dict):
 - [`confirm.py`](../../cai_lib/actions/confirm.py) —
   `handle_confirm`: runs `cai-confirm` on merged PRs to verify
   issues are truly resolved.
-- [`pr_bounce.py`](../../cai_lib/actions/pr_bounce.py) —
-  `handle_pr_bounce`: IssueState.PR → hand off to the PR FSM.
+- The IssueState.PR bounce is not a separate action — the
+  recovery decision tree lives inline in
+  [`cai_lib/dispatcher.py`](../../cai_lib/dispatcher.py) as
+  `_resolve_pr_state` (invoked by `drive_issue`).
 - [`maintain.py`](../../cai_lib/actions/maintain.py) —
   `handle_maintain` / `handle_applied`: runs `cai-maintain` for
   `kind:maintenance` infra-ops issues.
@@ -84,8 +86,7 @@ PR-side handlers (take a PR dict):
 - Imported by **cli** — the dispatcher registry is built from
   these handler callables.
 - Imported by **tests** — `tests/test_maintain.py`,
-  `tests/test_plan.py`, `tests/test_pr_bounce.py`,
-  `tests/test_multistep.py`, and more.
+  `tests/test_plan.py`, `tests/test_multistep.py`, and more.
 
 ## Operational notes
 - **Cost sensitivity — HIGH.** Every handler launches one or more

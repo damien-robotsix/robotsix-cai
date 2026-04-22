@@ -173,13 +173,9 @@ def handle_triage(issue: dict) -> int:
 
     print(f"[cai triage] picked #{issue_number}: {title}", flush=True)
 
-    # 1. RAISED → TRIAGING (skip if already at :triaging — same handler resumes).
-    if current_state == IssueState.RAISED:
-        fire_trigger(
-            issue_number, "raise_to_triaging",
-            current_labels=issue_labels,
-            log_prefix="cai triage",
-        )
+    # 1. RAISED → TRIAGING entry is now fired by ``drive_issue`` before this
+    # handler runs (see ``cai_lib/dispatcher.py``). The resume path (already
+    # at :triaging) does not need an extra transition.
 
     # 1b. Cheap pre-check: cai-dup-check (haiku) decides whether the
     # issue is an obvious duplicate of another open issue or has

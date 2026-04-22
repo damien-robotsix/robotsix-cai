@@ -24,11 +24,7 @@ from cai_lib.config import (
     LABEL_REFINED,
     LABEL_PR_OPEN,
 )
-from cai_lib.fsm import (
-    PRState,
-    fire_trigger,
-    get_pr_state,
-)
+from cai_lib.fsm import PRState
 from cai_lib.github import _gh_json, _set_labels
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.logging_utils import log_run, log_run as _log_run_alias  # noqa: F401
@@ -930,38 +926,11 @@ def handle_revise(pr: dict) -> HandlerResult:
                 flush=True,
             )
 
-            # 11a. Advance FSM state: branch now has new commits, so any
-            # post-review state must drop back to REVIEWING_CODE for the
-            # new SHA.
-            try:
-                pr_now = _gh_json([
-                    "pr", "view", str(pr_number),
-                    "--repo", REPO, "--json", "labels,mergedAt,state",
-                ])
-            except subprocess.CalledProcessError:
-                pr_now = {}
-            current_state = get_pr_state(pr_now) if pr_now else None
-            if current_state == PRState.REVISION_PENDING:
-                fire_trigger(
-                    pr_number, "revision_pending_to_reviewing_code",
-                    is_pr=True,
-                    log_prefix="cai revise",
-                )
-            elif current_state == PRState.CI_FAILING:
-                fire_trigger(
-                    pr_number, "ci_failing_to_reviewing_code",
-                    is_pr=True,
-                    log_prefix="cai revise",
-                )
-            elif current_state == PRState.REVIEWING_DOCS:
-                fire_trigger(
-                    pr_number, "reviewing_docs_to_reviewing_code",
-                    is_pr=True,
-                    log_prefix="cai revise",
-                )
-            # REVIEWING_CODE is already correct; OPEN / PR_HUMAN_NEEDED
-            # / MERGED are unexpected here and left for the sweep to
-            # reconcile.
+            # 11a. REVIEWING_CODE entry is now fired by ``drive_pr`` before
+            # this handler runs (see ``cai_lib/dispatcher.py``), which
+            # inspects the pre-call state (REVISION_PENDING / CI_FAILING /
+            # REVIEWING_DOCS) and fires the matching ``*_to_reviewing_code``
+            # transition. The new SHA is picked up on the next tick.
 
             # 11. Post a summary comment describing what happened.
             if head_changed and has_uncommitted:

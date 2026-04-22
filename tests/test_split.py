@@ -9,8 +9,10 @@ Covers the three verdict branches:
   decomposition, over-depth decomposition) → fires
   ``splitting_to_human`` with a reasoned divert.
 
-Plus entry-transition handling: fresh :refined entry fires
-``refined_to_splitting``; :splitting resume does not.
+The entry transition ``refined_to_splitting`` is fired by
+:func:`cai_lib.dispatcher.drive_issue` before this handler runs; see
+``tests/test_dispatcher.py::TestDriveIssue``. The handler rejects any
+state other than :splitting to guard against label corruption.
 """
 import os
 import sys
@@ -48,30 +50,16 @@ def _splitting_issue(number: int = 1) -> dict:
     }
 
 
-class TestSplitEntryTransition(unittest.TestCase):
-    """The entry fire refined_to_splitting must happen only on fresh entry."""
+class TestSplitEntryGuard(unittest.TestCase):
+    """Entry transition ``refined_to_splitting`` lives in
+    :func:`cai_lib.dispatcher.drive_issue` (tested there). ``handle_split``
+    must never fire it and must refuse any state other than :splitting."""
 
     @patch("cai_lib.actions.split.log_run")
     @patch("cai_lib.actions.split._run_claude_p")
     @patch("cai_lib.actions.split.fire_trigger")
     @patch("cai_lib.actions.split._build_issue_block", return_value="issue text")
-    def test_refined_entry_fires_refined_to_splitting(
-        self, mock_build, mock_fire, mock_claude, mock_log_run,
-    ):
-        mock_claude.return_value = MagicMock(
-            returncode=0,
-            stdout="## Split Verdict\n\nVERDICT: ATOMIC\n\nConfidence: HIGH\n",
-            stderr="",
-        )
-        handle_split(_refined_issue())
-        fired = [c.args[1] for c in mock_fire.call_args_list]
-        self.assertIn("refined_to_splitting", fired)
-
-    @patch("cai_lib.actions.split.log_run")
-    @patch("cai_lib.actions.split._run_claude_p")
-    @patch("cai_lib.actions.split.fire_trigger")
-    @patch("cai_lib.actions.split._build_issue_block", return_value="issue text")
-    def test_splitting_resume_skips_entry_fire(
+    def test_splitting_resume_does_not_fire_refined_to_splitting(
         self, mock_build, mock_fire, mock_claude, mock_log_run,
     ):
         mock_claude.return_value = MagicMock(
@@ -82,6 +70,16 @@ class TestSplitEntryTransition(unittest.TestCase):
         handle_split(_splitting_issue())
         fired = [c.args[1] for c in mock_fire.call_args_list]
         self.assertNotIn("refined_to_splitting", fired)
+
+    @patch("cai_lib.actions.split.log_run")
+    @patch("cai_lib.actions.split._run_claude_p")
+    @patch("cai_lib.actions.split.fire_trigger")
+    def test_refined_state_rejected(self, mock_fire, mock_claude, mock_log_run):
+        """An issue still at :refined must abort (drive_issue is
+        expected to have fired the entry transition first)."""
+        rc = handle_split(_refined_issue())
+        self.assertEqual(rc, 1)
+        mock_claude.assert_not_called()
 
 
 class TestSplitAtomicVerdict(unittest.TestCase):
@@ -103,7 +101,7 @@ class TestSplitAtomicVerdict(unittest.TestCase):
             ),
             stderr="",
         )
-        self.assertEqual(handle_split(_refined_issue()), 0)
+        self.assertEqual(handle_split(_splitting_issue()), 0)
         fired = [c.args[1] for c in mock_fire.call_args_list]
         self.assertIn("splitting_to_planning", fired)
         self.assertNotIn("splitting_to_human", fired)
@@ -124,7 +122,7 @@ class TestSplitAtomicVerdict(unittest.TestCase):
             ),
             stderr="",
         )
-        handle_split(_refined_issue())
+        handle_split(_splitting_issue())
         fired = [c.args[1] for c in mock_fire.call_args_list]
         self.assertIn("splitting_to_human", fired)
         self.assertNotIn("splitting_to_planning", fired)
@@ -154,7 +152,7 @@ class TestSplitDecomposeVerdict(unittest.TestCase):
             ),
             stderr="",
         )
-        handle_split(_refined_issue())
+        handle_split(_splitting_issue())
         mock_create_subs.assert_called_once()
         # _set_labels must add auto-improve:parent and remove :splitting.
         call_kwargs = mock_set_labels.call_args.kwargs
@@ -181,7 +179,7 @@ class TestSplitDecomposeVerdict(unittest.TestCase):
             ),
             stderr="",
         )
-        handle_split(_refined_issue())
+        handle_split(_splitting_issue())
         mock_create_subs.assert_not_called()
         mock_set_labels.assert_not_called()
         fired = [c.args[1] for c in mock_fire.call_args_list]
@@ -209,7 +207,7 @@ class TestSplitDecomposeVerdict(unittest.TestCase):
             stderr="",
         )
         with patch("cai_lib.actions.split.MAX_DECOMPOSITION_DEPTH", 1):
-            handle_split(_refined_issue())
+            handle_split(_splitting_issue())
         mock_create_subs.assert_not_called()
         fired = [c.args[1] for c in mock_fire.call_args_list]
         self.assertIn("splitting_to_human", fired)
@@ -233,7 +231,7 @@ class TestSplitDecomposeVerdict(unittest.TestCase):
             ),
             stderr="",
         )
-        handle_split(_refined_issue())
+        handle_split(_splitting_issue())
         mock_create_subs.assert_not_called()
         fired = [c.args[1] for c in mock_fire.call_args_list]
         self.assertIn("splitting_to_human", fired)
@@ -258,7 +256,7 @@ class TestSplitUnclearAndMalformed(unittest.TestCase):
             ),
             stderr="",
         )
-        handle_split(_refined_issue())
+        handle_split(_splitting_issue())
         fired = [c.args[1] for c in mock_fire.call_args_list]
         self.assertIn("splitting_to_human", fired)
 
@@ -274,7 +272,7 @@ class TestSplitUnclearAndMalformed(unittest.TestCase):
             stdout="nothing structured here",
             stderr="",
         )
-        handle_split(_refined_issue())
+        handle_split(_splitting_issue())
         fired = [c.args[1] for c in mock_fire.call_args_list]
         self.assertIn("splitting_to_human", fired)
 

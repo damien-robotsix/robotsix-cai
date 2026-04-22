@@ -183,7 +183,7 @@ class TestSplitDepthGate(unittest.TestCase):
             from cai_lib.actions.split import handle_split
             issue = {
                 "number": 5, "title": "Test",
-                "labels": [{"name": "auto-improve:refined"}],
+                "labels": [{"name": "auto-improve:splitting"}],
                 "body": "test body",
             }
             handle_split(issue)

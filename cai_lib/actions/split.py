@@ -83,19 +83,11 @@ def handle_split(issue: dict) -> int:
 
     print(f"[cai split] targeting #{issue_number}: {title}", flush=True)
 
-    # 1. Entry transition :refined → :splitting (only on fresh entry).
-    if state == IssueState.REFINED:
-        fire_trigger(
-            issue_number, "refined_to_splitting",
-            current_labels=label_names,
-            log_prefix="cai split",
-        )
-    elif state == IssueState.SPLITTING:
-        print(
-            f"[cai split] resuming #{issue_number} already at :splitting",
-            flush=True,
-        )
-    else:
+    # 1. :refined → :splitting entry is now fired by ``drive_issue`` before
+    # this handler runs (see ``cai_lib/dispatcher.py``). By the time we get
+    # here the issue is always at :splitting; any other state is a label
+    # corruption we refuse to process.
+    if state != IssueState.SPLITTING:
         print(
             f"[cai split] #{issue_number} unexpected state {state!r} "
             f"— aborting to prevent label corruption",

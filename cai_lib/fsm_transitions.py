@@ -252,8 +252,8 @@ ISSUE_TRANSITIONS: list[Transition] = [
                labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_MERGED]),
     # Recovery paths out of PR when the linked PR was closed unmerged
     # (re-plan from scratch) or never existed (orphan — needs a human).
-    # Fired by handle_pr_bounce after inspecting recent closed PRs for
-    # the issue's branch.
+    # Fired by ``cai_lib.dispatcher._resolve_pr_state`` after
+    # inspecting recent closed PRs for the issue's branch.
     Transition("pr_to_refined",              IssueState.PR,                IssueState.REFINED,
                labels_remove=[LABEL_PR_OPEN],             labels_add=[LABEL_REFINED]),
     # Merge-side approach-mismatch escalation (#1075): cai-merge closes
