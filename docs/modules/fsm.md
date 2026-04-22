@@ -48,6 +48,37 @@ import from `cai_lib.fsm` rather than the split modules directly.
   `ValueError` — so catalog typos fail the docs-regen CI job instead
   of silently landing in the rendered diagram.
 
+### Inline-drive integration
+
+The transition catalog is consumed by the single-handling driver
+[`cai_lib/dispatcher.py::_drive_target_to_completion`](../../cai_lib/dispatcher.py),
+which walks a target through every actionable state inside one
+dispatch tick rather than re-entering on each cron tick. The
+inner loop fires Pattern A entry transitions via `fire_trigger`,
+calls the matching action handler inline, and re-fetches state
+to detect progress. Handlers return a `HandlerResult` NamedTuple
+(defined around line 61 of
+[`cai_lib/dispatcher.py`](../../cai_lib/dispatcher.py):
+`trigger`, `confidence`, `divert_reason`, `artifacts`,
+`stop_driving`); `_driver_fire` translates that shape into the
+`fire_trigger` kwargs the FSM expects. See
+[`docs/modules/actions.md`](actions.md) for the handler contract.
+
+The catalog currently still contains every intermediate
+transition the pre-inline pipeline relied on. A catalog trim to
+a structural subset (Pattern A entry, approve, divert, resume)
+is tracked on parent issue #1037 via sibling issue #1129 (blocked
+on prerequisite issue #1172); until those land the full catalog
+is load-bearing and the helpers `find_transition`,
+`resume_transition_for`, and `resume_pr_transition_for` remain
+callable.
+
+Resume paths do not consult a fixed label-to-step table. The
+[`cai-resume-locator`](../../.claude/agents/lifecycle/cai-resume-locator.md)
+lifecycle agent is defined to pick a resume step from the
+target's labels, body, and recent comments — see
+[`docs/modules/agents-lifecycle.md`](agents-lifecycle.md).
+
 ## Inter-module dependencies
 - Imported by **actions** — every handler in `cai_lib/actions/*.py`
   reads the current state and applies a transition.

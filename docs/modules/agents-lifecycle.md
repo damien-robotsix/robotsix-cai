@@ -36,6 +36,11 @@ points in `cai_lib/cmd_agents.py` / `cmd_rescue.py` /
   — inline haiku resume-step locator; reads an issue/PR's labels,
   body, and recent comments and returns the step at which the
   single-handling drive should resume (or `FIRST` on ambiguity).
+  Defined as the resume-step oracle for the watchdog
+  (`cai_lib/watchdog.py`), `cai unblock`
+  (`cai_lib/cmd_unblock.py`), and `cai rescue`
+  (`cai_lib/cmd_rescue.py`) flows; the Python call sites land
+  with parent #1037's inline-drive rollout.
 - [`.claude/agents/lifecycle/cai-confirm.md`](../../.claude/agents/lifecycle/cai-confirm.md)
   — sonnet MERGED-state verdict agent; compares a merged PR's diff
   and the recent parsed signals against each open
@@ -49,7 +54,10 @@ points in `cai_lib/cmd_agents.py` / `cmd_rescue.py` /
 - Invoked by **cli** — `cmd_propose` / `cmd_propose_review`
   (weekly creative cycle); `cmd_rescue` (cai-rescue); `cmd_unblock`
   (cai-unblock); `dup_check.check_duplicate_or_resolved`
-  (cai-dup-check).
+  (cai-dup-check). `cai-resume-locator` is defined for use by the
+  same CLI-side resume flows (`cmd_rescue`, `cmd_unblock`) and by
+  the watchdog (`cai_lib/watchdog.py`); its Python call sites
+  land with parent #1037's inline-drive rollout.
 - Consumes **docs** — root `CLAUDE.md` efficiency guidance on
   every invocation.
 - Uses **agents-config** — permission/hook settings.
