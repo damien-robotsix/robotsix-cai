@@ -127,7 +127,18 @@ def _extract_paths(section_text: str) -> set[str]:
 
 
 def _extract_files_to_change(refined_body: str) -> set[str]:
-    return _extract_paths(_extract_section(refined_body, _FILES_TO_CHANGE_HEADER))
+    section = _extract_section(refined_body, _FILES_TO_CHANGE_HEADER)
+    paths: set[str] = set()
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- "):
+            continue
+        # Restrict extraction to the primary subject of each bullet — the portion
+        # before the " — " description separator — to avoid picking up incidental
+        # file-path tokens embedded in the change description.
+        subject = stripped[2:].split(" — ", 1)[0]
+        paths |= _extract_paths(subject)
+    return paths
 
 
 def _extract_scope_guardrails_paths(refined_body: str) -> set[str]:
