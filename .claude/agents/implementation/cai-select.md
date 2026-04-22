@@ -159,13 +159,28 @@ Assess each plan on these criteria, in order of importance:
 5. **Verbatim Edit/Write content:** Every plan step that calls for
    an `Edit` or `Write` MUST include the exact final text the fix
    agent will emit — the full file body (for `Write`) or both
-   `old_string` and `new_string` literals (for `Edit`). Prose
-   summaries such as "rewritten docstring keeping only the
-   surviving paragraphs", "update the config block to use the new
-   schema", or "remove the outdated paragraphs" count as **missing
-   content** — they force the fix agent to improvise and are the
-   single largest driver of MEDIUM-confidence plans that get parked
-   at the `planned_to_plan_approved` gate. **Cap any such plan's
+   `old_string` and `new_string` literals (for `Edit`). This rule
+   has **no small-change exception**: single-line additions (a new
+   import, a new config key, a new list entry) and one-character
+   tweaks are subject to the same requirement as wholesale
+   rewrites. Two failure shapes both count as **missing content**:
+
+     a. **Prose summaries of the new body** — e.g. "rewritten
+        docstring keeping only the surviving paragraphs", "update
+        the config block to use the new schema", or "remove the
+        outdated paragraphs". No verbatim `new_string` present.
+     b. **Natural-language-only edit targets (no `old_string`
+        anchor)** — e.g. "locate the `from cai_lib.github import`
+        block near the top of the file and append
+        `_strip_cost_comments` to its import list", or "find the
+        existing `logger.info` call and change the level to
+        `debug`". The step identifies what to change but never
+        pastes the verbatim `old_string` bytes that `cai-implement`
+        must feed to the `Edit` tool, forcing it to improvise.
+
+   Either shape forces `cai-implement` to improvise and both are
+   top drivers of MEDIUM-confidence plans that get parked at the
+   `planned_to_plan_approved` gate. **Cap any such plan's
    confidence at MEDIUM.** If the best available plan suffers from
    this, emit MEDIUM and cite the specific offending step(s) in
    `confidence_reason`; if both candidate plans suffer from it,
