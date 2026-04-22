@@ -208,6 +208,18 @@ ISSUE_TRANSITIONS: list[Transition] = [
                min_confidence=Confidence.MEDIUM),
     Transition("planned_to_human",           IssueState.PLANNED,           IssueState.HUMAN_NEEDED,
                labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_HUMAN_NEEDED]),
+    # Post-plan re-split checkpoint (#1167): fired by
+    # ``_run_post_plan_resplit`` inside ``handle_plan_gate`` when the
+    # stored plan's concrete scope contradicts cai-split's pre-plan
+    # ATOMIC verdict. The helper immediately follows up with
+    # ``_create_sub_issues`` + ``_set_labels(add=[LABEL_PARENT],
+    # remove=[LABEL_SPLITTING])`` so the parent lands at :parent and
+    # drops out of the drive path on the same tick. Caller-gated
+    # (``min_confidence=None``) — the agent's ``Confidence: HIGH``
+    # line is enforced in the helper before this transition fires.
+    Transition("planned_to_splitting",       IssueState.PLANNED,           IssueState.SPLITTING,
+               labels_remove=[LABEL_PLANNED],           labels_add=[LABEL_SPLITTING],
+               min_confidence=None),
 
     Transition("approved_to_in_progress",    IssueState.PLAN_APPROVED,     IssueState.IN_PROGRESS,
                labels_remove=[LABEL_PLAN_APPROVED],     labels_add=[LABEL_IN_PROGRESS]),

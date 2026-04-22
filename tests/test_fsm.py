@@ -715,13 +715,14 @@ class TestTransientStatesShape(unittest.TestCase):
         self.assertIn(IssueState.HUMAN_NEEDED, dests)
 
     def test_planned_can_fall_back_to_human(self):
-        """PLANNED → PLAN_APPROVED is confidence-gated; explicit human path too."""
+        """PLANNED → PLAN_APPROVED is confidence-gated; explicit human path too.
+        Post-plan re-split (#1167) adds PLANNED → SPLITTING via planned_to_splitting."""
         dests = {
             t.to_state
             for t in ISSUE_TRANSITIONS
             if t.from_state == IssueState.PLANNED
         }
-        self.assertEqual(dests, {IssueState.PLAN_APPROVED, IssueState.HUMAN_NEEDED})
+        self.assertEqual(dests, {IssueState.PLAN_APPROVED, IssueState.HUMAN_NEEDED, IssueState.SPLITTING})
 
     def test_refined_advances_to_splitting_or_planning(self):
         """REFINED is a waypoint — next stop is either SPLITTING

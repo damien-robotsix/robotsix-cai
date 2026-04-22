@@ -18,7 +18,11 @@ points in `cai_lib/cmd_agents.py` / `cmd_rescue.py` /
   — opus scope evaluator; runs after refine and decides whether
   the refined issue ships as one PR (ATOMIC) or must be broken
   into ordered sub-issues (emits a `## Multi-Step Decomposition`
-  block). LOW confidence diverts to `:human-needed`.
+  block). LOW confidence diverts to `:human-needed`. The same
+  agent is re-invoked by the post-plan re-split checkpoint
+  (issue #1167) with a `## Stored Implementation Plan` section
+  in the user message — in that mode it emits KEEP or RESPLIT
+  instead of the three pre-plan verdicts.
 - [`.claude/agents/lifecycle/cai-explore.md`](../../.claude/agents/lifecycle/cai-explore.md)
   — sonnet exploration / benchmarking agent with Bash.
 - [`.claude/agents/lifecycle/cai-propose.md`](../../.claude/agents/lifecycle/cai-propose.md)

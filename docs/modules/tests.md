@@ -1,6 +1,6 @@
 # tests
 
-Pytest suite covering the FSM, dispatcher, handlers, helpers,
+unittest suite covering the FSM, dispatcher, handlers, helpers,
 parse, publish, rescue, transcript sync, and lint hygiene. Every
 functional module has at least one dedicated test module here;
 the suite is the primary safety net for refactors.
@@ -11,6 +11,7 @@ the suite is the primary safety net for refactors.
 - [`tests/test_dispatcher.py`](../../tests/test_dispatcher.py) —
   state→handler registries and routing.
 - [`tests/test_plan.py`](../../tests/test_plan.py),
+  [`tests/test_split.py`](../../tests/test_split.py),
   [`tests/test_multistep.py`](../../tests/test_multistep.py),
   [`tests/test_implement_consecutive_failures.py`](../../tests/test_implement_consecutive_failures.py),
   [`tests/test_implement_helper_extract.py`](../../tests/test_implement_helper_extract.py),
@@ -47,7 +48,7 @@ the suite is the primary safety net for refactors.
   **audit**, **transcripts**, **github-glue** — the suite covers
   every functional module.
 - Run by **cli** — `cmd_test` (`cai test`) is the wrapper that
-  installs deps and runs pytest + ruff.
+  installs deps and runs unittest + ruff.
 - Run by **installer** — `entrypoint.sh` runs `cai test` on fresh
   container starts in some deployment modes.
 - No reverse imports — nothing in the pipeline imports `tests/`.
