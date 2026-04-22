@@ -172,30 +172,47 @@ class TestRunOneModuleLogging(unittest.TestCase):
         return entry
 
     def test_success_emits_start_and_finish(self):
-        fake_proc = subprocess.CompletedProcess(
+        """Full success path: one start + one finish event, exit_code=0, findings_count set."""
+        def fake_run_claude_p(args, **_kw):
+            # Recover work_dir from the args list and seed findings.json.
+            work_dir = Path(args[args.index("--add-dir") + 1])
+            (work_dir / "findings.json").write_text(
+                '{"findings": [{"title": "t", "body": "b"}]}'
+            )
+            return subprocess.CompletedProcess(
+                args=args, returncode=0, stdout="", stderr=""
+            )
+
+        fake_publish = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="", stderr=""
         )
         with tempfile.TemporaryDirectory() as td:
-            findings = Path(td) / "findings.json"
-            findings.write_text('{"findings": [{"title": "t", "body": "b"}]}')
+            log_dir = Path(td) / "logs"
             orig = _config.AUDIT_LOG_DIR
-            _config.AUDIT_LOG_DIR = Path(td) / "logs"
+            _config.AUDIT_LOG_DIR = log_dir
             try:
-                with patch("cai_lib.audit.runner._run_claude_p", return_value=fake_proc), \
-                     patch("cai_lib.audit.runner._run", return_value=subprocess.CompletedProcess(
-                         args=[], returncode=0, stdout="", stderr="")), \
-                     patch("cai_lib.audit.runner._build_module_prompt", return_value="prompt"), \
-                     patch("pathlib.Path.mkdir"), \
-                     patch("shutil.rmtree"):
-                    # Patch findings_file.exists() to return True and read text.
-                    # Simplest approach: monkeypatch the work_dir uuid.
-                    import uuid as _uuid
-                    with patch.object(_uuid, "uuid4", return_value=MagicMock(hex="12345678abcd")):
-                        # We need the findings file to exist in the temp work dir.
-                        # Instead, test via direct function call with patched Path.exists.
-                        pass
+                from cai_lib.audit.runner import _run_one_module
+                entry = self._fake_entry("successmod")
+                with patch("cai_lib.audit.runner._run_claude_p",
+                           side_effect=fake_run_claude_p), \
+                     patch("cai_lib.audit.runner._run",
+                           return_value=fake_publish), \
+                     patch("cai_lib.audit.runner._build_module_prompt",
+                           return_value="prompt"):
+                    rc = _run_one_module(
+                        "good-practices", "cai-audit-good-practices", entry
+                    )
             finally:
                 _config.AUDIT_LOG_DIR = orig
+            self.assertEqual(rc, 0)
+            rows = self._read_log_lines(log_dir, "good-practices", "successmod")
+            self.assertEqual(len(rows), 2)
+            self.assertEqual([r["event"] for r in rows], ["start", "finish"])
+            finish_row = rows[1]
+            self.assertEqual(finish_row["level"], "INFO")
+            self.assertEqual(finish_row["exit_code"], 0)
+            self.assertEqual(finish_row["findings_count"], 1)
+            self.assertIsNone(finish_row["error_class"])
 
     def test_agent_nonzero_emits_error(self):
         """When agent returns non-zero, one start + one error event are written."""
