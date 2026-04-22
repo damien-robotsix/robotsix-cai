@@ -160,6 +160,26 @@ LABEL_HUMAN_SOLVED = "human:solved"
 # and prevents a second escalation on the same issue if the Opus run
 # also parks at :human-needed.
 LABEL_OPUS_ATTEMPTED = "auto-improve:opus-attempted"
+# Adaptive-retry-budget marker applied by `handle_plan_gate` on a
+# successfully-approved plan whose ``### Files to change`` section
+# lists >= 5 backticked paths AND whose body contains >= 40
+# ``#### Step N - Edit/Write`` headers (issue #1151). Causes
+# `handle_implement` to use an ``effective_cap`` of 5 instead of 3
+# for the broad consecutive-failure guard (#1088) at the Sonnet
+# tier, giving Sonnet two extra attempts on transient infra /
+# tooling flakes across many edit sites before the Opus one-shot is
+# burned. Read only when ``opus_escalation is False`` — at the Opus
+# tier the cap stays at 3 because rescue's
+# ``_issue_has_opus_attempted`` guard refuses a second escalation
+# anyway, so more Opus retries would just loop.
+#
+# Deliberately an FSM label rather than a plan-body marker so the
+# decision is (a) visible in the GitHub UI, (b) admin-overridable
+# (add/remove to opt-in/opt-out a specific issue), and (c) frozen
+# at plan-gate time — handle_implement cannot observe a different
+# scope than handle_plan_gate saw. Mirrors the #1139 label-driven
+# pattern for ``LABEL_OPUS_ATTEMPTED`` exactly.
+LABEL_EXTENDED_RETRIES = "auto-improve:extended-retries"
 # Marker that `cai rescue` applies when an autonomous attempt did NOT
 # resume the target (verdict `TRULY_HUMAN_NEEDED`, low confidence, or
 # no recognized resume target). Subsequent rescue passes skip targets
