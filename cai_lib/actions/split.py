@@ -33,7 +33,6 @@ from cai_lib.config import (
     LABEL_REFINED,
     LABEL_SPLITTING,
     LABEL_PARENT,
-    LABEL_DEPTH_PREFIX,
     MAX_DECOMPOSITION_DEPTH,
 )
 from cai_lib.fsm import (
@@ -107,7 +106,7 @@ def handle_split(issue: dict) -> int:
         return 1
 
     # 2. Build the agent input and invoke cai-split.
-    current_depth = _issue_depth(issue)
+    current_depth = _issue_depth(issue_number)
     user_message = _build_issue_block(issue)
     if current_depth >= MAX_DECOMPOSITION_DEPTH:
         user_message += (
@@ -217,7 +216,7 @@ def handle_split(issue: dict) -> int:
             flush=True,
         )
         sub_nums = _create_sub_issues(
-            steps, issue_number, title, depth=current_depth + 1,
+            steps, issue_number, title,
         )
         _set_labels(
             issue_number,

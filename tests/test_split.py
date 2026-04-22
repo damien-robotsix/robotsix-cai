@@ -22,11 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cai_lib.actions.split import handle_split
 
 
-def _refined_issue(number: int = 1, depth: int = 0) -> dict:
+def _refined_issue(number: int = 1) -> dict:
     labels = [
         {"name": "auto-improve"},
         {"name": "auto-improve:refined"},
-        {"name": f"depth:{depth}"},
     ]
     return {
         "number": number,
@@ -36,11 +35,10 @@ def _refined_issue(number: int = 1, depth: int = 0) -> dict:
     }
 
 
-def _splitting_issue(number: int = 1, depth: int = 0) -> dict:
+def _splitting_issue(number: int = 1) -> dict:
     labels = [
         {"name": "auto-improve"},
         {"name": "auto-improve:splitting"},
-        {"name": f"depth:{depth}"},
     ]
     return {
         "number": number,
@@ -156,7 +154,7 @@ class TestSplitDecomposeVerdict(unittest.TestCase):
             ),
             stderr="",
         )
-        handle_split(_refined_issue(depth=0))
+        handle_split(_refined_issue())
         mock_create_subs.assert_called_once()
         # _set_labels must add auto-improve:parent and remove :splitting.
         call_kwargs = mock_set_labels.call_args.kwargs
@@ -195,8 +193,9 @@ class TestSplitDecomposeVerdict(unittest.TestCase):
     @patch("cai_lib.actions.split._run_claude_p")
     @patch("cai_lib.actions.split.fire_trigger")
     @patch("cai_lib.actions.split._build_issue_block", return_value="issue text")
+    @patch("cai_lib.actions.split._issue_depth", return_value=1)
     def test_decompose_over_max_depth_diverts_to_human(
-        self, mock_build, mock_fire, mock_claude, mock_create_subs,
+        self, mock_depth, mock_build, mock_fire, mock_claude, mock_create_subs,
         mock_set_labels, mock_log_run,
     ):
         mock_claude.return_value = MagicMock(
@@ -210,7 +209,7 @@ class TestSplitDecomposeVerdict(unittest.TestCase):
             stderr="",
         )
         with patch("cai_lib.actions.split.MAX_DECOMPOSITION_DEPTH", 1):
-            handle_split(_refined_issue(depth=1))
+            handle_split(_refined_issue())
         mock_create_subs.assert_not_called()
         fired = [c.args[1] for c in mock_fire.call_args_list]
         self.assertIn("splitting_to_human", fired)
