@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from typing import Callable, NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional, Union
 
 from cai_lib.config import LABEL_HUMAN_SOLVED, LABEL_PARENT, REPO
 from cai_lib.fsm import (
@@ -262,8 +262,8 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
 # anything. HUMAN_NEEDED has a handler that auto-resumes the FSM when
 # the admin has applied ``human:solved`` and no-ops otherwise.
 
-IssueHandler = Callable[[dict], int]
-PRHandler    = Callable[[dict], int]
+IssueHandler = Callable[[dict], Union[int, HandlerResult]]
+PRHandler    = Callable[[dict], Union[int, HandlerResult]]
 
 
 def _build_issue_registry() -> dict[IssueState, IssueHandler]:
