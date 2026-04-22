@@ -21,6 +21,7 @@ from cai_lib.config import (
     LABEL_PR_NEEDS_HUMAN,
     LABEL_MERGE_BLOCKED,
 )
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm import (
     PRState,
     fire_trigger,
@@ -202,7 +203,7 @@ def _fetch_ci_failure_log(detail_url: str) -> str:
     return "\n".join(lines[-200:])
 
 
-def handle_fix_ci(pr: dict) -> int:
+def handle_fix_ci(pr: dict) -> HandlerResult:
     """Auto-diagnose and fix CI failures on an auto-improve PR.
 
     The dispatcher has already verified the PR is at ``PRState.CI_FAILING``
@@ -217,7 +218,7 @@ def handle_fix_ci(pr: dict) -> int:
     if pr_number is None:
         print("[cai fix-ci] handler called without pr['number']", file=sys.stderr)
         log_run("fix-ci", repo=REPO, result="missing_pr_number", exit=1)
-        return 1
+        return HandlerResult(trigger="")
 
     try:
         pr_detail = _gh_json([
@@ -228,7 +229,7 @@ def handle_fix_ci(pr: dict) -> int:
     except subprocess.CalledProcessError as e:
         print(f"[cai fix-ci] gh pr view #{pr_number} failed:\n{e.stderr}", file=sys.stderr)
         log_run("fix-ci", repo=REPO, pr=pr_number, result="pr_lookup_failed", exit=1)
-        return 1
+        return HandlerResult(trigger="")
     branch = pr_detail.get("headRefName", "")
     m = re.match(r"^auto-improve/(\d+)-", branch)
     if not m:
@@ -238,7 +239,7 @@ def handle_fix_ci(pr: dict) -> int:
             file=sys.stderr,
         )
         log_run("fix-ci", repo=REPO, pr=pr_number, result="not_auto_improve", exit=1)
-        return 1
+        return HandlerResult(trigger="")
     issue_number = int(m.group(1))
     checks = pr_detail.get("statusCheckRollup") or []
     failing = [
@@ -259,6 +260,7 @@ def handle_fix_ci(pr: dict) -> int:
     print("[cai fix-ci] found 1 PR(s) with failing CI", flush=True)
 
     had_failure = False
+    pending_transition = ""
     pr_number = target["pr_number"]
     issue_number = target["issue_number"]
     branch = target["branch"]
@@ -274,7 +276,7 @@ def handle_fix_ci(pr: dict) -> int:
     if not _set_labels(issue_number, add=[LABEL_REVISING], log_prefix="cai fix-ci"):
         print(f"[cai fix-ci] could not lock #{issue_number}", file=sys.stderr)
         log_run("fix-ci", repo=REPO, pr=pr_number, result="lock_failed", exit=1)
-        return 1
+        return HandlerResult(trigger="")
 
     # 1a. Advance PR FSM into CI_FAILING. The wrapper detected red
     # checks via _select_ci_fix_targets; formalize that in the FSM
@@ -325,7 +327,7 @@ def handle_fix_ci(pr: dict) -> int:
             print(f"[cai fix-ci] clone failed:\n{clone.stderr}", file=sys.stderr)
             _set_labels(issue_number, remove=[LABEL_REVISING], log_prefix="cai fix-ci")
             log_run("fix-ci", repo=REPO, pr=pr_number, result="clone_failed", exit=1)
-            return 1
+            return HandlerResult(trigger="")
 
         _git(work_dir, "fetch", "origin", branch)
         _git(work_dir, "checkout", branch)
@@ -358,7 +360,7 @@ def handle_fix_ci(pr: dict) -> int:
             )
             _set_labels(issue_number, remove=[LABEL_REVISING], log_prefix="cai fix-ci")
             log_run("fix-ci", repo=REPO, pr=pr_number, result="rebase_conflict", exit=0)
-            return 0
+            return HandlerResult(trigger="")
 
         # 5. Fetch CI failure logs (first two failing checks).
         ci_log_section = "## CI failure log\n\n"
@@ -469,11 +471,7 @@ def handle_fix_ci(pr: dict) -> int:
                 # next tick re-evaluates check status, and if still
                 # red _select_ci_fix_targets re-queues the PR
                 # (which re-enters CI_FAILING via step 1a above).
-                fire_trigger(
-                    pr_number, "ci_failing_to_reviewing_code",
-                    is_pr=True,
-                    log_prefix="cai fix-ci",
-                )
+                pending_transition = "ci_failing_to_reviewing_code"
         else:
             print(
                 f"[cai fix-ci] no changes produced by agent for PR #{pr_number}",
@@ -509,4 +507,4 @@ def handle_fix_ci(pr: dict) -> int:
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
 
-    return 1 if had_failure else 0
+    return HandlerResult(trigger="" if had_failure else pending_transition)

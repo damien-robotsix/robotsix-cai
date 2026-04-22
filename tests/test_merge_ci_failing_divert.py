@@ -3,8 +3,10 @@
 Regression guard for the gap where the merge handler used to log "has
 failed CI checks; skipping" and return 0 with no state change, leaving
 the PR stuck at ``pr:approved`` (dispatcher then treated it as
-"blocked, moving on"). The handler must apply
-``approved_to_ci_failing`` so ``handle_fix_ci`` picks the PR up.
+"blocked, moving on"). The handler must return
+``HandlerResult(trigger="approved_to_ci_failing")`` so the dispatcher's
+``_driver_fire`` applies the transition and ``handle_fix_ci`` picks
+the PR up on the next tick.
 """
 import os
 import sys
@@ -14,6 +16,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cai_lib.actions import merge as merge_mod
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm import PRState
 
 
@@ -36,11 +39,6 @@ class TestHandleMergeDivertsOnFailedCI(unittest.TestCase):
 
     def test_failed_check_triggers_approved_to_ci_failing(self):
         pr = _pr(1057)
-        applied: list[tuple[int, str]] = []
-
-        def fake_apply(pr_number, transition_name, **kw):
-            applied.append((pr_number, transition_name))
-            return True
 
         issue_payload = {
             "labels": [{"name": "auto-improve:pr-open"}],
@@ -61,8 +59,6 @@ class TestHandleMergeDivertsOnFailedCI(unittest.TestCase):
             return {}
 
         with patch.object(merge_mod, "_gh_json", side_effect=fake_gh_json), \
-             patch.object(merge_mod, "fire_trigger",
-                          side_effect=fake_apply), \
              patch.object(merge_mod, "get_pr_state",
                           return_value=PRState.APPROVED), \
              patch.object(merge_mod, "_filter_comments_with_haiku",
@@ -70,10 +66,10 @@ class TestHandleMergeDivertsOnFailedCI(unittest.TestCase):
              patch.object(merge_mod, "_fetch_review_comments",
                           return_value=[]), \
              patch.object(merge_mod, "log_run"):
-            rc = merge_mod.handle_merge(pr)
+            result = merge_mod.handle_merge(pr)
 
-        self.assertEqual(rc, 0)
-        self.assertEqual(applied, [(1057, "approved_to_ci_failing")])
+        self.assertIsInstance(result, HandlerResult)
+        self.assertEqual(result.trigger, "approved_to_ci_failing")
 
 
 if __name__ == "__main__":

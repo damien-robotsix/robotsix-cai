@@ -156,9 +156,10 @@ class TestHandleMergeWorkflowReviewLabel(unittest.TestCase):
              patch.object(merge_mod, "_git",
                           MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))), \
              patch.object(merge_mod, "log_run", log_mock):
-            rc = merge_mod.handle_merge(pr)
+            result = merge_mod.handle_merge(pr)
 
-        self.assertEqual(rc, 0)
+        from cai_lib.dispatcher import HandlerResult
+        self.assertIsInstance(result, HandlerResult)
         return run_mock, log_mock
 
     def _label_add_calls(self, run_mock: MagicMock) -> list:

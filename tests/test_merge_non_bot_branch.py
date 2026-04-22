@@ -4,9 +4,9 @@ Issue #1013: when a human-authored PR carrying ``pr:approved`` (admin
 applied the label hoping for auto-merge) sat on a non-``auto-improve/``
 branch, ``handle_merge`` logged ``result=not_bot_branch`` and returned
 0 without changing state, so the dispatcher re-routed the same PR to
-``handle_merge`` on every drain tick. The fix applies the
-``approved_to_human`` PR transition so the PR parks at
-``PR_HUMAN_NEEDED``.
+``handle_merge`` on every drain tick. The fix returns a
+:class:`HandlerResult` carrying the ``approved_to_human`` transition so
+the dispatcher's ``_driver_fire`` parks the PR at ``PR_HUMAN_NEEDED``.
 """
 import os
 import sys
@@ -16,6 +16,7 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cai_lib.actions import merge as merge_mod
+from cai_lib.dispatcher import HandlerResult
 
 
 def _pr_non_bot(number: int = 945) -> dict:
@@ -44,19 +45,16 @@ class TestHandleMergeNonBotBranch(unittest.TestCase):
         run_mock.return_value.returncode = 0
         run_mock.return_value.stdout = ""
         run_mock.return_value.stderr = ""
-        transition_mock = MagicMock(return_value=True)
         log_mock = MagicMock()
 
         with patch.object(merge_mod, "_run", run_mock), \
-             patch.object(merge_mod, "fire_trigger", transition_mock), \
              patch.object(merge_mod, "log_run", log_mock):
-            rc = merge_mod.handle_merge(pr)
+            result = merge_mod.handle_merge(pr)
 
-        self.assertEqual(rc, 0)
-        transition_mock.assert_called_once()
-        args, kwargs = transition_mock.call_args
-        self.assertEqual(args[0], 945)
-        self.assertEqual(args[1], "approved_to_human")
+        self.assertIsInstance(result, HandlerResult)
+        self.assertEqual(result.trigger, "approved_to_human")
+        self.assertIn("feat/audit-modules-loader-886",
+                      result.divert_reason or "")
 
         # A single comment is posted explaining the park.
         gh_comment_calls = [
@@ -75,7 +73,7 @@ class TestHandleMergeNonBotBranch(unittest.TestCase):
         self.assertEqual(log_call_kwargs.get("exit"), 0)
 
     def test_non_bot_branch_does_not_call_merge_agent(self):
-        """Park must fire *before* any _run_claude_p invocation."""
+        """Park must return *before* any _run_claude_p invocation."""
         pr = _pr_non_bot()
         run_mock = MagicMock()
         run_mock.return_value.returncode = 0
@@ -83,8 +81,6 @@ class TestHandleMergeNonBotBranch(unittest.TestCase):
 
         with patch.object(merge_mod, "_run", run_mock), \
              patch.object(merge_mod, "_run_claude_p", claude_mock), \
-             patch.object(merge_mod, "fire_trigger",
-                          MagicMock(return_value=True)), \
              patch.object(merge_mod, "log_run", MagicMock()):
             merge_mod.handle_merge(pr)
 

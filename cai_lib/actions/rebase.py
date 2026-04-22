@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 
 from cai_lib.config import REPO
-from cai_lib.fsm import fire_trigger
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import _git, _gh_user_identity, _work_directory_block
 from cai_lib.logging_utils import log_run
@@ -61,21 +61,16 @@ def _post_pr_comment(pr_number: int, body: str) -> None:
               file=sys.stderr)
 
 
-def _exit_to_review(pr_number: int) -> None:
-    """Apply rebasing_to_reviewing_code so the next tick re-reviews."""
-    fire_trigger(
-        pr_number, "rebasing_to_reviewing_code",
-        is_pr=True,
-        log_prefix="cai rebase",
-    )
+_REBASE_EXIT_RESULT = HandlerResult(trigger="rebasing_to_reviewing_code")
 
 
-def handle_rebase(pr: dict) -> int:
+def handle_rebase(pr: dict) -> HandlerResult:
     """Attempt a rebase against origin/main and bounce back to REVIEWING_CODE.
 
-    Always returns 0 unless there is an infrastructure failure (clone /
-    push). The success-vs-failure of the rebase itself is captured in
-    the PR comment for the reviewer to consume on the next tick.
+    Always returns ``HandlerResult(trigger="rebasing_to_reviewing_code")``
+    so the next tick re-reviews the (possibly updated) branch. The
+    success-vs-failure of the rebase itself is captured in the PR
+    comment for the reviewer to consume.
     """
     t0 = time.monotonic()
 
@@ -88,9 +83,8 @@ def handle_rebase(pr: dict) -> int:
     if not branch:
         print(f"[cai rebase] PR #{pr_number}: missing headRefName; bouncing",
               file=sys.stderr)
-        _exit_to_review(pr_number)
         log_run("rebase", repo=REPO, pr=pr_number, result="missing_branch", exit=0)
-        return 0
+        return _REBASE_EXIT_RESULT
 
     _uid = uuid.uuid4().hex[:8]
     work_dir = Path(f"/tmp/cai-rebase-{pr_number}-{_uid}")
@@ -109,10 +103,9 @@ def handle_rebase(pr: dict) -> int:
                 f"[cai rebase] clone failed for PR #{pr_number}:\n{clone.stderr}",
                 file=sys.stderr,
             )
-            _exit_to_review(pr_number)
             log_run("rebase", repo=REPO, pr=pr_number,
                     result="clone_failed", exit=0)
-            return 0
+            return _REBASE_EXIT_RESULT
 
         _git(work_dir, "fetch", "origin", "main")
         _git(work_dir, "fetch", "origin", branch)
@@ -149,10 +142,9 @@ def handle_rebase(pr: dict) -> int:
                     "was rejected.\n\n```\n" + (push.stderr or "")
                     + "\n```\n\n---\n_Posted by `cai rebase`._",
                 )
-                _exit_to_review(pr_number)
                 log_run("rebase", repo=REPO, pr=pr_number,
                         result="push_failed", exit=0)
-                return 0
+                return _REBASE_EXIT_RESULT
 
             _post_pr_comment(
                 pr_number,
@@ -160,11 +152,10 @@ def handle_rebase(pr: dict) -> int:
                 + f"\n\nDeterministic rebase against `origin/main` succeeded; "
                 f"new HEAD is `{new_sha}`.\n\n---\n_Posted by `cai rebase`._",
             )
-            _exit_to_review(pr_number)
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
                     result="auto_success", exit=0)
-            return 0
+            return _REBASE_EXIT_RESULT
 
         # Conflicts exist (or rebase aborted). Hand to cai-rebase agent.
         conflict_files = _rebase_conflict_files(work_dir)
@@ -223,12 +214,11 @@ def handle_rebase(pr: dict) -> int:
                 + "---\n_Posted by `cai rebase`. The next review tick will "
                 "see this comment; expect findings or a human-needed divert._",
             )
-            _exit_to_review(pr_number)
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
                     result="agent_failed", conflict_count=len(conflict_files),
                     exit=0)
-            return 0
+            return _REBASE_EXIT_RESULT
 
         # Agent claims success — sanity check by confirming origin/main is
         # an ancestor of HEAD, then push.
@@ -244,11 +234,10 @@ def handle_rebase(pr: dict) -> int:
                 "ancestor of HEAD. Refusing to push a non-rebased branch.\n\n"
                 "---\n_Posted by `cai rebase`._",
             )
-            _exit_to_review(pr_number)
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
                     result="ancestry_check_failed", exit=0)
-            return 0
+            return _REBASE_EXIT_RESULT
 
         new_sha = _git(work_dir, "rev-parse", "HEAD").stdout.strip()
         push = _run(
@@ -264,11 +253,10 @@ def handle_rebase(pr: dict) -> int:
                 + "```\n" + (push.stderr or "") + "\n```\n\n"
                 + "---\n_Posted by `cai rebase`._",
             )
-            _exit_to_review(pr_number)
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
                     result="push_failed", exit=0)
-            return 0
+            return _REBASE_EXIT_RESULT
 
         _post_pr_comment(
             pr_number,
@@ -277,19 +265,17 @@ def handle_rebase(pr: dict) -> int:
             f"`origin/main`. New HEAD is `{new_sha}`.\n\n"
             + "---\n_Posted by `cai rebase`._",
         )
-        _exit_to_review(pr_number)
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
                 result="agent_success", exit=0)
-        return 0
+        return _REBASE_EXIT_RESULT
 
     except Exception as exc:
         print(f"[cai rebase] unexpected error on PR #{pr_number}: {exc}",
               file=sys.stderr)
-        _exit_to_review(pr_number)
         log_run("rebase", repo=REPO, pr=pr_number,
                 result="unexpected_error", exit=1)
-        return 1
+        return _REBASE_EXIT_RESULT
     finally:
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)

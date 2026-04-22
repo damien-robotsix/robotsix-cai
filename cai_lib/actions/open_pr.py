@@ -18,12 +18,12 @@ from __future__ import annotations
 
 from cai_lib.actions.merge import _BOT_BRANCH_RE
 from cai_lib.config import REPO
-from cai_lib.fsm import fire_trigger
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.logging_utils import log_run
 from cai_lib.subprocess_utils import _run
 
 
-def handle_open_to_review(pr: dict) -> int:
+def handle_open_to_review(pr: dict) -> HandlerResult:
     """Route a brand-new PR based on its head branch.
 
     The PR dict is passed by the dispatcher; it has no pipeline
@@ -61,24 +61,14 @@ def handle_open_to_review(pr: dict) -> int:
              f"just re-enter this state."],
             capture_output=True,
         )
-        ok, _ = fire_trigger(
-            pr_number, "open_to_human",
-            is_pr=True,
-            current_pr=pr,
-            log_prefix="cai dispatch",
+        log_run("dispatch", repo=REPO, pr=pr_number,
+                result="not_bot_branch_open", exit=0)
+        return HandlerResult(
+            trigger="open_to_human",
             divert_reason=(
                 f"Non-bot-branch PR (branch={branch!r}) cannot be "
                 f"auto-merged; requires manual review."
             ),
         )
-        log_run("dispatch", repo=REPO, pr=pr_number,
-                result="not_bot_branch_open", exit=0)
-        return 0 if ok else 1
 
-    ok, _ = fire_trigger(
-        pr_number, "open_to_reviewing_code",
-        is_pr=True,
-        current_pr=pr,
-        log_prefix="cai dispatch",
-    )
-    return 0 if ok else 1
+    return HandlerResult(trigger="open_to_reviewing_code")

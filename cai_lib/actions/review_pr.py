@@ -35,6 +35,7 @@ from cai_lib.config import (
     REVIEW_PR_PATTERN_LOG,
 )
 from cai_lib.actions.merge import _BOT_BRANCH_RE
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm import (
     PRState,
     fire_trigger,
@@ -83,7 +84,7 @@ def _log_review_pr_findings(pr_number: int, head_sha: str, agent_output: str) ->
 # ---------------------------------------------------------------------------
 
 
-def handle_review_pr(pr: dict) -> int:
+def handle_review_pr(pr: dict) -> HandlerResult:
     """Review a single PR handed by the dispatcher (state REVIEWING_CODE).
 
     Runs the ``cai-review-pr`` agent against a fresh clone of the PR
@@ -108,6 +109,7 @@ def handle_review_pr(pr: dict) -> int:
     head_sha = pr["headRefOid"]
     branch = pr.get("headRefName", "")
     title = pr["title"]
+    pending_transition = ""
 
     # Check if we already posted a review for this SHA. Match
     # either heading variant (findings or clean) — both include
@@ -136,7 +138,7 @@ def handle_review_pr(pr: dict) -> int:
         )
         log_run("review_pr", repo=REPO, reviewed=reviewed, skipped=skipped,
                 duration=dur, exit=0)
-        return 0
+        return HandlerResult(trigger="")
 
     print(f"[cai review-pr] reviewing PR #{pr_number}: {title}", flush=True)
 
@@ -165,7 +167,7 @@ def handle_review_pr(pr: dict) -> int:
             )
             log_run("review_pr", repo=REPO, reviewed=reviewed, skipped=skipped,
                     duration=dur, exit=0)
-            return 0
+            return HandlerResult(trigger="")
         if branch:
             _git(work_dir, "fetch", "origin", branch)
             _git(work_dir, "checkout", branch)
@@ -253,7 +255,7 @@ def handle_review_pr(pr: dict) -> int:
             )
             log_run("review_pr", repo=REPO, reviewed=reviewed, skipped=skipped,
                     duration=dur, exit=0)
-            return 0
+            return HandlerResult(trigger="")
         if agent.returncode != 0 and has_verdict:
             print(
                 f"[cai review-pr] agent exited {agent.returncode} "
@@ -321,34 +323,29 @@ def handle_review_pr(pr: dict) -> int:
         if current_state == PRState.OPEN:
             branch = pr.get("headRefName", "") or ""
             if not _BOT_BRANCH_RE.match(branch):
-                fire_trigger(
-                    pr_number, "open_to_human",
-                    is_pr=True,
-                    current_pr=pr,
-                    log_prefix="cai review-pr",
+                return HandlerResult(
+                    trigger="open_to_human",
                     divert_reason=(
                         f"Non-bot-branch PR (branch={branch!r}) cannot "
                         f"be auto-merged; requires manual review."
                     ),
                 )
-                return 1
+            # Normalize OPEN → REVIEWING_CODE so the subsequent
+            # transition's from_state check passes. Fired here
+            # directly because the driver translates the handler's
+            # single returned HandlerResult into one fire_trigger
+            # call — the second transition below is the one that
+            # rides on that return.
             fire_trigger(
                 pr_number, "open_to_reviewing_code",
                 is_pr=True,
                 log_prefix="cai review-pr",
             )
-        if has_findings:
-            fire_trigger(
-                pr_number, "reviewing_code_to_revision_pending",
-                is_pr=True,
-                log_prefix="cai review-pr",
-            )
-        else:
-            fire_trigger(
-                pr_number, "reviewing_code_to_reviewing_docs",
-                is_pr=True,
-                log_prefix="cai review-pr",
-            )
+        pending_transition = (
+            "reviewing_code_to_revision_pending"
+            if has_findings
+            else "reviewing_code_to_reviewing_docs"
+        )
 
         _log_review_pr_findings(pr_number, head_sha, agent_output)
 
@@ -375,4 +372,4 @@ def handle_review_pr(pr: dict) -> int:
     )
     log_run("review_pr", repo=REPO, reviewed=reviewed, skipped=skipped,
             duration=dur, exit=0)
-    return 0
+    return HandlerResult(trigger=pending_transition)

@@ -263,7 +263,7 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
 # the admin has applied ``human:solved`` and no-ops otherwise.
 
 IssueHandler = Callable[[dict], Union[int, HandlerResult]]
-PRHandler    = Callable[[dict], Union[int, HandlerResult]]
+PRHandler    = Callable[[dict], HandlerResult]
 
 
 def _build_issue_registry() -> dict[IssueState, IssueHandler]:
@@ -484,7 +484,12 @@ def dispatch_pr(pr_number: int) -> int:
         try:
             fire_trigger(pr_number, entry, is_pr=True, current_pr=pr,
                          log_prefix="cai dispatch")
-            return handle_rebase(pr)
+            result = handle_rebase(pr)
+            ok, _ = _driver_fire(
+                pr_number, result,
+                is_pr=True, current_pr=pr,
+            )
+            return 0 if ok else 1
         finally:
             _release_remote_lock("pr", pr_number)
 
@@ -501,14 +506,12 @@ def dispatch_pr(pr_number: int) -> int:
               flush=True)
         return 0
     try:
-        rc = handler(pr)
-        if isinstance(rc, HandlerResult):
-            ok, _ = _driver_fire(
-                pr_number, rc,
-                is_pr=True, current_pr=pr,
-            )
-            return 0 if ok else 1
-        return rc
+        result = handler(pr)
+        ok, _ = _driver_fire(
+            pr_number, result,
+            is_pr=True, current_pr=pr,
+        )
+        return 0 if ok else 1
     finally:
         _release_remote_lock("pr", pr_number)
 

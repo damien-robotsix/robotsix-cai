@@ -17,6 +17,7 @@ import sys
 import uuid
 from pathlib import Path
 
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.config import (
     REPO,
     LABEL_REVISING,
@@ -378,7 +379,7 @@ def _recover_stuck_rebase_prs() -> int:
 
 
 
-def handle_revise(pr: dict) -> int:
+def handle_revise(pr: dict) -> HandlerResult:
     """Iterate on an open PR based on review comments.
 
     The dispatcher has already verified the PR is at
@@ -408,7 +409,7 @@ def handle_revise(pr: dict) -> int:
     if pr_number_in is None:
         print("[cai revise] handler called without pr['number']", file=sys.stderr)
         log_run("revise", repo=REPO, result="missing_pr_number", exit=1)
-        return 1
+        return HandlerResult(trigger="")
 
     # Resolve the single target: fetch fresh PR detail for the handed
     # PR and build a one-item target list (matches the direct-targeting
@@ -422,7 +423,7 @@ def handle_revise(pr: dict) -> int:
     except subprocess.CalledProcessError as e:
         print(f"[cai revise] gh pr view #{pr_number_in} failed:\n{e.stderr}", file=sys.stderr)
         log_run("revise", repo=REPO, pr=pr_number_in, result="pr_lookup_failed", exit=1)
-        return 1
+        return HandlerResult(trigger="")
     branch = pr_detail.get("headRefName", "")
     m = re.match(r"^auto-improve/(\d+)-", branch)
     if not m:
@@ -431,7 +432,7 @@ def handle_revise(pr: dict) -> int:
             file=sys.stderr,
         )
         log_run("revise", repo=REPO, pr=pr_number_in, result="not_auto_improve", exit=1)
-        return 1
+        return HandlerResult(trigger="")
     issue_number = int(m.group(1))
     # Collect comments (issue-level + line-by-line review).
     issue_comments = pr_detail.get("comments", [])
@@ -453,7 +454,7 @@ def handle_revise(pr: dict) -> int:
         print("[cai revise] no PRs need revision; nothing to do", flush=True)
         log_run("revise", repo=REPO, result="no_targets",
                 recovered=recovered, exit=0)
-        return 0
+        return HandlerResult(trigger="")
 
     print(f"[cai revise] found {len(targets)} PR(s) to revise", flush=True)
 
@@ -1002,4 +1003,4 @@ def handle_revise(pr: dict) -> int:
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
-    return 1 if had_failure else 0
+    return HandlerResult(trigger="")

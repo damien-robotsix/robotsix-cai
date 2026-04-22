@@ -19,7 +19,8 @@ import uuid
 from pathlib import Path
 
 from cai_lib.config import REPO
-from cai_lib.fsm import fire_trigger, get_pr_state, PRState
+from cai_lib.dispatcher import HandlerResult
+from cai_lib.fsm import get_pr_state, PRState
 from cai_lib.github import _gh_json, _fetch_linked_issue_block
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import (
@@ -167,7 +168,7 @@ def _run_module_coverage_check(work_dir: Path) -> str:
     )
 
 
-def handle_review_docs(pr: dict) -> int:
+def handle_review_docs(pr: dict) -> HandlerResult:
     """Run cai-review-docs on *pr* (already at PRState.REVIEWING_DOCS)."""
     t0 = time.monotonic()
 
@@ -197,14 +198,9 @@ def handle_review_docs(pr: dict) -> int:
                 f"{head_sha[:8]} — advancing to APPROVED",
                 flush=True,
             )
-            fire_trigger(
-                pr_number, "reviewing_docs_to_approved",
-                is_pr=True,
-                log_prefix="cai review-docs",
-            )
             log_run("review_docs", repo=REPO, pr=pr_number,
                     result="cached_clean_advanced", exit=0)
-            return 0
+            return HandlerResult(trigger="reviewing_docs_to_approved")
         if first_line.startswith(_DOCS_REVIEW_COMMENT_HEADING_APPLIED):
             # A docs-fix push happened at this SHA. Docs review is the
             # last gate before merge; we do not bounce back to code
@@ -215,14 +211,9 @@ def handle_review_docs(pr: dict) -> int:
                 f"{head_sha[:8]} — advancing to APPROVED",
                 flush=True,
             )
-            fire_trigger(
-                pr_number, "reviewing_docs_to_approved",
-                is_pr=True,
-                log_prefix="cai review-docs",
-            )
             log_run("review_docs", repo=REPO, pr=pr_number,
                     result="cached_applied_advanced", exit=0)
-            return 0
+            return HandlerResult(trigger="reviewing_docs_to_approved")
         # Heading prefix matched but suffix is unfamiliar — fall through
         # to a fresh review rather than guess.
         break
@@ -236,7 +227,7 @@ def handle_review_docs(pr: dict) -> int:
         )
         log_run("review_docs", repo=REPO, pr=pr_number,
                 result="wrong_state", exit=0)
-        return 0
+        return HandlerResult(trigger="")
 
     _uid = uuid.uuid4().hex[:8]
     work_dir = Path(f"/tmp/cai-review-docs-{pr_number}-{_uid}")
@@ -258,7 +249,7 @@ def handle_review_docs(pr: dict) -> int:
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("review_docs", repo=REPO, pr=pr_number,
                     duration=dur, result="clone_failed", exit=1)
-            return 1
+            return HandlerResult(trigger="")
 
         _git(work_dir, "fetch", "origin", branch)
         _git(work_dir, "checkout", branch)
@@ -348,7 +339,7 @@ def handle_review_docs(pr: dict) -> int:
             log_run("review_docs", repo=REPO, pr=pr_number,
                     duration=dur, result="agent_failed",
                     exit=agent.returncode)
-            return agent.returncode
+            return HandlerResult(trigger="")
 
         agent_output = (agent.stdout or "").strip()
 
@@ -395,7 +386,7 @@ def handle_review_docs(pr: dict) -> int:
                 dur = f"{int(time.monotonic() - t0)}s"
                 log_run("review_docs", repo=REPO, pr=pr_number,
                         duration=dur, result="push_failed", exit=1)
-                return 1
+                return HandlerResult(trigger="")
             new_sha = _git(work_dir, "rev-parse", "HEAD").stdout.strip()
             comment_body = (
                 f"{_DOCS_REVIEW_COMMENT_HEADING_APPLIED} \u2014 {new_sha}\n\n"
@@ -426,11 +417,6 @@ def handle_review_docs(pr: dict) -> int:
         # and the merge handler decides whether to merge. Bouncing back
         # to REVIEWING_CODE on a doc push caused review/docs ping-pong
         # loops that produced no new code findings.
-        fire_trigger(
-            pr_number, "reviewing_docs_to_approved",
-            is_pr=True,
-            log_prefix="cai review-docs",
-        )
         if has_doc_changes:
             result_word = "fixes pushed"
             result_tag = "fixes_pushed"
@@ -446,7 +432,7 @@ def handle_review_docs(pr: dict) -> int:
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("review_docs", repo=REPO, pr=pr_number,
                 duration=dur, result=result_tag, exit=0)
-        return 0
+        return HandlerResult(trigger="reviewing_docs_to_approved")
 
     except subprocess.CalledProcessError as e:
         print(
@@ -457,7 +443,7 @@ def handle_review_docs(pr: dict) -> int:
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("review_docs", repo=REPO, pr=pr_number,
                 duration=dur, result="subprocess_error", exit=1)
-        return 1
+        return HandlerResult(trigger="")
     except Exception as e:
         print(
             f"[cai review-docs] unexpected failure for PR #{pr_number}: "
@@ -467,7 +453,7 @@ def handle_review_docs(pr: dict) -> int:
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("review_docs", repo=REPO, pr=pr_number,
                 duration=dur, result="unexpected_error", exit=1)
-        return 1
+        return HandlerResult(trigger="")
     finally:
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
