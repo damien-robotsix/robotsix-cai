@@ -24,7 +24,7 @@ points in `cai_lib/cmd_agents.py` / `cmd_rescue.py` /
 - [`.claude/agents/lifecycle/cai-propose.md`](../../.claude/agents/lifecycle/cai-propose.md)
   — weekly opus creative proposer (one proposal per run).
 - [`.claude/agents/lifecycle/cai-propose-review.md`](../../.claude/agents/lifecycle/cai-propose-review.md)
-  — opus reviewer that grades proposals before submission.
+  — sonnet reviewer that grades proposals before submission.
 - [`.claude/agents/lifecycle/cai-dup-check.md`](../../.claude/agents/lifecycle/cai-dup-check.md)
   — inline haiku duplicate / already-resolved pre-triage.
 - [`.claude/agents/lifecycle/cai-rescue.md`](../../.claude/agents/lifecycle/cai-rescue.md)
