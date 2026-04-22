@@ -46,6 +46,13 @@ Subcommands:
                             findings through the existing dedup/dup-check
                             pipeline.
 
+    python cai.py audit-health  On-demand audit-health monitor: reads
+                            /var/log/cai/audit/*/*.jsonl and raises
+                            findings for error conditions, stale audits,
+                            cost anomalies, and degenerate zero-findings
+                            runs. Findings are published via the existing
+                            dedup/dup-check pipeline.
+
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
                             branch. Force-pushes revisions with

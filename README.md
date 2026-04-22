@@ -84,6 +84,7 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
 | `cai.py rescue` | `30 */4 * * *` (every 4 hours at :30) | Autonomously resume `:human-needed` issues that have been waiting too long without explicit `human:solved` label. Runs Opus escalation for eligible issues to unblock stuck automations. |
 | `cai.py audit-module` | _(manual/on-demand)_ | On-demand per-module audit: takes `--kind` (one of: good-practices, code-reduction, cost-reduction, workflow-enhancement) and iterates every module in `docs/modules.yaml`, dispatching the matching on-demand audit agent for each module and publishing findings via the existing dedup/dup-check pipeline. |
+| `cai.py audit-health` | _(manual/on-demand)_ | On-demand audit-health monitor: reads `/var/log/cai/audit/*/*.jsonl` and raises findings for error conditions, stale audits, cost anomalies, and degenerate zero-findings runs. Findings are published via the existing dedup/dup-check pipeline. |
 | `cai.py verify` / `rescue` / `unblock` | _(own cron schedules; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, maintain, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
@@ -104,13 +105,15 @@ details.
 
 ### Running an audit
 
-Two complementary audit entry points feed into the same auto-improve
+Three complementary audit entry points feed into the same auto-improve
 loop. `cai audit` runs the periodic queue/PR consistency audit
 (stale-lock rollback, orphaned-branch cleanup, plus an Opus-driven
 sweep for duplicates and stuck loops). `cai audit-module --kind <kind>`
 iterates every module declared in `docs/modules.yaml`, dispatches
 the matching on-demand audit agent per module, and publishes
-findings through the existing dedup/dup-check pipeline.
+findings through the existing dedup/dup-check pipeline. `cai audit-health`
+monitors the structured audit logs for errors, stale audits, cost anomalies,
+and degenerate runs.
 
 ```bash
 cai audit
@@ -118,6 +121,7 @@ cai audit-module --kind good-practices
 cai audit-module --kind code-reduction
 cai audit-module --kind cost-reduction
 cai audit-module --kind workflow-enhancement
+cai audit-health
 ```
 
 See [`docs/cli.md`](docs/cli.md#audit) for the full reference,

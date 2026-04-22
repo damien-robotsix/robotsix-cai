@@ -22,6 +22,10 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
   per-module audit runner for `cai audit-module --kind <kind>` subcommand. Dispatches
   audit agents (cost-reduction, code-reduction, good-practices, workflow-enhancement)
   over all modules; loads manifests from `docs/modules.yaml`.
+- [`cai_lib/audit_logging.py`](../../cai_lib/audit_logging.py) — structured
+  audit logging helpers (`audit_log_start`, `audit_log_finish`). Writes one
+  JSONL file per `(kind, module)` pair under `/var/log/cai/audit/<kind>/<module>.jsonl`;
+  consumed by `cai-audit-audit-health` via `cmd_audit_health`.
 - [`cai_lib/audit/__init__.py`](../../cai_lib/audit/__init__.py) —
   package init.
 - [`.claude/agents/audit/cai-audit-code-reduction.md`](../../.claude/agents/audit/cai-audit-code-reduction.md),
