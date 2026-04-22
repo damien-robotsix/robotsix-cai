@@ -43,5 +43,5 @@ small-scope capability is needed.
   opus weekly (proposal quality matters); their output is graded
   by `cai-propose-review` before a human ever sees it.
 - **CI implications.** None — these agents have no dedicated
-  tests; behaviour is observed via live runs and the weekly
-  `cai-agent-audit` sweep.
+  tests; behaviour is observed via live runs and on-demand
+  `cai-audit-good-practices` sweeps.

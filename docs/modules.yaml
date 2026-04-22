@@ -47,7 +47,7 @@ modules:
     doc: "docs/modules/actions.md"
 
   - name: audit
-    summary: Audit subsystem — cost, code, workflow, module, and analysis agents.
+    summary: Audit subsystem — on-demand per-module code, cost, workflow, and external-library auditors plus the transcript-finder helper.
     globs:
       - "cai_lib/audit/*.py"
       - ".claude/agents/audit/*.md"

@@ -18,7 +18,7 @@ No third-party dependencies — only stdlib + ``gh`` CLI.
 Usage::
 
     # Read from a JSON file:
-    python publish.py --namespace agent-audit --findings-file /tmp/findings.json
+    python publish.py --namespace audit-good-practices --findings-file /tmp/findings.json
 
 """
 
@@ -36,9 +36,9 @@ from cai_lib.dup_check import check_finding_duplicate
 # will be parameterized per workspace.
 REPO = os.environ.get("CAI_REPO", "damien-robotsix/robotsix-cai")
 
-# The set of categories declared in .claude/agents/cai-analyze.md. Any
+# Default category set for the legacy auto-improve namespace. Any
 # finding whose category is outside this set is rejected before we touch
-# GitHub — the analyzer is instructed not to invent new ones.
+# GitHub.
 VALID_CATEGORIES = {
     "reliability",
     "cost_reduction",
@@ -538,21 +538,12 @@ def create_issue(
     ``---`` separator. Future per-module audit runs can scope their
     dedup search by both fingerprint and module footer.
     """
-    if namespace == "audit":
-        source_note = "cai audit agent"
-        source_file = ".claude/agents/cai-audit.md"
-    elif namespace == "code-audit":
-        source_note = "cai code-audit agent"
-        source_file = ".claude/agents/cai-code-audit.md"
-    elif namespace == "update-check":
+    if namespace == "update-check":
         source_note = "cai update-check agent"
         source_file = ".claude/agents/ops/cai-update-check.md"
     elif namespace == "check-workflows":
         source_note = "cai check-workflows agent"
         source_file = ".claude/agents/cai-check-workflows.md"
-    elif namespace == "agent-audit":
-        source_note = "cai agent-audit agent"
-        source_file = ".claude/agents/cai-agent-audit.md"
     elif namespace == "external-scout":
         source_note = "cai external-scout agent"
         source_file = ".claude/agents/cai-external-scout.md"
@@ -573,7 +564,7 @@ def create_issue(
         source_file = ".claude/agents/audit/cai-audit-workflow-enhancement.md"
     else:
         source_note = "cai self-analyzer"
-        source_file = ".claude/agents/cai-analyze.md"
+        source_file = ".claude/agents/cai-refine.md"
     module_footer = f"<!-- module: {module_name} -->\n" if module_name else ""
     body = (
         f"<!-- fingerprint: {f.key} -->\n"

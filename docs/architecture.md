@@ -90,14 +90,14 @@ Verify (`cai verify`) is an **independent cron job** that runs on its own schedu
 
 ### Worktree agents
 
-`cai-code-audit`, `cai-implement`, `cai-external-scout`, `cai-git`, `cai-maintain`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-rebase`, `cai-review-docs`, `cai-review-pr`, `cai-revise`, `cai-select`, `cai-update-check` run in a **fresh git worktree clone**. The wrapper clones the repo and passes the clone path as the agent's work directory. The agent itself never runs `git push` or `gh` — the wrapper owns all remote state.
+`cai-implement`, `cai-external-scout`, `cai-git`, `cai-maintain`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-rebase`, `cai-review-docs`, `cai-review-pr`, `cai-revise`, `cai-select`, `cai-update-check` run in a **fresh git worktree clone**. The wrapper clones the repo and passes the clone path as the agent's work directory. The agent itself never runs `git push` or `gh` — the wrapper owns all remote state.
 
 For code-editing agents (`cai-implement`, `cai-revise`, `cai-rebase`), the wrapper also:
 - Creates an isolated branch (`auto-improve/<issue>-<slug>`)
 - Commits all changes, pushes the branch, and opens (or updates) a PR
 - Deletes the worktree on completion
 
-For review and planning agents (`cai-code-audit`, `cai-external-scout`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-pr`, `cai-select`, `cai-update-check`), the clone provides read access to the full repo tree; these agents emit structured output (findings, plans, verdicts) that the wrapper acts on deterministically — no commit or PR is created. `cai-select` is additionally invoked with Claude Code's `--json-schema` flag so its final output is a validated JSON object (plan, confidence, optional note) the wrapper parses directly instead of regex-extracting a trailing `Confidence:` line.
+For review and planning agents (`cai-external-scout`, `cai-git`, `cai-plan`, `cai-propose`, `cai-propose-review`, `cai-review-pr`, `cai-select`, `cai-update-check`), the clone provides read access to the full repo tree; these agents emit structured output (findings, plans, verdicts) that the wrapper acts on deterministically — no commit or PR is created. `cai-select` is additionally invoked with Claude Code's `--json-schema` flag so its final output is a validated JSON object (plan, confidence, optional note) the wrapper parses directly instead of regex-extracting a trailing `Confidence:` line.
 
 `cai-review-docs` is a special review agent that can edit documentation: it has `Edit` and `Write` tools to fix stale docs directly, and the wrapper automatically commits and pushes any changes to the same PR branch (not to a new isolated branch).
 
@@ -109,4 +109,4 @@ For review and planning agents (`cai-code-audit`, `cai-external-scout`, `cai-git
 
 ### Read-only agents
 
-`cai-audit`, `cai-confirm`, `cai-merge`, `cai-refine` receive all context in their prompt or read the live repo without a dedicated clone. They emit structured output (findings, verdicts, label transitions) that the wrapper acts on deterministically.
+`cai-confirm`, `cai-merge`, `cai-refine` receive all context in their prompt or read the live repo without a dedicated clone. They emit structured output (findings, verdicts, label transitions) that the wrapper acts on deterministically.

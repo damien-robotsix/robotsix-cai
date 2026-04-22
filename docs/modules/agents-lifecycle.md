@@ -1,10 +1,10 @@
 # agents-lifecycle
 
 Subagent definitions driving the issue/PR lifecycle — triage,
-refine, propose, explore, dup-check, rescue, and unblock. Invoked
-by handlers in `cai_lib/actions/` (and the `cmd_*` entry points in
-`cai_lib/cmd_agents.py` / `cmd_rescue.py` / `cmd_unblock.py`) as
-issues move through their state machine.
+refine, propose, explore, dup-check, rescue, confirm, and unblock.
+Invoked by handlers in `cai_lib/actions/` (and the `cmd_*` entry
+points in `cai_lib/cmd_agents.py` / `cmd_rescue.py` /
+`cmd_unblock.py`) as issues move through their state machine.
 
 ## Key entry points
 - [`.claude/agents/lifecycle/cai-triage.md`](../../.claude/agents/lifecycle/cai-triage.md)
@@ -36,11 +36,16 @@ issues move through their state machine.
   — inline haiku resume-step locator; reads an issue/PR's labels,
   body, and recent comments and returns the step at which the
   single-handling drive should resume (or `FIRST` on ambiguity).
+- [`.claude/agents/lifecycle/cai-confirm.md`](../../.claude/agents/lifecycle/cai-confirm.md)
+  — sonnet MERGED-state verdict agent; compares a merged PR's diff
+  and the recent parsed signals against each open
+  `auto-improve:merged` issue's remediation to decide whether it
+  can be closed as solved.
 
 ## Inter-module dependencies
 - Invoked by **actions** — `handle_triage` (cai-triage),
   `handle_refine` (cai-refine), `handle_split` (cai-split),
-  `handle_explore` (cai-explore).
+  `handle_explore` (cai-explore), `handle_confirm` (cai-confirm).
 - Invoked by **cli** — `cmd_propose` / `cmd_propose_review`
   (weekly creative cycle); `cmd_rescue` (cai-rescue); `cmd_unblock`
   (cai-unblock); `dup_check.check_duplicate_or_resolved`

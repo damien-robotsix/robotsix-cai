@@ -16,8 +16,9 @@ structured JSON summary of tool-call activity: total counts, top tools,
 failed tools, repeated consecutive runs, token usage, and a short
 sequence preview.
 
-The reasoning over this summary is the job of the Claude analyzer that
-calls this script (see .claude/agents/cai-analyze.md).
+The reasoning over this summary is the job of the on-demand
+workflow-enhancement audit agent (see
+.claude/agents/audit/cai-audit-workflow-enhancement.md).
 
 Usage::
 

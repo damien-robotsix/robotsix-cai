@@ -1,9 +1,10 @@
 # transcripts
 
 Transcript parsing and cross-host sync. `cai_lib/parse.py` is the
-deterministic signal extractor that feeds `cai-analyze`;
-`cai_lib/transcript_sync.py` fans JSONL session transcripts
-between long-lived workers and the audit host.
+deterministic signal extractor consumed by on-demand
+workflow-enhancement audits; `cai_lib/transcript_sync.py` fans
+JSONL session transcripts between long-lived workers and the
+audit host.
 
 ## Key entry points
 - [`cai_lib/parse.py`](../../cai_lib/parse.py) —
@@ -24,11 +25,11 @@ between long-lived workers and the audit host.
 ## Inter-module dependencies
 - Imports from **config** — `transcript_sync.py` depends on
   `cai_lib.config` for bucket paths and machine/instance IDs.
-- Imported by **cli** — `cmd_analyze` in `cai_lib/cmd_agents.py`
-  feeds `cai-analyze` from parsed signals;
-  `cmd_transcript_sync` is a direct subcommand.
-- Imported by **audit** (indirect) — `cai-analyze` reads the same
-  JSONL store this module writes.
+- Imported by **cli** — `cmd_transcript_sync` is a direct
+  subcommand; on-demand workflow-enhancement audits read the
+  parsed output.
+- Imported by **audit** (indirect) — `cai-audit-workflow-enhancement`
+  reads the same JSONL store this module writes.
 - Imported by **tests** — `tests/test_parse.py` (signal
   extraction) and `tests/test_transcript_sync.py` (no-op /
   fallback paths / repo-slug).
@@ -36,9 +37,9 @@ between long-lived workers and the audit host.
 
 ## Operational notes
 - **Cost sensitivity.** `parse.py` itself is free (pure Python);
-  its output size directly controls `cai-analyze` cost. The
-  `CAI_PARSE_MAX_FILES` and `CAI_PARSE_CUTOFF_*` env vars bound
-  the per-run load.
+  its output size directly controls the cost of any on-demand
+  audit that consumes the signals. The `CAI_PARSE_MAX_FILES` and
+  `CAI_PARSE_CUTOFF_*` env vars bound the per-run load.
 - **SSH transport.** `transcript_sync` assumes rsync over SSH to
   the configured server bucket. Missing `rsync` or a missing SSH
   key degrades to a no-op — verify via `transcript_sync_enabled`

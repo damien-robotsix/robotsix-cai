@@ -147,7 +147,7 @@ def handle_confirm(issue: dict) -> int:
 
     # 3. Build the user message (parsed signals + merged issues +
     #    PR diffs). The system prompt, tool allowlist, and model
-    #    choice all live in `.claude/agents/cai-confirm.md` — the
+    #    choice all live in `.claude/agents/lifecycle/cai-confirm.md` — the
     #    wrapper only passes dynamic per-run context via stdin.
     issues_section = "## Merged issues to verify\n\n"
     for mi in merged_issues:

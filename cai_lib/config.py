@@ -117,8 +117,8 @@ PUBLISH_SCRIPT = Path("/app/publish.py")
 # restarts. ALL subagents (both /app agents and the cloned-worktree
 # agents) now read/write this path directly because they're all
 # invoked with `cwd=/app`. The cloned-worktree agents
-# (cai-implement, cai-revise, cai-rebase, cai-review-pr, cai-review-docs, cai-code-audit, cai-propose,
-# cai-propose-review, cai-update-check, cai-plan, cai-select, cai-git, cai-agent-audit, cai-external-scout) operate
+# (cai-implement, cai-revise, cai-rebase, cai-review-pr, cai-review-docs, cai-propose,
+# cai-propose-review, cai-update-check, cai-plan, cai-select, cai-git) operate
 # on a clone elsewhere via absolute paths —
 # see `_work_directory_block` for the user-message section that
 # tells them where the clone is.

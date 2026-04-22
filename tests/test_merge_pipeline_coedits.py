@@ -128,9 +128,9 @@ class TestExtractPathsFromFilesLine(unittest.TestCase):
     def test_strips_surrounding_backticks(self):
         self.assertEqual(
             _extract_paths_from_files_line(
-                "`.claude/agents/audit/cai-agent-audit.md`"
+                "`.claude/agents/audit/cai-audit-good-practices.md`"
             ),
-            [".claude/agents/audit/cai-agent-audit.md"],
+            [".claude/agents/audit/cai-audit-good-practices.md"],
         )
 
     def test_skips_empty_tokens(self):

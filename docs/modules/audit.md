@@ -1,12 +1,12 @@
 # audit
 
-Audit subsystem — scheduled read-only agents that raise
-`auto-improve:raised` issues for cost, code, workflow, module, and
-analysis findings. The `cai_lib/audit/` package provides helper
-libraries (cost reporting, the `docs/modules.yaml` schema loader
-plus coverage check). `.claude/agents/audit/*.md` defines the
-subagents themselves; each is invoked by a `cmd_*` function in
-`cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
+Audit subsystem — on-demand read-only agents that raise
+`auto-improve:raised` issues for per-module code, cost, workflow,
+and external-library findings. The `cai_lib/audit/` package
+provides helper libraries (cost reporting, the `docs/modules.yaml`
+schema loader plus coverage check). `.claude/agents/audit/*.md`
+defines the subagents themselves; each is invoked by a `cmd_*`
+function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
 
 ## Key entry points
 - [`cai_lib/audit/cost.py`](../../cai_lib/audit/cost.py) — `_load_outcome_counts`,
@@ -24,21 +24,13 @@ subagents themselves; each is invoked by a `cmd_*` function in
   over all modules; loads manifests from `docs/modules.yaml`.
 - [`cai_lib/audit/__init__.py`](../../cai_lib/audit/__init__.py) —
   package init.
-- [`.claude/agents/audit/cai-audit.md`](../../.claude/agents/audit/cai-audit.md)
-  — queue / state-machine auditor (opus).
-- [`.claude/agents/audit/cai-analyze.md`](../../.claude/agents/audit/cai-analyze.md)
-  — session-transcript signal analyser.
-- [`.claude/agents/audit/cai-code-audit.md`](../../.claude/agents/audit/cai-code-audit.md)
-  — read-only source-tree auditor.
-- [`.claude/agents/audit/cai-agent-audit.md`](../../.claude/agents/audit/cai-agent-audit.md)
-  — weekly audit of `.claude/agents/*.md` definitions.
 - [`.claude/agents/audit/cai-audit-code-reduction.md`](../../.claude/agents/audit/cai-audit-code-reduction.md),
   [`cai-audit-cost-reduction.md`](../../.claude/agents/audit/cai-audit-cost-reduction.md),
   [`cai-audit-external-libs.md`](../../.claude/agents/audit/cai-audit-external-libs.md),
+  [`cai-audit-good-practices.md`](../../.claude/agents/audit/cai-audit-good-practices.md),
   [`cai-audit-workflow-enhancement.md`](../../.claude/agents/audit/cai-audit-workflow-enhancement.md)
-  — on-demand per-module audits (code shrink, spend, external libraries, workflow).
-- [`.claude/agents/audit/cai-confirm.md`](../../.claude/agents/audit/cai-confirm.md)
-  — verifies merged PRs resolved their issues.
+  — on-demand per-module audits (code shrink, spend, external
+  libraries, best practices, workflow).
 - [`.claude/agents/audit/cai-transcript-finder.md`](../../.claude/agents/audit/cai-transcript-finder.md)
   — haiku helper that searches Claude Code session transcripts for a module-scoped query and returns ranked excerpts.
 
@@ -61,11 +53,11 @@ subagents themselves; each is invoked by a `cmd_*` function in
   to `findings.json`.
 
 ## Operational notes
-- **Cost sensitivity — very high.** `cai-audit`, `cai-code-audit`,
-  `cai-agent-audit`, `cai-audit-cost-reduction`,
-  `cai-audit-workflow-enhancement`, and `cai-analyze` are all
-  opus / sonnet-tier and run on cron. Prompt size and cadence
-  dominate weekly spend; `cai-cost-optimize` proposes targeted
+- **Cost sensitivity — very high.** The on-demand per-module
+  auditors (`cai-audit-code-reduction`, `cai-audit-cost-reduction`,
+  `cai-audit-external-libs`, `cai-audit-good-practices`,
+  `cai-audit-workflow-enhancement`) are opus-tier and spend
+  dominates when they run. `cai-cost-optimize` proposes targeted
   reductions for this module.
 - **Findings contract.** Every audit subagent writes exactly one
   `findings.json` file which `cai_lib/publish.py` consumes via
