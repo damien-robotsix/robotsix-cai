@@ -86,7 +86,7 @@ _UNBLOCK_JSON_SCHEMA = {
             "type": "string",
             "enum": [
                 # Issue-side (Kind: issue)
-                "RAISED", "REFINING", "NEEDS_EXPLORATION",
+                "RAISED", "REFINING", "SPLITTING", "NEEDS_EXPLORATION",
                 "PLAN_APPROVED", "SOLVED",
                 # PR-side (Kind: pr)
                 "REVIEWING_CODE", "REVIEWING_DOCS",

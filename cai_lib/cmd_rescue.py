@@ -109,7 +109,7 @@ _RESCUE_JSON_SCHEMA = {
             "type": "string",
             "enum": [
                 # Issue-side (Kind: issue-rescue)
-                "RAISED", "REFINING", "NEEDS_EXPLORATION",
+                "RAISED", "REFINING", "SPLITTING", "NEEDS_EXPLORATION",
                 "PLAN_APPROVED", "SOLVED",
                 # PR-side (Kind: pr-rescue)
                 "REVIEWING_CODE", "REVIEWING_DOCS",
