@@ -15,6 +15,7 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cai_lib import dispatcher
+from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm import IssueState, PRState
 
 
@@ -175,6 +176,66 @@ class TestDispatchIssue(_LockNoopMixin, unittest.TestCase):
         self.assertEqual(rc, 0)
         handler.assert_not_called()
 
+    def test_handler_returning_handler_result_routes_through_driver_fire(self):
+        """A handler returning HandlerResult routes through _driver_fire
+        with is_pr=False and the current label list; dispatch_issue returns
+        0 when _driver_fire reports ok=True."""
+        hr = HandlerResult(trigger="raise_to_triaging")
+        handler = MagicMock(return_value=hr)
+        handler.__name__ = "mock_handler"
+        issue = _issue(42, "auto-improve:raised")
+        registry = {IssueState.RAISED: handler}
+        with patch.object(dispatcher, "_gh_json", return_value=issue), \
+             patch.object(dispatcher, "_issue_registry", return_value=registry), \
+             patch.object(dispatcher, "_driver_fire",
+                          return_value=(True, False)) as driver_mock:
+            rc = dispatcher.dispatch_issue(42)
+        self.assertEqual(rc, 0)
+        driver_mock.assert_called_once_with(
+            42, hr, is_pr=False, current_labels=["auto-improve:raised"],
+        )
+
+    def test_handler_result_driver_fire_failure_returns_one(self):
+        """When _driver_fire reports ok=False, dispatch_issue returns 1 so
+        the cycle's worst_rc reflects the stall (mirrors the #657
+        ``ok=False → rc=1`` invariant used by handle_plan_gate)."""
+        hr = HandlerResult(trigger="raise_to_triaging")
+        handler = MagicMock(return_value=hr)
+        handler.__name__ = "mock_handler"
+        issue = _issue(42, "auto-improve:raised")
+        registry = {IssueState.RAISED: handler}
+        with patch.object(dispatcher, "_gh_json", return_value=issue), \
+             patch.object(dispatcher, "_issue_registry", return_value=registry), \
+             patch.object(dispatcher, "_driver_fire",
+                          return_value=(False, False)):
+            rc = dispatcher.dispatch_issue(42)
+        self.assertEqual(rc, 1)
+
+    def test_empty_trigger_sentinel_applies_labels_inline(self):
+        """Empty-string trigger is the no-op sentinel: labels from
+        ``artifacts["extra_add"]`` / ``artifacts["extra_remove"]`` are
+        applied via _set_labels and fire_trigger is NOT called."""
+        hr = HandlerResult(
+            trigger="",
+            artifacts={"extra_remove": ["x"], "extra_add": ["y"]},
+        )
+        handler = MagicMock(return_value=hr)
+        handler.__name__ = "mock_handler"
+        issue = _issue(42, "auto-improve:raised")
+        registry = {IssueState.RAISED: handler}
+        set_labels_mock = MagicMock(return_value=True)
+        fire_mock = MagicMock()
+        with patch.object(dispatcher, "_gh_json", return_value=issue), \
+             patch.object(dispatcher, "_issue_registry", return_value=registry), \
+             patch.object(dispatcher, "_set_labels", new=set_labels_mock), \
+             patch("cai_lib.fsm.fire_trigger", new=fire_mock):
+            rc = dispatcher.dispatch_issue(42)
+        self.assertEqual(rc, 0)
+        set_labels_mock.assert_called_once_with(
+            42, add=["y"], remove=["x"], log_prefix="cai dispatch",
+        )
+        fire_mock.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # dispatch_pr routing
@@ -276,6 +337,25 @@ class TestDispatchPR(_LockNoopMixin, unittest.TestCase):
 
         self.assertEqual(rc, 0)
         rebase_handler.assert_called_once_with(pr)
+
+    def test_pr_handler_returning_handler_result_routes_through_driver_fire(self):
+        """PR-side mirror of the issue-side HandlerResult shim: a PR
+        handler returning HandlerResult routes through _driver_fire with
+        is_pr=True and current_pr=<pr dict>."""
+        hr = HandlerResult(trigger="reviewing_code_to_approved")
+        handler = MagicMock(return_value=hr)
+        handler.__name__ = "mock_handler"
+        pr = _pr(99, "pr:reviewing-code")
+        registry = {PRState.REVIEWING_CODE: handler}
+        with patch.object(dispatcher, "_gh_json", return_value=pr), \
+             patch.object(dispatcher, "_pr_registry", return_value=registry), \
+             patch.object(dispatcher, "_driver_fire",
+                          return_value=(True, False)) as driver_mock:
+            rc = dispatcher.dispatch_pr(99)
+        self.assertEqual(rc, 0)
+        driver_mock.assert_called_once_with(
+            99, hr, is_pr=True, current_pr=pr,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional, Union
 
 from cai_lib.config import LABEL_HUMAN_SOLVED, LABEL_PARENT, REPO
 from cai_lib.fsm import (
+    Confidence,
     IssueState, PRState,
     get_issue_state, get_pr_state,
 )
@@ -34,10 +35,133 @@ from cai_lib.github import (
     _gh_json,
     _acquire_remote_lock,
     _release_remote_lock,
+    _set_labels,
+    _set_pr_labels,
     blocking_issue_numbers,
     open_blockers,
 )
 from cai_lib.issues import list_sub_issues
+
+
+# ---------------------------------------------------------------------------
+# Structured handler return shape (issue #1124 infrastructure)
+# ---------------------------------------------------------------------------
+#
+# ``HandlerResult`` is the target return type for the FSM-handler migration
+# tracked in #1124. Handler migration itself happens in follow-up sub-issues
+# (#1137 PR-side, #1138 dispatcher rewrite, #1141 implement/explore). This
+# module lands the type and the :func:`_driver_fire` helper only — no
+# handler is migrated here. Existing ``int``-returning handlers continue to
+# dispatch unchanged because ``dispatch_issue`` / ``dispatch_pr`` only
+# activate the shim when the handler's return value is a ``HandlerResult``.
+
+class HandlerResult(NamedTuple):
+    """Structured return for FSM handlers.
+
+    Fields:
+      * ``trigger`` — FSM transition name to fire via
+        :func:`cai_lib.fsm_transitions.fire_trigger`. The empty string
+        is a no-op sentinel: :func:`_driver_fire` applies any
+        ``artifacts["extra_add"]`` / ``artifacts["extra_remove"]``
+        labels inline via ``_set_labels`` / ``_set_pr_labels`` and
+        skips the FSM call entirely.
+      * ``confidence`` — forwarded to ``fire_trigger`` as
+        ``confidence=`` (``None`` for ungated transitions).
+      * ``divert_reason`` — forwarded to ``fire_trigger`` as
+        ``divert_reason=`` (empty string when ``None``).
+      * ``artifacts`` — freeform bag. Keys recognised by
+        :func:`_driver_fire`: ``extra_remove`` (tuple of label names
+        forwarded to ``fire_trigger``), ``extra_add`` (used only by
+        the empty-trigger sentinel), ``reason_extra`` (forwarded to
+        ``fire_trigger`` as ``reason_extra=`` when present).
+      * ``stop_driving`` — reserved for future use by the inner
+        drive loop in :func:`_drive_target_to_completion` (stop
+        driving the target within the same tick). Included in the
+        shape now so migrated handlers can declare it without a
+        second round of churn.
+    """
+    trigger: str
+    confidence: Optional[Confidence] = None
+    divert_reason: Optional[str] = None
+    artifacts: Optional[dict] = None
+    stop_driving: bool = False
+
+
+def _driver_fire(
+    number: int,
+    result: "HandlerResult",
+    *,
+    is_pr: bool,
+    current_labels: Optional[list[str]] = None,
+    current_pr: Optional[dict] = None,
+    log_prefix: str = "cai dispatch",
+) -> tuple[bool, bool]:
+    """Translate a :class:`HandlerResult` into a :func:`fire_trigger` call.
+
+    Empty-string ``trigger`` is the no-op sentinel: apply the
+    ``artifacts["extra_add"]`` / ``artifacts["extra_remove"]`` labels
+    inline via ``_set_labels`` (``is_pr=False``) or ``_set_pr_labels``
+    (``is_pr=True``), skipping ``fire_trigger`` entirely. When both
+    lists are empty the function returns ``(True, False)`` without any
+    gh call. On a successful label call returns ``(True, False)``; on
+    failure returns ``(False, False)``.
+
+    Non-empty ``trigger`` routes through :func:`fire_trigger` and
+    retries once on ``ok is False`` — mirrors the
+    ``for _attempt in range(2)`` double-retry pattern in
+    ``_park_in_progress_at_human_needed``
+    (``cai_lib/actions/implement.py``). Returns the ``(ok, diverted)``
+    tuple produced by the final ``fire_trigger`` call.
+
+    Returns ``(ok, diverted)`` so callers can distinguish a clean
+    transition (``ok=True, diverted=False``) from a confidence-gate
+    divert to HUMAN_NEEDED (``ok=True, diverted=True``) from a
+    refusal (``ok=False, diverted=False``).
+    """
+    artifacts = result.artifacts or {}
+
+    if result.trigger == "":
+        extra_add = list(artifacts.get("extra_add", ()))
+        extra_remove = list(artifacts.get("extra_remove", ()))
+        if not extra_add and not extra_remove:
+            return True, False
+        if is_pr:
+            ok = _set_pr_labels(
+                number, add=extra_add, remove=extra_remove,
+                log_prefix=log_prefix,
+            )
+        else:
+            ok = _set_labels(
+                number, add=extra_add, remove=extra_remove,
+                log_prefix=log_prefix,
+            )
+        return (bool(ok), False)
+
+    # Non-empty trigger → fire_trigger with one retry on transient failure.
+    # Lazy import mirrors the pattern used by ``dispatch_pr`` for the
+    # rebase override (see line ~342) and avoids pulling the FSM module
+    # into the import graph of every caller that touches the dispatcher.
+    from cai_lib.fsm import fire_trigger
+
+    fire_kwargs: dict = dict(
+        is_pr=is_pr,
+        confidence=result.confidence,
+        divert_reason=result.divert_reason or "",
+        extra_remove=tuple(artifacts.get("extra_remove", ())),
+        current_labels=current_labels,
+        current_pr=current_pr,
+        log_prefix=log_prefix,
+    )
+    reason_extra = artifacts.get("reason_extra")
+    if reason_extra:
+        fire_kwargs["reason_extra"] = reason_extra
+
+    outcome: tuple[bool, bool] = (False, False)
+    for _attempt in range(2):
+        outcome = fire_trigger(number, result.trigger, **fire_kwargs)
+        if outcome[0]:
+            return outcome
+    return outcome
 
 
 def _build_ordering_gate() -> dict[int, tuple[int, int]]:
@@ -138,8 +262,8 @@ def _build_ordering_gate() -> dict[int, tuple[int, int]]:
 # anything. HUMAN_NEEDED has a handler that auto-resumes the FSM when
 # the admin has applied ``human:solved`` and no-ops otherwise.
 
-IssueHandler = Callable[[dict], int]
-PRHandler    = Callable[[dict], int]
+IssueHandler = Callable[[dict], Union[int, HandlerResult]]
+PRHandler    = Callable[[dict], Union[int, HandlerResult]]
 
 
 def _build_issue_registry() -> dict[IssueState, IssueHandler]:
@@ -305,7 +429,14 @@ def dispatch_issue(issue_number: int) -> int:
               flush=True)
         return 0
     try:
-        return handler(issue)
+        rc = handler(issue)
+        if isinstance(rc, HandlerResult):
+            ok, _ = _driver_fire(
+                issue_number, rc,
+                is_pr=False, current_labels=label_names,
+            )
+            return 0 if ok else 1
+        return rc
     finally:
         _release_remote_lock("issue", issue_number)
 
@@ -370,7 +501,14 @@ def dispatch_pr(pr_number: int) -> int:
               flush=True)
         return 0
     try:
-        return handler(pr)
+        rc = handler(pr)
+        if isinstance(rc, HandlerResult):
+            ok, _ = _driver_fire(
+                pr_number, rc,
+                is_pr=True, current_pr=pr,
+            )
+            return 0 if ok else 1
+        return rc
     finally:
         _release_remote_lock("pr", pr_number)
 
