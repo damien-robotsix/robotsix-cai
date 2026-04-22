@@ -19,7 +19,7 @@ small-scope capability is needed.
   behalf of `cai-implement` and returns a pass/fail verdict plus
   filtered failure summary. Bash-only, no file access.
 - [`.claude/agents/utility/cai-cost-optimize.md`](../../.claude/agents/utility/cai-cost-optimize.md)
-  — weekly opus cost-reduction proposer. Analyses spending trends
+  — weekly sonnet cost-reduction proposer. Analyses spending trends
   and proposes one optimisation per run.
 - [`.claude/agents/utility/cai-external-scout.md`](../../.claude/agents/utility/cai-external-scout.md)
   — weekly opus scout for mature OSS libraries that could replace
@@ -49,9 +49,10 @@ small-scope capability is needed.
   the verdict via a structured `## Test Result` / `## Failures` block;
   it never interprets, suggests fixes, or edits. Keeping it dumb is
   what makes its output trustworthy for `cai-implement` to act on.
-- **Cost tiers.** `cai-cost-optimize` and `cai-external-scout` are
-  opus weekly (proposal quality matters); their output is graded
-  by `cai-propose-review` before a human ever sees it.
+- **Cost tiers.** `cai-cost-optimize` is sonnet weekly;
+  `cai-external-scout` is opus weekly (proposal quality matters);
+  their output is graded by `cai-propose-review` before a human
+  ever sees it.
 - **CI implications.** None — these agents have no dedicated
   tests; behaviour is observed via live runs and on-demand
   `cai-audit-good-practices` sweeps.

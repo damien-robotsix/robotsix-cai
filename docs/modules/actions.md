@@ -1,12 +1,20 @@
 # actions
 
-Per-state handlers invoked by the FSM dispatcher — one module per
-lifecycle state. Each handler reads the current state, drives the
-relevant Claude subagent(s), parses the `Confidence:` line, and
-applies the next transition via `cai_lib/fsm_transitions.py`. All
-handlers share a common shape: they accept the issue / PR dict
-fetched by the dispatcher, emit logs via `log_run`, and return an
-integer exit code.
+Per-state handlers that form the body of the single-handling
+inline-drive pipeline — one module per lifecycle state. Each
+handler is a pure pipeline function called by
+[`cai_lib/dispatcher.py::_drive_target_to_completion`](../../cai_lib/dispatcher.py),
+which walks a target from its current state through every
+actionable state inside one dispatch tick. Handlers read the
+current state, drive the relevant Claude subagent(s), parse the
+`Confidence:` line, and decide which FSM transition to apply
+next via `cai_lib/fsm_transitions.py`. All handlers share a
+common shape: they accept the issue / PR dict fetched by the
+dispatcher, emit logs via `log_run`, and return a `HandlerResult`
+NamedTuple (`trigger`, `confidence`, `divert_reason`,
+`artifacts`, `stop_driving`; defined in
+[`cai_lib/dispatcher.py`](../../cai_lib/dispatcher.py)) that the
+driver translates into a `fire_trigger` call via `_driver_fire`.
 
 ## Key entry points
 
