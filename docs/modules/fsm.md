@@ -23,7 +23,6 @@ import from `cai_lib.fsm` rather than the split modules directly.
   `Transition` dataclass; `ISSUE_TRANSITIONS` and `PR_TRANSITIONS`
   tables; `get_issue_state`, `get_pr_state`, `find_transition`,
   `fire_trigger` (the canonical FSM dispatch entry point),
-  `resume_transition_for`, `resume_pr_transition_for`,
   `render_fsm_mermaid` (library-backed via
   `transitions.extensions.GraphMachine`; the Mermaid source is
   post-processed to strip the library's YAML front matter and restore
@@ -67,11 +66,11 @@ to detect progress. Handlers return a `HandlerResult` NamedTuple
 The catalog currently still contains every intermediate
 transition the pre-inline pipeline relied on. A catalog trim to
 a structural subset (Pattern A entry, approve, divert, resume)
-is tracked on parent issue #1037 via sibling issue #1129 (blocked
-on prerequisite issue #1172); until those land the full catalog
-is load-bearing and the helpers `find_transition`,
-`resume_transition_for`, and `resume_pr_transition_for` remain
-callable.
+is tracked on parent issue #1037 via sibling issue #1129; as of
+#1172, `cmd_unblock` and `cmd_rescue` no longer call the
+FSM-side helpers `resume_transition_for` and `resume_pr_transition_for`
+(replaced with local state-name → trigger-name dicts), though the
+helpers remain callable for now until they are deleted by #1129.
 
 Resume paths do not consult a fixed label-to-step table. The
 [`cai-resume-locator`](../../.claude/agents/lifecycle/cai-resume-locator.md)
