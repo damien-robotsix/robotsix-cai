@@ -2,7 +2,7 @@
 name: cai-select
 description: INTERNAL — Evaluate multiple fix plans for an auto-improve issue and select the best one. Plans arrive in the user message; may run targeted Read/Grep/Glob on the clone to verify narrow structural claims before downgrading confidence.
 tools: Read, Grep, Glob
-model: opus
+model: sonnet
 ---
 
 # Plan Selector
