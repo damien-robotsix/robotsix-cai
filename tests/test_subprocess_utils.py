@@ -482,5 +482,131 @@ class TestFsmStateStamping(unittest.TestCase):
         self.assertNotIn("fsm_state", captured[1])
 
 
+class TestCacheHitRateAnnotation(unittest.TestCase):
+    """Issue #1205: ``_run_claude_p`` must pre-compute a single
+    authoritative ``cache_hit_rate`` value on each cost-log row
+    (aggregate) and a ``cacheHitRate`` value inside each ``models[m]``
+    entry (per-model). Rows with no cache/input tokens observed must
+    omit the field so legacy rows stay byte-identical."""
+
+    def test_cache_hit_rate_set_when_tokens_present(self):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        # 50 cache_read + 25 cache_create + 25 input → denom=100, hit=0.5.
+        usage = {
+            "input_tokens": 25,
+            "output_tokens": 10,
+            "cache_creation_input_tokens": 25,
+            "cache_read_input_tokens": 50,
+        }
+        msg = _mk_result(
+            usage=usage, result="ok", total_cost_usd=0.01,
+        )
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan", agent="cai-plan",
+            )
+
+        self.assertEqual(len(captured), 1)
+        self.assertIn("cache_hit_rate", captured[0])
+        self.assertAlmostEqual(captured[0]["cache_hit_rate"], 0.5, places=4)
+
+    def test_cache_hit_rate_omitted_when_denominator_zero(self):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        # No input_tokens, no cache_* tokens — denom=0 → key must be
+        # absent so legacy callers (audit/cost.py, cost-report) can
+        # still rely on ``r.get("cache_hit_rate") is None`` as the
+        # "missing" signal.
+        usage = {"output_tokens": 5}
+        msg = _mk_result(
+            usage=usage, result="ok", total_cost_usd=0.01,
+        )
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan", agent="cai-plan",
+            )
+
+        self.assertEqual(len(captured), 1)
+        self.assertNotIn("cache_hit_rate", captured[0])
+
+    def test_per_model_cache_hit_rate_stamped(self):
+        """Each ``models[m]`` entry gets a ``cacheHitRate`` when its
+        per-model cache/input tokens are non-zero. Entries whose
+        denominator is zero are skipped (no key written)."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        usage = {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_read_input_tokens": 30,
+            "cache_creation_input_tokens": 10,
+        }
+        msg = _mk_result(
+            usage=usage, result="ok", total_cost_usd=0.01,
+        )
+
+        # Patch ``query`` to yield a message whose ResultMessage.model_usage
+        # carries two model entries: one with tokens, one with zero
+        # denom so we can assert the per-model skip rule.
+        async def _gen(*, prompt, options=None, transport=None):
+            # Attach model_usage on the instance so the parser picks
+            # it up (ResultMessage may not accept it via constructor).
+            msg.model_usage = {
+                "claude-sonnet-4-6": {
+                    "inputTokens": 10,
+                    "cacheReadInputTokens": 30,
+                    "cacheCreationInputTokens": 10,
+                    "outputTokens": 5,
+                },
+                "claude-haiku-4-5-20251001": {
+                    "inputTokens": 0,
+                    "cacheReadInputTokens": 0,
+                    "cacheCreationInputTokens": 0,
+                    "outputTokens": 0,
+                },
+            }
+            yield msg
+
+        with patch.object(subprocess_utils, "query", _gen), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan", agent="cai-plan",
+            )
+
+        self.assertEqual(len(captured), 1)
+        models = captured[0].get("models") or {}
+        sonnet = models.get("claude-sonnet-4-6") or {}
+        haiku = models.get("claude-haiku-4-5-20251001") or {}
+        # 30 / (30 + 10 + 10) = 0.6
+        self.assertIn("cacheHitRate", sonnet)
+        self.assertAlmostEqual(sonnet["cacheHitRate"], 0.6, places=4)
+        # Zero-denom model must be skipped (no key added).
+        self.assertNotIn("cacheHitRate", haiku)
+
+
 if __name__ == "__main__":
     unittest.main()

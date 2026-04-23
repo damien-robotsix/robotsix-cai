@@ -20,15 +20,20 @@ The user message contains:
 - `## Cost data` — 14-day cost summary with per-category totals, an
   optional **By FSM state** section (issue #1203: funnel-position
   totals derived from the optional `fsm_state` row field stamped by
-  the dispatcher on every handler-produced cost row), top invocations,
-  and a per-agent WoW breakdown table (last 7d vs prior 7d, WoW Δ%,
-  cache hit %). Prefer the **By FSM state** section over re-parsing
-  the free-form `category` field when you need to reason about
-  funnel-stage spend — the `fsm_state` value is the `.name` of an
-  `IssueState` or `PRState` enum member (e.g. `REFINING`,
-  `PLANNING`, `IN_PROGRESS`, `REVIEWING_CODE`). Rows produced
-  outside a dispatched handler (rescue, unblock, dup-check, audit,
-  init) omit `fsm_state` and land in the `(none)` bucket.
+  the dispatcher on every handler-produced cost row), top invocations
+  with a `hit%` column populated from each row's pre-computed
+  `cache_hit_rate` field (a fraction in `[0.0, 1.0]`, issue #1205:
+  `cache_read / (cache_read + cache_create + input_tokens)` —
+  aggregate across all models invoked for that row; rows predating
+  the change legitimately render as `-`), and a per-agent WoW
+  breakdown table (last 7d vs prior 7d, WoW Δ%). Prefer the
+  **By FSM state** section over re-parsing the free-form `category`
+  field when you need to reason about funnel-stage spend — the
+  `fsm_state` value is the `.name` of an `IssueState` or `PRState`
+  enum member (e.g. `REFINING`, `PLANNING`, `IN_PROGRESS`,
+  `REVIEWING_CODE`). Rows produced outside a dispatched handler
+  (rescue, unblock, dup-check, audit, init) omit `fsm_state` and
+  land in the `(none)` bucket.
 - `## Previous proposals` — memory from prior runs (proposals made,
   their statuses, and any evaluations)
 

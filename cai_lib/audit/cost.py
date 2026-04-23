@@ -197,11 +197,18 @@ def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
     top_lines = []
     for r in top:
         cost = float(r.get("cost_usd") or 0.0)
+        # Issue #1205: cite the pre-computed ``cache_hit_rate`` field
+        # written by ``_run_claude_p`` (aggregate rate over
+        # cache_read + cache_creation + input tokens). Rows predating
+        # the change legitimately omit the field and render as ``-``.
+        hit = r.get("cache_hit_rate")
+        hit_str = f"{hit * 100:.1f}%" if isinstance(hit, (int, float)) else "-"
         top_lines.append(
             f"| {r.get('ts', '')} | {r.get('category', '')} | "
             f"{r.get('agent', '')} | {_primary_model(r)} | ${cost:.4f} | "
             f"{r.get('num_turns', '')} | "
-            f"{(r.get('input_tokens') or 0) + (r.get('output_tokens') or 0)} |"
+            f"{(r.get('input_tokens') or 0) + (r.get('output_tokens') or 0)} | "
+            f"{hit_str} |"
         )
 
     return (
@@ -218,8 +225,8 @@ def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
         + "\n".join(fsm_lines)
         + "\n\n"
         f"### Top {len(top_lines)} most expensive individual invocations\n\n"
-        "| ts | category | agent | model | cost | turns | tokens |\n"
-        "|---|---|---|---|---|---|---|\n"
+        "| ts | category | agent | model | cost | turns | tokens | hit% |\n"
+        "|---|---|---|---|---|---|---|---|\n"
         + "\n".join(top_lines)
         + "\n"
     )
