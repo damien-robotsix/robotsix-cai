@@ -53,6 +53,7 @@ from cai_lib.cmd_helpers import (
     _fetch_review_comments,
     _extract_stored_plan,
     _git,
+    _work_directory_block,
 )
 from cai_lib.actions.plan import (
     _FILES_TO_CHANGE_SECTION_RE,
@@ -1042,6 +1043,11 @@ def handle_merge(pr: dict) -> HandlerResult:
             _git(work_dir, "fetch", "origin", branch)
             _git(work_dir, "checkout", branch)
             add_dir_argv: list[str] = ["--add-dir", str(work_dir)]
+            user_message = (
+                _work_directory_block(work_dir, issue_full.get("body") or "")
+                + "\n"
+                + user_message
+            )
         else:
             print(
                 f"[cai merge] PR #{pr_number}: clone failed (non-fatal); "

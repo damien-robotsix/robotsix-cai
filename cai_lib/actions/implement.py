@@ -1182,13 +1182,13 @@ def handle_implement(issue: dict) -> int:
 
         # 5. Run the cai-implement declarative subagent.
         user_message = (
-            _work_directory_block(work_dir)
+            _work_directory_block(work_dir, issue.get("body") or "")
             + "\n"
             + _build_implement_user_message(issue, attempt_history_block)
         )
         if selected_plan:
             user_message = (
-                _work_directory_block(work_dir)
+                _work_directory_block(work_dir, issue.get("body") or "")
                 + "\n"
                 + "## Selected Implementation Plan\n\n"
                 + "The following plan was pre-computed by `cai plan` and "

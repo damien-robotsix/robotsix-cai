@@ -295,7 +295,7 @@ def handle_review_docs(pr: dict) -> HandlerResult:
         author_login = pr.get("author", {}).get("login", "unknown")
         issue_block = _fetch_linked_issue_block(pr.get("body", ""))
         user_message = (
-            _work_directory_block(work_dir)
+            _work_directory_block(work_dir, issue_block)
             + "\n"
             + "## PR metadata\n\n"
             + f"- **Number:** #{pr_number}\n"

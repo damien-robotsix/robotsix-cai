@@ -54,6 +54,10 @@ from cai_lib.cmd_helpers import (
     _fetch_previous_fix_attempts,
     _build_attempt_history_block,
 )
+from cai_lib.cmd_helpers_issues import (
+    _FILES_TO_CHANGE_SECTION_RE,
+    _FILES_TO_CHANGE_PATH_RE,
+)
 from cai_lib.cmd_implement import _parse_decomposition
 from cai_lib.actions.refine import _create_sub_issues, _issue_depth
 from cai_lib.fsm import (
@@ -138,17 +142,6 @@ def _plan_has_anchor_mitigation(plan_text: str | None) -> bool:
 #   * Have every such path begin with ``docs/`` (strict prefix — any
 #     non-``docs/`` path disqualifies the plan).
 # ---------------------------------------------------------------------------
-_FILES_TO_CHANGE_SECTION_RE = re.compile(
-    r"^###\s+Files\s+to\s+change\s*$\n(.*?)(?=^###\s|\Z)",
-    re.IGNORECASE | re.DOTALL | re.MULTILINE,
-)
-
-# Match backticked path tokens of the form ``path/with.ext`` — requires
-# at least one ``/`` and an extension, so free-standing symbol names
-# (e.g. ``parse_config``) and extensionless bare names are ignored.
-_FILES_TO_CHANGE_PATH_RE = re.compile(
-    r"`([^`\s]+/[^`\s]*\.[A-Za-z0-9]+)`"
-)
 
 
 def _plan_targets_only_docs(plan_text: str | None) -> bool:
@@ -798,7 +791,7 @@ def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_histor
     operating on the clone via absolute paths (#342).
     """
     user_message = (
-        _work_directory_block(work_dir)
+        _work_directory_block(work_dir, issue.get("body") or "")
         + "\n"
         + _build_issue_block(issue)
         + attempt_history_block
@@ -922,7 +915,7 @@ def _run_select_agent(
 
     from cai_lib.fsm import Confidence
 
-    user_message = _work_directory_block(work_dir) + "\n"
+    user_message = _work_directory_block(work_dir, issue.get("body") or "") + "\n"
     user_message += _build_issue_block(issue)
     user_message += "\n---\n\n# Candidate Plans\n\n"
     for i, plan in enumerate(plans, 1):

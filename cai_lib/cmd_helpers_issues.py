@@ -9,6 +9,41 @@ from cai_lib.github import _gh_json, _strip_cost_comments
 from cai_lib.subprocess_utils import _run
 
 
+# ---------------------------------------------------------------------------
+# Files-to-change section parser (shared with plan.py, implement.py,
+# merge.py, and cmd_helpers_git.py).
+# ---------------------------------------------------------------------------
+
+# Case-insensitive "### Files to change" header; section body captured in
+# group 1, bounded by the next "### " heading or end of text.
+_FILES_TO_CHANGE_SECTION_RE = re.compile(
+    r"^###\s+Files\s+to\s+change\s*$\n(.*?)(?=^###\s|\Z)",
+    re.IGNORECASE | re.DOTALL | re.MULTILINE,
+)
+
+# Match backticked path tokens of the form ``path/with.ext`` — requires
+# at least one ``/`` and an extension, so free-standing symbol names
+# (e.g. ``parse_config``) and extensionless bare names are ignored.
+_FILES_TO_CHANGE_PATH_RE = re.compile(
+    r"`([^`\s]+/[^`\s]*\.[A-Za-z0-9]+)`"
+)
+
+
+def _parse_files_to_change(issue_body: str) -> list[str]:
+    """Return the list of relative file paths declared in the issue body's
+    ``### Files to change`` section.
+
+    Paths are extracted from backtick-quoted ``path/with.ext`` tokens.
+    Returns an empty list when the section is absent or contains no paths.
+    """
+    if not issue_body:
+        return []
+    section = _FILES_TO_CHANGE_SECTION_RE.search(issue_body)
+    if not section:
+        return []
+    return _FILES_TO_CHANGE_PATH_RE.findall(section.group(1))
+
+
 def _parse_oob_issues(agent_output: str) -> list[dict]:
     """Extract out-of-scope issue blocks from a review agent's output.
 
