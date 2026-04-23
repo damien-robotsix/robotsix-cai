@@ -165,6 +165,7 @@ _FILTER_DIFF_MAX_CHARS = 20000
 def _filter_comments_with_haiku(
     all_comments: list[dict],
     pr_number: int,
+    issue_number: int,
 ) -> list[dict]:
     """Filter PR comments using the cai-comment-filter haiku agent.
 
@@ -172,6 +173,10 @@ def _filter_comments_with_haiku(
     the agent judges to be genuinely unresolved. On agent failure,
     returns all non-bot comments (conservative fallback — better to
     over-process than silently drop human requests).
+
+    ``issue_number`` is the linked ``auto-improve/<N>-*`` issue; the
+    cost-attribution comment is mirrored onto it so humans scanning
+    the issue see every agent invocation's spend, not just the PR's.
     """
     if not all_comments:
         return []
@@ -214,6 +219,8 @@ def _filter_comments_with_haiku(
         cwd="/app",
         target_kind="pr",
         target_number=pr_number,
+        extra_target_kind="issue",
+        extra_target_number=issue_number,
     )
 
     if result.returncode != 0 or not (result.stdout or "").strip():
@@ -441,7 +448,9 @@ def handle_revise(pr: dict) -> HandlerResult:
     line_comments = _fetch_review_comments(pr_detail["number"])
     all_comments = issue_comments + line_comments
     # Filter to genuinely unresolved comments using the haiku agent.
-    unaddressed = _filter_comments_with_haiku(all_comments, pr_detail["number"])
+    unaddressed = _filter_comments_with_haiku(
+        all_comments, pr_detail["number"], issue_number,
+    )
     needs_rebase = pr_detail.get("mergeable") == "CONFLICTING" or \
         pr_detail.get("mergeStateStatus") == "DIRTY"
     targets = [{
@@ -787,6 +796,8 @@ def handle_revise(pr: dict) -> HandlerResult:
                 cwd="/app",
                 target_kind="pr",
                 target_number=pr_number,
+                extra_target_kind="issue",
+                extra_target_number=issue_number,
             )
             if agent.stdout:
                 print(agent.stdout, flush=True)
