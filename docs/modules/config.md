@@ -1,9 +1,10 @@
 # config
 
 Shared infrastructure utilities — constants / path definitions,
-structured logging, subprocess helpers, and the stale-lock
-watchdog. These are cross-cutting dependencies imported by nearly
-every handler and `cmd_*` function; changes here ripple everywhere.
+structured logging, subprocess helpers, per-issue cost aggregation,
+and the stale-lock watchdog. These are cross-cutting dependencies
+imported by nearly every handler and `cmd_*` function; changes here
+ripple everywhere.
 
 ## Key entry points
 - [`cai_lib/config.py`](../../cai_lib/config.py) — repo-wide
@@ -26,6 +27,11 @@ every handler and `cmd_*` function; changes here ripple everywhere.
   session via the Claude Agent SDK and returns a CompletedProcess
   with `.stdout` containing the result; `_argv_to_options(argv, cwd)`
   parses command-line arguments into SDK options.
+- [`cai_lib/cost_summary.py`](../../cai_lib/cost_summary.py) —
+  `post_final_cost_summary(issue_number, pr_number)` aggregates
+  per-invocation cost records tagged against an issue or its linked PR
+  and posts a final roll-up comment on the closed issue; called by
+  merge handler to provide per-issue cost transparency.
 - [`cai_lib/watchdog.py`](../../cai_lib/watchdog.py) —
   `_rollback_stale_in_progress(immediate)` rolls back orphaned
   issue `:in-progress` / `:revising` labels;
@@ -33,7 +39,10 @@ every handler and `cmd_*` function; changes here ripple everywhere.
   locks.
 
 ## Inter-module dependencies
-- No imports from other pipeline modules (leaf dependency).
+- **Mostly a leaf dependency,** except `cost_summary` module has
+  dynamic imports from **audit** (to load cost rows) and
+  **transcripts** (for multi-host sync). These imports occur inside
+  function bodies to avoid circular dependencies.
 - Imported by **fsm**, **actions**, **cli**, **github-glue**,
   **audit**, **transcripts** — essentially every Python file in
   the pipeline.

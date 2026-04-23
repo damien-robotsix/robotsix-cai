@@ -674,6 +674,9 @@ def _run_claude_p(
         (options.system_prompt or "") + "\n---\n" + (prompt or "")
     )
     row["prompt_fingerprint"] = hashlib.sha256(fp_src.encode()).hexdigest()[:16]
+    if target_kind is not None and target_number is not None:
+        row["target_kind"] = target_kind
+        row["target_number"] = target_number
     log_cost(row)
 
     # Post a per-target cost-attribution comment on the issue/PR the

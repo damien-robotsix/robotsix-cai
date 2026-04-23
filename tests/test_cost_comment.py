@@ -87,6 +87,18 @@ class TestCostMarkerRegex(unittest.TestCase):
         )
         self.assertIsNone(CAI_COST_COMMENT_RE.search(body))
 
+    def test_matches_cai_cost_final_marker(self):
+        """Issue #1198: the widened regex also catches the close-time
+        roll-up marker so ``_strip_cost_comments`` filters it out of
+        agent-input streams the same way it filters per-run markers."""
+        body = (
+            "<!-- cai-cost-final issue=1 pr=2 total_usd=1.2300 "
+            "total_turns=42 total_duration_ms=123456 rows=7 "
+            "fix_attempt_count=3 -->\n"
+            "## cai final cost summary\n\n..."
+        )
+        self.assertIsNotNone(CAI_COST_COMMENT_RE.search(body))
+
 
 class TestStripCostComments(unittest.TestCase):
     def test_filters_out_cost_markers_only(self):
