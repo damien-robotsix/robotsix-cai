@@ -49,7 +49,12 @@ helper's own agent file for its full input/output contract.
 A table or JSON excerpt of cost rows from `/var/log/cai/cai-cost.jsonl`,
 pre-filtered to only the agents declared in this module. Columns:
 `timestamp`, `agent`, `model`, `input_tokens`, `output_tokens`,
-`cache_creation_tokens`, `cache_read_tokens`, `cost_usd`.
+`cache_creation_tokens`, `cache_read_tokens`, `cost_usd`, and an optional
+`fsm_state` (issue #1203: `.name` of an `IssueState` or `PRState` enum member
+stamped by the dispatcher on every handler-produced row; non-FSM call sites
+— rescue, unblock, dup-check, audit, init — omit this field). When the
+summary includes a **By FSM state** section, prefer it over re-parsing the
+free-form `category` field to reason about funnel-stage spend.
 
 Use this section as your primary cost signal. Every finding you raise must
 cite one or more rows from this table as motivation.

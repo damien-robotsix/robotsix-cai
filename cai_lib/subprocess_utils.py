@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import shutil
 import socket
 import subprocess
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -40,6 +42,44 @@ _CLI_PATH = shutil.which("claude")
 # placeholder "Check stderr output for details".
 _CAPTURED_STDERR_MAX_LINES = 200
 _CAPTURED_STDERR_MAX_CHARS = 4000
+
+
+# Issue #1203: per-invocation FSM state stamp for cost-log rows.
+#
+# The dispatcher (``cai_lib/dispatcher.py``) wraps each handler call with
+# ``set_current_fsm_state(state.name)`` so that any ``_run_claude_p`` call
+# made inside the handler records the funnel position (e.g. ``"REFINING"``,
+# ``"PLANNING"``, ``"IN_PROGRESS"``, ``"REVIEWING_CODE"``) into the row's
+# optional ``fsm_state`` key. Non-FSM call sites (``cmd_rescue``,
+# ``cmd_unblock``, ``dup_check``, ``audit/runner.py``, ``cmd_misc.init``)
+# leave the contextvar unset; those rows simply omit the key, preserving
+# back-compat for readers that only know ``category``.
+_CURRENT_FSM_STATE: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "cai_current_fsm_state", default=None,
+)
+
+
+@contextmanager
+def set_current_fsm_state(name: str | None):
+    """Set the FSM state stamp for every ``_run_claude_p`` call in the block.
+
+    ``name`` should be the ``.name`` of an :class:`IssueState` or
+    :class:`PRState` enum member (e.g. ``"REFINING"``). Passing ``None``
+    explicitly clears the stamp for the scoped block.
+
+    Usage::
+
+        with set_current_fsm_state(state.name):
+            handler(issue)
+
+    The stamp is scoped by ``contextvars.Token`` so nested wraps restore
+    the previous value cleanly on exit.
+    """
+    token = _CURRENT_FSM_STATE.set(name)
+    try:
+        yield
+    finally:
+        _CURRENT_FSM_STATE.reset(token)
 
 
 def _make_stderr_sink(buf: list[str]):
@@ -582,6 +622,13 @@ def _run_claude_p(
         row["parent_model"] = parent_model
     if subagent_counts:
         row["subagents"] = dict(subagent_counts)
+    # Issue #1203: stamp the FSM funnel position when the dispatcher has
+    # set it. Non-FSM call sites (cmd_rescue, cmd_unblock, dup_check,
+    # audit/runner.py, cmd_misc.init) leave the contextvar unset; the
+    # key is omitted in that case, preserving pre-#1203 row shape.
+    fsm_state = _CURRENT_FSM_STATE.get()
+    if fsm_state:
+        row["fsm_state"] = fsm_state
     log_cost(row)
 
     # Post a per-target cost-attribution comment on the issue/PR the

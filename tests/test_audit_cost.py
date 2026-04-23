@@ -159,5 +159,61 @@ class TestLoadCostLogAggregation(unittest.TestCase):
             self.assertEqual(rows, [])
 
 
+class TestBuildCostSummaryFsmState(unittest.TestCase):
+    """Issue #1203: ``_build_cost_summary`` must emit a ``### By FSM state``
+    section that aggregates rows by the optional ``fsm_state`` field and
+    handles rows missing the field by bucketing them under ``(none)``."""
+
+    _RECENT_TS_A = "2099-01-01T00:00:00Z"
+    _RECENT_TS_B = "2099-01-02T00:00:00Z"
+    _RECENT_TS_C = "2099-01-03T00:00:00Z"
+
+    def _write_rows(self, path: Path, rows: list[dict]) -> None:
+        path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    def test_summary_groups_by_fsm_state_with_none_bucket(self):
+        from cai_lib.audit.cost import _build_cost_summary
+
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "cai-cost.jsonl"
+            self._write_rows(local, [
+                {"ts": self._RECENT_TS_A, "category": "refine",
+                 "cost_usd": 0.10, "fsm_state": "REFINING"},
+                {"ts": self._RECENT_TS_B, "category": "plan.plan",
+                 "cost_usd": 0.20, "fsm_state": "PLANNING"},
+                {"ts": self._RECENT_TS_C, "category": "rescue",
+                 "cost_usd": 0.05},  # no fsm_state — non-FSM call site
+            ])
+            missing_agg = Path(tmp) / "nope"
+            with (
+                mock.patch.object(_cost_module, "COST_LOG_PATH", local),
+                mock.patch.object(_cost_module, "COST_LOG_AGGREGATE_DIR", missing_agg),
+            ):
+                summary = _build_cost_summary(days=3650, top_n=3)
+
+        self.assertIn("### By FSM state", summary)
+        self.assertIn("| fsm_state | calls | total cost (share) | mean cost |",
+                      summary)
+        # The three distinct buckets must all appear.
+        self.assertIn("| REFINING | 1 |", summary)
+        self.assertIn("| PLANNING | 1 |", summary)
+        self.assertIn("| (none) | 1 |", summary)
+
+    def test_summary_empty_when_no_rows(self):
+        """Back-compat: no rows → empty string (no FSM section emitted)."""
+        from cai_lib.audit.cost import _build_cost_summary
+
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_local = Path(tmp) / "missing.jsonl"
+            missing_agg = Path(tmp) / "missing-agg"
+            with (
+                mock.patch.object(_cost_module, "COST_LOG_PATH", missing_local),
+                mock.patch.object(_cost_module, "COST_LOG_AGGREGATE_DIR", missing_agg),
+            ):
+                summary = _build_cost_summary(days=7, top_n=3)
+
+        self.assertEqual(summary, "")
+
+
 if __name__ == "__main__":
     unittest.main()
