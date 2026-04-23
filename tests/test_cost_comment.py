@@ -23,7 +23,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from claude_agent_sdk.types import AssistantMessage, ResultMessage, TextBlock
+from claude_agent_sdk.types import (
+    AssistantMessage,
+    ResultMessage,
+    TextBlock,
+    ToolUseBlock,
+)
 
 from cai_lib.config import CAI_COST_COMMENT_RE
 from cai_lib.github import _strip_cost_comments
@@ -346,6 +351,155 @@ class TestCostCommentParentModel(unittest.TestCase):
         self.assertIn("model=claude-opus-4-7", body)
         self.assertNotIn("subagent_models=", body)
         self.assertNotIn("subagent model(s)", body)
+
+
+class TestCostCommentPerModelDetail(unittest.TestCase):
+    """Per-model cost/token breakdown in the comment body."""
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_per_model_lines_rendered(self, _mock_log):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg_result = _mk_result(
+            model_usage={
+                "claude-opus-4-7": {
+                    "inputTokens": 32,
+                    "outputTokens": 8288,
+                    "cacheReadInputTokens": 1029092,
+                    "cacheCreationInputTokens": 48773,
+                    "costUSD": 1.02673725,
+                },
+                "claude-haiku-4-5-20251001": {
+                    "inputTokens": 818,
+                    "outputTokens": 16,
+                    "cacheReadInputTokens": 0,
+                    "cacheCreationInputTokens": 0,
+                    "costUSD": 0.000898,
+                },
+            },
+        )
+        msg_parent = _mk_assistant("claude-opus-4-7")
+        with patch.object(subprocess_utils, "query",
+                          _mock_query(msg_parent, msg_result)), \
+             patch("cai_lib.github._post_issue_comment",
+                   return_value=True) as mock_issue:
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-refine"],
+                category="refine",
+                agent="cai-refine",
+                target_kind="issue",
+                target_number=1188,
+            )
+        (_num, body), _kwargs = mock_issue.call_args
+        self.assertIn("`claude-opus-4-7` (parent): $1.0267", body)
+        self.assertIn("`claude-haiku-4-5-20251001` (subagent): $0.0009",
+                      body)
+        self.assertIn("in=32 / out=8288", body)
+        self.assertIn("cache_read=1029092", body)
+        # parent comes before subagent in the body
+        self.assertLess(body.index("(parent)"), body.index("(subagent)"))
+
+
+class TestCostCommentSubagentInvocations(unittest.TestCase):
+    """Task-tool invocation tracking — which subagents and how many times."""
+
+    @staticmethod
+    def _assistant_with_task(subagent_type: str | None,
+                             tool_use_id: str = "tool_1"):
+        content: list = [TextBlock(text="spawning sub")]
+        input_dict: dict = {}
+        if subagent_type is not None:
+            input_dict["subagent_type"] = subagent_type
+        content.append(ToolUseBlock(
+            id=tool_use_id, name="Task", input=input_dict,
+        ))
+        return AssistantMessage(
+            content=content,
+            model="claude-opus-4-7",
+            parent_tool_use_id=None,
+        )
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_subagent_counts_rendered(self, mock_log):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        parent1 = self._assistant_with_task("cai-dup-check", "t1")
+        parent2 = self._assistant_with_task("cai-dup-check", "t2")
+        parent3 = self._assistant_with_task("Explore", "t3")
+        msg_result = _mk_result(model_usage={"claude-opus-4-7": {}})
+        with patch.object(subprocess_utils, "query",
+                          _mock_query(parent1, parent2, parent3,
+                                      msg_result)), \
+             patch("cai_lib.github._post_issue_comment",
+                   return_value=True) as mock_issue:
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-refine"],
+                category="refine",
+                agent="cai-refine",
+                target_kind="issue",
+                target_number=1,
+            )
+        (_num, body), _kwargs = mock_issue.call_args
+        # Summary line shows invoked subagents with counts
+        self.assertIn("`Explore` ×1", body)
+        self.assertIn("`cai-dup-check` ×2", body)
+        self.assertIn("subagents invoked:", body)
+        # Marker carries the machine-parsable form
+        self.assertIn(
+            "subagents_invoked=Explore:1,cai-dup-check:2", body,
+        )
+        # The cost row logged to disk carries the same mapping
+        row = mock_log.call_args[0][0]
+        self.assertEqual(
+            row.get("subagents"), {"cai-dup-check": 2, "Explore": 1},
+        )
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_missing_subagent_type_buckets_as_general_purpose(
+        self, _mock_log,
+    ):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        parent = self._assistant_with_task(None, "t1")
+        msg_result = _mk_result(model_usage={"claude-opus-4-7": {}})
+        with patch.object(subprocess_utils, "query",
+                          _mock_query(parent, msg_result)), \
+             patch("cai_lib.github._post_issue_comment",
+                   return_value=True) as mock_issue:
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-refine"],
+                category="refine",
+                agent="cai-refine",
+                target_kind="issue",
+                target_number=1,
+            )
+        (_num, body), _kwargs = mock_issue.call_args
+        self.assertIn("`general-purpose` ×1", body)
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_no_subagent_line_when_no_task_invocations(self, _mock_log):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg_parent = _mk_assistant("claude-opus-4-7")
+        msg_result = _mk_result(model_usage={"claude-opus-4-7": {}})
+        with patch.object(subprocess_utils, "query",
+                          _mock_query(msg_parent, msg_result)), \
+             patch("cai_lib.github._post_issue_comment",
+                   return_value=True) as mock_issue:
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan",
+                agent="cai-plan",
+                target_kind="issue",
+                target_number=2,
+            )
+        (_num, body), _kwargs = mock_issue.call_args
+        self.assertNotIn("subagents invoked:", body)
+        self.assertNotIn("subagents_invoked=", body)
 
 
 if __name__ == "__main__":
