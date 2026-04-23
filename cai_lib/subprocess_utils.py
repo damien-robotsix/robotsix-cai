@@ -244,6 +244,51 @@ def _sdk_error_summary(result) -> str:
 _COST_COMMENT_MAX_CHARS = 800
 
 
+# Claude 4.x pricing ratios relative to the input-token rate. These
+# hold across Opus / Sonnet / Haiku and across 200k / 1M context
+# windows because Anthropic scales all four rates uniformly per model.
+# Used to split a known ``costUSD`` into per-category dollars without
+# having to hardcode per-model prices (which drift with new model
+# releases). The breakdown is informational — the authoritative total
+# is still ``costUSD`` as reported by the SDK.
+_TOKEN_COST_RATIOS = {
+    "input": 1.0,
+    "output": 5.0,
+    "cache_read": 0.1,
+    "cache_write": 1.25,
+}
+
+
+def _split_cost_by_category(
+    total_cost: float,
+    in_tokens: int,
+    out_tokens: int,
+    cache_read_tokens: int,
+    cache_write_tokens: int,
+) -> dict[str, float]:
+    """Split ``total_cost`` across the four token-category buckets.
+
+    Uses the fixed Claude 4.x pricing ratios (see ``_TOKEN_COST_RATIOS``).
+    Returns zeros everywhere when the weighted-token denominator is zero
+    — the only case the caller needs to guard.
+    """
+    weighted = (
+        in_tokens          * _TOKEN_COST_RATIOS["input"]
+        + out_tokens       * _TOKEN_COST_RATIOS["output"]
+        + cache_read_tokens  * _TOKEN_COST_RATIOS["cache_read"]
+        + cache_write_tokens * _TOKEN_COST_RATIOS["cache_write"]
+    )
+    if weighted <= 0 or total_cost <= 0:
+        return {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0}
+    scale = total_cost / weighted
+    return {
+        "input":       in_tokens          * _TOKEN_COST_RATIOS["input"]       * scale,
+        "output":      out_tokens         * _TOKEN_COST_RATIOS["output"]      * scale,
+        "cache_read":  cache_read_tokens  * _TOKEN_COST_RATIOS["cache_read"]  * scale,
+        "cache_write": cache_write_tokens * _TOKEN_COST_RATIOS["cache_write"] * scale,
+    }
+
+
 def _post_cost_comment(
     target_kind: str,
     target_number: int,
@@ -350,11 +395,15 @@ def _post_cost_comment(
                     mu.get("cacheCreationInputTokens") or 0
                 )
                 role = "parent" if m == primary_model else "subagent"
+                split = _split_cost_by_category(
+                    m_cost, m_in, m_out, m_cache_read, m_cache_create,
+                )
                 detail_lines.append(
                     f"- `{m}` ({role}): ${m_cost:.4f} — "
-                    f"in={m_in} / out={m_out} / "
-                    f"cache_read={m_cache_read} / "
-                    f"cache_create={m_cache_create}"
+                    f"in={m_in} (${split['input']:.4f}) / "
+                    f"out={m_out} (${split['output']:.4f}) / "
+                    f"cache_read={m_cache_read} (${split['cache_read']:.4f}) / "
+                    f"cache_create={m_cache_create} (${split['cache_write']:.4f})"
                 )
         if subagents_invoked:
             inv_parts = ", ".join(
