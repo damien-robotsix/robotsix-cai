@@ -4,30 +4,33 @@
 
 Run inside the container: `docker compose exec cai python /app/cai.py <subcommand>`
 
-Subcommands group into three categories: **pipeline drivers** (`cycle`, `dispatch`) drain the auto-improve FSM queue; **audit subcommands** (`audit-module`) file findings into the loop; **utility commands** (`cost-report`, `init`, `rescue`, `test`, `unblock`, `verify`) are operational helpers.
+Subcommands group into three categories: **pipeline drivers** (`cycle`, `dispatch`) drain the auto-improve FSM queue; **audit subcommands** (`audit`) file findings into the loop; **utility commands** (`cost-report`, `init`, `rescue`, `test`, `unblock`, `verify`) are operational helpers.
 
 ---
 
-## audit-module
+## audit
 
-Run an on-demand per-module audit. For the supplied `--kind`, the runner iterates every module declared in `docs/modules.yaml`, invokes the matching audit agent on each module in turn, and publishes each agent's `findings.json` through the existing dedup/dup-check pipeline. Each created issue carries a `<!-- module: <name> -->` body footer so future audit runs can scope dedup by module + fingerprint. Per-module failures (agent exit non-zero, missing findings file, publish failure) are logged to stderr and counted but never abort the loop.
+Run an on-demand audit. `<kind>` selects the audit type: the four per-module kinds (`good-practices`, `code-reduction`, `cost-reduction`, `workflow-enhancement`) iterate every module declared in `docs/modules.yaml`, invoke the matching audit agent on each module in turn, and publish each agent's `findings.json` through the existing dedup/dup-check pipeline — each created issue carries a `<!-- module: <name> -->` body footer so future audit runs can scope dedup by module + fingerprint. Per-module failures (agent exit non-zero, missing findings file, publish failure) are logged to stderr and counted but never abort the loop. The `health` kind instead reads `/var/log/cai/audit/*/*.jsonl` for the last 30 days and raises findings for error conditions, stale audits, cost anomalies, and degenerate zero-findings runs.
 
 ```bash
-cai audit-module --kind <kind>
+cai audit <kind>
 ```
 
-| Option | Type | Description |
+| Positional | Type | Description |
 |---|---|---|
-| `--kind` | required | Audit type. Choices: `good-practices`, `code-reduction`, `cost-reduction`, `workflow-enhancement`. |
+| `<kind>` | required | One of `good-practices`, `code-reduction`, `cost-reduction`, `workflow-enhancement`, `health`. |
 
 One example per supported kind:
 
 ```bash
-cai audit-module --kind good-practices
-cai audit-module --kind code-reduction
-cai audit-module --kind cost-reduction
-cai audit-module --kind workflow-enhancement
+cai audit good-practices
+cai audit code-reduction
+cai audit cost-reduction
+cai audit workflow-enhancement
+cai audit health
 ```
+
+The flat `cai audit-module --kind <kind>` and `cai audit-health` forms remain as hidden back-compat aliases so stale shell aliases from earlier installers keep working; new documentation and scripts should use `cai audit <kind>`.
 
 ## cost-report
 

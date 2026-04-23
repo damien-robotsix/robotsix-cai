@@ -9,8 +9,11 @@
 #   - Zero matches or 2+ matches are coverage failures.
 #
 # Per-entry authoring rules:
-#   - `name`:    kebab-case, unique across the file; used as the
-#                `--module` argument to `cai audit`.
+#   - `name`:    kebab-case, unique across the file; matched against
+#                the audit runner's internal module iteration and
+#                embedded in each published issue's
+#                `<!-- module: <name> -->` body footer. Not a CLI
+#                argument — `cai audit <kind>` iterates every module.
 #   - `summary`: single-line description surfaced to audit agents.
 #   - `doc`:     path to narrative markdown (relative to this file's
 #                directory, i.e. docs/). Files will be created in a
