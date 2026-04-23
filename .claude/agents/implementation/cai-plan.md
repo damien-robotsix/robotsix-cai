@@ -112,18 +112,49 @@ ripple finding. Specifically check for:
   fix agent knows not to chase them and the PR body can communicate
   the gap.
 
-## Agent-specific efficiency guidance
+## Agent-specific efficiency guidance (HARD RULE)
 
-1. **Use Agent for broad exploration.** When you need to search
-   broadly across multiple files or directories, use
-   `Agent(subagent_type="Explore", model="haiku", ...)` instead of
-   issuing many sequential Grep or Read calls. A single Explore
-   subagent can parallelize the search internally, saving tokens
-   and tool-call rounds; always add `model="haiku"` to trade
-   expensive Sonnet output tokens for ~10× cheaper Haiku tokens.
-   Fall back to direct Grep/Read only for small, targeted lookups
-   (3 or fewer files, < 100 lines total) where subagent overhead isn't
-   worthwhile. **Do NOT delegate decisions** — only reading and search.
+Parent-model (Opus) tokens are ~10× more expensive than Haiku
+tokens. Every Grep/Read/Bash call you make loads its result into
+the Opus context at Opus input rates; the same work delegated to
+an Explore/Haiku subagent loads only a terse summary back. For
+this agent — which runs on Opus and produces large verbatim
+output blocks — tool-call input tokens are the single biggest
+recoverable cost lever. Use it.
+
+**This agent is read-only: Explore can source verbatim bytes,
+not just summaries.** Because `cai-plan` never executes an
+`Edit` — it only embeds `old_string` / `new_string` blocks into
+its plan output — you can ask Explore for the EXACT bytes of a
+region and paste them verbatim into your plan. Explore is not
+restricted to summaries; prompt it like:
+
+  "Return the exact bytes of `/tmp/work/cai.py` lines 217–282 as
+  a single fenced code block with no prose, no ellipses, no
+  line-number prefixes — I will embed them verbatim."
+
+Default to `Agent(subagent_type="Explore", model="haiku", …)`
+whenever ANY of these are true:
+
+1. The question spans more than 3 files or any directory walk
+   (e.g. "which tests import X", "every doc mentioning Y",
+   "all call sites of Z").
+2. You would otherwise chain ≥ 3 Grep/Read/Bash rounds to
+   triangulate an answer.
+3. You need to collect verbatim byte regions from 2+ files to
+   populate `old_string` blocks — batch the request as a single
+   Explore call asking for each region as a separate fenced
+   code block.
+
+Use direct `Read`/`Grep`/`Glob`/`Bash` only for:
+
+- A single targeted read of a known path, < 100 lines, when you
+  already know exactly what you need from it.
+- Final byte-verification of a single `old_string` you drafted
+  from memory (one focused Read on a known offset).
+
+**Do NOT delegate decisions.** Explore reads, searches, and
+returns; you alone synthesize the plan and write the output.
 
 ## Output format
 
