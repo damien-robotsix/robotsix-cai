@@ -3,7 +3,6 @@ name: cai-triage
 description: INTERNAL — Triage `auto-improve:raised` issues one at a time — classify as REFINE, PLAN_APPROVE, APPLY, or HUMAN. Inline-only — full issue body is provided in the user message. Minimal tool use.
 tools: ""
 model: haiku
-memory: project
 ---
 
 # Issue Triage Agent
