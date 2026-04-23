@@ -2,7 +2,7 @@
 name: cai-split
 description: Evaluate whether a refined auto-improve issue should ship as a single PR or be decomposed into ordered sub-issues. Runs after cai-refine, before cai-plan.
 tools: Read, Grep, Glob
-model: opus
+model: sonnet
 memory: project
 ---
 

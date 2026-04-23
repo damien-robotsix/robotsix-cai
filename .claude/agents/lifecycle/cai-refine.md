@@ -1,7 +1,7 @@
 ---
 name: cai-refine
 description: Rewrite human-filed issues into structured auto-improve plans with problem, steps, verification, scope guardrails, and likely files.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, Agent
 model: opus
 memory: project
 ---
@@ -67,9 +67,14 @@ body as input, not as a reason to skip work.
 ## Process
 
 1. Read the human's issue text carefully.
-2. Use `Read`, `Grep`, and `Glob` to explore the codebase for
-   context — find the files, functions, constants, and patterns
-   that relate to what the human is asking for.
+2. **Delegate cross-file surveys to Explore/Haiku.** Whenever the
+   issue asks "where do we reference X" / "what files mention Y"
+   / "find every call site of Z", issue ONE
+   `Agent(subagent_type="Explore", model="haiku", …)` call instead
+   of running many sequential Grep/Read rounds in Opus context.
+   See **Agent-specific efficiency guidance** below for the exact
+   shape. Fall back to direct Grep/Read only for small targeted
+   lookups with a known path (≤ 3 files, ≤ 100 lines total).
 3. Consult your memory pool (see **Memory** above) and any recent
    merged PRs referenced in the codebase history. Refinement that
    repeats prior failed attempts wastes cycles — if the issue looks
@@ -79,6 +84,35 @@ body as input, not as a reason to skip work.
 5. Decide whether the refined plan is sufficient for the plan agent
    to proceed, or whether exploration is needed first (see
    **Routing decision** below).
+
+## Agent-specific efficiency guidance
+
+Parent-model (Opus) tokens are ~10× more expensive than Haiku
+tokens. Every Grep/Read/Bash call you make loads its result into
+the Opus context at Opus input rates; the same search delegated
+to an Explore/Haiku subagent loads only the subagent's terse
+summary back. This is the single biggest cost lever available to
+this agent.
+
+Default to `Agent(subagent_type="Explore", model="haiku", …)`
+whenever any of these are true:
+
+- The question spans more than 3 files or any directory walk.
+- You are looking for "all references to", "every caller of",
+  "all files that import", "every doc that mentions", or any
+  similar cross-file sweep.
+- You would otherwise chain ≥ 3 Grep/Read rounds to triangulate
+  the answer.
+
+Prompt Explore with a specific question and the return shape you
+need (e.g. "List every user-facing reference to `cai audit`
+across `README.md`, `docs/**`, `cai.py` argparse setup, and
+`install.sh` aliases, as `path:line — snippet` bullets"). Do
+NOT delegate refinement decisions — Explore only reads and
+returns; you still synthesize and decide.
+
+Use direct `Read`/`Grep`/`Glob` only for small targeted lookups
+where the path is already known AND the read is < 100 lines.
 
 ## Output format
 
