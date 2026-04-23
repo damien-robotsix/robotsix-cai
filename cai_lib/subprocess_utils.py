@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import hashlib
 import json
 import shutil
 import socket
@@ -515,14 +516,20 @@ def _run_claude_p(
       - ``.returncode`` is 1 on any exception or when ``is_error`` is
         True; 0 otherwise.
 
-    Cost rows carry exactly the same keys as the pre-SDK version (``ts``,
-    ``category``, ``agent``, ``cost_usd``, ``duration_ms``,
-    ``duration_api_ms``, ``num_turns``, ``session_id``, ``host``, ``exit``,
-    ``is_error``, the four flat token keys, and an optional ``models``
-    per-model rollup). ``subagents`` / ``parent_cost_usd`` are
-    intentionally dropped — the CLI format emits exactly one result event
-    so there is nothing to attribute, and those pre-SDK code paths were
-    dead in production (0/628 rows).
+    Cost rows carry the following keys: ``ts``, ``category``, ``agent``,
+    ``cost_usd``, ``duration_ms``, ``duration_api_ms``, ``num_turns``,
+    ``session_id``, ``host``, ``exit``, ``is_error``, the four flat token
+    keys (``input_tokens``, ``output_tokens``, ``cache_creation_input_tokens``,
+    ``cache_read_input_tokens``), and optional fields: ``models`` (per-model
+    rollup, issue #1205), ``parent_model`` (top-level agent model name),
+    ``subagents`` (subagent invocation counts, issue #1205), ``fsm_state``
+    (dispatcher funnel position, issue #1203), ``cache_hit_rate`` (pre-computed
+    aggregate hit rate, issue #1205), and ``prompt_fingerprint`` (16-char SHA256
+    hash for cache-rate regression detection, issue #1207). Rows from
+    non-handler call sites (rescue, unblock, dup-check, audit, init) typically
+    omit ``fsm_state`` and other optional fields, preserving back-compat for
+    legacy rows. ``parent_cost_usd`` is intentionally dropped — the CLI format
+    emits exactly one result event so there is nothing to attribute.
     """
     if len(cmd) < 2 or cmd[0] != "claude" or cmd[1] != "-p":
         raise ValueError("_run_claude_p requires cmd[:2] == ['claude', '-p']")
@@ -659,6 +666,14 @@ def _run_claude_p(
     fsm_state = _CURRENT_FSM_STATE.get()
     if fsm_state:
         row["fsm_state"] = fsm_state
+    # Issue #1207: stamp a short SHA256 fingerprint of the system + user
+    # prompts so cost-optimize can detect cache-rate regressions caused by
+    # prompt changes.  16 hex chars is sufficient for grouping; the actual
+    # prompt text lives in the versioned agent definition file.
+    fp_src = (
+        (options.system_prompt or "") + "\n---\n" + (prompt or "")
+    )
+    row["prompt_fingerprint"] = hashlib.sha256(fp_src.encode()).hexdigest()[:16]
     log_cost(row)
 
     # Post a per-target cost-attribution comment on the issue/PR the
