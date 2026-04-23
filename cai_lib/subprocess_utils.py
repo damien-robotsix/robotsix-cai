@@ -492,6 +492,8 @@ def _run_claude_p(
     cwd: str | None = None,
     target_kind: str | None = None,
     target_number: int | None = None,
+    extra_target_kind: str | None = None,
+    extra_target_number: int | None = None,
     **kwargs,
 ) -> subprocess.CompletedProcess:
     """Run a ``claude -p`` command via the Claude Agent SDK and record its cost.
@@ -638,8 +640,15 @@ def _run_claude_p(
     # it never pollutes downstream prompts, while remaining visible
     # to humans and audit tools that read comments via ``gh``.
     # Best-effort — ``_post_cost_comment`` swallows all exceptions.
+    #
+    # ``extra_target_kind`` / ``extra_target_number`` let a caller mirror
+    # the cost comment onto a second object — used by ``cai revise`` and
+    # ``cai merge`` to surface spend on both the PR and the linked issue
+    # (the issue is the unit humans track; the PR is the work product).
     if target_kind is not None and target_number is not None:
         _post_cost_comment(target_kind, target_number, row, agent)
+    if extra_target_kind is not None and extra_target_number is not None:
+        _post_cost_comment(extra_target_kind, extra_target_number, row, agent)
 
     # Priority: structured_output → error_max_structured_output_retries →
     # result text → last-assistant salvage.

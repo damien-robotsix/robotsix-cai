@@ -1067,6 +1067,8 @@ def handle_merge(pr: dict) -> HandlerResult:
             input=user_message,
             target_kind="pr",
             target_number=pr_number,
+            extra_target_kind="issue",
+            extra_target_number=issue_number,
         )
     finally:
         if work_dir.exists():

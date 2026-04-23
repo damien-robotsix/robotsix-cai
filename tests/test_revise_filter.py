@@ -92,21 +92,21 @@ class TestFilterCommentsWithHaiku(unittest.TestCase):
         """Human comment not covered by any resolved marker should come back."""
         run_p, claude_p = self._patch_run({"unresolved": [{"id": "0", "reason": "needs docstrings"}]})
         with run_p, claude_p:
-            result = _filter_comments_with_haiku([HUMAN_COMMENT], pr_number=42)
+            result = _filter_comments_with_haiku([HUMAN_COMMENT], pr_number=42, issue_number=100)
         self.assertEqual(result, [HUMAN_COMMENT])
 
     def test_bot_comment_not_in_unresolved(self):
         """If the haiku returns no unresolved items, the filter returns nothing."""
         run_p, claude_p = self._patch_run({"unresolved": []})
         with run_p, claude_p:
-            result = _filter_comments_with_haiku([BOT_COMMENT], pr_number=42)
+            result = _filter_comments_with_haiku([BOT_COMMENT], pr_number=42, issue_number=100)
         self.assertEqual(result, [])
 
     def test_resolved_thread_excluded(self):
         """A comment the haiku marks as resolved is excluded."""
         run_p, claude_p = self._patch_run({"unresolved": []})
         with run_p, claude_p:
-            result = _filter_comments_with_haiku([RESOLVED_THREAD], pr_number=42)
+            result = _filter_comments_with_haiku([RESOLVED_THREAD], pr_number=42, issue_number=100)
         self.assertEqual(result, [])
 
     def test_no_additional_changes_marker_covers_earlier(self):
@@ -115,7 +115,7 @@ class TestFilterCommentsWithHaiku(unittest.TestCase):
         run_p, claude_p = self._patch_run({"unresolved": []})
         with run_p, claude_p:
             result = _filter_comments_with_haiku(
-                [COVERED_COMMENT, NO_CHANGES_MARKER], pr_number=42,
+                [COVERED_COMMENT, NO_CHANGES_MARKER], pr_number=42, issue_number=100,
             )
         self.assertEqual(result, [])
 
@@ -128,7 +128,7 @@ class TestFilterCommentsWithHaiku(unittest.TestCase):
         run_p, claude_p = self._patch_run({"unresolved": []})
         with run_p, claude_p:
             result = _filter_comments_with_haiku(
-                [PREMERGE_FINDING, PREMERGE_CLEAN], pr_number=42,
+                [PREMERGE_FINDING, PREMERGE_CLEAN], pr_number=42, issue_number=100,
             )
         self.assertEqual(result, [])
 
@@ -138,7 +138,7 @@ class TestFilterCommentsWithHaiku(unittest.TestCase):
         # Haiku says only idx 0 (HUMAN_COMMENT) is unresolved.
         run_p, claude_p = self._patch_run({"unresolved": [{"id": "0", "reason": "docstrings missing"}]})
         with run_p, claude_p:
-            result = _filter_comments_with_haiku(all_comments, pr_number=42)
+            result = _filter_comments_with_haiku(all_comments, pr_number=42, issue_number=100)
         self.assertEqual(result, [HUMAN_COMMENT])
 
     def test_fallback_on_haiku_failure(self):
@@ -154,7 +154,7 @@ class TestFilterCommentsWithHaiku(unittest.TestCase):
         all_comments = [HUMAN_COMMENT, BOT_COMMENT]
         with patch("cai_lib.actions.revise._run", return_value=diff_proc):
             with patch("cai_lib.actions.revise._run_claude_p", return_value=fail_proc):
-                result = _filter_comments_with_haiku(all_comments, pr_number=42)
+                result = _filter_comments_with_haiku(all_comments, pr_number=42, issue_number=100)
 
         # BOT_COMMENT starts with "## Revise subagent:" so it is a bot comment.
         self.assertIn(HUMAN_COMMENT, result)
@@ -173,7 +173,7 @@ class TestFilterCommentsWithHaiku(unittest.TestCase):
         all_comments = [HUMAN_COMMENT, BOT_COMMENT]
         with patch("cai_lib.actions.revise._run", return_value=diff_proc):
             with patch("cai_lib.actions.revise._run_claude_p", return_value=bad_proc):
-                result = _filter_comments_with_haiku(all_comments, pr_number=42)
+                result = _filter_comments_with_haiku(all_comments, pr_number=42, issue_number=100)
 
         self.assertIn(HUMAN_COMMENT, result)
         self.assertNotIn(BOT_COMMENT, result)
@@ -181,7 +181,7 @@ class TestFilterCommentsWithHaiku(unittest.TestCase):
     def test_empty_comments_returns_empty(self):
         """Empty input yields empty output without calling the haiku."""
         with patch("cai_lib.actions.revise._run_claude_p") as mock_claude:
-            result = _filter_comments_with_haiku([], pr_number=42)
+            result = _filter_comments_with_haiku([], pr_number=42, issue_number=100)
         self.assertEqual(result, [])
         mock_claude.assert_not_called()
 
@@ -196,7 +196,7 @@ class TestFilterCommentsWithHaiku(unittest.TestCase):
             ],
         })
         with run_p, claude_p:
-            result = _filter_comments_with_haiku([c1, c2], pr_number=99)
+            result = _filter_comments_with_haiku([c1, c2], pr_number=99, issue_number=199)
         self.assertEqual(result, [c1, c2])
 
 

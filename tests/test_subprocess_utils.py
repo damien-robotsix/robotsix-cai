@@ -402,6 +402,64 @@ class TestCostCommentKwargsBackwardsCompat(unittest.TestCase):
         self.assertEqual(proc2.returncode, 0)
 
 
+class TestExtraTargetCostComment(unittest.TestCase):
+    """``cai revise`` / ``cai merge`` mirror their cost-attribution
+    comment onto the linked issue so humans scanning the issue see
+    every agent's spend, not just the PR's. ``extra_target_kind`` /
+    ``extra_target_number`` drive that second post.
+    """
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_extra_target_posts_to_both_pr_and_issue(self, _mock_log):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg = _mk_result(result="ok", total_cost_usd=0.02)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch(
+                "cai_lib.github._post_issue_comment", return_value=True,
+             ) as mock_issue_post, \
+             patch(
+                "cai_lib.github._post_pr_comment", return_value=True,
+             ) as mock_pr_post:
+            proc = _run_claude_p(
+                ["claude", "-p", "--agent", "cai-merge"],
+                category="merge", agent="cai-merge",
+                target_kind="pr", target_number=42,
+                extra_target_kind="issue", extra_target_number=99,
+            )
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(mock_pr_post.call_count, 1)
+        self.assertEqual(mock_issue_post.call_count, 1)
+        # Targets mirror the kwargs (PR #42 and issue #99).
+        pr_args, _ = mock_pr_post.call_args
+        issue_args, _ = mock_issue_post.call_args
+        self.assertEqual(pr_args[0], 42)
+        self.assertEqual(issue_args[0], 99)
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_extra_target_omitted_posts_only_to_primary(self, _mock_log):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg = _mk_result(result="ok", total_cost_usd=0.02)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch(
+                "cai_lib.github._post_issue_comment", return_value=True,
+             ) as mock_issue_post, \
+             patch(
+                "cai_lib.github._post_pr_comment", return_value=True,
+             ) as mock_pr_post:
+            proc = _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan", agent="cai-plan",
+                target_kind="issue", target_number=7,
+            )
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(mock_pr_post.call_count, 0)
+        self.assertEqual(mock_issue_post.call_count, 1)
+
+
 class TestFsmStateStamping(unittest.TestCase):
     """Issue #1203: ``_run_claude_p`` must stamp the current FSM state
     (set by the dispatcher via ``set_current_fsm_state``) onto each
