@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import socket
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -570,6 +571,7 @@ def _run_claude_p(
         "duration_api_ms": result.duration_api_ms,
         "num_turns": result.num_turns,
         "session_id": result.session_id,
+        "host": socket.gethostname(),
         "exit": returncode,
         "is_error": bool(result.is_error),
     }
