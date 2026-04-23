@@ -32,12 +32,15 @@ The user message contains:
 
 1. **Understand the issue.** Read the issue carefully. Identify
    what needs to change and why.
-2. **Consult shared memory.** Refer to the `## Shared agent memory
-   (pre-loaded)` section in the Work directory block — the shared
-   pool records cross-cutting design decisions from prior issues and
-   may already answer your question. **Do NOT attempt to read from
-   disk** — the shared memory is already included in that section.
-   Then use Grep, Glob, and Read to find the relevant files,
+2. **Consult shared memory and pre-loaded files.** Refer to the
+   `## Shared agent memory (pre-loaded)` section in the Work directory
+   block — the shared pool records cross-cutting design decisions from
+   prior issues and may already answer your question. **Do NOT attempt
+   to read from disk** — the shared memory is already included in that
+   section. Similarly, the `## Pre-loaded file contents` section (if
+   present) contains files from the issue's `### Files to change` list
+   — do not read these files from disk. Grep for symbol lookups is still
+   encouraged. Then use Grep, Glob, and Read to find the relevant files,
    functions, and code paths. Understand the current state before
    proposing changes.
 3. **Identify the minimal change set.** Determine exactly which
