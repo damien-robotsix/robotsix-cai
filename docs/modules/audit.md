@@ -19,7 +19,7 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
   `scripts/check-modules-coverage.py` and (indirectly) the
   `cai-review-docs` pipeline stage.
 - [`cai_lib/audit/runner.py`](../../cai_lib/audit/runner.py) — on-demand
-  per-module audit runner for `cai audit-module --kind <kind>` subcommand. Dispatches
+  per-module audit runner for the `cai audit <kind>` subcommand. Dispatches
   audit agents (cost-reduction, code-reduction, good-practices, workflow-enhancement)
   over all modules; loads manifests from `docs/modules.yaml`.
 - [`cai_lib/audit_logging.py`](../../cai_lib/audit_logging.py) — structured
@@ -39,7 +39,7 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
   — on-demand audit-health monitor; reads `/var/log/cai/audit/*/*.jsonl` and
   raises findings for error rows, stale audits, cost anomalies, and
   degenerate zero-findings runs. Invoked by `cmd_audit_health` via
-  `cai audit-health`.
+  `cai audit health`.
 - [`.claude/agents/audit/cai-transcript-finder.md`](../../.claude/agents/audit/cai-transcript-finder.md)
   — haiku helper that searches Claude Code session transcripts for a module-scoped query and returns ranked excerpts.
 

@@ -83,15 +83,15 @@ targeted invocation, `cai.py dispatch --issue N` and
 | `cai.py verify` | `15 * * * *` (hourly @15) | Label-state reconciliation — removes deprecated cai-managed labels from open issues, then keeps `:pr-open` / `:merged` / etc. consistent with actual GitHub state |
 | `cai.py dispatch [--issue N \| --pr N]` | _(manual/on-demand)_ | Direct entry into the FSM dispatcher for a specific issue or PR (or the oldest actionable item when no target is given) |
 | `cai.py rescue` | `30 */4 * * *` (every 4 hours at :30) | Autonomously resume `:human-needed` issues that have been waiting too long without explicit `human:solved` label. Runs Opus escalation for eligible issues to unblock stuck automations. |
-| `cai.py audit-module` | _(manual/on-demand)_ | On-demand per-module audit: takes `--kind` (one of: good-practices, code-reduction, cost-reduction, workflow-enhancement) and iterates every module in `docs/modules.yaml`, dispatching the matching on-demand audit agent for each module and publishing findings via the existing dedup/dup-check pipeline. |
-| `cai.py audit-health` | _(manual/on-demand)_ | On-demand audit-health monitor: reads `/var/log/cai/audit/*/*.jsonl` and raises findings for error conditions, stale audits, cost anomalies, and degenerate zero-findings runs. Findings are published via the existing dedup/dup-check pipeline. |
+| `cai.py audit <kind>` | _(manual/on-demand)_ | On-demand per-module audit: `<kind>` is one of `good-practices`, `code-reduction`, `cost-reduction`, `workflow-enhancement`. Iterates every module in `docs/modules.yaml`, dispatching the matching on-demand audit agent for each module and publishing findings via the existing dedup/dup-check pipeline. |
+| `cai.py audit health` | _(manual/on-demand)_ | On-demand audit-health monitor: reads `/var/log/cai/audit/*/*.jsonl` and raises findings for error conditions, stale audits, cost anomalies, and degenerate zero-findings runs. Findings are published via the existing dedup/dup-check pipeline. |
 | `cai.py verify` / `rescue` / `unblock` | _(own cron schedules; also manual/on-demand)_ | Housekeeping subcommands that are not FSM handlers. Per-state handlers (triage, refine, plan, implement, explore, confirm, maintain, review-pr, revise, review-docs, fix-ci, merge) are no longer standalone subcommands — invoke them via `cai.py dispatch`. |
 | `cai.py test` | _(manual/on-demand)_ | Runs the project test suite (`python -m unittest discover` under `tests/`) |
 
 On `docker compose up -d` the entrypoint templates the crontab from
 the env vars (`CAI_CYCLE_SCHEDULE`, `CAI_VERIFY_SCHEDULE`, `CAI_RESCUE_SCHEDULE`),
 runs `cai.py cycle` once synchronously so the issue-solving pipeline
-produces immediate logs, then execs supercronic. The `audit-module`
+produces immediate logs, then execs supercronic. The `audit`
 subcommand is available on-demand for per-module audits but does not
 run on a scheduled cron — admins invoke it manually as needed.
 
@@ -105,23 +105,21 @@ details.
 
 ### Running an audit
 
-Three complementary audit entry points feed into the same auto-improve
-loop. `cai audit` runs the periodic queue/PR consistency audit
-(stale-lock rollback, orphaned-branch cleanup, plus an Opus-driven
-sweep for duplicates and stuck loops). `cai audit-module --kind <kind>`
-iterates every module declared in `docs/modules.yaml`, dispatches
-the matching on-demand audit agent per module, and publishes
-findings through the existing dedup/dup-check pipeline. `cai audit-health`
-monitors the structured audit logs for errors, stale audits, cost anomalies,
-and degenerate runs.
+All audit entry points are subcommands of `cai audit <kind>`. The four
+per-module kinds (`good-practices`, `code-reduction`, `cost-reduction`,
+`workflow-enhancement`) iterate every module declared in `docs/modules.yaml`,
+dispatch the matching on-demand audit agent per module, and publish
+findings through the existing dedup/dup-check pipeline. The `health`
+kind runs the audit-health monitor instead, reading the structured
+audit logs for errors, stale audits, cost anomalies, and degenerate
+runs.
 
 ```bash
-cai audit
-cai audit-module --kind good-practices
-cai audit-module --kind code-reduction
-cai audit-module --kind cost-reduction
-cai audit-module --kind workflow-enhancement
-cai audit-health
+cai audit good-practices
+cai audit code-reduction
+cai audit cost-reduction
+cai audit workflow-enhancement
+cai audit health
 ```
 
 See [`docs/cli.md`](docs/cli.md#audit) for the full reference,
@@ -436,8 +434,8 @@ docker compose exec cai python /app/cai.py dispatch             # oldest actiona
 docker compose exec cai python /app/cai.py dispatch --issue 12  # specific issue
 docker compose exec cai python /app/cai.py dispatch --pr 45     # specific PR
 docker compose exec cai python /app/cai.py verify
-docker compose exec cai python /app/cai.py audit
-docker compose exec cai python /app/cai.py audit-module --kind good-practices
+docker compose exec cai python /app/cai.py audit good-practices
+docker compose exec cai python /app/cai.py audit health
 ```
 
 A short alias makes this trivial:
@@ -447,7 +445,7 @@ alias cai='docker compose -f ~/robotsix-cai/docker-compose.yml exec cai python /
 cai dispatch --issue 12
 cai dispatch --pr 45
 cai verify
-cai audit
+cai audit good-practices
 ```
 
 See the [tracking issue](https://github.com/damien-robotsix/robotsix-cai/issues/1)
@@ -692,7 +690,7 @@ docker run --rm -v cai_home:/data alpine ls -R /data
 
 A **run log** is written to `/var/log/cai/cai.log` inside the container
 (persisted in the `cai_logs` named volume). Each `init`, `dispatch`,
-`verify`, `audit`, `audit-module`, `confirm`, `merge`, `review-pr`,
+`verify`, `audit`, `confirm`, `merge`, `review-pr`,
 `review-docs`, and `revise` invocation appends one key=value line so you can
 watch cycle activity:
 

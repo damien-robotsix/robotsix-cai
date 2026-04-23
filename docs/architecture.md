@@ -33,7 +33,7 @@ Terminal / parked states (`SOLVED`, `HUMAN_NEEDED`, `PR_HUMAN_NEEDED`, PR `MERGE
 
 Multi-step sequences (titled `[#N Step X/Y]`) are processed sequentially; Step N+1 is deferred if Step N is still open.
 
-Issues enter the pipeline when a human files an issue labeled `auto-improve:raised`, or when the `cai audit` or `cai audit-module` subcommands publish findings through the existing dedup/dup-check pipeline. Low-confidence planner outcomes park at `:human-needed`; the admin resolves the issue in comments, applies the `human:solved` label, which `cai unblock` picks up to resume the FSM, and optionally proposes plan amendments that are merged into the stored plan. Issues parked at `:human-needed` without admin intervention can optionally be autonomously resumed via `cai rescue` when the divert is mechanically resolvable (e.g., transient infrastructure failures, parser glitches).
+Issues enter the pipeline when a human files an issue labeled `auto-improve:raised`, or when the `cai audit <kind>` subcommand publishes findings through the existing dedup/dup-check pipeline. Low-confidence planner outcomes park at `:human-needed`; the admin resolves the issue in comments, applies the `human:solved` label, which `cai unblock` picks up to resume the FSM, and optionally proposes plan amendments that are merged into the stored plan. Issues parked at `:human-needed` without admin intervention can optionally be autonomously resumed via `cai rescue` when the divert is mechanically resolvable (e.g., transient infrastructure failures, parser glitches).
 
 ## Lifecycle Labels
 
