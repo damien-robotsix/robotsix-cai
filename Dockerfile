@@ -34,6 +34,7 @@ RUN apt-get update \
         wget \
         gnupg \
         git \
+        jq \
         rsync \
         openssh-client \
     && mkdir -p -m 755 /etc/apt/keyrings \
