@@ -34,6 +34,7 @@ from cai_lib.config import REPO
 from cai_lib.dispatcher import HandlerResult
 from cai_lib.subprocess_utils import _run, _run_claude_p
 from cai_lib.cmd_helpers import _git, _gh_user_identity, _work_directory_block
+from cai_lib.github import _fetch_linked_issue_block
 from cai_lib.logging_utils import log_run
 
 
@@ -159,8 +160,9 @@ def handle_rebase(pr: dict) -> HandlerResult:
 
         # Conflicts exist (or rebase aborted). Hand to cai-rebase agent.
         conflict_files = _rebase_conflict_files(work_dir)
+        _linked_issue_block = _fetch_linked_issue_block(pr.get("body", ""))
         user_message = (
-            _work_directory_block(work_dir)
+            _work_directory_block(work_dir, _linked_issue_block)
             + "\n"
             + "## Rebase conflict\n\n"
             + f"PR #{pr_number} (`{branch}`) cannot be merged onto `origin/main` "

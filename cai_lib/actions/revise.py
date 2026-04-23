@@ -734,7 +734,7 @@ def handle_revise(pr: dict) -> HandlerResult:
             _issue_body = _extract_revise_context(_issue_body_raw)
 
             user_message = (
-                _work_directory_block(work_dir)
+                _work_directory_block(work_dir, issue_data.get("body") or "")
                 + "\n"
                 + f"{rebase_state_block}\n"
                 + "## Original issue\n\n"

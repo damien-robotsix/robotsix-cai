@@ -6,6 +6,8 @@ import sys
 
 from pathlib import Path
 
+from cai_lib.cmd_helpers_issues import _parse_files_to_change
+
 
 def _read_shared_memory() -> str:
     """Read all shared agent memory files and return them as a formatted
@@ -62,7 +64,87 @@ def _git(work_dir: Path, *args: str, check: bool = True) -> subprocess.Completed
     return subprocess.run(cmd, text=True, check=check, capture_output=True)
 
 
-def _work_directory_block(work_dir: Path) -> str:
+def _read_prefetched_files(
+    work_dir: Path,
+    paths: list[str],
+    per_file_token_cap: int = 15000,
+    total_token_cap: int = 40000,
+) -> str:
+    """Read a list of relative *paths* from *work_dir* and return them
+    formatted as a ``## Pre-loaded file contents`` section.
+
+    Each file is wrapped in a fenced code block preceded by a
+    ``### <relpath>`` heading.  Files are skipped when:
+
+    - the path does not exist under *work_dir* (logged as "missing");
+    - the estimated token count (``len(text) // 4``) exceeds
+      *per_file_token_cap* (logged as "too large");
+    - the accumulated total would exceed *total_token_cap* (logged as
+      "total cap exceeded"; stops accumulation early).
+
+    Returns an empty string when *paths* is empty or no file qualifies.
+    All skip events are emitted as ``[cai refine-preload]`` lines on
+    stderr so pipeline operators can inspect the behavior.
+    """
+    if not paths:
+        return ""
+
+    parts: list[str] = []
+    total_tokens = 0
+
+    for rel in paths:
+        target = work_dir / rel
+        if not target.is_file():
+            print(
+                f"[cai refine-preload] skipping {rel}: missing",
+                file=sys.stderr,
+            )
+            continue
+
+        try:
+            text = target.read_text(errors="replace")
+        except OSError as exc:
+            print(
+                f"[cai refine-preload] skipping {rel}: read error: {exc}",
+                file=sys.stderr,
+            )
+            continue
+
+        file_tokens = len(text) // 4
+        if file_tokens > per_file_token_cap:
+            print(
+                f"[cai refine-preload] skipping {rel}: too large "
+                f"(~{file_tokens} tokens > {per_file_token_cap} cap)",
+                file=sys.stderr,
+            )
+            continue
+
+        if total_tokens + file_tokens > total_token_cap:
+            print(
+                f"[cai refine-preload] skipping {rel}: total cap exceeded "
+                f"(accumulated ~{total_tokens} tokens, cap {total_token_cap})",
+                file=sys.stderr,
+            )
+            continue
+
+        total_tokens += file_tokens
+        parts.append(f"### {rel}\n\n```\n{text}\n```")
+
+    if not parts:
+        return ""
+
+    return (
+        "\n\n## Pre-loaded file contents\n\n"
+        "The following files were pre-loaded from the `### Files to change` "
+        "section of the linked issue. **Do NOT attempt to read these files "
+        "from disk — they are already included below.** Grep for symbol "
+        "lookups is still encouraged.\n\n"
+        + "\n\n".join(parts)
+        + "\n"
+    )
+
+
+def _work_directory_block(work_dir: Path, issue_body: str | None = None) -> str:
     """Return the standard "## Work directory" user-message section
     that informs a cloned-worktree subagent where its actual work
     happens, and how to update protected `.claude/agents/*.md`
@@ -227,7 +309,11 @@ def _work_directory_block(work_dir: Path) -> str:
         "\"<full new file content>\")`\n"
         f"  - BAD:  `Edit(\"{work_dir}/CLAUDE.md\", ...)`  "
         "(blocked by claude-code)\n"
-    ) + _read_shared_memory()
+    ) + _read_shared_memory() + (
+        _read_prefetched_files(work_dir, _parse_files_to_change(issue_body))
+        if issue_body
+        else ""
+    )
 
 
 def _setup_agent_edit_staging(work_dir: Path) -> Path:

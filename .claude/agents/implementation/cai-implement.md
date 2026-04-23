@@ -148,6 +148,11 @@ persisted after other issues were solved and its entries override your
 per-agent notes when they conflict. **Do NOT attempt to read from
 disk** — the shared memory is already included in that section.
 
+Similarly, the `## Pre-loaded file contents` section (if present) contains
+files from the issue's `### Files to change` list — **do not read these
+files from disk.** They are already included in the Work directory block.
+Grep for symbol lookups is still encouraged.
+
 If the issue you're working on overlaps with something in your
 memory — e.g., the issue is asking you to do something your memory
 says was already considered and rejected — do not make the change.
