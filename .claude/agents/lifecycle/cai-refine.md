@@ -177,8 +177,8 @@ decide") and still refine the full scope.
   planner.
 - **Check runtime data flow before guardrailing a file.** Before
   writing a `do not touch X` guardrail, trace where the feature's
-  output goes. Concrete example from issue #902: the new `cai audit-module
-  --kind <kind>` runner emits findings that flow through
+  output goes. Concrete example from issue #902: the `cai audit <kind>`
+  runner emits findings that flow through
   `cai_lib/publish.py`'s `AUDIT_CATEGORIES` filter. Forbidding
   `publish.py` in Scope guardrails while shipping the runner makes
   every finding silently rejected at publish time — the feature

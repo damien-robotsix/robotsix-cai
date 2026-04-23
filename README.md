@@ -690,7 +690,7 @@ docker run --rm -v cai_home:/data alpine ls -R /data
 
 A **run log** is written to `/var/log/cai/cai.log` inside the container
 (persisted in the `cai_logs` named volume). Each `init`, `dispatch`,
-`verify`, `audit`, `audit-module`, `confirm`, `merge`, `review-pr`,
+`verify`, `audit`, `confirm`, `merge`, `review-pr`,
 `review-docs`, and `revise` invocation appends one key=value line so you can
 watch cycle activity:
 
