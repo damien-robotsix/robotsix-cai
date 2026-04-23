@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import hashlib
 import json
 import shutil
 import socket
@@ -659,6 +660,14 @@ def _run_claude_p(
     fsm_state = _CURRENT_FSM_STATE.get()
     if fsm_state:
         row["fsm_state"] = fsm_state
+    # Issue #1207: stamp a short SHA256 fingerprint of the system + user
+    # prompts so cost-optimize can detect cache-rate regressions caused by
+    # prompt changes.  16 hex chars is sufficient for grouping; the actual
+    # prompt text lives in the versioned agent definition file.
+    fp_src = (
+        (options.system_prompt or "") + "\n---\n" + (prompt or "")
+    )
+    row["prompt_fingerprint"] = hashlib.sha256(fp_src.encode()).hexdigest()[:16]
     log_cost(row)
 
     # Post a per-target cost-attribution comment on the issue/PR the
