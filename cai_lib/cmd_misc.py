@@ -304,6 +304,8 @@ def cmd_cost_report(args) -> int:
     grand_total = 0.0
     grand_in = 0
     grand_out = 0
+    grand_cr = 0
+    grand_cc = 0
     for r in rows:
         key = group_key(r)
         try:
@@ -312,16 +314,26 @@ def cmd_cost_report(args) -> int:
             cost = 0.0
         in_t = int(r.get("input_tokens") or 0)
         out_t = int(r.get("output_tokens") or 0)
+        # Issue #1205: sum the cache-read / cache-creation token fields
+        # per group so we can render a weighted hit% column without
+        # re-deriving it from individual rows.
+        cr_t = int(r.get("cache_read_input_tokens") or 0)
+        cc_t = int(r.get("cache_creation_input_tokens") or 0)
         bucket = groups.setdefault(
-            key, {"calls": 0, "cost": 0.0, "in": 0, "out": 0},
+            key, {"calls": 0, "cost": 0.0, "in": 0, "out": 0,
+                  "cr": 0, "cc": 0},
         )
         bucket["calls"] += 1
         bucket["cost"] += cost
         bucket["in"] += in_t
         bucket["out"] += out_t
+        bucket["cr"] += cr_t
+        bucket["cc"] += cc_t
         grand_total += cost
         grand_in += in_t
         grand_out += out_t
+        grand_cr += cr_t
+        grand_cc += cc_t
 
     # Header.
     print(
@@ -337,22 +349,34 @@ def cmd_cost_report(args) -> int:
     key_width = max(key_width, 12)
     header = (
         f"{args.by:<{key_width}}  {'calls':>6}  {'cost':>10}  "
-        f"{'share':>7}  {'mean':>10}  {'in_tok':>10}  {'out_tok':>10}"
+        f"{'share':>7}  {'mean':>10}  {'in_tok':>10}  {'out_tok':>10}  "
+        f"{'hit%':>6}"
     )
     print(header)
     print("-" * len(header))
     for key, b in sorted_groups:
         share = (b["cost"] / grand_total * 100.0) if grand_total else 0.0
         mean = b["cost"] / b["calls"] if b["calls"] else 0.0
+        # Issue #1205: weighted hit% over the group's summed cache-read,
+        # cache-creation and input tokens. Prints ``-`` when no cache or
+        # input tokens were observed (avoids a misleading 0.0% for
+        # groups that never touched the cache path).
+        denom = b["cr"] + b["cc"] + b["in"]
+        hit_str = f"{b['cr'] / denom * 100:.1f}%" if denom else "-"
         print(
             f"{key:<{key_width}}  {b['calls']:>6}  ${b['cost']:>9.4f}  "
-            f"{share:>6.1f}%  ${mean:>9.4f}  {b['in']:>10}  {b['out']:>10}"
+            f"{share:>6.1f}%  ${mean:>9.4f}  {b['in']:>10}  {b['out']:>10}  "
+            f"{hit_str:>6}"
         )
+    grand_denom = grand_cr + grand_cc + grand_in
+    grand_hit_str = (
+        f"{grand_cr / grand_denom * 100:.1f}%" if grand_denom else "-"
+    )
     print(
         f"{'TOTAL':<{key_width}}  {len(rows):>6}  ${grand_total:>9.4f}  "
         f"{100.0:>6.1f}%  "
         f"${(grand_total / len(rows) if rows else 0):>9.4f}  "
-        f"{grand_in:>10}  {grand_out:>10}"
+        f"{grand_in:>10}  {grand_out:>10}  {grand_hit_str:>6}"
     )
 
     # Top-N most expensive invocations.
@@ -364,7 +388,8 @@ def cmd_cost_report(args) -> int:
     print(f"\n--- Top {len(top)} most expensive invocations ---\n")
     top_header = (
         f"{'ts':<20}  {'category':<14}  {'agent':<20}  "
-        f"{'cost':>10}  {'turns':>5}  {'in_tok':>10}  {'out_tok':>10}"
+        f"{'cost':>10}  {'turns':>5}  {'in_tok':>10}  {'out_tok':>10}  "
+        f"{'hit%':>6}"
     )
     print(top_header)
     print("-" * len(top_header))
@@ -379,9 +404,16 @@ def cmd_cost_report(args) -> int:
         turns = r.get("num_turns") or 0
         in_t = int(r.get("input_tokens") or 0)
         out_t = int(r.get("output_tokens") or 0)
+        # Issue #1205: cite the pre-computed ``cache_hit_rate`` field
+        # written by ``_run_claude_p``. Rows predating the change omit
+        # the field and render as ``-``.
+        hit = r.get("cache_hit_rate")
+        hit_str = (
+            f"{hit * 100:.1f}%" if isinstance(hit, (int, float)) else "-"
+        )
         print(
             f"{ts:<20}  {cat:<14}  {ag:<20}  ${cost:>9.4f}  "
-            f"{turns:>5}  {in_t:>10}  {out_t:>10}"
+            f"{turns:>5}  {in_t:>10}  {out_t:>10}  {hit_str:>6}"
         )
 
     # Last-hour snapshot — cost per agent. Useful for spotting a

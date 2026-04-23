@@ -616,7 +616,35 @@ def _run_claude_p(
         "is_error": bool(result.is_error),
     }
     row.update(flat)
+    # Issue #1205: pre-compute aggregate cache hit rate once at write
+    # time so every downstream reader (cost-report, cost-optimize, the
+    # audit/cost.py summary) cites a single authoritative number instead
+    # of re-deriving it (and getting the formula subtly wrong — e.g.
+    # forgetting ``cache_creation_input_tokens`` or including
+    # ``output_tokens`` in the denominator). Rows whose denominator is
+    # zero (no cache tokens and no input tokens observed) omit the
+    # field entirely so legacy/empty-usage rows stay byte-identical to
+    # the pre-#1205 shape.
+    cr = flat.get("cache_read_input_tokens") or 0
+    cc = flat.get("cache_creation_input_tokens") or 0
+    it = flat.get("input_tokens") or 0
+    denom = cr + cc + it
+    if denom > 0:
+        row["cache_hit_rate"] = round(cr / denom, 4)
     if models:
+        # Per-model hit rate using the camelCase keys the SDK emits
+        # inside ``model_usage``. Mutates ``models`` in place; skips
+        # entries whose denominator is zero (same omission rule as the
+        # aggregate field). A non-dict ``mu`` is defensively ignored.
+        for _m, mu in models.items():
+            if not isinstance(mu, dict):
+                continue
+            m_cr = mu.get("cacheReadInputTokens") or 0
+            m_cc = mu.get("cacheCreationInputTokens") or 0
+            m_it = mu.get("inputTokens") or 0
+            m_denom = m_cr + m_cc + m_it
+            if m_denom > 0:
+                mu["cacheHitRate"] = round(m_cr / m_denom, 4)
         row["models"] = models
     if parent_model:
         row["parent_model"] = parent_model
