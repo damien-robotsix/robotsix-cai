@@ -207,8 +207,7 @@ If you emit a Multi-Step Decomposition block, these apply:
   `docs/**` may be injected by the `cai-review-docs` pipeline
   stage regardless of the implementer's plan.
 - **Never list a file under both "Files to change" and "Scope
-  guardrails"** — the refine agent's contradiction lint applies
-  to each step you emit.
+  guardrails"** — it contradicts the step's own scope.
 - **Keep step descriptions tight.** The fix agent reads each
   step as context; a wall of text is counterproductive.
 - **Each step's Files to change list must be non-empty.** If a
