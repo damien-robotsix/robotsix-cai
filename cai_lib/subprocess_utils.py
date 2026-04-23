@@ -475,7 +475,7 @@ def _run_claude_p(
 
     Cost rows carry exactly the same keys as the pre-SDK version (``ts``,
     ``category``, ``agent``, ``cost_usd``, ``duration_ms``,
-    ``duration_api_ms``, ``num_turns``, ``session_id``, ``exit``,
+    ``duration_api_ms``, ``num_turns``, ``session_id``, ``host``, ``exit``,
     ``is_error``, the four flat token keys, and an optional ``models``
     per-model rollup). ``subagents`` / ``parent_cost_usd`` are
     intentionally dropped — the CLI format emits exactly one result event
