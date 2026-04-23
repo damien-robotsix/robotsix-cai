@@ -395,10 +395,73 @@ class TestCostCommentPerModelDetail(unittest.TestCase):
         self.assertIn("`claude-opus-4-7` (parent): $1.0267", body)
         self.assertIn("`claude-haiku-4-5-20251001` (subagent): $0.0009",
                       body)
-        self.assertIn("in=32 / out=8288", body)
+        self.assertIn("in=32 ", body)
+        self.assertIn("out=8288 ", body)
         self.assertIn("cache_read=1029092", body)
         # parent comes before subagent in the body
         self.assertLess(body.index("(parent)"), body.index("(subagent)"))
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_per_category_cost_split_rendered(self, _mock_log):
+        """Each per-model line carries an inline $X.XXXX split for
+        each of in / out / cache_read / cache_create, derived from
+        the fixed Claude 4.x pricing ratios."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        # Canonical #1191-plan figures: in=34, out=34394,
+        # cache_read=3_267_345, cache_create=127_540, total=$3.2908.
+        # Expected split via ratios 1:5:0.1:1.25:
+        #   weighted = 34 + 5*34394 + 0.1*3267345 + 1.25*127540
+        #            = 658163.5
+        #   scale    = 3.2908 / 658163.5 ≈ 5.0e-6
+        #   in_cost       ≈ $0.0002
+        #   out_cost      ≈ $0.8599
+        #   cache_read    ≈ $1.6337
+        #   cache_write   ≈ $0.7971
+        msg_result = _mk_result(
+            model_usage={
+                "claude-opus-4-7": {
+                    "inputTokens": 34,
+                    "outputTokens": 34394,
+                    "cacheReadInputTokens": 3267345,
+                    "cacheCreationInputTokens": 127540,
+                    "costUSD": 3.2908,
+                },
+            },
+        )
+        msg_parent = _mk_assistant("claude-opus-4-7")
+        with patch.object(subprocess_utils, "query",
+                          _mock_query(msg_parent, msg_result)), \
+             patch("cai_lib.github._post_issue_comment",
+                   return_value=True) as mock_issue:
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan",
+                agent="cai-plan",
+                target_kind="issue",
+                target_number=1191,
+            )
+        (_num, body), _kwargs = mock_issue.call_args
+        # Tokens kept verbatim, dollar splits from the 1:5:0.1:1.25
+        # ratios. The four splits must sum to the total $3.2908.
+        self.assertIn("in=34 ($0.0002)", body)
+        self.assertIn("out=34394 ($0.8598)", body)
+        self.assertIn("cache_read=3267345 ($1.6337)", body)
+        self.assertIn("cache_create=127540 ($0.7971)", body)
+
+    def test_split_cost_by_category_zero_tokens(self):
+        """Zero tokens yields zero split, no DivisionByZero."""
+        from cai_lib.subprocess_utils import _split_cost_by_category
+
+        self.assertEqual(
+            _split_cost_by_category(0.0, 0, 0, 0, 0),
+            {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0},
+        )
+        self.assertEqual(
+            _split_cost_by_category(1.0, 0, 0, 0, 0),
+            {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0},
+        )
 
 
 class TestCostCommentSubagentInvocations(unittest.TestCase):
