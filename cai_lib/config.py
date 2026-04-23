@@ -254,7 +254,16 @@ CAI_LOCK_COMMENT_RE = re.compile(
 # human-readable summary. Matched by ``_strip_cost_comments`` so the
 # marker bodies never feed back into agent prompts while remaining
 # visible to humans and audit tools that read comments via ``gh``.
-CAI_COST_COMMENT_RE = re.compile(r"<!--\s*cai-cost\s+.*?-->", re.DOTALL)
+#
+# Two marker shapes share this regex:
+#   * ``<!-- cai-cost ... -->`` — per-invocation marker emitted by
+#     ``_post_cost_comment`` after every ``_run_claude_p`` call.
+#   * ``<!-- cai-cost-final ... -->`` — close-time roll-up marker
+#     emitted by ``cai_lib.cost_summary.post_final_cost_summary``
+#     from the merged-path branch of ``cai_lib.actions.merge``.
+# Both must be stripped from agent-input comment streams so they
+# never leak back into downstream prompts.
+CAI_COST_COMMENT_RE = re.compile(r"<!--\s*cai-cost(?:-final)?\s+.*?-->", re.DOTALL)
 
 BLOCKED_ON_LABEL_RE = re.compile(r"^blocked-on:(\d+)$")
 

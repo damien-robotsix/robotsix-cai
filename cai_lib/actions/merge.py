@@ -1219,6 +1219,20 @@ def handle_merge(pr: dict) -> HandlerResult:
                 f"[cai merge] PR #{pr_number}: merged successfully",
                 flush=True,
             )
+            # Best-effort close-time cost-summary comment (issue #1198).
+            # Posts a <!-- cai-cost-final ... --> roll-up on the linked
+            # issue aggregating every per-invocation cost row tagged
+            # against the issue or this PR. Any failure here must NOT
+            # change the merge handler's return value.
+            try:
+                from cai_lib.cost_summary import post_final_cost_summary
+                post_final_cost_summary(issue_number, pr_number)
+            except Exception as exc:  # noqa: BLE001 — best-effort
+                print(
+                    f"[cai merge] final cost summary failed for "
+                    f"#{issue_number} / PR #{pr_number}: {exc}",
+                    file=sys.stderr, flush=True,
+                )
             if not _set_labels(
                 issue_number,
                 add=[LABEL_MERGED],
