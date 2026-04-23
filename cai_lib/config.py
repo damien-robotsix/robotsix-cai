@@ -275,6 +275,19 @@ COST_LOG_PATH = Path("/var/log/cai/cai-cost.jsonl")
 COST_LOG_AGGREGATE_DIR = Path("/var/log/cai/cost-aggregate")
 REVIEW_PR_PATTERN_LOG = Path("/var/log/cai/review-pr-patterns.jsonl")
 OUTCOME_LOG_PATH = Path("/var/log/cai/cai-outcomes.jsonl")
+# Per-workflow audit log directory.  One sub-directory per audit kind,
+# one JSONL file per (kind, module) pair:
+#   /var/log/cai/audit/code-reduction/actions.jsonl
+AUDIT_LOG_DIR = Path("/var/log/cai/audit")
+
+
+def audit_log_path(kind: str, module: str) -> Path:
+    """Return the append-only audit log path for a (kind, module) pair.
+
+    Example: audit_log_path("code-reduction", "actions")
+      → /var/log/cai/audit/code-reduction/actions.jsonl
+    """
+    return AUDIT_LOG_DIR / kind / f"{module}.jsonl"
 
 
 # ---------------------------------------------------------------------------

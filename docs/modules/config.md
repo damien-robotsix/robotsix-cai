@@ -9,10 +9,12 @@ every handler and `cmd_*` function; changes here ripple everywhere.
 - [`cai_lib/config.py`](../../cai_lib/config.py) — repo-wide
   constants: `REPO`, label names (`LABEL_HUMAN_SOLVED`,
   `LABEL_PARENT`, `LABEL_*`), log paths (`LOG_PATH`,
-  `COST_LOG_PATH`, `OUTCOME_LOG_PATH`), worktree/base directories.
-  Helpers `_repo_slug(repo)`, `_resolve_machine_id()`,
+  `COST_LOG_PATH`, `OUTCOME_LOG_PATH`, `AUDIT_LOG_DIR`), worktree/base
+  directories. Helpers `_repo_slug(repo)`, `_resolve_machine_id()`,
   `_resolve_instance_id()`, `transcript_sync_enabled()`,
-  `is_admin_login(login)`.
+  `is_admin_login(login)`, `audit_log_path(kind, module)`.
+  `AUDIT_LOG_DIR` is `/var/log/cai/audit` — see `docs/modules/audit.md`
+  for the per-workflow structured log format.
 - [`cai_lib/logging_utils.py`](../../cai_lib/logging_utils.py) —
   `log_run(category, **fields)` appends a structured row to
   `LOG_PATH`; `log_cost(row)` writes cost events;

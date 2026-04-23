@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "PyYAML>=6",
     "claude-agent-sdk>=0.1.63",
+    "structlog>=24.0",
     "transitions>=0.9.3",
 ]
 

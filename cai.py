@@ -46,6 +46,13 @@ Subcommands:
                             findings through the existing dedup/dup-check
                             pipeline.
 
+    python cai.py audit-health  On-demand audit-health monitor: reads
+                            /var/log/cai/audit/*/*.jsonl and raises
+                            findings for error conditions, stale audits,
+                            cost anomalies, and degenerate zero-findings
+                            runs. Findings are published via the existing
+                            dedup/dup-check pipeline.
+
     python cai.py revise    Watch `:pr-open` PRs for new comments and
                             let the implement subagent iterate on the same
                             branch. Force-pushes revisions with
@@ -196,7 +203,7 @@ from cai_lib.cmd_rescue import cmd_rescue  # noqa: E402
 from cai_lib.cmd_misc import (  # noqa: E402
     cmd_init, cmd_verify, cmd_test, cmd_cost_report,
 )
-from cai_lib.cmd_agents import cmd_audit_module  # noqa: E402
+from cai_lib.cmd_agents import cmd_audit_module, cmd_audit_health  # noqa: E402
 from cai_lib.cmd_cycle import cmd_cycle, cmd_dispatch  # noqa: E402
 from cai_lib.transcript_sync import cmd_transcript_sync  # noqa: E402
 
@@ -232,6 +239,14 @@ def main() -> int:
         required=True,
         choices=["good-practices", "code-reduction", "cost-reduction", "workflow-enhancement"],
         help="Per-module audit kind to dispatch",
+    )
+    sub.add_parser(
+        "audit-health",
+        help=(
+            "Run the audit-health agent: reads /var/log/cai/audit/*/*.jsonl "
+            "for the last 30 days and raises findings for error conditions, "
+            "stale audits, cost anomalies, and degenerate zero-findings runs."
+        ),
     )
     sub.add_parser(
         "unblock",
@@ -287,6 +302,7 @@ def main() -> int:
         "dispatch": cmd_dispatch,
         "verify": cmd_verify,
         "audit-module": cmd_audit_module,
+        "audit-health": cmd_audit_health,
         "unblock": cmd_unblock,
         "rescue": cmd_rescue,
         "cycle": cmd_cycle,

@@ -50,6 +50,7 @@ modules:
     summary: Audit subsystem — on-demand per-module code, cost, workflow, and external-library auditors plus the transcript-finder helper.
     globs:
       - "cai_lib/audit/*.py"
+      - "cai_lib/audit_logging.py"
       - ".claude/agents/audit/*.md"
     doc: "docs/modules/audit.md"
 

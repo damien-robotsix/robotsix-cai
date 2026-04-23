@@ -22,6 +22,10 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
   per-module audit runner for `cai audit-module --kind <kind>` subcommand. Dispatches
   audit agents (cost-reduction, code-reduction, good-practices, workflow-enhancement)
   over all modules; loads manifests from `docs/modules.yaml`.
+- [`cai_lib/audit_logging.py`](../../cai_lib/audit_logging.py) — structured
+  audit logging helpers (`audit_log_start`, `audit_log_finish`). Writes one
+  JSONL file per `(kind, module)` pair under `/var/log/cai/audit/<kind>/<module>.jsonl`;
+  consumed by `cai-audit-audit-health` via `cmd_audit_health`.
 - [`cai_lib/audit/__init__.py`](../../cai_lib/audit/__init__.py) —
   package init.
 - [`.claude/agents/audit/cai-audit-code-reduction.md`](../../.claude/agents/audit/cai-audit-code-reduction.md),
@@ -31,6 +35,11 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
   [`cai-audit-workflow-enhancement.md`](../../.claude/agents/audit/cai-audit-workflow-enhancement.md)
   — on-demand per-module audits (code shrink, spend, external
   libraries, best practices, workflow).
+- [`.claude/agents/audit/cai-audit-audit-health.md`](../../.claude/agents/audit/cai-audit-audit-health.md)
+  — on-demand audit-health monitor; reads `/var/log/cai/audit/*/*.jsonl` and
+  raises findings for error rows, stale audits, cost anomalies, and
+  degenerate zero-findings runs. Invoked by `cmd_audit_health` via
+  `cai audit-health`.
 - [`.claude/agents/audit/cai-transcript-finder.md`](../../.claude/agents/audit/cai-transcript-finder.md)
   — haiku helper that searches Claude Code session transcripts for a module-scoped query and returns ranked excerpts.
 
@@ -53,6 +62,21 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
   to `findings.json`.
 
 ## Operational notes
+- **Audit log path convention.** `cai_lib/audit/runner.py` writes one
+  structured JSONL file per `(kind, module)` pair under
+  `/var/log/cai/audit/<kind>/<module>.jsonl` (e.g.
+  `/var/log/cai/audit/code-reduction/actions.jsonl`). Each line is a
+  JSON object with keys `ts`, `level`, `kind`, `module`, `agent`,
+  `session_id`, `event` (`start` / `finish` / `error`), `message`,
+  `cost_usd`, `duration_ms`, `num_turns`, `tokens`, `findings_count`,
+  `exit_code`, and `error_class`. The path root is `AUDIT_LOG_DIR` in
+  `cai_lib/config.py`; the helper `audit_log_path(kind, module)` in the
+  same file returns the full path. The log is an additive append-only
+  sink alongside the existing `cai-cost.jsonl` and `cai.log` files.
+- **Querying audit runs.** To see recent runs for a kind:
+  `tail -n 20 /var/log/cai/audit/code-reduction/actions.jsonl | python3 -m json.tool`
+  To find all errors across all kinds/modules:
+  `grep '"event":"error"' /var/log/cai/audit/**/*.jsonl`
 - **Cost sensitivity — very high.** The on-demand per-module
   auditors (`cai-audit-code-reduction`, `cai-audit-cost-reduction`,
   `cai-audit-external-libs`, `cai-audit-good-practices`,

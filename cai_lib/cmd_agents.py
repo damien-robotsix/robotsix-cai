@@ -3,13 +3,17 @@
 After audit-refactor 7.2 the eight periodic/creative agent commands
 (analyze, audit, propose, code-audit, agent-audit, update-check,
 cost-optimize, external-scout) were removed. This module now contains
-only the on-demand per-module audit dispatcher:
+the on-demand per-module audit dispatcher and the audit-health runner:
 
   cmd_audit_module  — ``cai audit-module --kind <kind>``
+  cmd_audit_health  — ``cai audit-health``
 """
 
+import shutil
 import sys
 import time
+import uuid
+from pathlib import Path
 
 from cai_lib.config import *  # noqa: F403,F401
 from cai_lib.logging_utils import log_run
@@ -70,3 +74,80 @@ def cmd_audit_module(args) -> int:
         exit=exit_code,
     )
     return exit_code
+
+
+# ---------------------------------------------------------------------------
+# audit-health — on-demand audit-health runner
+# ---------------------------------------------------------------------------
+
+def cmd_audit_health(args) -> int:
+    """Dispatch ``cai audit-health``.
+
+    Runs the ``cai-audit-audit-health`` agent, which reads
+    ``/var/log/cai/audit/*/*.jsonl`` for the last 30 days and raises
+    findings for error conditions or anomalies (stale audits, cost
+    spikes, degenerate zero-findings runs, etc.).  Findings are
+    published via ``publish.py --namespace audit-health``.
+    """
+    from cai_lib.subprocess_utils import _run, _run_claude_p
+
+    agent = "cai-audit-audit-health"
+    work_dir = Path(f"/tmp/cai-audit-health-{uuid.uuid4().hex[:8]}")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    findings_file = work_dir / "findings.json"
+
+    t0 = time.monotonic()
+    try:
+        user_message = (
+            "## Audit Log Directory\n\n"
+            f"Read audit logs from: `{AUDIT_LOG_DIR}`\n\n"
+            "## Findings file\n\n"
+            f"Write your findings to: `{findings_file}`\n"
+        )
+        proc = _run_claude_p(
+            [
+                "claude", "-p",
+                "--agent", agent,
+                "--permission-mode", "acceptEdits",
+                "--allowedTools", "Read,Grep,Glob,Write",
+                "--add-dir", str(work_dir),
+            ],
+            category="audit-health",
+            agent=agent,
+            input=user_message,
+            cwd="/app",
+        )
+        if proc.stdout:
+            print(proc.stdout)
+        if proc.returncode != 0:
+            print(
+                f"[cai audit-health] ERROR: agent {agent} exited {proc.returncode}",
+                file=sys.stderr, flush=True,
+            )
+            log_run("audit-health", result="agent_failed", exit=1)
+            return 1
+        if not findings_file.exists():
+            print("[cai audit-health] agent wrote no findings", flush=True)
+            log_run("audit-health", result="no_findings", exit=0)
+            return 0
+        published = _run([
+            "python", str(PUBLISH_SCRIPT),
+            "--namespace", "audit-health",
+            "--findings-file", str(findings_file),
+        ])
+        if published.returncode != 0:
+            print(
+                f"[cai audit-health] ERROR: publish failed with {published.returncode}",
+                file=sys.stderr, flush=True,
+            )
+            log_run("audit-health", result="publish_failed", exit=1)
+            return 1
+        dur = f"{int(time.monotonic() - t0)}s"
+        log_run("audit-health", result="ok", duration=dur, exit=0)
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"[cai audit-health] ERROR: {exc}", file=sys.stderr, flush=True)
+        log_run("audit-health", result="unexpected_error", exit=1)
+        return 1
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
