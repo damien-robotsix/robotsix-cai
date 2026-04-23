@@ -16,6 +16,7 @@ try:
         AssistantMessage,
         ResultMessage,
         TextBlock,
+        ToolUseBlock,
     )
     _SDK_AVAILABLE = True
 except ImportError:  # pragma: no cover
@@ -149,15 +150,15 @@ def _argv_to_options(
 async def _collect_results(
     prompt: str,
     options: ClaudeAgentOptions,
-) -> tuple[list[ResultMessage], str, str | None]:
+) -> tuple[list[ResultMessage], str, str | None, dict[str, int]]:
     """Drive ``query()`` to completion.
 
     Returns ``(result_messages, last_non_empty_assistant_text,
-    parent_model)``. Collects every ResultMessage (forward-compat: today
-    the CLI emits exactly one) and records the final non-empty
-    ``AssistantMessage`` TextBlock so the priority-4 stdout-salvage path
-    can fall back to it when ``result`` is absent (e.g. ``subtype ==
-    "error_max_budget_usd"``).
+    parent_model, subagent_counts)``. Collects every ResultMessage
+    (forward-compat: today the CLI emits exactly one) and records the
+    final non-empty ``AssistantMessage`` TextBlock so the priority-4
+    stdout-salvage path can fall back to it when ``result`` is absent
+    (e.g. ``subtype == "error_max_budget_usd"``).
 
     ``parent_model`` is the model of the first ``AssistantMessage`` whose
     ``parent_tool_use_id is None`` — i.e. the top-level agent. The SDK's
@@ -167,10 +168,18 @@ async def _collect_results(
     can mislabel the run with a subagent's haiku instead of the parent's
     opus. ``parent_model`` lets the cost-comment renderer pick the right
     one deterministically.
+
+    ``subagent_counts`` maps ``subagent_type`` → invocation count, built
+    from every ``ToolUseBlock`` with ``name == "Task"``. Counts every
+    spawn, including nested Task calls from subagents and multiple
+    invocations of the same ``subagent_type``. A ``Task`` call with no
+    explicit ``subagent_type`` is bucketed as ``"general-purpose"``
+    (Claude Code's documented default).
     """
     results: list[ResultMessage] = []
     last_assistant = ""
     parent_model: str | None = None
+    subagent_counts: dict[str, int] = {}
     async for msg in query(prompt=prompt, options=options):
         if isinstance(msg, ResultMessage):
             results.append(msg)
@@ -183,7 +192,12 @@ async def _collect_results(
             ]
             if parts:
                 last_assistant = "".join(parts).strip()
-    return results, last_assistant, parent_model
+            for block in msg.content:
+                if isinstance(block, ToolUseBlock) and block.name == "Task":
+                    sub = (block.input or {}).get("subagent_type") \
+                        or "general-purpose"
+                    subagent_counts[sub] = subagent_counts.get(sub, 0) + 1
+    return results, last_assistant, parent_model, subagent_counts
 
 
 def _sdk_error_summary(result) -> str:
@@ -290,7 +304,14 @@ def _post_cost_comment(
             subagent_models = sorted(
                 m for m in models_field.keys() if m and m != primary_model
             )
+        subagents_invoked = row.get("subagents") or {}
+        if not isinstance(subagents_invoked, dict):
+            subagents_invoked = {}
         subagents_field = ",".join(subagent_models)
+        subagents_invoked_field = ",".join(
+            f"{name}:{count}"
+            for name, count in sorted(subagents_invoked.items())
+        )
         marker = (
             f"<!-- cai-cost agent={agent} category={category} "
             f"model={primary_model} cost_usd={cost_usd:.4f} "
@@ -300,20 +321,51 @@ def _post_cost_comment(
         )
         if subagents_field:
             marker += f" subagent_models={subagents_field}"
+        if subagents_invoked_field:
+            marker += f" subagents_invoked={subagents_invoked_field}"
         marker += " -->"
         if len(marker) > _COST_COMMENT_MAX_CHARS:
             marker = marker[: _COST_COMMENT_MAX_CHARS - 4] + " -->"
         seconds = duration_ms / 1000.0
-        model_label = primary_model or "unknown"
-        if subagent_models:
-            model_label += f" (+{len(subagent_models)} subagent model(s))"
-        summary = (
+        summary_line = (
             f"**Agent cost:** `{agent or '(no agent)'}` on "
-            f"`{model_label}` — "
+            f"`{primary_model or 'unknown'}` — "
             f"${cost_usd:.4f} / {turns} turn(s) / {seconds:.1f}s "
             f"(category=`{category}`)"
         )
-        body = f"{marker}\n{summary}"
+        detail_lines: list[str] = []
+        if isinstance(models_field, dict) and models_field:
+            for m in sorted(
+                models_field.keys(),
+                key=lambda k: (k != primary_model, k),
+            ):
+                mu = models_field.get(m) or {}
+                if not isinstance(mu, dict):
+                    continue
+                m_cost = float(mu.get("costUSD") or 0.0)
+                m_in = int(mu.get("inputTokens") or 0)
+                m_out = int(mu.get("outputTokens") or 0)
+                m_cache_read = int(mu.get("cacheReadInputTokens") or 0)
+                m_cache_create = int(
+                    mu.get("cacheCreationInputTokens") or 0
+                )
+                role = "parent" if m == primary_model else "subagent"
+                detail_lines.append(
+                    f"- `{m}` ({role}): ${m_cost:.4f} — "
+                    f"in={m_in} / out={m_out} / "
+                    f"cache_read={m_cache_read} / "
+                    f"cache_create={m_cache_create}"
+                )
+        if subagents_invoked:
+            inv_parts = ", ".join(
+                f"`{name}` ×{count}"
+                for name, count in sorted(subagents_invoked.items())
+            )
+            detail_lines.append(f"- subagents invoked: {inv_parts}")
+        body = summary_line
+        if detail_lines:
+            body += "\n\n" + "\n".join(detail_lines)
+        body = f"{marker}\n{body}"
     except Exception as exc:  # noqa: BLE001
         print(
             f"[cai cost] failed to format cost comment for "
@@ -399,15 +451,15 @@ def _run_claude_p(
 
     try:
         if timeout is not None:
-            results, last_assistant, parent_model = asyncio.run(
-                asyncio.wait_for(
-                    _collect_results(prompt, options), timeout=timeout,
+            results, last_assistant, parent_model, subagent_counts = \
+                asyncio.run(
+                    asyncio.wait_for(
+                        _collect_results(prompt, options), timeout=timeout,
+                    )
                 )
-            )
         else:
-            results, last_assistant, parent_model = asyncio.run(
-                _collect_results(prompt, options)
-            )
+            results, last_assistant, parent_model, subagent_counts = \
+                asyncio.run(_collect_results(prompt, options))
     except Exception as exc:  # noqa: BLE001
         preview = str(exc)[:200].replace("\n", " ")
         cli_stderr = _captured_stderr_text(captured_stderr)
@@ -477,6 +529,8 @@ def _run_claude_p(
         row["models"] = models
     if parent_model:
         row["parent_model"] = parent_model
+    if subagent_counts:
+        row["subagents"] = dict(subagent_counts)
     log_cost(row)
 
     # Post a per-target cost-attribution comment on the issue/PR the
