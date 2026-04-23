@@ -27,7 +27,7 @@ Cron schedules are configurable via environment variables. Default values are se
 | `CAI_RESCUE_SCHEDULE` | `30 */4 * * *` | Every 4 hours at :30 — autonomously resume :human-needed issues without human:solved label, except those carrying `auto-improve:plan-needs-review` (which require admin approval because the plan explicitly diverges from refined-issue preference) |
 | `CAI_WORKSPACES_CONFIG` | `/app/workspaces.json` | Path to a JSON file listing additional repositories to maintain (optional; see Multi-workspace section below) |
 
-Schedule values use standard cron format: `minute hour day month weekday`. To disable a scheduled agent, set its variable to an empty string or a comment value.
+Schedule values use standard cron format: `minute hour day month weekday`. To disable a scheduled agent, set its variable to `""` (empty string), `disabled`, or `off` (case-insensitive). `entrypoint.sh` omits the corresponding crontab line entirely, so supercronic never registers the job — no impossible-cron placeholder, no warning spam.
 
 ## Transcript Analysis Variables
 

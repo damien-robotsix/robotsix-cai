@@ -48,7 +48,9 @@ needs to stand up a fresh host lives in this module.
 - **Crontab generation.** `entrypoint.sh` templates the crontab
   from env vars; a malformed schedule will silently skip runs
   rather than crash the container. Tail the supercronic logs if
-  a job stops firing.
+  a job stops firing. Schedules set to the empty string,
+  `disabled`, or `off` (case-insensitive) are omitted from the
+  crontab entirely.
 - **Claude Code pin.** The version of `@anthropic-ai/claude-code`
   in the Dockerfile is the single source of truth for the
   harness; `cai-update-check` raises findings when a newer

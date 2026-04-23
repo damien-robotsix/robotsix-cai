@@ -33,6 +33,9 @@ services:
       # in cmd_cycle serializes overlapping runs so issues are
       # processed one at a time. The remaining schedules are for
       # orthogonal tasks that run independently.
+      #
+      # To disable any CAI_*_SCHEDULE, set it to "", "disabled", or "off"
+      # (case-insensitive). entrypoint.sh omits its crontab line entirely.
       CAI_CYCLE_SCHEDULE: "0 * * * *"        # hourly — restart-recovery + dispatch one actionable issue/PR
       CAI_VERIFY_SCHEDULE: "15 * * * *"     # hourly @15 — label-state reconciliation (cmd_verify)
       CAI_RESCUE_SCHEDULE: "30 */4 * * *"  # every 4h at :30 — autonomously resume :human-needed issues
