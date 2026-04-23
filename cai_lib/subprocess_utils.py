@@ -149,28 +149,41 @@ def _argv_to_options(
 async def _collect_results(
     prompt: str,
     options: ClaudeAgentOptions,
-) -> tuple[list[ResultMessage], str]:
+) -> tuple[list[ResultMessage], str, str | None]:
     """Drive ``query()`` to completion.
 
-    Returns ``(result_messages, last_non_empty_assistant_text)``. Collects
-    every ResultMessage (forward-compat: today the CLI emits exactly one)
-    and records the final non-empty ``AssistantMessage`` TextBlock so the
-    priority-4 stdout-salvage path can fall back to it when ``result`` is
-    absent (e.g. ``subtype == "error_max_budget_usd"``).
+    Returns ``(result_messages, last_non_empty_assistant_text,
+    parent_model)``. Collects every ResultMessage (forward-compat: today
+    the CLI emits exactly one) and records the final non-empty
+    ``AssistantMessage`` TextBlock so the priority-4 stdout-salvage path
+    can fall back to it when ``result`` is absent (e.g. ``subtype ==
+    "error_max_budget_usd"``).
+
+    ``parent_model`` is the model of the first ``AssistantMessage`` whose
+    ``parent_tool_use_id is None`` — i.e. the top-level agent. The SDK's
+    ``ResultMessage.model_usage`` aggregates every model a run touched
+    (parent + any Task subagents + Claude Code's own haiku-backed helpers
+    like the memory-project loader), so a bare ``next(iter(model_usage))``
+    can mislabel the run with a subagent's haiku instead of the parent's
+    opus. ``parent_model`` lets the cost-comment renderer pick the right
+    one deterministically.
     """
     results: list[ResultMessage] = []
     last_assistant = ""
+    parent_model: str | None = None
     async for msg in query(prompt=prompt, options=options):
         if isinstance(msg, ResultMessage):
             results.append(msg)
         elif isinstance(msg, AssistantMessage):
+            if parent_model is None and msg.parent_tool_use_id is None:
+                parent_model = msg.model or None
             parts = [
                 b.text for b in msg.content
                 if isinstance(b, TextBlock) and b.text.strip()
             ]
             if parts:
                 last_assistant = "".join(parts).strip()
-    return results, last_assistant
+    return results, last_assistant, parent_model
 
 
 def _sdk_error_summary(result) -> str:
@@ -259,22 +272,44 @@ def _post_cost_comment(
         category = str(row.get("category") or "")
         ts = str(row.get("ts") or "")
         models_field = row.get("models") or {}
-        primary_model = ""
-        if isinstance(models_field, dict) and models_field:
+        # Prefer the parent/top-level agent's model (captured from the
+        # first ``AssistantMessage`` with ``parent_tool_use_id is None``)
+        # over ``next(iter(model_usage))``. The SDK's ``model_usage``
+        # aggregates parent + subagents + built-in helpers (e.g. the
+        # haiku-backed ``memory: project`` loader), so picking the first
+        # key would mislabel opus-configured agents like ``cai-refine``
+        # / ``cai-split`` / ``cai-plan`` with whichever haiku subagent
+        # fired first.
+        parent_model = str(row.get("parent_model") or "")
+        primary_model = parent_model
+        if not primary_model and isinstance(models_field, dict) \
+                and models_field:
             primary_model = next(iter(models_field.keys()))
+        subagent_models: list[str] = []
+        if isinstance(models_field, dict) and models_field:
+            subagent_models = sorted(
+                m for m in models_field.keys() if m and m != primary_model
+            )
+        subagents_field = ",".join(subagent_models)
         marker = (
             f"<!-- cai-cost agent={agent} category={category} "
             f"model={primary_model} cost_usd={cost_usd:.4f} "
             f"turns={turns} duration_ms={duration_ms} "
             f"input_tokens={in_tokens} output_tokens={out_tokens} "
-            f"is_error={is_error} ts={ts} -->"
+            f"is_error={is_error} ts={ts}"
         )
+        if subagents_field:
+            marker += f" subagent_models={subagents_field}"
+        marker += " -->"
         if len(marker) > _COST_COMMENT_MAX_CHARS:
             marker = marker[: _COST_COMMENT_MAX_CHARS - 4] + " -->"
         seconds = duration_ms / 1000.0
+        model_label = primary_model or "unknown"
+        if subagent_models:
+            model_label += f" (+{len(subagent_models)} subagent model(s))"
         summary = (
             f"**Agent cost:** `{agent or '(no agent)'}` on "
-            f"`{primary_model or 'unknown'}` — "
+            f"`{model_label}` — "
             f"${cost_usd:.4f} / {turns} turn(s) / {seconds:.1f}s "
             f"(category=`{category}`)"
         )
@@ -364,13 +399,13 @@ def _run_claude_p(
 
     try:
         if timeout is not None:
-            results, last_assistant = asyncio.run(
+            results, last_assistant, parent_model = asyncio.run(
                 asyncio.wait_for(
                     _collect_results(prompt, options), timeout=timeout,
                 )
             )
         else:
-            results, last_assistant = asyncio.run(
+            results, last_assistant, parent_model = asyncio.run(
                 _collect_results(prompt, options)
             )
     except Exception as exc:  # noqa: BLE001
@@ -440,6 +475,8 @@ def _run_claude_p(
     row.update(flat)
     if models:
         row["models"] = models
+    if parent_model:
+        row["parent_model"] = parent_model
     log_cost(row)
 
     # Post a per-target cost-attribution comment on the issue/PR the

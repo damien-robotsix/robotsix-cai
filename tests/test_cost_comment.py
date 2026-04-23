@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from claude_agent_sdk.types import ResultMessage
+from claude_agent_sdk.types import AssistantMessage, ResultMessage, TextBlock
 
 from cai_lib.config import CAI_COST_COMMENT_RE
 from cai_lib.github import _strip_cost_comments
@@ -42,6 +42,15 @@ def _mk_result(**fields) -> ResultMessage:
         result=fields.pop("result", "ok"),
         structured_output=fields.pop("structured_output", None),
         model_usage=fields.pop("model_usage", {"claude-sonnet-4": {}}),
+    )
+
+
+def _mk_assistant(model: str, *, parent_tool_use_id: str | None = None,
+                  text: str = "hi") -> AssistantMessage:
+    return AssistantMessage(
+        content=[TextBlock(text=text)],
+        model=model,
+        parent_tool_use_id=parent_tool_use_id,
     )
 
 
@@ -244,6 +253,99 @@ class TestRunClaudePPostsCostComment(unittest.TestCase):
         self.assertEqual(mock_issue.call_count, 1)
         (_num, body), _kwargs = mock_issue.call_args
         self.assertIn("is_error=True", body)
+
+
+class TestCostCommentParentModel(unittest.TestCase):
+    """Parent model picked from the first parent-level ``AssistantMessage``,
+    not ``next(iter(model_usage))`` — which otherwise mislabels opus-
+    configured agents with whichever haiku subagent/helper fired first."""
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_parent_model_wins_over_first_model_usage_key(self, _mock_log):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        # model_usage dict orders haiku first (a subagent / memory helper
+        # that ran before the parent's first assistant turn). The parent
+        # AssistantMessage carries opus.
+        msg_result = _mk_result(
+            model_usage={
+                "claude-haiku-4-5-20251001": {},
+                "claude-opus-4-7": {},
+            }
+        )
+        msg_sub = _mk_assistant(
+            "claude-haiku-4-5-20251001", parent_tool_use_id="tool_abc",
+        )
+        msg_parent = _mk_assistant(
+            "claude-opus-4-7", parent_tool_use_id=None,
+        )
+        with patch.object(subprocess_utils, "query",
+                          _mock_query(msg_sub, msg_parent, msg_result)), \
+             patch("cai_lib.github._post_issue_comment",
+                   return_value=True) as mock_issue:
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-refine"],
+                category="refine",
+                agent="cai-refine",
+                target_kind="issue",
+                target_number=1,
+            )
+        (_num, body), _kwargs = mock_issue.call_args
+        self.assertIn("model=claude-opus-4-7", body)
+        self.assertIn("subagent_models=claude-haiku-4-5-20251001", body)
+        self.assertIn("on `claude-opus-4-7", body)
+        # and definitely NOT the haiku-first mislabel
+        self.assertNotIn("model=claude-haiku-4-5-20251001", body)
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_falls_back_to_model_usage_when_no_parent_message(
+        self, _mock_log,
+    ):
+        """When the run has no parent-level AssistantMessage (unusual —
+        happens on very-early crash paths), the old ``next(iter(...))``
+        heuristic still applies so the comment is never blank."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg_result = _mk_result(model_usage={"claude-sonnet-4-6": {}})
+        with patch.object(subprocess_utils, "query", _mock_query(msg_result)), \
+             patch("cai_lib.github._post_issue_comment",
+                   return_value=True) as mock_issue:
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-merge"],
+                category="merge",
+                agent="cai-merge",
+                target_kind="issue",
+                target_number=2,
+            )
+        (_num, body), _kwargs = mock_issue.call_args
+        self.assertIn("model=claude-sonnet-4-6", body)
+        # no subagents when only one model was used
+        self.assertNotIn("subagent_models=", body)
+
+    @patch("cai_lib.subprocess_utils.log_cost")
+    def test_single_model_run_has_no_subagent_field(self, _mock_log):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        msg_result = _mk_result(model_usage={"claude-opus-4-7": {}})
+        msg_parent = _mk_assistant("claude-opus-4-7")
+        with patch.object(subprocess_utils, "query",
+                          _mock_query(msg_parent, msg_result)), \
+             patch("cai_lib.github._post_issue_comment",
+                   return_value=True) as mock_issue:
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan",
+                agent="cai-plan",
+                target_kind="issue",
+                target_number=3,
+            )
+        (_num, body), _kwargs = mock_issue.call_args
+        self.assertIn("model=claude-opus-4-7", body)
+        self.assertNotIn("subagent_models=", body)
+        self.assertNotIn("subagent model(s)", body)
 
 
 if __name__ == "__main__":
