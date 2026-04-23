@@ -1243,6 +1243,7 @@ def handle_implement(issue: dict) -> int:
             target_number=issue_number,
             scope_files=_plan_scope_files,
             fingerprint_payload=user_message,
+            fix_attempt_count=len(attempts),
         )
         if agent.stdout:
             print(agent.stdout, flush=True)

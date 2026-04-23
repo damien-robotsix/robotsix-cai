@@ -34,6 +34,7 @@ from cai_lib.cmd_helpers import (
     _apply_agent_edit_staging,
     _parse_iso_ts,
     _fetch_review_comments,
+    _fetch_previous_fix_attempts,
 )
 from cai_lib.actions.revise import _filter_comments_with_haiku
 
@@ -393,6 +394,7 @@ def handle_fix_ci(pr: dict) -> HandlerResult:
             cwd="/app",
             target_kind="pr",
             target_number=pr_number,
+            fix_attempt_count=len(_fetch_previous_fix_attempts(issue_number)),
         )
         if agent.stdout:
             print(agent.stdout, flush=True)

@@ -32,6 +32,7 @@ from cai_lib.cmd_helpers import (
     _git,
     _gh_user_identity,
     _fetch_review_comments,
+    _fetch_previous_fix_attempts,
     _parse_iso_ts,
     _apply_agent_edit_staging,
     _is_bot_comment,
@@ -798,6 +799,7 @@ def handle_revise(pr: dict) -> HandlerResult:
                 target_number=pr_number,
                 extra_target_kind="issue",
                 extra_target_number=issue_number,
+                fix_attempt_count=len(_fetch_previous_fix_attempts(issue_number)),
             )
             if agent.stdout:
                 print(agent.stdout, flush=True)

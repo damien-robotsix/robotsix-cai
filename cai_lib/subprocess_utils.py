@@ -498,6 +498,7 @@ def _run_claude_p(
     module: str | None = None,
     scope_files: list[str] | None = None,
     fingerprint_payload: str | None = None,
+    fix_attempt_count: int | None = None,
     **kwargs,
 ) -> subprocess.CompletedProcess:
     """Run a ``claude -p`` command via the Claude Agent SDK and record its cost.
@@ -529,12 +530,16 @@ def _run_claude_p(
     (dispatcher funnel position, issue #1203), ``cache_hit_rate`` (pre-computed
     aggregate hit rate, issue #1205), ``prompt_fingerprint`` (16-char SHA256
     hash for cache-rate regression detection, issue #1207), ``target_kind``
-    (``"issue"`` or ``"pr"``, issue #1210), and ``target_number`` (numeric
-    issue/PR ID, issue #1210). Rows from non-handler call sites (rescue,
-    unblock, dup-check, audit, init) typically omit ``fsm_state`` and other
-    optional fields, preserving back-compat for legacy rows. ``parent_cost_usd``
-    is intentionally dropped — the CLI format emits exactly one result event so
-    there is nothing to attribute.
+    (``"issue"`` or ``"pr"``, issue #1210), ``target_number`` (numeric
+    issue/PR ID, issue #1210), and ``fix_attempt_count`` (count of prior
+    closed-unmerged PRs for the linked issue — matches the ``_log_outcome``
+    semantic in ``cai-outcomes.jsonl`` so the two logs can be joined; stamped
+    only by fix-retry flows: ``implement`` / ``revise`` / ``fix-ci``,
+    issue #1204). Rows from non-handler call sites (rescue, unblock, dup-check,
+    audit, init) typically omit ``fsm_state`` and other optional fields,
+    preserving back-compat for legacy rows. ``parent_cost_usd`` is intentionally
+    dropped — the CLI format emits exactly one result event so there is nothing
+    to attribute.
     """
     if len(cmd) < 2 or cmd[0] != "claude" or cmd[1] != "-p":
         raise ValueError("_run_claude_p requires cmd[:2] == ['claude', '-p']")
@@ -687,6 +692,15 @@ def _run_claude_p(
         row["target_kind"] = target_kind
     if target_number is not None:
         row["target_number"] = target_number
+    # Issue #1204: stamp the linked issue's prior-fix-attempt count so
+    # cost-log readers can join cai-cost.jsonl to cai-outcomes.jsonl
+    # (which already carries the same key via _log_outcome). Only
+    # fix-retry flows (implement / revise / fix-ci) pass the kwarg;
+    # every other call site leaves it None and the key is omitted,
+    # preserving pre-#1204 row shape. Zero must be stamped (first
+    # attempt) — use ``is not None``, not truthiness.
+    if fix_attempt_count is not None:
+        row["fix_attempt_count"] = fix_attempt_count
     log_cost(row)
 
     # Post a per-target cost-attribution comment on the issue/PR the

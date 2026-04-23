@@ -666,5 +666,69 @@ class TestCacheHitRateAnnotation(unittest.TestCase):
         self.assertNotIn("cacheHitRate", haiku)
 
 
+class TestFixAttemptCountStamping(unittest.TestCase):
+    """Issue #1204: ``_run_claude_p`` must stamp the caller-provided
+    ``fix_attempt_count`` onto each cost-log row under the optional
+    ``fix_attempt_count`` key, and omit the key entirely when the
+    kwarg is unset (default) so pre-#1204 rows stay byte-identical.
+
+    Mirrors the conditional-stamp pattern used by ``TestFsmStateStamping``
+    above (issue #1203). Explicitly covers the ``fix_attempt_count=0``
+    first-attempt case to guard against a future ``if fix_attempt_count:``
+    truthiness-check regression — zero must be stamped.
+    """
+
+    def test_omitting_fix_attempt_count_leaves_row_unchanged(self):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        msg = _mk_result(result="ok", total_cost_usd=0.05)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan", agent="cai-plan",
+            )
+
+        self.assertEqual(len(captured), 1)
+        self.assertNotIn("fix_attempt_count", captured[0])
+
+    def test_passing_fix_attempt_count_stamps_row(self):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        msg = _mk_result(result="ok", total_cost_usd=0.05)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            # First attempt: zero must land in the row (is-not-None check).
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-implement"],
+                category="implement", agent="cai-implement",
+                fix_attempt_count=0,
+            )
+            # Retry: non-zero stamped as-is.
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-implement"],
+                category="implement", agent="cai-implement",
+                fix_attempt_count=2,
+            )
+
+        self.assertEqual(len(captured), 2)
+        self.assertIn("fix_attempt_count", captured[0])
+        self.assertEqual(captured[0]["fix_attempt_count"], 0)
+        self.assertIn("fix_attempt_count", captured[1])
+        self.assertEqual(captured[1]["fix_attempt_count"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
