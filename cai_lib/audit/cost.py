@@ -130,10 +130,11 @@ def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
     cost-reduction audit user message.
 
     Returns an empty string if no cost rows exist for the window.
-    Otherwise emits a section with per-category aggregates and the
-    top-N most expensive individual invocations, so the audit agent
-    can spot cost outliers (a single invocation that dwarfs the
-    median, or a category that dominates total spend).
+    Otherwise emits a section with per-category aggregates, per-FSM-state
+    aggregates (when rows carry the optional #1203 ``fsm_state`` field),
+    and the top-N most expensive individual invocations, so the audit
+    agent can spot cost outliers (a single invocation that dwarfs the
+    median, or a funnel stage that dominates total spend).
     """
     rows = _load_cost_log(days=days)
     if not rows:
@@ -163,6 +164,30 @@ def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
             f"({share:.1f}%) | ${mean:.4f} |"
         )
 
+    # Per-FSM-state aggregates (issue #1203). Rows written by non-FSM
+    # call sites omit ``fsm_state``; those land in the ``(none)`` bucket
+    # so the section stays faithful to the data.
+    fsm_states: dict[str, dict] = {}
+    for r in rows:
+        fs = r.get("fsm_state") or "(none)"
+        cost = r.get("cost_usd") or 0.0
+        try:
+            cost = float(cost)
+        except (TypeError, ValueError):
+            cost = 0.0
+        bucket = fsm_states.setdefault(fs, {"calls": 0, "cost": 0.0})
+        bucket["calls"] += 1
+        bucket["cost"] += cost
+
+    fsm_lines = []
+    for fs, b in sorted(fsm_states.items(), key=lambda kv: -kv[1]["cost"]):
+        share = (b["cost"] / grand_total * 100.0) if grand_total else 0.0
+        mean = b["cost"] / b["calls"] if b["calls"] else 0.0
+        fsm_lines.append(
+            f"| {fs} | {b['calls']} | ${b['cost']:.4f} "
+            f"({share:.1f}%) | ${mean:.4f} |"
+        )
+
     # Top-N most expensive individual invocations.
     top = sorted(
         rows,
@@ -186,6 +211,11 @@ def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
         "| category | calls | total cost (share) | mean cost |\n"
         "|---|---|---|---|\n"
         + "\n".join(cat_lines)
+        + "\n\n"
+        "### By FSM state\n\n"
+        "| fsm_state | calls | total cost (share) | mean cost |\n"
+        "|---|---|---|---|\n"
+        + "\n".join(fsm_lines)
         + "\n\n"
         f"### Top {len(top_lines)} most expensive individual invocations\n\n"
         "| ts | category | agent | model | cost | turns | tokens |\n"

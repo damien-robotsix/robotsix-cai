@@ -402,5 +402,85 @@ class TestCostCommentKwargsBackwardsCompat(unittest.TestCase):
         self.assertEqual(proc2.returncode, 0)
 
 
+class TestFsmStateStamping(unittest.TestCase):
+    """Issue #1203: ``_run_claude_p`` must stamp the current FSM state
+    (set by the dispatcher via ``set_current_fsm_state``) onto each
+    cost-log row under the optional ``fsm_state`` key, and omit the
+    key entirely when the contextvar is unset."""
+
+    def test_fsm_state_stamped_when_contextvar_set(self):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import (
+            _run_claude_p, set_current_fsm_state,
+        )
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        msg = _mk_result(result="ok", total_cost_usd=0.05)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            with set_current_fsm_state("REFINING"):
+                _run_claude_p(
+                    ["claude", "-p", "--agent", "cai-refine"],
+                    category="refine", agent="cai-refine",
+                )
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].get("fsm_state"), "REFINING")
+
+    def test_fsm_state_omitted_when_contextvar_unset(self):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        msg = _mk_result(result="ok", total_cost_usd=0.05)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-audit-health"],
+                category="audit", agent="cai-audit-health",
+            )
+
+        self.assertEqual(len(captured), 1)
+        self.assertNotIn("fsm_state", captured[0])
+
+    def test_fsm_state_reset_after_block_exits(self):
+        """Nested/sequential blocks must restore the prior value on exit."""
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import (
+            _run_claude_p, set_current_fsm_state,
+        )
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        msg = _mk_result(result="ok", total_cost_usd=0.01)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            with set_current_fsm_state("PLANNING"):
+                _run_claude_p(
+                    ["claude", "-p", "--agent", "cai-plan"],
+                    category="plan.plan", agent="cai-plan",
+                )
+            # Outside the block, the stamp must be cleared.
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-plan"],
+                category="plan.plan", agent="cai-plan",
+            )
+
+        self.assertEqual(len(captured), 2)
+        self.assertEqual(captured[0].get("fsm_state"), "PLANNING")
+        self.assertNotIn("fsm_state", captured[1])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -293,6 +293,11 @@ def cmd_cost_report(args) -> int:
         if args.by == "day":
             ts = r.get("ts") or ""
             return ts.split("T", 1)[0] or "(unknown)"
+        if args.by == "fsm_state":
+            # Issue #1203: non-FSM call sites omit ``fsm_state``; they
+            # land in ``(none)`` so grouping stays honest about which
+            # rows were produced inside vs outside a dispatched handler.
+            return r.get("fsm_state") or "(none)"
         return "(unknown)"
 
     groups: dict[str, dict] = {}

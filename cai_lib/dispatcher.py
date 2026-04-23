@@ -52,6 +52,7 @@ from cai_lib.github import (
     open_blockers,
 )
 from cai_lib.issues import list_sub_issues
+from cai_lib.subprocess_utils import set_current_fsm_state
 
 
 # ---------------------------------------------------------------------------
@@ -756,7 +757,11 @@ def drive_issue(issue: dict) -> int:
         f"[cai dispatch] issue #{issue_number} at {state.name} → "
         f"{handler.__name__}", flush=True,
     )
-    rc = handler(issue)
+    # Issue #1203: stamp the FSM state on every cost-log row produced by
+    # the handler (via _run_claude_p) so downstream readers can group by
+    # funnel position without parsing the free-form ``category`` field.
+    with set_current_fsm_state(state.name):
+        rc = handler(issue)
     if isinstance(rc, HandlerResult):
         ok, _ = _driver_fire(
             issue_number, rc,
@@ -809,7 +814,11 @@ def drive_pr(pr: dict) -> int:
         f"[cai dispatch] PR #{pr_number} at {state.name} → "
         f"{handler.__name__}", flush=True,
     )
-    result = handler(pr)
+    # Issue #1203: stamp the FSM state on every cost-log row produced by
+    # the handler (via _run_claude_p) so downstream readers can group by
+    # funnel position without parsing the free-form ``category`` field.
+    with set_current_fsm_state(state.name):
+        result = handler(pr)
     ok, _ = _driver_fire(
         pr_number, result,
         is_pr=True, current_pr=pr,
@@ -870,7 +879,12 @@ def dispatch_issue(issue_number: int) -> int:
               flush=True)
         return 0
     try:
-        rc = handler(issue)
+        # Issue #1203: stamp the FSM state on every cost-log row the
+        # handler produces so downstream readers can group by funnel
+        # position without parsing the free-form ``category`` field.
+        # Covers MERGED / HUMAN_NEEDED handlers that bypass ``drive_issue``.
+        with set_current_fsm_state(state.name):
+            rc = handler(issue)
         if isinstance(rc, HandlerResult):
             ok, _ = _driver_fire(
                 issue_number, rc,
@@ -952,7 +966,12 @@ def dispatch_pr(pr_number: int) -> int:
               flush=True)
         return 0
     try:
-        result = handler(pr)
+        # Issue #1203: stamp the FSM state on every cost-log row the
+        # handler produces so downstream readers can group by funnel
+        # position without parsing the free-form ``category`` field.
+        # Covers PR_HUMAN_NEEDED handlers that bypass ``drive_pr``.
+        with set_current_fsm_state(state.name):
+            result = handler(pr)
         if isinstance(result, HandlerResult):
             ok, _ = _driver_fire(
                 pr_number, result,

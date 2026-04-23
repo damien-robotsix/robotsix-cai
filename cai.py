@@ -312,7 +312,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Number of most-expensive invocations to list (default: 10)",
     )
     cost_parser.add_argument(
-        "--by", choices=["category", "agent", "day"], default="category",
+        "--by", choices=["category", "agent", "day", "fsm_state"],
+        default="category",
         help="Aggregation grouping (default: category)",
     )
 
