@@ -194,6 +194,58 @@ Assess each plan on these criteria, in order of importance:
    architectural approach — this is expected when one plan correctly
    follows the refined issue and the other does not.
 
+## Merging aspects of multiple plans
+
+You MAY emit a composite plan that uses one candidate as the base
+and incorporates specific, worthwhile aspects from the other —
+when doing so produces a clearly better plan than either in
+isolation. This is an option, not an obligation; when in doubt,
+pick one plan verbatim.
+
+Valid reasons to merge:
+
+- The base plan has the right overall structure (files, approach)
+  but the other candidate includes an additional targeted check,
+  test case, edge-case handling, or related-file update that the
+  base omits.
+- The other candidate flags a genuine concern (e.g. a peer file
+  that also needs updating, a narrow mitigation for a stated
+  runtime premise) that the base plan missed.
+- One specific step in the other candidate is demonstrably more
+  accurate or concrete than the base plan's version of that step
+  (e.g. cites the verified symbol location, includes verbatim
+  `old_string` bytes the base plan summarised in prose).
+
+Do NOT merge when:
+
+- The two plans disagree on the fundamental approach — mixing
+  them would produce an incoherent plan. Pick one.
+- The aspect you would pull is stylistic, cosmetic, or a matter
+  of taste. Merge only for material correctness, safety, or
+  specificity gains.
+- The borrowed step lacks verbatim `old_string` / `new_string` or
+  full-file bytes. Pulling a prose-summary step into an otherwise
+  verbatim plan regresses criterion 5 — do not add it.
+- Either candidate contradicts a settled architectural decision
+  from the refined issue. Align with the refined issue; do not
+  blend a non-aligned step into an aligned base.
+
+When you merge:
+
+- Paste borrowed steps **verbatim** from the source plan — you may
+  reorder them and integrate them into the base plan's structure,
+  but do not paraphrase. Preserving verbatim Edit/Write content is
+  non-negotiable.
+- State clearly in `confidence_reason` which candidate is the base
+  and which specific aspects were borrowed from the other (e.g.
+  "Plan 1 as base; added Plan 2's step 4 verbatim to also update
+  `foo.py` which Plan 1 missed"). The audit trail must show the
+  merge explicitly.
+- The composite plan is still subject to every criterion above.
+  If merging introduces any doubt that was not present in either
+  standalone plan, cap confidence at MEDIUM and explain in
+  `confidence_reason`.
+
 ## Output format
 
 The wrapper invokes you with a JSON schema (Claude Code's
@@ -202,7 +254,7 @@ object — no prose, no code fences, no preamble. The schema is:
 
 ~~~json
 {
-  "plan":                    "string   — full text of the chosen plan, pasted exactly as provided",
+  "plan":                    "string   — full text of the chosen plan, pasted exactly as provided; MAY be a composite plan (see 'Merging aspects of multiple plans') that uses one candidate as the base and integrates verbatim steps from the other",
   "confidence":              "string   — one of HIGH, MEDIUM, LOW",
   "confidence_reason":       "string   — 1-3 sentences explaining the confidence level (required)",
   "note":                    "string   — OPTIONAL; one-sentence flag for the fix agent",
