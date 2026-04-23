@@ -681,8 +681,9 @@ def _run_claude_p(
         row["module"] = module
     if scope_files is not None:
         row["scope_files"] = list(scope_files)
-    if target_kind is not None and target_number is not None:
+    if target_kind is not None:
         row["target_kind"] = target_kind
+    if target_number is not None:
         row["target_number"] = target_number
     log_cost(row)
 
