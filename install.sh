@@ -90,6 +90,8 @@ configure_aliases() {
   echo "    cai                       # interactive claude session"
   echo "    cai -p 'fix the bug'      # one-shot prompt"
   echo "    cai-cycle                  # run one fix-pipeline cycle"
+  echo "    cai-audit <kind>           # on-demand per-module audit (e.g. cost-reduction)"
+  echo "    cai-audit-health           # run the audit-health monitor"
   echo "    cai-logs                   # tail container logs"
   echo "    cai-exec <cmd>             # run any command in the container"
   echo
@@ -114,6 +116,8 @@ alias cai-dispatch='${DC} exec --user cai cai python /app/cai.py dispatch'
 alias cai-verify='${DC} exec --user cai cai python /app/cai.py verify'
 alias cai-cost='${DC} exec --user cai cai python /app/cai.py cost-report'
 alias cai-health='${DC} exec --user cai cai python /app/cai.py health-report --dry-run'
+alias cai-audit='${DC} exec --user cai cai python /app/cai.py audit-module --kind'
+alias cai-audit-health='${DC} exec --user cai cai python /app/cai.py audit-health'
 alias cai-logs='${DC} logs -f cai'
 alias cai-exec='${DC} exec --user cai cai'
 ALIASES
