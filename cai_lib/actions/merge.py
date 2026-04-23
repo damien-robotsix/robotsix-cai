@@ -831,7 +831,7 @@ def handle_merge(pr: dict) -> HandlerResult:
     except Exception:
         pass
 
-    unaddressed = _filter_comments_with_haiku(all_comments, pr_number)
+    unaddressed = _filter_comments_with_haiku(all_comments, pr_number, issue_number)
     has_unaddressed = bool(unaddressed)
 
     if has_unaddressed:
