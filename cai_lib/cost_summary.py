@@ -1,7 +1,7 @@
 """Close-time per-issue cost-summary comment.
 
 Sits on top of the per-invocation ``<!-- cai-cost ... -->`` markers
-posted by :func:`cai_lib.subagent.cost._post_cost_comment`. When an
+posted by :func:`cai_lib.cost_comment._post_cost_comment`. When an
 auto-improve issue reaches the merged path,
 :func:`post_final_cost_summary` aggregates every cost row tagged
 against that issue or its linked PR and posts a single
@@ -266,7 +266,7 @@ def post_final_cost_summary(
 ) -> None:
     """Best-effort: aggregate + post the close-time cost summary.
 
-    Contract mirrors :func:`cai_lib.subagent.cost._post_cost_comment`:
+    Contract mirrors :func:`cai_lib.cost_comment._post_cost_comment`:
     every exception is caught and logged to stderr; the caller (merge
     handler) must remain unaffected by failures here.
     """

@@ -19,10 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
+import logging
 import subprocess
-import sys
-from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import (
@@ -36,12 +34,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from .cost_tracker import CostTracker
 from .errors import _sdk_error_summary
 from .stderr_sink import _captured_stderr_text, _make_stderr_sink
-
-
-# Resolve the CLI path once at import time so the SDK reuses the
-# npm-installed `claude` binary audited in Dockerfile instead of the
-# copy bundled with the SDK wheel.
-_CLI_PATH = shutil.which("claude")
 
 
 async def _collect_results(
@@ -189,31 +181,13 @@ class SubAgent(BaseModel):
         return self._to_completed_process(result, stdout)
 
     def _prepare_options(self) -> None:
-        """Pin cli_path, auto-inject cai-skills plugin, attach a fresh stderr sink.
+        """Attach a fresh stderr sink and reset :attr:`last_captured_stderr`.
 
-        Preserves the implicit ``cai-skills`` injection that
-        ``_argv_to_options`` (legacy.py:102-104) does for the argv path
-        and the ``cli_path`` pin that every call path needs to reuse
-        the npm-installed ``claude`` binary. Resets
-        :attr:`last_captured_stderr` to a fresh list each run so a
-        reused instance does not leak stderr lines across runs.
+        Resets :attr:`last_captured_stderr` to a fresh list each run so a
+        reused instance does not leak stderr lines across runs. Subclasses
+        (e.g. :class:`cai_lib.cai_subagent.CaiSubAgent`) call ``super()``
+        first and then add repo-specific setup (CLI path pin, plugin inject).
         """
-        if _CLI_PATH and not getattr(self.options, "cli_path", None):
-            self.options.cli_path = _CLI_PATH
-
-        skills_plugin = Path(".claude/plugins/cai-skills")
-        if skills_plugin.is_dir():
-            if self.options.plugins is None:
-                self.options.plugins = []
-            already = any(
-                isinstance(p, dict) and p.get("path") == str(skills_plugin)
-                for p in self.options.plugins
-            )
-            if not already:
-                self.options.plugins.append(
-                    {"type": "local", "path": str(skills_plugin)}
-                )
-
         self.last_captured_stderr = []
         self.options.stderr = _make_stderr_sink(self.last_captured_stderr)
 
@@ -238,10 +212,10 @@ class SubAgent(BaseModel):
         if result.structured_output is not None:
             return json.dumps(result.structured_output)
         if result.subtype == "error_max_structured_output_retries":
-            print(
-                f"[cai cost] structured output retries exhausted "
-                f"({self.category}/{self.agent}); schema was not satisfied",
-                file=sys.stderr, flush=True,
+            logging.getLogger(__name__).warning(
+                "[cai cost] structured output retries exhausted "
+                "(%s/%s); schema was not satisfied",
+                self.category, self.agent,
             )
             return ""
         if isinstance(result.result, str):
@@ -272,7 +246,7 @@ class SubAgent(BaseModel):
         )
         if cli_stderr_preview:
             msg += f" | cli_stderr={cli_stderr_preview!r}"
-        print(msg, file=sys.stderr, flush=True)
+        logging.getLogger(__name__).warning(msg)
         combined = str(exc)
         if cli_stderr:
             combined = f"{combined}\n--- cli stderr ---\n{cli_stderr}"
@@ -295,7 +269,7 @@ class SubAgent(BaseModel):
         )
         if cli_stderr_preview:
             msg += f" | cli_stderr={cli_stderr_preview!r}"
-        print(msg, file=sys.stderr, flush=True)
+        logging.getLogger(__name__).warning(msg)
         combined = f"no_ResultMessage last_assistant={preview!r}"
         if cli_stderr:
             combined = f"{combined}\n--- cli stderr ---\n{cli_stderr}"

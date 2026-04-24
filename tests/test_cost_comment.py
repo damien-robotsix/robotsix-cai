@@ -453,7 +453,7 @@ class TestCostCommentPerModelDetail(unittest.TestCase):
 
     def test_split_cost_by_category_zero_tokens(self):
         """Zero tokens yields zero split, no DivisionByZero."""
-        from cai_lib.subagent.cost import _split_cost_by_category
+        from cai_lib.cost_comment import _split_cost_by_category
 
         self.assertEqual(
             _split_cost_by_category(0.0, 0, 0, 0, 0),

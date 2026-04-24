@@ -70,8 +70,9 @@ class TestSdkSpikeParity(unittest.TestCase):
     """``run_subagent`` emits the same cost-row payload as ``_run_claude_p``."""
 
     def test_cost_rows_match_modulo_volatile_fields(self):
-        from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
-        from cai_lib.subagent import cost_tracker
+        import cai_lib.cai_subagent as cai_subagent_mod
+        from cai_lib.subagent import _run_claude_p, core, legacy
+        from cai_lib.cai_subagent import run_subagent
 
         prompt = "## test prompt\n\nfor parity check"
         captured: list[dict] = []
@@ -91,7 +92,7 @@ class TestSdkSpikeParity(unittest.TestCase):
 
         msg_b = _mk_result()
         with patch.object(core, "query", _mock_query(msg_b)), \
-             patch.object(cost_tracker, "log_cost", side_effect=_capture):
+             patch.object(cai_subagent_mod, "log_cost", side_effect=_capture):
             opts = ClaudeAgentOptions(extra_args={"agent": "cai-confirm"})
             run_subagent(
                 prompt,
@@ -110,7 +111,6 @@ class TestSdkSpikeParity(unittest.TestCase):
 
     def test_returncode_stdout_stderr_match_on_success(self):
         from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
-        from cai_lib.subagent import cost_tracker
 
         prompt = "## another fixture"
 
@@ -125,8 +125,7 @@ class TestSdkSpikeParity(unittest.TestCase):
             )
 
         msg_b = _mk_result(result="payload-text")
-        with patch.object(core, "query", _mock_query(msg_b)), \
-             patch.object(cost_tracker, "log_cost"):
+        with patch.object(core, "query", _mock_query(msg_b)):
             opts = ClaudeAgentOptions(extra_args={"agent": "cai-confirm"})
             native = run_subagent(
                 prompt,
@@ -141,7 +140,6 @@ class TestSdkSpikeParity(unittest.TestCase):
 
     def test_returncode_stdout_stderr_match_on_error(self):
         from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
-        from cai_lib.subagent import cost_tracker
 
         prompt = "## error fixture"
 
@@ -165,9 +163,7 @@ class TestSdkSpikeParity(unittest.TestCase):
             is_error=True,
             result="exhausted",
         )
-        with patch.object(core, "query", _mock_query(msg_b)), \
-             patch.object(cost_tracker, "log_cost"), \
-             patch("builtins.print"):
+        with patch.object(core, "query", _mock_query(msg_b)):
             opts = ClaudeAgentOptions(extra_args={"agent": "cai-confirm"})
             native = run_subagent(
                 prompt,

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import shutil
 import socket
 import subprocess
 import sys
@@ -22,12 +23,14 @@ from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions
 
 from cai_lib.utils.log import log_cost
+from cai_lib.cost_comment import _post_cost_comment
+from cai_lib.fsm_state import _CURRENT_FSM_STATE
 
-from .core import _CLI_PATH, _collect_results
-from .cost import _post_cost_comment
+from .core import _collect_results
 from .errors import _sdk_error_summary
-from .fsm_state import _CURRENT_FSM_STATE
 from .stderr_sink import _captured_stderr_text, _make_stderr_sink
+
+_CLI_PATH = shutil.which("claude")
 
 
 def _argv_to_options(
