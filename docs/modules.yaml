@@ -144,6 +144,12 @@ modules:
       - "pyproject.toml"
     doc: "docs/modules/tests.md"
 
+  - name: subagent
+    summary: Agent invocation infrastructure — SDK execution, legacy argv facade, cost attribution, stderr capture, and FSM state stamping.
+    globs:
+      - "cai_lib/subagent/*.py"
+    doc: "docs/modules/subagent.md"
+
   - name: config
     summary: Shared infra — constants, logging, subprocess helpers, cost accounting, and watchdog.
     globs:

@@ -40,6 +40,7 @@ from cai_lib.cmd_helpers import (
     _setup_agent_edit_staging,
     _work_directory_block,
 )
+from cai_lib.actions.rebase import _rebase_conflict_files
 
 
 # Sentinels for the pre-merge-review comment boilerplate. These
@@ -260,14 +261,6 @@ def _filter_comments_with_haiku(
 # under the pre-resolver code path get exactly one fresh attempt
 # with the new resolver before being skipped again.
 _REBASE_FAILED_MARKER = "## Revise subagent: rebase resolution failed"
-
-
-def _rebase_conflict_files(work_dir: Path) -> list[str]:
-    """Return the list of files currently in a conflicted (unmerged) state."""
-    res = _git(
-        work_dir, "diff", "--name-only", "--diff-filter=U", check=False,
-    )
-    return [line for line in res.stdout.strip().splitlines() if line]
 
 
 def _recover_stuck_rebase_prs() -> int:
