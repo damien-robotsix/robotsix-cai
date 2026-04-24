@@ -11,8 +11,8 @@ runs and can be introspected between calls.
 :func:`run_subagent` stays as a thin module-level shim that constructs
 a :class:`SubAgent` (with a :class:`CostTracker` built from the
 optional target metadata), calls ``.run(prompt)`` once, and returns
-the :class:`subprocess.CompletedProcess`. Existing call sites and test
-fixtures (``patch.object(core, "query", ...)``) are unaffected.
+the :class:`RunResult`. Existing call sites and test fixtures
+(``patch.object(core, "query", ...)``) are unaffected.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import subprocess
+from enum import StrEnum
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import (
@@ -34,6 +34,53 @@ from pydantic import BaseModel, ConfigDict, Field
 from .cost_tracker import CostRow, CostTracker
 from .errors import _sdk_error_summary
 from .stderr_sink import _captured_stderr_text, _make_stderr_sink
+
+
+class RunStatus(StrEnum):
+    """Outcome classification for a :class:`SubAgent` run."""
+
+    OK = "ok"
+    """Result present and ``is_error`` is False."""
+    SDK_ERROR = "sdk_error"
+    """Result present but ``is_error`` is True (e.g. ``error_max_turns``)."""
+    NO_RESULT = "no_result"
+    """``query()`` produced no :class:`ResultMessage`."""
+    EXCEPTION = "exception"
+    """``query()`` raised an exception."""
+
+
+class RunResult(BaseModel):
+    """Typed result returned by :meth:`SubAgent.run`.
+
+    Replaces the legacy :class:`subprocess.CompletedProcess` shape so
+    callers can inspect the structured :class:`ResultMessage`, the error
+    subtype, and the raw CLI stderr lines directly — without re-parsing
+    opaque ``.stdout`` / ``.stderr`` strings.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    status: RunStatus = Field(..., description="Outcome classification.")
+    stdout: str = Field(..., description="Extracted agent stdout (same priority order as before).")
+    result: ResultMessage | None = Field(
+        None, description="The final ResultMessage when present; None on exception or no-result."
+    )
+    error_summary: str | None = Field(
+        None,
+        description=(
+            "_sdk_error_summary(result) on SDK_ERROR; str(exc) on EXCEPTION; "
+            "no_ResultMessage preview on NO_RESULT; None on OK."
+        ),
+    )
+    captured_stderr: list[str] = Field(
+        default_factory=list,
+        description="Raw CLI stderr lines collected during this run.",
+    )
+
+    @property
+    def ok(self) -> bool:
+        """True when :attr:`status` is :attr:`RunStatus.OK`."""
+        return self.status == RunStatus.OK
 
 
 async def _collect_results(
@@ -100,8 +147,7 @@ class SubAgent(BaseModel):
 
     Options (and identity: ``category`` + ``agent``) are fixed at
     construction. Each :meth:`run` call takes a fresh ``prompt`` and
-    returns the :class:`subprocess.CompletedProcess` shape legacy
-    callers expect.
+    returns a :class:`RunResult`.
 
     Held state:
 
@@ -116,18 +162,18 @@ class SubAgent(BaseModel):
       recent run. Replaced on every run (not accumulated) so callers
       can introspect a single run's sink.
 
-    The returned :class:`subprocess.CompletedProcess` contract:
+    The returned :class:`RunResult` contract:
 
     - ``.stdout`` carries ``structured_output`` (JSON-encoded) when
       present; ``""`` on
       ``subtype == "error_max_structured_output_retries"`` with a
-      diagnostic stderr line; ``result`` text otherwise; falling back
+      diagnostic log line; ``result`` text otherwise; falling back
       to the last assistant text when ``result`` is absent (e.g.
       ``subtype == "error_max_budget_usd"``).
-    - ``.returncode`` is 1 on any exception or when ``is_error`` is
-      True; 0 otherwise.
-    - ``.args`` is the sentinel ``["run_subagent", agent]`` — no
-      caller inspects ``args``.
+    - ``.ok`` is ``True`` when ``status == RunStatus.OK`` (result
+      present, ``is_error`` False); ``False`` on any error path.
+    - ``.error_summary`` is ``None`` on success; the SDK error text,
+      exception repr, or no-result preview otherwise.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -143,12 +189,8 @@ class SubAgent(BaseModel):
     last_assistant: str = ""
     last_captured_stderr: list[str] = Field(default_factory=list)
 
-    @property
-    def _sentinel_args(self) -> list[str]:
-        return ["run_subagent", self.agent]
-
-    def run(self, prompt: str) -> subprocess.CompletedProcess:
-        """Drive one full run against ``prompt`` and return the CompletedProcess."""
+    def run(self, prompt: str) -> RunResult:
+        """Drive one full run against ``prompt`` and return the RunResult."""
         self._prepare_options()
         try:
             results, last_assistant, parent_model, subagent_counts = (
@@ -156,13 +198,13 @@ class SubAgent(BaseModel):
             )
         except Exception as exc:  # noqa: BLE001
             self.runs += 1
-            return self._completed_from_exception(exc)
+            return self._to_run_result(exc=exc)
 
         self.runs += 1
         self.last_assistant = last_assistant
 
         if not results:
-            return self._completed_from_no_results(last_assistant)
+            return self._to_run_result(stdout=last_assistant or "")
 
         result = results[-1]
         self.last_result = result
@@ -178,7 +220,7 @@ class SubAgent(BaseModel):
         ))
 
         stdout = self._extract_stdout(result, last_assistant)
-        return self._to_completed_process(result, stdout)
+        return self._to_run_result(result=result, stdout=stdout)
 
     def _prepare_options(self) -> None:
         """Attach a fresh stderr sink and reset :attr:`last_captured_stderr`.
@@ -222,60 +264,74 @@ class SubAgent(BaseModel):
             return result.result
         return last_assistant
 
-    def _to_completed_process(
-        self, result: ResultMessage, stdout: str,
-    ) -> subprocess.CompletedProcess:
-        """Wrap the successful-run outputs into a CompletedProcess."""
-        returncode = 1 if result.is_error else 0
-        stderr = _sdk_error_summary(result) if returncode != 0 else ""
-        return subprocess.CompletedProcess(
-            args=self._sentinel_args, returncode=returncode,
-            stdout=stdout, stderr=stderr,
-        )
+    def _to_run_result(
+        self,
+        *,
+        result: ResultMessage | None = None,
+        stdout: str = "",
+        exc: Exception | None = None,
+    ) -> RunResult:
+        """Build a :class:`RunResult` from the run outcome.
 
-    def _completed_from_exception(
-        self, exc: Exception,
-    ) -> subprocess.CompletedProcess:
-        """CompletedProcess for the SDK-raised-exception path."""
-        preview = str(exc)[:200].replace("\n", " ")
-        cli_stderr = _captured_stderr_text(self.last_captured_stderr)
-        cli_stderr_preview = cli_stderr.replace("\n", " | ")[:400]
-        msg = (
-            f"[cai cost] claude-agent-sdk query failed "
-            f"({self.category}/{self.agent}): {preview}"
-        )
-        if cli_stderr_preview:
-            msg += f" | cli_stderr={cli_stderr_preview!r}"
-        logging.getLogger(__name__).warning(msg)
-        combined = str(exc)
-        if cli_stderr:
-            combined = f"{combined}\n--- cli stderr ---\n{cli_stderr}"
-        return subprocess.CompletedProcess(
-            args=self._sentinel_args, returncode=1,
-            stdout="", stderr=combined,
-        )
+        Covers four cases:
 
-    def _completed_from_no_results(
-        self, last_assistant: str,
-    ) -> subprocess.CompletedProcess:
-        """CompletedProcess for the empty-ResultMessage-list path."""
-        preview = (last_assistant or "")[:120].replace("\n", " ")
-        cli_stderr = _captured_stderr_text(self.last_captured_stderr)
-        cli_stderr_preview = cli_stderr.replace("\n", " | ")[:400]
-        msg = (
-            f"[cai cost] no ResultMessage from claude-agent-sdk "
-            f"({self.category}/{self.agent}); last assistant starts with: "
-            f"{preview!r}"
-        )
-        if cli_stderr_preview:
-            msg += f" | cli_stderr={cli_stderr_preview!r}"
-        logging.getLogger(__name__).warning(msg)
-        combined = f"no_ResultMessage last_assistant={preview!r}"
-        if cli_stderr:
-            combined = f"{combined}\n--- cli stderr ---\n{cli_stderr}"
-        return subprocess.CompletedProcess(
-            args=self._sentinel_args, returncode=1,
-            stdout=last_assistant or "", stderr=combined,
+        - ``exc`` set → :attr:`RunStatus.EXCEPTION`
+        - ``result`` is ``None`` (and ``exc`` is ``None``) → :attr:`RunStatus.NO_RESULT`
+        - ``result.is_error`` → :attr:`RunStatus.SDK_ERROR`
+        - otherwise → :attr:`RunStatus.OK`
+        """
+        captured = list(self.last_captured_stderr)
+        if exc is not None:
+            preview = str(exc)[:200].replace("\n", " ")
+            cli_text = _captured_stderr_text(captured)
+            cli_preview = cli_text.replace("\n", " | ")[:400]
+            msg = (
+                f"[cai cost] claude-agent-sdk query failed "
+                f"({self.category}/{self.agent}): {preview}"
+            )
+            if cli_preview:
+                msg += f" | cli_stderr={cli_preview!r}"
+            logging.getLogger(__name__).warning(msg)
+            return RunResult(
+                status=RunStatus.EXCEPTION,
+                stdout="",
+                result=None,
+                error_summary=str(exc),
+                captured_stderr=captured,
+            )
+        if result is None:
+            preview = (self.last_assistant or "")[:120].replace("\n", " ")
+            cli_text = _captured_stderr_text(captured)
+            cli_preview = cli_text.replace("\n", " | ")[:400]
+            msg = (
+                f"[cai cost] no ResultMessage from claude-agent-sdk "
+                f"({self.category}/{self.agent}); last assistant starts with: "
+                f"{preview!r}"
+            )
+            if cli_preview:
+                msg += f" | cli_stderr={cli_preview!r}"
+            logging.getLogger(__name__).warning(msg)
+            return RunResult(
+                status=RunStatus.NO_RESULT,
+                stdout=stdout,
+                result=None,
+                error_summary=f"no_ResultMessage last_assistant={preview!r}",
+                captured_stderr=captured,
+            )
+        if result.is_error:
+            return RunResult(
+                status=RunStatus.SDK_ERROR,
+                stdout=stdout,
+                result=result,
+                error_summary=_sdk_error_summary(result),
+                captured_stderr=captured,
+            )
+        return RunResult(
+            status=RunStatus.OK,
+            stdout=stdout,
+            result=result,
+            error_summary=None,
+            captured_stderr=captured,
         )
 
 
@@ -290,7 +346,7 @@ def run_subagent(
     extra_target_kind: str | None = None,
     extra_target_number: int | None = None,
     timeout: float | None = None,
-) -> subprocess.CompletedProcess:
+) -> RunResult:
     """SDK-native subagent invocation — one-shot shim over :class:`SubAgent`.
 
     Kept as a module-level function so existing call sites

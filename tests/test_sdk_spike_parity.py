@@ -3,9 +3,9 @@
 Asserts that porting one handler off the ``_run_claude_p`` argv facade
 onto a direct ``ClaudeAgentOptions`` + ``run_subagent`` call emits an
 identical cost-row payload (modulo the per-call dynamic ``ts`` /
-``session_id`` / ``host`` fields) and an identical
-:class:`subprocess.CompletedProcess` triple
-(``returncode`` / ``stdout`` / ``stderr``).
+``session_id`` / ``host`` fields). Also verifies that the equivalent
+outcome fields between the legacy ``CompletedProcess`` and the new
+``RunResult`` carry identical observable values.
 
 Uses ``unittest`` to match the rest of the tree — ``pytest`` is not in
 ``pyproject.toml``'s dependencies.
@@ -139,9 +139,10 @@ class TestSdkSpikeParity(unittest.TestCase):
                 agent="cai-confirm",
             )
 
-        self.assertEqual(facade.returncode, native.returncode)
+        # facade returns CompletedProcess; native returns RunResult
+        self.assertEqual(facade.returncode, 0)
+        self.assertTrue(native.ok)
         self.assertEqual(facade.stdout, native.stdout)
-        self.assertEqual(facade.stderr, native.stderr)
 
     def test_returncode_stdout_stderr_match_on_error(self):
         from cai_lib.claude_argv import _run_claude_p
@@ -180,10 +181,11 @@ class TestSdkSpikeParity(unittest.TestCase):
                 agent="cai-confirm",
             )
 
+        # facade returns CompletedProcess; native returns RunResult
         self.assertEqual(facade.returncode, 1)
-        self.assertEqual(native.returncode, 1)
+        self.assertFalse(native.ok)
         self.assertEqual(facade.stdout, native.stdout)
-        self.assertEqual(facade.stderr, native.stderr)
+        self.assertEqual(facade.stderr, native.error_summary)
 
 
 if __name__ == "__main__":
