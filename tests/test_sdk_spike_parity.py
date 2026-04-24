@@ -71,7 +71,9 @@ class TestSdkSpikeParity(unittest.TestCase):
 
     def test_cost_rows_match_modulo_volatile_fields(self):
         import cai_lib.cai_subagent as cai_subagent_mod
-        from cai_lib.subagent import _run_claude_p, core, legacy
+        from cai_lib.claude_argv import _run_claude_p
+        import cai_lib.claude_argv as legacy
+        from cai_lib.subagent import core
         from cai_lib.cai_subagent import run_subagent
 
         prompt = "## test prompt\n\nfor parity check"
@@ -110,7 +112,10 @@ class TestSdkSpikeParity(unittest.TestCase):
         )
 
     def test_returncode_stdout_stderr_match_on_success(self):
-        from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
+        from cai_lib.claude_argv import _run_claude_p
+        import cai_lib.claude_argv as legacy
+        from cai_lib.subagent import core
+        from cai_lib.subagent.core import run_subagent
 
         prompt = "## another fixture"
 
@@ -139,7 +144,10 @@ class TestSdkSpikeParity(unittest.TestCase):
         self.assertEqual(facade.stderr, native.stderr)
 
     def test_returncode_stdout_stderr_match_on_error(self):
-        from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
+        from cai_lib.claude_argv import _run_claude_p
+        import cai_lib.claude_argv as legacy
+        from cai_lib.subagent import core
+        from cai_lib.subagent.core import run_subagent
 
         prompt = "## error fixture"
 

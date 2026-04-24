@@ -1,32 +1,21 @@
-"""Agent-invocation package extracted from ``cai_lib/subprocess_utils.py``.
+"""Agent-invocation base classes — repo-agnostic SubAgent and CostTracker.
 
-Re-exports the public surface every importer uses today:
-
-* :class:`SubAgent` — Pydantic SDK driver; one instance, many runs;
-  holds a :class:`CostTracker`.
-* :class:`CostTracker` — cost-row accumulator with a no-op ``_emit``
-  hook for repo-specific subclasses to ship rows onward.
-* :func:`run_subagent` — one-shot shim over :class:`SubAgent`.
-* :func:`_run_claude_p` — deprecated ``claude -p`` argv facade.
-* :func:`set_current_fsm_state` — dispatcher-scoped FSM stamp.
+These base classes contain no cai-specific logic. For the full cai-specific
+invocation surface (with cost logging, FSM stamping, plugin injection), see
+:mod:`cai_lib.cai_subagent`. The deprecated ``claude -p`` argv facade has
+been relocated to :mod:`cai_lib.claude_argv`.
 
 See module docstrings for the split: ``core`` owns execution,
-``cost_tracker`` the accumulated cost rows, ``legacy`` the argv
-facade, ``stderr_sink`` the CLI stderr capture, ``fsm_state`` the
-dispatcher contextvar, ``errors`` the SDK-error summariser.
+``cost_tracker`` the accumulated cost rows, ``stderr_sink`` the CLI stderr
+capture, ``errors`` the SDK-error summariser.
 """
 
 from __future__ import annotations
 
-from .core import SubAgent, run_subagent
+from .core import SubAgent
 from .cost_tracker import CostTracker
-from .fsm_state import set_current_fsm_state
-from .legacy import _run_claude_p
 
 __all__ = [
     "CostTracker",
     "SubAgent",
-    "_run_claude_p",
-    "run_subagent",
-    "set_current_fsm_state",
 ]

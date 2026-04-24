@@ -66,7 +66,7 @@ from cai_lib.audit.cost import (
     _build_cost_summary,
 )
 
-from cai_lib.subagent import _run_claude_p
+from cai_lib.claude_argv import _run_claude_p
 from cai_lib.subprocess_utils import _run
 
 from cai_lib.github import (
