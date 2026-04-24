@@ -10,9 +10,10 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
 
 ## Key entry points
 - [`cai_lib/audit/cost.py`](../../cai_lib/audit/cost.py) — `_load_outcome_counts`,
-  `_load_cost_log`, `_row_ts`, `_primary_model`,
-  `_build_cost_summary`; token/cost helpers consumed by
-  `cmd_cost_report` and `cmd_cost_optimize`.
+  `_load_cost_log`, `_load_outcome_index`, `_row_ts`, `_primary_model`,
+  `_build_module_index`, `_infer_module_from_files`, `_build_cost_summary`; 
+  token/cost helpers consumed by `cmd_cost_report`, `cmd_cost_optimize`, 
+  and `runner.py` for per-module audit context.
 - [`cai_lib/audit/modules.py`](../../cai_lib/audit/modules.py) —
   `ModuleEntry` dataclass; `load_modules(path, check_doc_exists)`
   and `coverage_check(modules, files)`. Drives
@@ -62,6 +63,15 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
   to `findings.json`.
 
 ## Operational notes
+- **Cost summary pre-load.** `_build_module_prompt` in `runner.py` now
+  calls `pull_cost()` (if sync is configured) to fetch fresh cost data 
+  before invoking each audit agent. `_build_cost_summary()` generates a 
+  rich 7-section markdown block (cost by agent, top targets, phase breakdown, 
+  per-module spend, cache-health regressions, host anomalies) and appends 
+  it as a `## Cost summary` section in the agent's user message. This 
+  provides spend context per module without the agent needing to parse 
+  log files. The cost summary is also printed to stderr when running 
+  interactively (TTY).
 - **Audit log path convention.** `cai_lib/audit/runner.py` writes one
   structured JSONL file per `(kind, module)` pair under
   `/var/log/cai/audit/<kind>/<module>.jsonl` (e.g.

@@ -1,7 +1,9 @@
 """Audit-side cost/outcome helpers (moved from cai_lib/logging_utils.py)."""
 
+import fnmatch
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from cai_lib.config import COST_LOG_AGGREGATE_DIR, COST_LOG_PATH, OUTCOME_LOG_PATH
 
@@ -125,108 +127,341 @@ def _primary_model(row: dict) -> str:
     return best[0] if best else ""
 
 
-def _build_cost_summary(days: int = 7, top_n: int = 10) -> str:
-    """Build a markdown cost summary for the on-demand
-    cost-reduction audit user message.
+def _load_outcome_index(days: int = 90) -> dict[int, dict]:
+    """Return a mapping of issue_number -> {outcome, fix_attempt_count}
+    from the outcome log. Used by _build_cost_summary for §3 and §4 joins.
 
-    Returns an empty string if no cost rows exist for the window.
-    Otherwise emits a section with per-category aggregates, per-FSM-state
-    aggregates (when rows carry the optional #1203 ``fsm_state`` field),
-    and the top-N most expensive individual invocations, so the audit
-    agent can spot cost outliers (a single invocation that dwarfs the
-    median, or a funnel stage that dominates total spend).
+    Returns {} when the file is absent, the required fields are missing,
+    or any read failure occurs — all section joins degrade gracefully.
+    """
+    if not OUTCOME_LOG_PATH.exists():
+        return {}
+    cutoff_ts = datetime.now(timezone.utc).timestamp() - days * 86400
+    result: dict[int, dict] = {}
+    try:
+        with OUTCOME_LOG_PATH.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                issue_num = row.get("issue_number")
+                if not isinstance(issue_num, int):
+                    continue
+                ts = row.get("ts", "")
+                try:
+                    row_ts = datetime.strptime(
+                        ts, "%Y-%m-%dT%H:%M:%SZ",
+                    ).replace(tzinfo=timezone.utc).timestamp()
+                except ValueError:
+                    continue
+                if row_ts < cutoff_ts:
+                    continue
+                result[issue_num] = {
+                    "outcome": row.get("outcome"),
+                    "fix_attempt_count": row.get("fix_attempt_count"),
+                }
+    except OSError:
+        return {}
+    return result
+
+
+def _build_module_index() -> list[tuple[str, str]]:
+    """Return a list of (glob_pattern, module_name) from docs/modules.yaml.
+
+    Used by _build_cost_summary §5 to infer module name from scope_files.
+    Returns [] when the manifest is absent, unreadable, or raises.
+    """
+    try:
+        from cai_lib.audit.modules import load_modules  # noqa: PLC0415
+        manifest = Path(__file__).resolve().parents[2] / "docs" / "modules.yaml"
+        modules = load_modules(manifest)
+        return [(g, m.name) for m in modules for g in m.globs]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _infer_module_from_files(
+    scope_files: list[str],
+    module_index: list[tuple[str, str]],
+) -> str | None:
+    """Return the most-matched module name for a list of scope_files.
+
+    Counts how many files in scope_files match each module's globs; returns
+    the module with the most matches. Returns None when no match is found.
+    """
+    module_counts: dict[str, int] = {}
+    for f in scope_files:
+        for g, name in module_index:
+            if fnmatch.fnmatch(f, g):
+                module_counts[name] = module_counts.get(name, 0) + 1
+    if not module_counts:
+        return None
+    return max(module_counts.items(), key=lambda kv: kv[1])[0]
+
+
+def _build_cost_summary(days: int = 7, top_n: int = 10, cluster_n: int = 10) -> str:
+    """Build a rich 7-section cost-analysis markdown summary for the
+    on-demand cost-reduction audit user message and operator banner.
+
+    Returns an empty string when no cost rows exist for the window.
+    Each section degrades gracefully when its required fields are absent
+    from the data — sections with no content are omitted.
+
+    Sections:
+      §1 Window headline
+      §2 Recent vs prior Δ by agent (skip agents < 2*cluster_n invocations)
+      §3 Top-N expensive targets (skip when no rows have target_number)
+      §4 Phase breakdown by fsm_state (always shown)
+      §5 Per-module cost (skip when no module/scope_files data available)
+      §6 Cache-health regressions (skip when no regressions detected)
+      §7 Host anomalies (always shown when rows have host field)
     """
     rows = _load_cost_log(days=days)
     if not rows:
         return ""
 
-    # Per-category aggregates: total cost, call count, mean cost.
-    cats: dict[str, dict] = {}
-    grand_total = 0.0
-    for r in rows:
-        cat = r.get("category") or "(unknown)"
-        cost = r.get("cost_usd") or 0.0
+    def _cost(r: dict) -> float:
         try:
-            cost = float(cost)
+            return float(r.get("cost_usd") or 0.0)
         except (TypeError, ValueError):
-            cost = 0.0
-        bucket = cats.setdefault(cat, {"calls": 0, "cost": 0.0})
-        bucket["calls"] += 1
-        bucket["cost"] += cost
-        grand_total += cost
+            return 0.0
 
-    cat_lines = []
-    for cat, b in sorted(cats.items(), key=lambda kv: -kv[1]["cost"]):
-        share = (b["cost"] / grand_total * 100.0) if grand_total else 0.0
-        mean = b["cost"] / b["calls"] if b["calls"] else 0.0
-        cat_lines.append(
-            f"| {cat} | {b['calls']} | ${b['cost']:.4f} "
-            f"({share:.1f}%) | ${mean:.4f} |"
+    rows_sorted = sorted(rows, key=_row_ts)
+    grand_total = sum(_cost(r) for r in rows)
+    target_numbers = {r["target_number"] for r in rows if isinstance(r.get("target_number"), int)}
+    hosts = {r["host"] for r in rows if r.get("host")}
+
+    # Precompute shared indices (outcome join for §3+§4, module globs for §5).
+    outcome_index = _load_outcome_index()
+    module_index = _build_module_index()
+
+    sections: list[str] = []
+
+    # ── §1 Window headline ─────────────────────────────────────────────
+    sections.append(
+        f"## Cost summary (last {days}d, ${grand_total:.4f} across "
+        f"{len(rows)} invocations, {len(target_numbers)} unique target(s), "
+        f"{len(hosts)} host(s), cluster_n={cluster_n})\n"
+    )
+
+    # ── §2 Recent vs prior Δ by agent ──────────────────────────────────
+    # Group rows by agent in chronological order; compare most-recent
+    # cluster_n vs the prior cluster_n; skip agents with < 2*cluster_n calls.
+    by_agent: dict[str, list[dict]] = {}
+    for r in rows_sorted:
+        a = r.get("agent") or "(no-agent)"
+        by_agent.setdefault(a, []).append(r)
+
+    delta_lines: list[str] = []
+    for agent_name in sorted(by_agent.keys()):
+        agent_rows = by_agent[agent_name]
+        if len(agent_rows) < cluster_n * 2:
+            continue
+        recent = agent_rows[-cluster_n:]
+        prior = agent_rows[-(cluster_n * 2):-cluster_n]
+        recent_mean = sum(_cost(r) for r in recent) / cluster_n
+        prior_mean = sum(_cost(r) for r in prior) / cluster_n
+        delta_pct = ((recent_mean - prior_mean) / prior_mean * 100.0) if prior_mean else 0.0
+        flag = " ⚠️" if delta_pct > 10.0 else ""
+        delta_lines.append(
+            f"| {agent_name} | {len(agent_rows)} | ${prior_mean:.4f} | "
+            f"${recent_mean:.4f} | {delta_pct:+.1f}%{flag} |"
         )
 
-    # Per-FSM-state aggregates (issue #1203). Rows written by non-FSM
-    # call sites omit ``fsm_state``; those land in the ``(none)`` bucket
-    # so the section stays faithful to the data.
-    fsm_states: dict[str, dict] = {}
+    if delta_lines:
+        sections.append(
+            f"### §2 Recent vs prior Δ by agent "
+            f"(recent/prior = last {cluster_n}/{cluster_n} calls, "
+            f"skip < {cluster_n * 2} invocations)\n\n"
+            "| agent | total calls | prior mean | recent mean | Δ% |\n"
+            "|---|---|---|---|---|\n"
+            + "\n".join(delta_lines) + "\n"
+        )
+
+    # ── §3 Top-N expensive targets ─────────────────────────────────────
+    # Group by target_number, join with outcome log for outcome +
+    # fix_attempt_count. Rows without target_number are excluded here.
+    by_target: dict[int, list[dict]] = {}
+    for r in rows:
+        tn = r.get("target_number")
+        if isinstance(tn, int):
+            by_target.setdefault(tn, []).append(r)
+
+    if by_target:
+        top_targets = sorted(
+            by_target.items(),
+            key=lambda kv: sum(_cost(r) for r in kv[1]),
+            reverse=True,
+        )[:top_n]
+        target_lines = []
+        for tn, tn_rows in top_targets:
+            total = sum(_cost(r) for r in tn_rows)
+            oi = outcome_index.get(tn, {})
+            outcome = oi.get("outcome") or "-"
+            fa = oi.get("fix_attempt_count")
+            attempts_str = str(int(fa)) if isinstance(fa, (int, float)) else "-"
+            target_lines.append(
+                f"| #{tn} | {len(tn_rows)} | ${total:.4f} | {outcome} | {attempts_str} |"
+            )
+        sections.append(
+            f"### §3 Top-{len(target_lines)} expensive target(s)\n\n"
+            "| target | calls | total cost | outcome | fix_attempts |\n"
+            "|---|---|---|---|---|\n"
+            + "\n".join(target_lines) + "\n"
+        )
+
+    # ── §4 Phase breakdown ─────────────────────────────────────────────
+    # Group all rows by fsm_state. For rows with target_number, join the
+    # outcome log to split first-attempt (fix_attempt_count ≤ 1) vs retry.
+    fsm_buckets: dict[str, dict] = {}
     for r in rows:
         fs = r.get("fsm_state") or "(none)"
-        cost = r.get("cost_usd") or 0.0
-        try:
-            cost = float(cost)
-        except (TypeError, ValueError):
-            cost = 0.0
-        bucket = fsm_states.setdefault(fs, {"calls": 0, "cost": 0.0})
-        bucket["calls"] += 1
-        bucket["cost"] += cost
+        tn = r.get("target_number")
+        oi = outcome_index.get(tn, {}) if isinstance(tn, int) else {}
+        fa = oi.get("fix_attempt_count")
+        is_first = not isinstance(fa, (int, float)) or fa <= 1
+        bucket = fsm_buckets.setdefault(fs, {"first": [], "retry": []})
+        if is_first:
+            bucket["first"].append(r)
+        else:
+            bucket["retry"].append(r)
 
-    fsm_lines = []
-    for fs, b in sorted(fsm_states.items(), key=lambda kv: -kv[1]["cost"]):
-        share = (b["cost"] / grand_total * 100.0) if grand_total else 0.0
-        mean = b["cost"] / b["calls"] if b["calls"] else 0.0
-        fsm_lines.append(
-            f"| {fs} | {b['calls']} | ${b['cost']:.4f} "
-            f"({share:.1f}%) | ${mean:.4f} |"
+    phase_lines = []
+    for fs in sorted(
+        fsm_buckets.keys(),
+        key=lambda k: -(
+            sum(_cost(r) for r in fsm_buckets[k]["first"])
+            + sum(_cost(r) for r in fsm_buckets[k]["retry"])
+        ),
+    ):
+        b = fsm_buckets[fs]
+        first_cost = sum(_cost(r) for r in b["first"])
+        retry_cost = sum(_cost(r) for r in b["retry"])
+        phase_lines.append(
+            f"| {fs} | {len(b['first'])} | ${first_cost:.4f} | "
+            f"{len(b['retry'])} | ${retry_cost:.4f} | "
+            f"${first_cost + retry_cost:.4f} |"
         )
 
-    # Top-N most expensive individual invocations.
-    top = sorted(
-        rows,
-        key=lambda r: float(r.get("cost_usd") or 0.0),
-        reverse=True,
-    )[:top_n]
-    top_lines = []
-    for r in top:
-        cost = float(r.get("cost_usd") or 0.0)
-        # Issue #1205: cite the pre-computed ``cache_hit_rate`` field
-        # written by ``_run_claude_p`` (aggregate rate over
-        # cache_read + cache_creation + input tokens). Rows predating
-        # the change legitimately omit the field and render as ``-``.
-        hit = r.get("cache_hit_rate")
-        hit_str = f"{hit * 100:.1f}%" if isinstance(hit, (int, float)) else "-"
-        top_lines.append(
-            f"| {r.get('ts', '')} | {r.get('category', '')} | "
-            f"{r.get('agent', '')} | {_primary_model(r)} | ${cost:.4f} | "
-            f"{r.get('num_turns', '')} | "
-            f"{(r.get('input_tokens') or 0) + (r.get('output_tokens') or 0)} | "
-            f"{hit_str} |"
-        )
-
-    return (
-        f"## Cost summary (last {days}d, total ${grand_total:.4f} "
-        f"across {len(rows)} invocations)\n\n"
-        "### Per-category totals\n\n"
-        "| category | calls | total cost (share) | mean cost |\n"
-        "|---|---|---|---|\n"
-        + "\n".join(cat_lines)
-        + "\n\n"
-        "### By FSM state\n\n"
-        "| fsm_state | calls | total cost (share) | mean cost |\n"
-        "|---|---|---|---|\n"
-        + "\n".join(fsm_lines)
-        + "\n\n"
-        f"### Top {len(top_lines)} most expensive individual invocations\n\n"
-        "| ts | category | agent | model | cost | turns | tokens | hit% |\n"
-        "|---|---|---|---|---|---|---|---|\n"
-        + "\n".join(top_lines)
-        + "\n"
+    sections.append(
+        "### §4 Phase breakdown (first-attempt vs retry, by fsm_state)\n\n"
+        "| fsm_state | first calls | first cost | retry calls | "
+        "retry cost | total cost |\n"
+        "|---|---|---|---|---|---|\n"
+        + "\n".join(phase_lines) + "\n"
     )
+
+    # ── §5 Per-module cost ─────────────────────────────────────────────
+    # Group by the ``module`` field. For rows missing ``module`` but having
+    # ``scope_files``, infer module via fnmatch against docs/modules.yaml.
+    module_buckets: dict[str, list[dict]] = {}
+    for r in rows:
+        mod = r.get("module") or ""
+        if not mod:
+            sf = r.get("scope_files")
+            if isinstance(sf, list) and sf and module_index:
+                mod = _infer_module_from_files(sf, module_index) or ""
+        if mod:
+            module_buckets.setdefault(mod, []).append(r)
+
+    if module_buckets:
+        module_lines = []
+        for mod in sorted(
+            module_buckets.keys(),
+            key=lambda k: -sum(_cost(r) for r in module_buckets[k]),
+        ):
+            mod_rows = module_buckets[mod]
+            total = sum(_cost(r) for r in mod_rows)
+            module_lines.append(f"| {mod} | {len(mod_rows)} | ${total:.4f} |")
+        sections.append(
+            "### §5 Per-module cost\n\n"
+            "| module | calls | total cost |\n"
+            "|---|---|---|\n"
+            + "\n".join(module_lines) + "\n"
+        )
+
+    # ── §6 Cache-health regressions ────────────────────────────────────
+    # Group by (agent, prompt_fingerprint). Compare most-recent cluster_n
+    # vs prior cluster_n cache_hit_rate. Flag ≥10pp drops.
+    # Skip pairs with < 2*cluster_n invocations.
+    fp_buckets: dict[tuple, list[dict]] = {}
+    for r in rows_sorted:
+        a = r.get("agent") or "(no-agent)"
+        fp = r.get("prompt_fingerprint")
+        if fp is not None:
+            fp_buckets.setdefault((a, fp), []).append(r)
+
+    regression_lines = []
+    for (a, fp), fp_rows in sorted(fp_buckets.items()):
+        if len(fp_rows) < cluster_n * 2:
+            continue
+        recent = fp_rows[-cluster_n:]
+        prior = fp_rows[-(cluster_n * 2):-cluster_n]
+        recent_vals = [
+            r["cache_hit_rate"] for r in recent
+            if isinstance(r.get("cache_hit_rate"), (int, float))
+        ]
+        prior_vals = [
+            r["cache_hit_rate"] for r in prior
+            if isinstance(r.get("cache_hit_rate"), (int, float))
+        ]
+        if not recent_vals or not prior_vals:
+            continue
+        recent_mean = sum(recent_vals) / len(recent_vals)
+        prior_mean = sum(prior_vals) / len(prior_vals)
+        drop_pp = (prior_mean - recent_mean) * 100.0
+        if drop_pp >= 10.0:
+            regression_lines.append(
+                f"| {a} | `{fp}` | {prior_mean * 100:.1f}% | "
+                f"{recent_mean * 100:.1f}% | -{drop_pp:.1f}pp ⚠️ |"
+            )
+
+    if regression_lines:
+        sections.append(
+            f"### §6 Cache-health regressions "
+            f"(≥10pp drop, ≥{cluster_n * 2} invocations)\n\n"
+            "| agent | fingerprint | prior hit% | recent hit% | drop |\n"
+            "|---|---|---|---|---|\n"
+            + "\n".join(regression_lines) + "\n"
+        )
+
+    # ── §7 Host anomalies ──────────────────────────────────────────────
+    # Per-host totals; flag hosts whose mean $/call is ≥ 2× the median.
+    host_buckets: dict[str, list[dict]] = {}
+    for r in rows:
+        h = r.get("host")
+        if h:
+            host_buckets.setdefault(h, []).append(r)
+
+    if host_buckets:
+        host_means = {
+            h: sum(_cost(r) for r in hrs) / len(hrs)
+            for h, hrs in host_buckets.items()
+        }
+        sorted_means = sorted(host_means.values())
+        n = len(sorted_means)
+        if n % 2 == 1:
+            median_mean = sorted_means[n // 2]
+        else:
+            median_mean = (sorted_means[n // 2 - 1] + sorted_means[n // 2]) / 2.0
+
+        host_lines = []
+        for h in sorted(host_buckets.keys(), key=lambda k: -host_means[k]):
+            total = sum(_cost(r) for r in host_buckets[h])
+            mean = host_means[h]
+            flag = " ⚠️" if median_mean > 0 and mean >= 2.0 * median_mean else ""
+            host_lines.append(
+                f"| {h} | {len(host_buckets[h])} | ${total:.4f} | ${mean:.4f}{flag} |"
+            )
+        sections.append(
+            "### §7 Host anomalies (flag mean $/call ≥ 2× median)\n\n"
+            "| host | calls | total cost | mean cost |\n"
+            "|---|---|---|---|\n"
+            + "\n".join(host_lines) + "\n"
+        )
+
+    return "\n".join(sections)

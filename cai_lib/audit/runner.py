@@ -24,6 +24,7 @@ import time
 import uuid
 from pathlib import Path
 
+from cai_lib.audit.cost import _build_cost_summary
 from cai_lib.audit_logging import audit_log_finish, audit_log_start
 from cai_lib.config import PUBLISH_SCRIPT
 from cai_lib.logging_utils import log_run
@@ -59,7 +60,16 @@ def _build_module_prompt(entry, findings_file: Path) -> str:  # type: ignore[no-
     expect a ``## Module`` section (name, summary, globs, optional doc
     snippet) followed by a ``## Findings file`` section pointing at
     the absolute path where they must write ``findings.json``.
+
+    Also pulls fresh cost data (no-op when sync is disabled) and appends
+    a ``## Cost summary`` block so the audit agent receives spend context.
     """
+    try:
+        from cai_lib.transcript_sync import pull_cost  # noqa: PLC0415
+        pull_cost()
+    except Exception:  # noqa: BLE001
+        pass
+
     globs_block = "\n".join(f"- `{g}`" for g in entry.globs) if entry.globs else "- (none)"
     parts = [
         "## Module",
@@ -78,6 +88,14 @@ def _build_module_prompt(entry, findings_file: Path) -> str:  # type: ignore[no-
         f"Write your findings to: `{findings_file}`",
         "",
     ]
+    cost_summary = _build_cost_summary()
+    if cost_summary:
+        parts += [
+            "",
+            "## Cost summary",
+            "",
+            cost_summary,
+        ]
     return "\n".join(parts)
 
 
@@ -98,6 +116,16 @@ def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-unt
 
     try:
         user_message = _build_module_prompt(entry, findings_file)
+        if sys.stderr.isatty():
+            _banner = _build_cost_summary()
+            if _banner:
+                print(
+                    f"\n--- cost summary (module={entry.name}) ---\n"
+                    f"{_banner}"
+                    f"--- end cost summary ---\n",
+                    file=sys.stderr,
+                    flush=True,
+                )
         proc = _run_claude_p(
             [
                 "claude", "-p",
@@ -110,6 +138,7 @@ def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-unt
             agent=agent,
             input=user_message,
             cwd="/app",
+            module=entry.name,
         )
 
         if proc.stdout:
