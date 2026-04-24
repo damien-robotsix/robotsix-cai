@@ -616,6 +616,8 @@ def _run_post_plan_resplit(issue, plan_text):
         category="plan.resplit",
         agent="cai-split",
         input=user_message,
+        target_kind="issue",
+        target_number=issue_number,
     )
     if result.returncode != 0:
         print(

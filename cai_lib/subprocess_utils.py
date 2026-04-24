@@ -527,12 +527,14 @@ def _run_claude_p(
     rollup, issue #1205), ``parent_model`` (top-level agent model name),
     ``subagents`` (subagent invocation counts, issue #1205), ``fsm_state``
     (dispatcher funnel position, issue #1203), ``cache_hit_rate`` (pre-computed
-    aggregate hit rate, issue #1205), and ``prompt_fingerprint`` (16-char SHA256
-    hash for cache-rate regression detection, issue #1207). Rows from
-    non-handler call sites (rescue, unblock, dup-check, audit, init) typically
-    omit ``fsm_state`` and other optional fields, preserving back-compat for
-    legacy rows. ``parent_cost_usd`` is intentionally dropped — the CLI format
-    emits exactly one result event so there is nothing to attribute.
+    aggregate hit rate, issue #1205), ``prompt_fingerprint`` (16-char SHA256
+    hash for cache-rate regression detection, issue #1207), ``target_kind``
+    (``"issue"`` or ``"pr"``, issue #1210), and ``target_number`` (numeric
+    issue/PR ID, issue #1210). Rows from non-handler call sites (rescue,
+    unblock, dup-check, audit, init) typically omit ``fsm_state`` and other
+    optional fields, preserving back-compat for legacy rows. ``parent_cost_usd``
+    is intentionally dropped — the CLI format emits exactly one result event so
+    there is nothing to attribute.
     """
     if len(cmd) < 2 or cmd[0] != "claude" or cmd[1] != "-p":
         raise ValueError("_run_claude_p requires cmd[:2] == ['claude', '-p']")
@@ -681,8 +683,9 @@ def _run_claude_p(
         row["module"] = module
     if scope_files is not None:
         row["scope_files"] = list(scope_files)
-    if target_kind is not None and target_number is not None:
+    if target_kind is not None:
         row["target_kind"] = target_kind
+    if target_number is not None:
         row["target_number"] = target_number
     log_cost(row)
 
