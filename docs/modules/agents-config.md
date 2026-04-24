@@ -18,7 +18,7 @@ the subagents under `.claude/agents/`.
   permissions and hooks apply to all of
   agents-implementation / agents-lifecycle / agents-review /
   agents-ops / agents-utility / audit uniformly.
-- Referenced implicitly by **cli** — `cai_lib/subagent/legacy.py`
+- Referenced implicitly by **subagent** — `cai_lib/claude_argv.py`'s
   `_run_claude_p` launches the headless harness which in turn
   reads this file.
 - Imported by **tests** — `tests/test_agent_staging.py` depends

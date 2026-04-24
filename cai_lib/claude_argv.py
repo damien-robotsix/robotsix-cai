@@ -1,11 +1,10 @@
-"""Deprecated ``claude -p`` argv facade — kept for the 12 handlers still on it.
+"""``claude -p`` argv facade relocated from ``cai_lib.subagent.legacy``.
 
 ``_run_claude_p`` wraps the SDK ``query`` with the same cost-row +
 cost-mirror + FSM-state + stderr-sink behaviour as ``run_subagent``
 but accepts ``claude -p``-style argv. Do not add new call sites;
-port existing ones to :func:`cai_lib.subagent.core.run_subagent`
-instead. The module is a thin shim and becomes deletable once every
-handler has been ported off.
+port existing ones to :func:`cai_lib.cai_subagent.run_subagent`
+instead.
 """
 
 from __future__ import annotations
@@ -26,9 +25,9 @@ from cai_lib.utils.log import log_cost
 from cai_lib.cost_comment import _post_cost_comment
 from cai_lib.fsm_state import _CURRENT_FSM_STATE
 
-from .core import _collect_results
-from .errors import _sdk_error_summary
-from .stderr_sink import _captured_stderr_text, _make_stderr_sink
+from cai_lib.subagent.core import _collect_results
+from cai_lib.subagent.errors import _sdk_error_summary
+from cai_lib.subagent.stderr_sink import _captured_stderr_text, _make_stderr_sink
 
 _CLI_PATH = shutil.which("claude")
 
@@ -129,7 +128,7 @@ def _run_claude_p(
     """Run a ``claude -p`` command via the Claude Agent SDK and record its cost.
 
     Deprecated argv facade — port new call sites to
-    :func:`cai_lib.subagent.core.run_subagent` instead.
+    :func:`cai_lib.cai_subagent.run_subagent` instead.
 
     ``cmd[0]`` must be ``"claude"`` and ``cmd[1]`` must be ``"-p"``;
     ``cmd[2:]`` is parsed into a ``ClaudeAgentOptions`` by

@@ -29,7 +29,7 @@ from cai_lib.fsm import (
 )
 from cai_lib.github import _post_issue_comment, _set_labels
 from cai_lib.utils.log import log_run
-from cai_lib.subagent import _run_claude_p
+from cai_lib.claude_argv import _run_claude_p
 from cai_lib.subprocess_utils import _run
 
 

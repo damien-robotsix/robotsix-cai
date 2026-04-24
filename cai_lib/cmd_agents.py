@@ -89,7 +89,7 @@ def cmd_audit_health(args) -> int:
     spikes, degenerate zero-findings runs, etc.).  Findings are
     published via ``publish.py --namespace audit-health``.
     """
-    from cai_lib.subagent import _run_claude_p
+    from cai_lib.claude_argv import _run_claude_p
     from cai_lib.subprocess_utils import _run
 
     agent = "cai-audit-audit-health"

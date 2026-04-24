@@ -32,7 +32,7 @@ from pathlib import Path
 
 from cai_lib.config import REPO
 from cai_lib.dispatcher import HandlerResult
-from cai_lib.subagent import _run_claude_p
+from cai_lib.claude_argv import _run_claude_p
 from cai_lib.subprocess_utils import _run
 from cai_lib.cmd_helpers import _git, _gh_user_identity, _work_directory_block
 from cai_lib.github import _fetch_linked_issue_block, _post_pr_comment

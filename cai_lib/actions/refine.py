@@ -19,7 +19,7 @@ from cai_lib.config import (
 )
 from cai_lib.fsm import fire_trigger
 from cai_lib.github import _build_issue_block
-from cai_lib.subagent import _run_claude_p
+from cai_lib.claude_argv import _run_claude_p
 from cai_lib.subprocess_utils import _run
 from cai_lib.utils.log import log_run
 from cai_lib.cmd_helpers import _strip_stored_plan_block

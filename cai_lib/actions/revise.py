@@ -26,7 +26,7 @@ from cai_lib.config import (
 )
 from cai_lib.fsm import PRState
 from cai_lib.github import _gh_json, _set_labels, _strip_cost_comments
-from cai_lib.subagent import _run_claude_p
+from cai_lib.claude_argv import _run_claude_p
 from cai_lib.subprocess_utils import _run
 from cai_lib.utils.log import log_run, log_run as _log_run_alias  # noqa: F401
 from cai_lib.cmd_helpers import (

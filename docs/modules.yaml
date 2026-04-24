@@ -149,6 +149,7 @@ modules:
     globs:
       - "cai_lib/subagent/*.py"
       - "cai_lib/cai_subagent.py"
+      - "cai_lib/claude_argv.py"
     doc: "docs/modules/subagent.md"
 
   - name: config

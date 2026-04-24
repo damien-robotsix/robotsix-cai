@@ -11,7 +11,7 @@ from cai_lib.config import *  # noqa: F403,F401
 from cai_lib.utils.log import log_run
 from cai_lib.audit.cost import _load_cost_log, _load_outcome_counts
 from cai_lib import transcript_sync
-from cai_lib.subagent import _run_claude_p
+from cai_lib.claude_argv import _run_claude_p
 from cai_lib.subprocess_utils import _run
 from cai_lib.github import (
     _gh_json, _set_labels, _transcript_dir_is_empty,
