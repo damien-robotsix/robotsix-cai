@@ -985,51 +985,6 @@ def _render_human_divert_reason(
     return "\n".join(lines)
 
 
-def resume_transition_for(target_state_name: str) -> Optional[Transition]:
-    """Map a ``ResumeTo: <STATE>`` token to the matching ``human_to_<state>`` transition.
-
-    Only transitions whose ``from_state`` is :attr:`IssueState.HUMAN_NEEDED`
-    are considered. Returns ``None`` when the name does not correspond to
-    a known IssueState or no resume transition lands on that state.
-    """
-    if not target_state_name:
-        return None
-    try:
-        target = IssueState[target_state_name.upper()]
-    except KeyError:
-        return None
-    for t in ISSUE_TRANSITIONS:
-        if t.from_state == IssueState.HUMAN_NEEDED and t.to_state == target:
-            return t
-    return None
-
-
-def resume_pr_transition_for(target_state_name: str) -> Optional[Transition]:
-    """PR-submachine counterpart of :func:`resume_transition_for`.
-
-    Maps a ``ResumeTo: <STATE>`` token to the matching
-    ``pr_human_to_<state>`` transition whose ``from_state`` is
-    :attr:`PRState.PR_HUMAN_NEEDED`. Returns ``None`` when the name is
-    not a known :class:`PRState` member or no resume transition lands
-    on that state.
-
-    The two resolvers are split (rather than unified) because
-    :attr:`IssueState.MERGED` and :attr:`PRState.MERGED` share a name —
-    the caller already knows whether it's acting on an issue or a PR,
-    so each side stays unambiguous by construction.
-    """
-    if not target_state_name:
-        return None
-    try:
-        target = PRState[target_state_name.upper()]
-    except KeyError:
-        return None
-    for t in PR_TRANSITIONS:
-        if t.from_state == PRState.PR_HUMAN_NEEDED and t.to_state == target:
-            return t
-    return None
-
-
 class _SentinelModel:
     """Empty model passed to :class:`GraphMachine` for diagram-only use.
 

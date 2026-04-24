@@ -12,7 +12,6 @@ from cai_lib.fsm import (
     get_issue_state, render_fsm_mermaid,
     find_transition,
     parse_confidence, parse_confidence_reason, parse_resume_target,
-    resume_transition_for, resume_pr_transition_for,
     fire_trigger,
 )
 from cai_lib.config import (
@@ -583,65 +582,6 @@ class TestResumeFromHuman(unittest.TestCase):
     def test_parse_resume_target_missing(self):
         self.assertIsNone(parse_resume_target(""))
         self.assertIsNone(parse_resume_target("no resume line here"))
-
-    def test_resume_transition_for_known_targets(self):
-        for name in ("RAISED", "REFINING", "PLAN_APPROVED",
-                     "NEEDS_EXPLORATION", "SOLVED"):
-            t = resume_transition_for(name)
-            self.assertIsNotNone(t, f"no resume transition for {name}")
-            self.assertEqual(t.from_state, IssueState.HUMAN_NEEDED)
-            self.assertEqual(t.to_state, IssueState[name])
-
-    def test_resume_transition_for_unknown_returns_none(self):
-        self.assertIsNone(resume_transition_for("NOT_A_STATE"))
-        self.assertIsNone(resume_transition_for(""))
-        # States that exist but have no human_to_* path must return None.
-        self.assertIsNone(resume_transition_for("IN_PROGRESS"))
-        self.assertIsNone(resume_transition_for("MERGED"))
-        # REFINED and PLANNED are auto-advance waypoints — admins resume
-        # into the transient work states (REFINING / PLANNING) or into
-        # PLAN_APPROVED, never into the stable waypoints themselves.
-        self.assertIsNone(resume_transition_for("REFINED"))
-        self.assertIsNone(resume_transition_for("PLANNED"))
-        self.assertIsNone(resume_transition_for("PLANNING"))
-
-    def test_every_widened_transition_is_reachable(self):
-        """Every human_to_<state> transition must be discoverable via resume_transition_for."""
-        widened = [
-            t for t in ISSUE_TRANSITIONS
-            if t.from_state == IssueState.HUMAN_NEEDED
-        ]
-        self.assertGreaterEqual(len(widened), 5)
-        for t in widened:
-            resolved = resume_transition_for(t.to_state.name)
-            self.assertIs(resolved, t,
-                f"resume_transition_for({t.to_state.name}) did not return {t.name}")
-
-
-class TestResumePRTransition(unittest.TestCase):
-
-    def test_known_pr_targets(self):
-        for name in ("REVIEWING_CODE", "REVISION_PENDING", "REVIEWING_DOCS"):
-            t = resume_pr_transition_for(name)
-            self.assertIsNotNone(t, f"no PR resume transition for {name}")
-            self.assertEqual(t.from_state, PRState.PR_HUMAN_NEEDED)
-            self.assertEqual(t.to_state, PRState[name])
-
-    def test_unknown_returns_none(self):
-        self.assertIsNone(resume_pr_transition_for("NOT_A_STATE"))
-        self.assertIsNone(resume_pr_transition_for(""))
-        # PRState has no OPEN→from-PR_HUMAN_NEEDED path.
-        self.assertIsNone(resume_pr_transition_for("OPEN"))
-        # MERGED is deliberately excluded — PRs must funnel through
-        # the review states; admins never merge from PR_HUMAN_NEEDED
-        # directly.
-        self.assertIsNone(resume_pr_transition_for("MERGED"))
-
-    def test_issue_and_pr_resolvers_are_disjoint(self):
-        # Passing a PRState name to the issue resolver must return None.
-        self.assertIsNone(resume_transition_for("REVIEWING_CODE"))
-        # Passing an IssueState-only name to the PR resolver must return None.
-        self.assertIsNone(resume_pr_transition_for("REFINING"))
 
 
 class TestRefineNextStepParser(unittest.TestCase):
