@@ -159,3 +159,9 @@ modules:
       - "scripts/*.sh"
       - "scripts/check-modules-coverage.py"
     doc: "docs/modules/scripts.md"
+
+  - name: plugins
+    summary: Claude Code plugins — reusable skills that augment agent capabilities.
+    globs:
+      - ".claude/plugins/**"
+    doc: "docs/modules/plugins.md"
