@@ -122,13 +122,20 @@ class TestReadPrefetchedFiles(unittest.TestCase):
     def test_issue_body_without_files_to_change_section(self):
         tmp = self._make_tmp()
         issue_body = "Some issue body without any files section."
-        result = _work_directory_block(tmp, issue_body)
+        # Suppress shared-memory injection (implement-plan-scope-gate.md
+        # contains the literal phrase "## Pre-loaded file contents" which
+        # would cause false-positive assertNotIn failures — same pattern
+        # as PR#1204 / PR#1226).
+        with patch("cai_lib.cmd_helpers_git._read_shared_memory", return_value=""):
+            result = _work_directory_block(tmp, issue_body)
         # Should fall back to current behavior — no preload section.
         self.assertNotIn("## Pre-loaded file contents", result)
 
     def test_no_issue_body_no_preload(self):
         tmp = self._make_tmp()
-        result = _work_directory_block(tmp)
+        # Same shared-memory isolation as test_issue_body_without_files_to_change_section.
+        with patch("cai_lib.cmd_helpers_git._read_shared_memory", return_value=""):
+            result = _work_directory_block(tmp)
         self.assertNotIn("## Pre-loaded file contents", result)
 
 
