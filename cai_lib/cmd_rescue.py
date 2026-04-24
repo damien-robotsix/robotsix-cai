@@ -24,7 +24,7 @@ import sys
 import time
 from typing import Optional
 
-from cai_lib.cmd_helpers_issues import _extract_stored_plan
+from cai_lib.cmd_helpers_issues import _build_target_message, _extract_stored_plan
 
 from cai_lib.config import (
     REPO,
@@ -257,44 +257,6 @@ def _list_unresolved_pr_human_needed_prs() -> list[dict]:
     return out
 
 
-def _build_rescue_message(target: dict, *, kind: str) -> str:
-    """Format the user message for the cai-rescue agent.
-
-    Same shape as :func:`cmd_unblock._build_unblock_message` but with a
-    ``Kind: issue-rescue`` or ``Kind: pr-rescue`` header so the agent
-    knows it is the autonomous-rescue mode rather than the admin-resume
-    mode, and which submachine's resume targets apply.
-    """
-    body = target.get("body") or "(no body)"
-    labels = [
-        (lb.get("name") if isinstance(lb, dict) else lb)
-        for lb in target.get("labels", [])
-    ]
-    labels_line = ", ".join(labels) if labels else "(none)"
-
-    comments = target.get("comments") or []
-    comments_block = ""
-    for c in comments:
-        author = (c.get("author") or {}).get("login") or "unknown"
-        created = c.get("createdAt", "") or c.get("created_at", "")
-        text = c.get("body", "") or ""
-        comments_block += f"\n**{author}** ({created}):\n{text}\n"
-
-    return (
-        f"Kind: {kind}\n"
-        f"\n"
-        f"## Labels\n"
-        f"{labels_line}\n"
-        f"\n"
-        f"## Body\n\n"
-        f"### #{target['number']} — {target.get('title', '')}\n\n"
-        f"{body}\n"
-        f"\n"
-        f"## Comments\n"
-        f"{comments_block or '(no comments)'}\n"
-    )
-
-
 def _post_rescue_comment(
     issue_number: int, *, target: str, reasoning: str,
 ) -> bool:
@@ -515,7 +477,7 @@ def _try_rescue_issue(
     """
     issue_number = issue["number"]
 
-    user_message = _build_rescue_message(issue, kind="issue-rescue")
+    user_message = _build_target_message(kind="issue-rescue", target=issue, mark_admin=False)
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-rescue",
          "--dangerously-skip-permissions",
@@ -653,7 +615,7 @@ def _try_rescue_pr(
     """
     pr_number = pr["number"]
 
-    user_message = _build_rescue_message(pr, kind="pr-rescue")
+    user_message = _build_target_message(kind="pr-rescue", target=pr, mark_admin=False)
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-rescue",
          "--dangerously-skip-permissions",
