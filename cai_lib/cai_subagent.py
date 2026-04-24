@@ -24,7 +24,7 @@ from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions
 
 from cai_lib.subagent.core import SubAgent
-from cai_lib.subagent.cost_tracker import CostTracker
+from cai_lib.subagent.cost_tracker import CostRow, CostTracker
 from cai_lib.cost_comment import _post_cost_comment
 from cai_lib.fsm_state import _CURRENT_FSM_STATE
 from cai_lib.utils.log import log_cost
@@ -39,15 +39,16 @@ class CaiCostTracker(CostTracker):
     target) via :func:`~cai_lib.cost_comment._post_cost_comment`.
     """
 
-    def _emit(self, row: dict, agent: str) -> None:
+    def _emit(self, row: CostRow, agent: str) -> None:
         """Stamp FSM state, log cost row, and post GH cost-attribution comment."""
         fsm_state = _CURRENT_FSM_STATE.get()
         if fsm_state:
-            row["fsm_state"] = fsm_state
-        log_cost(row)
+            row.fsm_state = fsm_state
+        dumped = row.model_dump(exclude_none=True)
+        log_cost(dumped)
         if self.target_kind is not None and self.target_number is not None:
             _post_cost_comment(
-                self.target_kind, self.target_number, row, agent,
+                self.target_kind, self.target_number, dumped, agent,
             )
         if (
             self.extra_target_kind is not None
@@ -55,7 +56,7 @@ class CaiCostTracker(CostTracker):
         ):
             _post_cost_comment(
                 self.extra_target_kind, self.extra_target_number,
-                row, agent,
+                dumped, agent,
             )
 
 
