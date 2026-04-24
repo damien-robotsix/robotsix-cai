@@ -1179,12 +1179,6 @@ def _pr_ci_pending(pr: dict) -> bool:
     return False
 
 
-def _linked_open_pr_number(issue_number: int) -> Optional[int]:
-    """Return the open ``auto-improve/<N>-...`` PR number for this issue, or None."""
-    pr = _find_open_linked_pr(issue_number)
-    return pr["number"] if pr else None
-
-
 def _issue_number_from_pr_branch(pr: dict) -> Optional[int]:
     """Parse the issue number from an ``auto-improve/<N>-...`` branch."""
     head = pr.get("headRefName", "") or ""
@@ -1282,7 +1276,8 @@ def _drive_target_to_completion(
                     return worst_rc
                 # Issue→PR hop: issue advanced to PR state — drive the linked PR.
                 if post_state == IssueState.PR:
-                    linked = _linked_open_pr_number(number)
+                    linked_pr = _find_open_linked_pr(number)
+                    linked = linked_pr["number"] if linked_pr else None
                     if linked is not None and ("pr", linked) not in touched:
                         print(f"[cai dispatch] issue #{number} advanced to PR — "
                               f"following PR #{linked}", flush=True)
