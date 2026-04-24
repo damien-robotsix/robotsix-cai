@@ -1,12 +1,14 @@
 """Cost-row recorder for :class:`cai_lib.subagent.core.SubAgent`.
 
 A :class:`SubAgent` holds one :class:`CostTracker` that accumulates a
-``log_cost`` row per successful run and, when target metadata is set,
-mirrors the row as a GH comment on the relevant issue or PR.
+``log_cost`` row per successful run. :meth:`CostTracker._emit` is a
+no-op hook repo-specific subclasses override to ship the row onward
+(e.g. :class:`cai_lib.cai_subagent.CaiCostTracker` writes to disk and
+mirrors a comment onto the target issue/PR).
 
 Kept in its own module so :mod:`cai_lib.subagent.core` stays focused on
-the SDK query loop and CompletedProcess shape, and so tests can patch
-``log_cost`` at the boundary the row actually crosses.
+the SDK query loop and CompletedProcess shape, and so subclasses can
+override the emit boundary without touching core execution.
 """
 
 from __future__ import annotations
@@ -20,14 +22,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class CostTracker(BaseModel):
-    """Accumulates cost rows for a SubAgent and mirrors them as GH comments.
+    """Accumulates cost rows for a SubAgent; emit is a subclass hook.
 
     Running totals (:attr:`total_cost_usd`, :attr:`total_duration_ms`,
     :attr:`total_num_turns`) are pure computed properties over
     :attr:`cost_rows` — no duplicated bookkeeping. Target metadata is
-    optional; when ``target_kind`` and ``target_number`` are both set,
-    each recorded row is also posted as a cost-mirror comment on that
-    target (and the optional extra target).
+    carried on the tracker for subclasses that ship rows to a specific
+    issue/PR; the base :meth:`_emit` ignores it.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -62,7 +63,7 @@ class CostTracker(BaseModel):
         parent_model: str | None,
         subagent_counts: dict[str, int],
     ) -> dict:
-        """Build one cost row, append it to :attr:`cost_rows`, log + mirror it."""
+        """Build one cost row, append it to :attr:`cost_rows`, emit it."""
         row = self._build_row(
             category=category,
             agent=agent,

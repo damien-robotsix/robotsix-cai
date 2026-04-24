@@ -4,16 +4,16 @@ Re-exports the public surface every importer uses today:
 
 * :class:`SubAgent` — Pydantic SDK driver; one instance, many runs;
   holds a :class:`CostTracker`.
-* :class:`CostTracker` — cost-row accumulator + GH-comment mirror.
+* :class:`CostTracker` — cost-row accumulator with a no-op ``_emit``
+  hook for repo-specific subclasses to ship rows onward.
 * :func:`run_subagent` — one-shot shim over :class:`SubAgent`.
 * :func:`_run_claude_p` — deprecated ``claude -p`` argv facade.
 * :func:`set_current_fsm_state` — dispatcher-scoped FSM stamp.
 
 See module docstrings for the split: ``core`` owns execution,
 ``cost_tracker`` the accumulated cost rows, ``legacy`` the argv
-facade, ``cost`` the cost-comment rendering, ``stderr_sink`` the CLI
-stderr capture, ``fsm_state`` the dispatcher contextvar, ``errors``
-the SDK-error summariser.
+facade, ``stderr_sink`` the CLI stderr capture, ``fsm_state`` the
+dispatcher contextvar, ``errors`` the SDK-error summariser.
 """
 
 from __future__ import annotations
