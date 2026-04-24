@@ -46,13 +46,6 @@ _OPS_SOURCE_INFERRED_RE = re.compile(
 )
 
 
-def _ops_source_is_inferred(text: str) -> bool:
-    """Return True iff *text* contains a well-formed ``Ops-source: inferred`` line."""
-    if not text:
-        return False
-    return _OPS_SOURCE_INFERRED_RE.search(text) is not None
-
-
 def handle_maintain(issue: dict) -> int:
     """Dispatcher handler for ``IssueState.APPLYING``.
 
@@ -131,7 +124,7 @@ def handle_maintain(issue: dict) -> int:
     # sibling's only difference from the default is its MEDIUM confidence
     # gate — labels move identically. Plans with an explicit ``Ops:``
     # header stay on the default HIGH-threshold transition.
-    ops_inferred = _ops_source_is_inferred(result.stdout)
+    ops_inferred = bool(result.stdout and _OPS_SOURCE_INFERRED_RE.search(result.stdout))
     transition_name = (
         "applying_to_applied_inferred_ops" if ops_inferred
         else "applying_to_applied"
