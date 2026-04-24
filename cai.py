@@ -152,62 +152,20 @@ the cai_home volume.
 No third-party Python dependencies — only stdlib.
 """
 import argparse
-import json
-import os
-import re
-import shutil
-import subprocess
 import sys
-import uuid
 
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from cai_lib.publish import ensure_all_labels
+from cai_lib.config import *  # noqa: F403
 
-from cai_lib.publish import (  # noqa: E402
-    ensure_all_labels, AUDIT_CATEGORIES,
-    create_issue, issue_exists, ensure_labels,
-)
-from cai_lib.dup_check import check_duplicate_or_resolved  # noqa: E402
-
-
-from cai_lib.config import *  # noqa: E402,F403
-from cai_lib.config import (  # noqa: E402
-    _STALE_MERGED_DAYS,
-)
-
-from cai_lib.logging_utils import (  # noqa: E402
-    log_cost,  # noqa: F401
-    _get_issue_category, _log_outcome, _load_outcome_stats,
-)
-from cai_lib.audit.cost import (  # noqa: E402
-    _load_outcome_counts, _load_cost_log, _row_ts, _build_cost_summary,
-)
-
-
-# ---------------------------------------------------------------------------
-# Common helpers
-# ---------------------------------------------------------------------------
-
-from cai_lib.subprocess_utils import _run, _run_claude_p  # noqa: E402
-
-
-from cai_lib.github import (  # noqa: E402
-    check_gh_auth, check_claude_auth,
-    _set_pr_labels, _issue_has_label, _build_issue_block,
-    _build_implement_user_message, _fetch_linked_issue_block,
-    close_issue_not_planned, _recover_stale_pr_open,
-)
-from cai_lib.cmd_helpers import _work_directory_block  # noqa: E402
-from cai_lib.cmd_unblock import cmd_unblock  # noqa: E402
-from cai_lib.cmd_rescue import cmd_rescue  # noqa: E402
-from cai_lib.cmd_misc import (  # noqa: E402
+from cai_lib.github import check_gh_auth, check_claude_auth
+from cai_lib.cmd_unblock import cmd_unblock
+from cai_lib.cmd_rescue import cmd_rescue
+from cai_lib.cmd_misc import (
     cmd_init, cmd_verify, cmd_test, cmd_cost_report,
 )
-from cai_lib.cmd_agents import cmd_audit_module, cmd_audit_health  # noqa: E402
-from cai_lib.cmd_cycle import cmd_cycle, cmd_dispatch  # noqa: E402
-from cai_lib.transcript_sync import cmd_transcript_sync  # noqa: E402
-
-
+from cai_lib.cmd_agents import cmd_audit_module, cmd_audit_health
+from cai_lib.cmd_cycle import cmd_cycle, cmd_dispatch
+from cai_lib.transcript_sync import cmd_transcript_sync
 
 
 # ---------------------------------------------------------------------------
