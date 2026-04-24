@@ -31,7 +31,7 @@ from claude_agent_sdk.types import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
-from .cost_tracker import CostTracker
+from .cost_tracker import CostRow, CostTracker
 from .errors import _sdk_error_summary
 from .stderr_sink import _captured_stderr_text, _make_stderr_sink
 
@@ -167,7 +167,7 @@ class SubAgent(BaseModel):
         result = results[-1]
         self.last_result = result
 
-        self.cost_tracker.record(
+        self.cost_tracker.record(CostRow.from_result_message(
             category=self.category,
             agent=self.agent,
             prompt=prompt,
@@ -175,7 +175,7 @@ class SubAgent(BaseModel):
             result=result,
             parent_model=parent_model,
             subagent_counts=subagent_counts,
-        )
+        ))
 
         stdout = self._extract_stdout(result, last_assistant)
         return self._to_completed_process(result, stdout)

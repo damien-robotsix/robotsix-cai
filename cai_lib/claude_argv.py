@@ -10,13 +10,10 @@ instead.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import shutil
-import socket
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions
@@ -26,6 +23,7 @@ from cai_lib.cost_comment import _post_cost_comment
 from cai_lib.fsm_state import _CURRENT_FSM_STATE
 
 from cai_lib.subagent.core import _collect_results
+from cai_lib.subagent.cost_tracker import CostRow
 from cai_lib.subagent.errors import _sdk_error_summary
 from cai_lib.subagent.stderr_sink import _captured_stderr_text, _make_stderr_sink
 
@@ -241,109 +239,40 @@ def _run_claude_p(
         )
 
     result = results[-1]
-    usage = result.usage or {}
-    flat_keys = (
-        "input_tokens",
-        "output_tokens",
-        "cache_creation_input_tokens",
-        "cache_read_input_tokens",
-    )
-    flat = {
-        k: usage[k] for k in flat_keys
-        if isinstance(usage.get(k), (int, float))
-    }
-    models = result.model_usage if isinstance(result.model_usage, dict) else {}
     returncode = 1 if result.is_error else 0
 
-    row = {
-        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "category": category,
-        "agent": agent,
-        "cost_usd": result.total_cost_usd,
-        "duration_ms": result.duration_ms,
-        "duration_api_ms": result.duration_api_ms,
-        "num_turns": result.num_turns,
-        "session_id": result.session_id,
-        "host": socket.gethostname(),
-        "exit": returncode,
-        "is_error": bool(result.is_error),
-    }
-    row.update(flat)
-    # Issue #1205: pre-compute aggregate cache hit rate once at write
-    # time so every downstream reader (cost-report, cost-optimize, the
-    # audit/cost.py summary) cites a single authoritative number instead
-    # of re-deriving it (and getting the formula subtly wrong — e.g.
-    # forgetting ``cache_creation_input_tokens`` or including
-    # ``output_tokens`` in the denominator). Rows whose denominator is
-    # zero (no cache tokens and no input tokens observed) omit the
-    # field entirely so legacy/empty-usage rows stay byte-identical to
-    # the pre-#1205 shape.
-    cr = flat.get("cache_read_input_tokens") or 0
-    cc = flat.get("cache_creation_input_tokens") or 0
-    it = flat.get("input_tokens") or 0
-    denom = cr + cc + it
-    if denom > 0:
-        row["cache_hit_rate"] = round(cr / denom, 4)
-    if models:
-        # Per-model hit rate using the camelCase keys the SDK emits
-        # inside ``model_usage``. Mutates ``models`` in place; skips
-        # entries whose denominator is zero (same omission rule as the
-        # aggregate field). A non-dict ``mu`` is defensively ignored.
-        for _m, mu in models.items():
-            if not isinstance(mu, dict):
-                continue
-            m_cr = mu.get("cacheReadInputTokens") or 0
-            m_cc = mu.get("cacheCreationInputTokens") or 0
-            m_it = mu.get("inputTokens") or 0
-            m_denom = m_cr + m_cc + m_it
-            if m_denom > 0:
-                mu["cacheHitRate"] = round(m_cr / m_denom, 4)
-        row["models"] = models
-    if parent_model:
-        row["parent_model"] = parent_model
-    if subagent_counts:
-        row["subagents"] = dict(subagent_counts)
-    # Issue #1203: stamp the FSM funnel position when the dispatcher has
-    # set it. Non-FSM call sites (cmd_rescue, cmd_unblock, dup_check,
-    # audit/runner.py, cmd_misc.init) leave the contextvar unset; the
-    # key is omitted in that case, preserving pre-#1203 row shape.
+    # All row-building logic (flat token counters, aggregate +
+    # per-model cache_hit_rate, fingerprint, optional stamps) lives
+    # on :meth:`CostRow.from_result_message`. The factory constructs
+    # a fresh :class:`ModelUsage` per entry so ``result.model_usage``
+    # is never mutated in place — fixing the issue-#1272 SDK-dict
+    # mutation bug. See cost_tracker.py for the field-by-field
+    # schema and derivation rules (issues #1203–#1210 all live there).
+    row = CostRow.from_result_message(
+        category=category,
+        agent=agent,
+        result=result,
+        prompt=prompt or "",
+        system_prompt=options.system_prompt,
+        parent_model=parent_model,
+        subagent_counts=subagent_counts,
+        fingerprint_payload=fingerprint_payload,
+        module=module,
+        scope_files=scope_files,
+        target_kind=target_kind,
+        target_number=target_number,
+        fix_attempt_count=fix_attempt_count,
+    )
+    # Issue #1203: stamp the FSM funnel position when the dispatcher
+    # has set it. Non-FSM call sites (cmd_rescue, cmd_unblock,
+    # dup_check, audit/runner.py, cmd_misc.init) leave the contextvar
+    # unset; ``row.fsm_state`` stays None in that case and is excluded
+    # from the serialised dict, preserving pre-#1203 row shape.
     fsm_state = _CURRENT_FSM_STATE.get()
     if fsm_state:
-        row["fsm_state"] = fsm_state
-    # Issue #1207: stamp a short SHA256 fingerprint. When ``fingerprint_payload``
-    # is provided, use it as-is (stable caller-controlled key); otherwise
-    # fall back to the system + user prompt concatenation.
-    fp_src = (
-        fingerprint_payload if fingerprint_payload is not None
-        else (options.system_prompt or "") + "\n---\n" + (prompt or "")
-    )
-    row["prompt_fingerprint"] = hashlib.sha256(fp_src.encode()).hexdigest()[:16]
-    # Issue #1206: stamp the caller-supplied module / scope_files so
-    # cai-audit-cost-reduction and cai-cost-optimize can group spend by
-    # module (audit runs) or declared file scope (implement runs).
-    # Each key is omitted when the caller did not supply it, keeping
-    # the row byte-identical to the pre-#1206 shape for every
-    # non-participating call site. ``scope_files`` is capped at the
-    # first 10 paths to bound row size.
-    if module is not None:
-        row["module"] = module
-    if scope_files:
-        row["scope_files"] = list(scope_files)[:10]
-    # Issue #1210: stamp target kind and number for cost attribution.
-    if target_kind is not None:
-        row["target_kind"] = target_kind
-    if target_number is not None:
-        row["target_number"] = target_number
-    # Issue #1204: stamp the linked issue's prior-fix-attempt count so
-    # cost-log readers can join cai-cost.jsonl to cai-outcomes.jsonl
-    # (which already carries the same key via _log_outcome). Only
-    # fix-retry flows (implement / revise / fix-ci) pass the kwarg;
-    # every other call site leaves it None and the key is omitted,
-    # preserving pre-#1204 row shape. Zero must be stamped (first
-    # attempt) — use ``is not None``, not truthiness.
-    if fix_attempt_count is not None:
-        row["fix_attempt_count"] = fix_attempt_count
-    log_cost(row)
+        row.fsm_state = fsm_state
+    dumped = row.model_dump(exclude_none=True)
+    log_cost(dumped)
 
     # Post a per-target cost-attribution comment on the issue/PR the
     # agent worked on, when the caller identified a target. Marker
@@ -358,9 +287,9 @@ def _run_claude_p(
     # ``cai merge`` to surface spend on both the PR and the linked issue
     # (the issue is the unit humans track; the PR is the work product).
     if target_kind is not None and target_number is not None:
-        _post_cost_comment(target_kind, target_number, row, agent)
+        _post_cost_comment(target_kind, target_number, dumped, agent)
     if extra_target_kind is not None and extra_target_number is not None:
-        _post_cost_comment(extra_target_kind, extra_target_number, row, agent)
+        _post_cost_comment(extra_target_kind, extra_target_number, dumped, agent)
 
     # Priority: structured_output → error_max_structured_output_retries →
     # result text → last-assistant salvage.
