@@ -93,14 +93,7 @@ def _load_cost_log(days: int = 7) -> list[dict]:
                         row = json.loads(line)
                     except (json.JSONDecodeError, ValueError):
                         continue
-                    ts = row.get("ts") or ""
-                    try:
-                        row_ts = datetime.strptime(
-                            ts, "%Y-%m-%dT%H:%M:%SZ",
-                        ).replace(tzinfo=timezone.utc).timestamp()
-                    except ValueError:
-                        continue
-                    if row_ts >= cutoff_ts:
+                    if _row_ts(row) >= cutoff_ts:
                         rows.append(row)
         except Exception:
             continue
