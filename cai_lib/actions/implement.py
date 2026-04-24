@@ -1228,6 +1228,11 @@ def handle_implement(issue: dict) -> int:
         claude_cmd += ["--dangerously-skip-permissions",
                        "--add-dir", str(work_dir)]
         print(f"[cai implement] running cai-implement subagent for {work_dir}", flush=True)
+        _plan_scope_files: list[str] | None = None
+        if selected_plan:
+            _sec = _FILES_TO_CHANGE_SECTION_RE.search(selected_plan)
+            if _sec:
+                _plan_scope_files = _FILES_TO_CHANGE_PATH_RE.findall(_sec.group(1))
         agent = _run_claude_p(
             claude_cmd,
             category="implement",
@@ -1236,6 +1241,8 @@ def handle_implement(issue: dict) -> int:
             cwd="/app",
             target_kind="issue",
             target_number=issue_number,
+            scope_files=_plan_scope_files,
+            fingerprint_payload=user_message,
         )
         if agent.stdout:
             print(agent.stdout, flush=True)

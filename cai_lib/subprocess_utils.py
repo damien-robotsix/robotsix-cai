@@ -495,6 +495,9 @@ def _run_claude_p(
     target_number: int | None = None,
     extra_target_kind: str | None = None,
     extra_target_number: int | None = None,
+    module: str | None = None,
+    scope_files: list[str] | None = None,
+    fingerprint_payload: str | None = None,
     **kwargs,
 ) -> subprocess.CompletedProcess:
     """Run a ``claude -p`` command via the Claude Agent SDK and record its cost.
@@ -666,14 +669,18 @@ def _run_claude_p(
     fsm_state = _CURRENT_FSM_STATE.get()
     if fsm_state:
         row["fsm_state"] = fsm_state
-    # Issue #1207: stamp a short SHA256 fingerprint of the system + user
-    # prompts so cost-optimize can detect cache-rate regressions caused by
-    # prompt changes.  16 hex chars is sufficient for grouping; the actual
-    # prompt text lives in the versioned agent definition file.
+    # Issue #1207: stamp a short SHA256 fingerprint. When ``fingerprint_payload``
+    # is provided, use it as-is (stable caller-controlled key); otherwise
+    # fall back to the system + user prompt concatenation.
     fp_src = (
-        (options.system_prompt or "") + "\n---\n" + (prompt or "")
+        fingerprint_payload if fingerprint_payload is not None
+        else (options.system_prompt or "") + "\n---\n" + (prompt or "")
     )
     row["prompt_fingerprint"] = hashlib.sha256(fp_src.encode()).hexdigest()[:16]
+    if module:
+        row["module"] = module
+    if scope_files is not None:
+        row["scope_files"] = list(scope_files)
     if target_kind is not None and target_number is not None:
         row["target_kind"] = target_kind
         row["target_number"] = target_number
