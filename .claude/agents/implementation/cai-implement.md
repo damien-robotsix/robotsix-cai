@@ -303,16 +303,16 @@ suggest vague improvements or things you are unsure about.
 Before exiting with a non-zero diff, run through this checklist.
 Skip items that clearly don't apply, but err on the side of checking.
 
-- **(b) Docs sync:** If your change affects public-facing behavior,
+- **(a) Docs sync:** If your change affects public-facing behavior,
   a CLI interface, a configuration key, or overall architecture,
   Grep `docs/` for related content and update any stale or missing
   doc files. If a doc file should exist but doesn't, note it as a
   gap rather than creating it out of scope.
-- **(c) Module index sync:** If you added, renamed, or deleted a
+- **(b) Module index sync:** If you added, renamed, or deleted a
   tracked source file (`*.py`, agent `.md`, etc.), update
   `docs/modules.yaml` and the matching `docs/modules/<name>.md`
   entry. Add a new entry or stub if the file is new.
-- **(d) PR body communication:** In your `## PR Summary`, note any
+- **(c) PR body communication:** In your `## PR Summary`, note any
   intentionally skipped co-changes (e.g. "docs/modules.yaml not
   updated — no tracked source files changed") so reviewers
   understand the scope boundary.
