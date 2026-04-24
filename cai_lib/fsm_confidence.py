@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import re
 from enum import Enum
+from functools import total_ordering
 from typing import Optional
 
 
+@total_ordering
 class Confidence(Enum):
     """Qualitative confidence level emitted by agents.
 
@@ -25,21 +27,6 @@ class Confidence(Enum):
         if not isinstance(other, Confidence):
             return NotImplemented
         return self.value < other.value
-
-    def __le__(self, other: "Confidence") -> bool:
-        if not isinstance(other, Confidence):
-            return NotImplemented
-        return self.value <= other.value
-
-    def __gt__(self, other: "Confidence") -> bool:
-        if not isinstance(other, Confidence):
-            return NotImplemented
-        return self.value > other.value
-
-    def __ge__(self, other: "Confidence") -> bool:
-        if not isinstance(other, Confidence):
-            return NotImplemented
-        return self.value >= other.value
 
 
 _CONFIDENCE_RE = re.compile(
