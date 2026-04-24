@@ -71,7 +71,8 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
   it as a `## Cost summary` section in the agent's user message. This 
   provides spend context per module without the agent needing to parse 
   log files. The cost summary is also printed to stderr when running 
-  interactively (TTY).
+  `cai audit cost-reduction` interactively (TTY) to provide real-time 
+  spend visibility for the cost-reduction audit only.
 - **Audit log path convention.** `cai_lib/audit/runner.py` writes one
   structured JSONL file per `(kind, module)` pair under
   `/var/log/cai/audit/<kind>/<module>.jsonl` (e.g.
