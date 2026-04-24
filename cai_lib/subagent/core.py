@@ -19,17 +19,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    from claude_agent_sdk import ClaudeAgentOptions, query
-    from claude_agent_sdk.types import (
-        AssistantMessage,
-        ResultMessage,
-        TextBlock,
-        ToolUseBlock,
-    )
-    _SDK_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    _SDK_AVAILABLE = False
+from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk.types import (
+    AssistantMessage,
+    ResultMessage,
+    TextBlock,
+    ToolUseBlock,
+)
 
 from cai_lib.logging_utils import log_cost
 
