@@ -729,42 +729,66 @@ def _after_label_change_divert(event_data) -> None:
     post_fn(number, msg, log_prefix=log_prefix)
 
 
-def _build_issue_machine(
-    issue_number: int,
+def _build_machine(
+    number: int,
     current_labels: Optional[list[str]],
+    current_pr: Optional[dict],
     trigger_name: str,
+    *,
+    is_pr: bool,
 ) -> tuple["Machine", "_FsmModel"]:
-    """Construct an ephemeral pytransitions.Machine for issue FSM dispatch.
+    """Construct an ephemeral pytransitions.Machine for FSM dispatch.
 
-    Returns ``(machine, model)``.  The model's initial state is derived from
-    *current_labels*; when *current_labels* is ``None`` the state is set to
-    the ``from_state`` of *trigger_name* so that state-mismatch validation is
-    skipped (allows optional state validation for callers that omit
-    ``current_labels``).
+    Polymorphic over issue vs. PR dispatch — selects the appropriate
+    transition catalog (``ISSUE_TRANSITIONS`` / ``PR_TRANSITIONS``),
+    state enum (``IssueState`` / ``PRState``), human-needed destination
+    (``HUMAN_NEEDED`` / ``PR_HUMAN_NEEDED``), and current-state resolver
+    (``get_issue_state`` / ``get_pr_state``) via the ``is_pr`` flag.
+
+    Returns ``(machine, model)``.  The model's initial state is derived
+    from *current_labels* (issue) or *current_pr* (PR); when the source
+    is ``None`` the state is set to the ``from_state`` of *trigger_name*
+    so that state-mismatch validation is skipped (allows optional state
+    validation for callers that omit the label/PR context).
 
     Deprecation note: ``Transition.accepts()``, ``Transition.labels_add``,
     and ``Transition.labels_remove`` are still used by the Mermaid renderer
     and the shim adapters; they are preserved on the dataclass for now.
     """
-    original_trans = find_transition(trigger_name, ISSUE_TRANSITIONS)
-    if current_labels is None:
-        initial_state = original_trans.from_state.name
+    if is_pr:
+        transition_list: Sequence[Transition] = PR_TRANSITIONS
+        state_enum = PRState
+        human_dest_state = PRState.PR_HUMAN_NEEDED
     else:
-        state_obj = get_issue_state(current_labels)
-        initial_state = state_obj.name if state_obj is not None else IssueState.RAISED.name
+        transition_list = ISSUE_TRANSITIONS
+        state_enum = IssueState
+        human_dest_state = IssueState.HUMAN_NEEDED
+
+    original_trans = find_transition(trigger_name, transition_list)
+    if is_pr:
+        if current_pr is None:
+            initial_state = original_trans.from_state.name
+        else:
+            initial_state = get_pr_state(current_pr).name
+    else:
+        if current_labels is None:
+            initial_state = original_trans.from_state.name
+        else:
+            state_obj = get_issue_state(current_labels)
+            initial_state = state_obj.name if state_obj is not None else IssueState.RAISED.name
 
     model = _FsmModel()
     machine = Machine(
         model=model,
-        states=[s.name for s in IssueState],
+        states=[s.name for s in state_enum],
         initial=initial_state,
         ignore_invalid_triggers=False,
         auto_transitions=False,
         send_event=True,
     )
 
-    for trans in ISSUE_TRANSITIONS:
-        is_human_dest = (trans.to_state == IssueState.HUMAN_NEEDED)
+    for trans in transition_list:
+        is_human_dest = (trans.to_state == human_dest_state)
         before_cbs: list = [_before_human_needed] if is_human_dest else []
 
         if trans.min_confidence is not None:
@@ -781,72 +805,12 @@ def _build_issue_machine(
             machine.add_transition(
                 trigger=trans.name,
                 source=trans.from_state.name,
-                dest=IssueState.HUMAN_NEEDED.name,
+                dest=human_dest_state.name,
                 unless=[_confidence_ok(trans.min_confidence)],
                 after=[_after_label_change_divert],
             )
         else:
             # Unconditional (caller-gated or no confidence gate).
-            machine.add_transition(
-                trigger=trans.name,
-                source=trans.from_state.name,
-                dest=trans.to_state.name,
-                before=before_cbs,
-                after=[_after_label_change_normal],
-            )
-
-    return machine, model
-
-
-def _build_pr_machine(
-    pr_number: int,
-    current_pr: Optional[dict],
-    trigger_name: str,
-) -> tuple["Machine", "_FsmModel"]:
-    """Construct an ephemeral pytransitions.Machine for PR FSM dispatch.
-
-    Symmetric counterpart of :func:`_build_issue_machine` for the PR
-    submachine.  Uses ``PR_TRANSITIONS``, ``get_pr_state``, and
-    ``PRState`` in place of their issue equivalents.
-    """
-    original_trans = find_transition(trigger_name, PR_TRANSITIONS)
-    if current_pr is None:
-        initial_state = original_trans.from_state.name
-    else:
-        state_obj = get_pr_state(current_pr)
-        initial_state = state_obj.name
-
-    model = _FsmModel()
-    machine = Machine(
-        model=model,
-        states=[s.name for s in PRState],
-        initial=initial_state,
-        ignore_invalid_triggers=False,
-        auto_transitions=False,
-        send_event=True,
-    )
-
-    for trans in PR_TRANSITIONS:
-        is_human_dest = (trans.to_state == PRState.PR_HUMAN_NEEDED)
-        before_cbs: list = [_before_human_needed] if is_human_dest else []
-
-        if trans.min_confidence is not None:
-            machine.add_transition(
-                trigger=trans.name,
-                source=trans.from_state.name,
-                dest=trans.to_state.name,
-                conditions=[_confidence_ok(trans.min_confidence)],
-                before=before_cbs,
-                after=[_after_label_change_normal],
-            )
-            machine.add_transition(
-                trigger=trans.name,
-                source=trans.from_state.name,
-                dest=PRState.PR_HUMAN_NEEDED.name,
-                unless=[_confidence_ok(trans.min_confidence)],
-                after=[_after_label_change_divert],
-            )
-        else:
             machine.add_transition(
                 trigger=trans.name,
                 source=trans.from_state.name,
@@ -926,10 +890,9 @@ def fire_trigger(
     original_trans = find_transition(trigger_name, transition_list)
 
     try:
-        if is_pr:
-            machine, model = _build_pr_machine(number, current_pr, trigger_name)
-        else:
-            machine, model = _build_issue_machine(number, current_labels, trigger_name)
+        machine, model = _build_machine(
+            number, current_labels, current_pr, trigger_name, is_pr=is_pr,
+        )
 
         result_box: dict = {"ok": True}
         trigger_fn = getattr(model, trigger_name)
