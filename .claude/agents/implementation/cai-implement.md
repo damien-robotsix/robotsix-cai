@@ -105,33 +105,15 @@ and label transitions — so you only need to focus on the code.
    a unique comment. Never use an `old_string` composed entirely of
    generic lines (blank lines, closing braces, common keywords) that
    could match multiple locations.
-3. **Grep before Read.** Use Grep to locate the relevant file(s)
-   and line numbers before opening them with Read. Do not
-   sequentially Read files to search for content — reserve Read for
-   files whose paths and relevance are already known.
-4. **Verify paths with Glob before Read.** When a file path is
-   constructed or inferred (not hard-coded), confirm the file exists
-   using Glob before attempting to Read it. If a Read fails, do not
-   retry the same path — use Glob to find the correct filename
-   first.
-5. **Batch independent Read calls.** When you need to read multiple
-   files and the reads are independent, issue all Read calls in a
-   single turn rather than one at a time.
-6. **Batch edits to the same file.** Combine multiple changes into
+3. **Batch edits to the same file.** Combine multiple changes into
    as few Edit calls as possible by using larger `old_string` spans.
    Avoid single-line edits when a multi-line replacement achieves
    the same result in one call.
-7. **Minimize Write calls.** Before creating multiple new files,
+4. **Minimize Write calls.** Before creating multiple new files,
    consider whether the content could fit in a single file or fewer
    files. When several files are genuinely needed, plan the full set
    first, then issue all independent Write calls in one turn rather
    than creating them one at a time.
-8. **Batch Grep calls.** When searching for multiple patterns or
-   across multiple paths, combine them into a single Grep call using
-   regex alternation (`pat1|pat2`) or issue independent Grep calls
-   in parallel rather than sequentially. Use Glob first to narrow
-   the file set, then Grep the results, instead of running
-   exploratory Grep calls one at a time.
 
 ## Consult your memory first
 
