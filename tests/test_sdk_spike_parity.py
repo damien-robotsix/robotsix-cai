@@ -71,6 +71,7 @@ class TestSdkSpikeParity(unittest.TestCase):
 
     def test_cost_rows_match_modulo_volatile_fields(self):
         from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
+        from cai_lib.subagent import cost_tracker
 
         prompt = "## test prompt\n\nfor parity check"
         captured: list[dict] = []
@@ -90,7 +91,7 @@ class TestSdkSpikeParity(unittest.TestCase):
 
         msg_b = _mk_result()
         with patch.object(core, "query", _mock_query(msg_b)), \
-             patch.object(core, "log_cost", side_effect=_capture):
+             patch.object(cost_tracker, "log_cost", side_effect=_capture):
             opts = ClaudeAgentOptions(extra_args={"agent": "cai-confirm"})
             run_subagent(
                 prompt,
@@ -109,6 +110,7 @@ class TestSdkSpikeParity(unittest.TestCase):
 
     def test_returncode_stdout_stderr_match_on_success(self):
         from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
+        from cai_lib.subagent import cost_tracker
 
         prompt = "## another fixture"
 
@@ -124,7 +126,7 @@ class TestSdkSpikeParity(unittest.TestCase):
 
         msg_b = _mk_result(result="payload-text")
         with patch.object(core, "query", _mock_query(msg_b)), \
-             patch.object(core, "log_cost"):
+             patch.object(cost_tracker, "log_cost"):
             opts = ClaudeAgentOptions(extra_args={"agent": "cai-confirm"})
             native = run_subagent(
                 prompt,
@@ -139,6 +141,7 @@ class TestSdkSpikeParity(unittest.TestCase):
 
     def test_returncode_stdout_stderr_match_on_error(self):
         from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
+        from cai_lib.subagent import cost_tracker
 
         prompt = "## error fixture"
 
@@ -163,7 +166,7 @@ class TestSdkSpikeParity(unittest.TestCase):
             result="exhausted",
         )
         with patch.object(core, "query", _mock_query(msg_b)), \
-             patch.object(core, "log_cost"), \
+             patch.object(cost_tracker, "log_cost"), \
              patch("builtins.print"):
             opts = ClaudeAgentOptions(extra_args={"agent": "cai-confirm"})
             native = run_subagent(

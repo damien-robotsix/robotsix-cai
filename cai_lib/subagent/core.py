@@ -1,34 +1,27 @@
-"""Agent-SDK execution core: :class:`SubagentRun` and its helpers.
+"""Agent-SDK execution core: :class:`SubAgent` and its helpers.
 
-Owns the typed-options SDK call path (issue #1226 spike) plus the two
-shared helpers every call path depends on: the top-level query driver
-:func:`_collect_results` and the :data:`_CLI_PATH` pin that keeps the
-SDK pointed at the npm-installed ``claude`` binary audited in
-Dockerfile rather than the copy bundled with the SDK wheel.
+:class:`SubAgent` is a Pydantic model: options (and identity:
+``category`` + ``agent``) are fixed at construction, and each
+:meth:`run` call takes a fresh prompt. One instance can be reused
+across many prompts — its cost history accumulates on the embedded
+:class:`~cai_lib.subagent.cost_tracker.CostTracker`. Instance state
+(``runs``, ``last_result``, ``last_captured_stderr``) survives between
+runs and can be introspected between calls.
 
-:class:`SubagentRun` encapsulates one full run: option preparation, the
-async ``query()`` loop, cost-row build, cost-log + cost-comment emission,
-stdout salvage priority, and the final :class:`subprocess.CompletedProcess`
-shape. :func:`run_subagent` stays as a thin module-level shim over
-``SubagentRun(...).execute()`` so existing callers (and the
-``patch.object(core, "query", ...)`` test fixtures) keep working
-byte-for-byte. The class shape is the adapter surface for the planned
-LangGraph node wiring tracked in #1223 — a node body can construct
-``SubagentRun`` directly and introspect individual phases (cost row
-before stdout extraction, etc.) instead of funnelling through the
-function's single return value.
+:func:`run_subagent` stays as a thin module-level shim that constructs
+a :class:`SubAgent` (with a :class:`CostTracker` built from the
+optional target metadata), calls ``.run(prompt)`` once, and returns
+the :class:`subprocess.CompletedProcess`. Existing call sites and test
+fixtures (``patch.object(core, "query", ...)``) are unaffected.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import shutil
-import socket
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, query
@@ -38,12 +31,10 @@ from claude_agent_sdk.types import (
     TextBlock,
     ToolUseBlock,
 )
+from pydantic import BaseModel, ConfigDict, Field
 
-from cai_lib.utils.log import log_cost
-
-from .cost import _post_cost_comment
+from .cost_tracker import CostTracker
 from .errors import _sdk_error_summary
-from .fsm_state import _CURRENT_FSM_STATE
 from .stderr_sink import _captured_stderr_text, _make_stderr_sink
 
 
@@ -82,7 +73,7 @@ async def _collect_results(
     explicit ``subagent_type`` is bucketed as ``"general-purpose"``
     (Claude Code's documented default).
 
-    Kept as a module-level function (rather than a :class:`SubagentRun`
+    Kept as a module-level function (rather than a :class:`SubAgent`
     method) because :mod:`cai_lib.subagent.legacy` imports it directly
     to drive the deprecated ``_run_claude_p`` argv facade without
     pulling in the cost-row / cost-comment / FSM-state plumbing the
@@ -112,27 +103,26 @@ async def _collect_results(
     return results, last_assistant, parent_model, subagent_counts
 
 
-class SubagentRun:
-    """One typed-options SDK call: option prep, query loop, cost, stdout.
+class SubAgent(BaseModel):
+    """Reusable typed-options SDK driver — one instance, many runs.
 
-    Phases (each a method, all called in order by :meth:`execute`):
+    Options (and identity: ``category`` + ``agent``) are fixed at
+    construction. Each :meth:`run` call takes a fresh ``prompt`` and
+    returns the :class:`subprocess.CompletedProcess` shape legacy
+    callers expect.
 
-    1. :meth:`_prepare_options` — pin ``cli_path``, auto-inject the
-       ``cai-skills`` plugin when present, attach the stderr sink.
-    2. :meth:`_drive_query` — run :func:`_collect_results` to completion,
-       honouring the optional ``timeout``.
-    3. :meth:`_build_cost_row` — assemble the ``log_cost`` row from the
-       final :class:`ResultMessage` (flat token keys, per-model rollup
-       with pre-computed ``cacheHitRate``, ``parent_model``, subagent
-       counts, FSM-state stamp, 16-char prompt fingerprint).
-    4. :meth:`_emit_cost` — :func:`log_cost` + best-effort
-       :func:`_post_cost_comment` on target and extra-target.
-    5. :meth:`_extract_stdout` — priority chain: structured output →
-       retry-exhausted diagnostic → ``result`` text → last-assistant
-       salvage.
-    6. :meth:`_to_completed_process` — wrap into
-       :class:`subprocess.CompletedProcess` with the same contract
-       :func:`cai_lib.subagent.legacy._run_claude_p` returns.
+    Held state:
+
+    - :attr:`cost_tracker` — embedded :class:`CostTracker`; owns
+      ``cost_rows``, running totals, cost-mirror target metadata, and
+      GH-comment emission.
+    - :attr:`runs` — number of completed :meth:`run` calls (including
+      exception and no-ResultMessage paths).
+    - :attr:`last_result` — the final :class:`ResultMessage` from the
+      most recent successful run, or ``None``.
+    - :attr:`last_captured_stderr` — CLI stderr lines from the most
+      recent run. Replaced on every run (not accumulated) so callers
+      can introspect a single run's sink.
 
     The returned :class:`subprocess.CompletedProcess` contract:
 
@@ -146,67 +136,67 @@ class SubagentRun:
       True; 0 otherwise.
     - ``.args`` is the sentinel ``["run_subagent", agent]`` — no
       caller inspects ``args``.
-
-    Instance attributes populated during :meth:`execute`:
-    ``_captured_stderr`` (the CLI stderr sink buffer). Intermediate
-    results (``results``, ``last_assistant``, ``parent_model``,
-    ``subagent_counts``) are returned by :meth:`_drive_query` and
-    consumed by later phases; they are NOT stashed on ``self`` so a
-    ``SubagentRun`` instance can be reused (though the common pattern
-    is one-shot via :func:`run_subagent`).
     """
 
-    def __init__(
-        self,
-        prompt: str,
-        options: ClaudeAgentOptions,
-        *,
-        category: str,
-        agent: str,
-        target_kind: str | None = None,
-        target_number: int | None = None,
-        extra_target_kind: str | None = None,
-        extra_target_number: int | None = None,
-        timeout: float | None = None,
-    ) -> None:
-        self.prompt = prompt
-        self.options = options
-        self.category = category
-        self.agent = agent
-        self.target_kind = target_kind
-        self.target_number = target_number
-        self.extra_target_kind = extra_target_kind
-        self.extra_target_number = extra_target_number
-        self.timeout = timeout
-        self._captured_stderr: list[str] = []
-        self._sentinel_args: list[str] = ["run_subagent", agent]
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def execute(self) -> subprocess.CompletedProcess:
-        """Drive the full run and return the CompletedProcess."""
+    category: str
+    agent: str
+    options: ClaudeAgentOptions
+    timeout: float | None = None
+    cost_tracker: CostTracker = Field(default_factory=CostTracker)
+
+    runs: int = 0
+    last_result: ResultMessage | None = None
+    last_assistant: str = ""
+    last_captured_stderr: list[str] = Field(default_factory=list)
+
+    @property
+    def _sentinel_args(self) -> list[str]:
+        return ["run_subagent", self.agent]
+
+    def run(self, prompt: str) -> subprocess.CompletedProcess:
+        """Drive one full run against ``prompt`` and return the CompletedProcess."""
         self._prepare_options()
         try:
             results, last_assistant, parent_model, subagent_counts = (
-                self._drive_query()
+                self._drive_query(prompt)
             )
         except Exception as exc:  # noqa: BLE001
+            self.runs += 1
             return self._completed_from_exception(exc)
+
+        self.runs += 1
+        self.last_assistant = last_assistant
 
         if not results:
             return self._completed_from_no_results(last_assistant)
 
         result = results[-1]
-        row = self._build_cost_row(result, parent_model, subagent_counts)
-        self._emit_cost(row)
+        self.last_result = result
+
+        self.cost_tracker.record(
+            category=self.category,
+            agent=self.agent,
+            prompt=prompt,
+            system_prompt=self.options.system_prompt,
+            result=result,
+            parent_model=parent_model,
+            subagent_counts=subagent_counts,
+        )
+
         stdout = self._extract_stdout(result, last_assistant)
         return self._to_completed_process(result, stdout)
 
     def _prepare_options(self) -> None:
-        """Pin cli_path, auto-inject cai-skills plugin, attach stderr sink.
+        """Pin cli_path, auto-inject cai-skills plugin, attach a fresh stderr sink.
 
         Preserves the implicit ``cai-skills`` injection that
         ``_argv_to_options`` (legacy.py:102-104) does for the argv path
         and the ``cli_path`` pin that every call path needs to reuse
-        the npm-installed ``claude`` binary.
+        the npm-installed ``claude`` binary. Resets
+        :attr:`last_captured_stderr` to a fresh list each run so a
+        reused instance does not leak stderr lines across runs.
         """
         if _CLI_PATH and not getattr(self.options, "cli_path", None):
             self.options.cli_path = _CLI_PATH
@@ -224,105 +214,22 @@ class SubagentRun:
                     {"type": "local", "path": str(skills_plugin)}
                 )
 
-        self.options.stderr = _make_stderr_sink(self._captured_stderr)
+        self.last_captured_stderr = []
+        self.options.stderr = _make_stderr_sink(self.last_captured_stderr)
 
     def _drive_query(
         self,
+        prompt: str,
     ) -> tuple[list[ResultMessage], str, str | None, dict[str, int]]:
         """Run :func:`_collect_results` to completion, honouring timeout."""
         if self.timeout is not None:
             return asyncio.run(
                 asyncio.wait_for(
-                    _collect_results(self.prompt, self.options),
+                    _collect_results(prompt, self.options),
                     timeout=self.timeout,
                 )
             )
-        return asyncio.run(_collect_results(self.prompt, self.options))
-
-    def _build_cost_row(
-        self,
-        result: ResultMessage,
-        parent_model: str | None,
-        subagent_counts: dict[str, int],
-    ) -> dict:
-        """Assemble the log_cost row from the final ResultMessage."""
-        usage = result.usage or {}
-        flat_keys = (
-            "input_tokens",
-            "output_tokens",
-            "cache_creation_input_tokens",
-            "cache_read_input_tokens",
-        )
-        flat = {
-            k: usage[k] for k in flat_keys
-            if isinstance(usage.get(k), (int, float))
-        }
-        models = (
-            result.model_usage if isinstance(result.model_usage, dict) else {}
-        )
-        returncode = 1 if result.is_error else 0
-
-        row: dict = {
-            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "category": self.category,
-            "agent": self.agent,
-            "cost_usd": result.total_cost_usd,
-            "duration_ms": result.duration_ms,
-            "duration_api_ms": result.duration_api_ms,
-            "num_turns": result.num_turns,
-            "session_id": result.session_id,
-            "host": socket.gethostname(),
-            "exit": returncode,
-            "is_error": bool(result.is_error),
-        }
-        row.update(flat)
-        cr = flat.get("cache_read_input_tokens") or 0
-        cc = flat.get("cache_creation_input_tokens") or 0
-        it = flat.get("input_tokens") or 0
-        denom = cr + cc + it
-        if denom > 0:
-            row["cache_hit_rate"] = round(cr / denom, 4)
-        if models:
-            for _m, mu in models.items():
-                if not isinstance(mu, dict):
-                    continue
-                m_cr = mu.get("cacheReadInputTokens") or 0
-                m_cc = mu.get("cacheCreationInputTokens") or 0
-                m_it = mu.get("inputTokens") or 0
-                m_denom = m_cr + m_cc + m_it
-                if m_denom > 0:
-                    mu["cacheHitRate"] = round(m_cr / m_denom, 4)
-            row["models"] = models
-        if parent_model:
-            row["parent_model"] = parent_model
-        if subagent_counts:
-            row["subagents"] = dict(subagent_counts)
-        fsm_state = _CURRENT_FSM_STATE.get()
-        if fsm_state:
-            row["fsm_state"] = fsm_state
-        fp_src = (
-            (self.options.system_prompt or "") + "\n---\n" + (self.prompt or "")
-        )
-        row["prompt_fingerprint"] = hashlib.sha256(
-            fp_src.encode()
-        ).hexdigest()[:16]
-        return row
-
-    def _emit_cost(self, row: dict) -> None:
-        """Append the cost row to the jsonl log and mirror as a GH comment."""
-        log_cost(row)
-        if self.target_kind is not None and self.target_number is not None:
-            _post_cost_comment(
-                self.target_kind, self.target_number, row, self.agent,
-            )
-        if (
-            self.extra_target_kind is not None
-            and self.extra_target_number is not None
-        ):
-            _post_cost_comment(
-                self.extra_target_kind, self.extra_target_number,
-                row, self.agent,
-            )
+        return asyncio.run(_collect_results(prompt, self.options))
 
     def _extract_stdout(
         self, result: ResultMessage, last_assistant: str,
@@ -357,7 +264,7 @@ class SubagentRun:
     ) -> subprocess.CompletedProcess:
         """CompletedProcess for the SDK-raised-exception path."""
         preview = str(exc)[:200].replace("\n", " ")
-        cli_stderr = _captured_stderr_text(self._captured_stderr)
+        cli_stderr = _captured_stderr_text(self.last_captured_stderr)
         cli_stderr_preview = cli_stderr.replace("\n", " | ")[:400]
         msg = (
             f"[cai cost] claude-agent-sdk query failed "
@@ -379,7 +286,7 @@ class SubagentRun:
     ) -> subprocess.CompletedProcess:
         """CompletedProcess for the empty-ResultMessage-list path."""
         preview = (last_assistant or "")[:120].replace("\n", " ")
-        cli_stderr = _captured_stderr_text(self._captured_stderr)
+        cli_stderr = _captured_stderr_text(self.last_captured_stderr)
         cli_stderr_preview = cli_stderr.replace("\n", " | ")[:400]
         msg = (
             f"[cai cost] no ResultMessage from claude-agent-sdk "
@@ -410,21 +317,25 @@ def run_subagent(
     extra_target_number: int | None = None,
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess:
-    """SDK-native subagent invocation — thin shim over :class:`SubagentRun`.
+    """SDK-native subagent invocation — one-shot shim over :class:`SubAgent`.
 
     Kept as a module-level function so existing call sites
     (``actions/confirm.py``) and test fixtures that do
     ``patch.object(core, "query", ...)`` keep their import shape
-    unchanged. New call sites and the planned LangGraph node adapter
-    (#1223) should construct :class:`SubagentRun` directly when they
-    need access to individual phases (cost row before stdout
-    extraction, introspection of ``_captured_stderr``, etc.).
+    unchanged. New call sites that want to reuse one agent across
+    multiple prompts — and accumulate ``cost_tracker.cost_rows`` —
+    should construct :class:`SubAgent` directly.
     """
-    return SubagentRun(
-        prompt, options,
-        category=category, agent=agent,
-        target_kind=target_kind, target_number=target_number,
+    tracker = CostTracker(
+        target_kind=target_kind,
+        target_number=target_number,
         extra_target_kind=extra_target_kind,
         extra_target_number=extra_target_number,
+    )
+    return SubAgent(
+        options=options,
+        category=category,
+        agent=agent,
         timeout=timeout,
-    ).execute()
+        cost_tracker=tracker,
+    ).run(prompt)
