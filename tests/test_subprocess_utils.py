@@ -730,5 +730,81 @@ class TestFixAttemptCountStamping(unittest.TestCase):
         self.assertEqual(captured[1]["fix_attempt_count"], 2)
 
 
+class TestModuleAndScopeFilesStamping(unittest.TestCase):
+    """Issue #1206: ``_run_claude_p`` must stamp caller-supplied
+    ``module`` and ``scope_files`` kwargs onto the cost-log row so
+    downstream cost tooling can group spend by module (audit runs)
+    or declared file scope (implement runs). Both keys must be
+    omitted when the kwargs are unset, preserving pre-#1206 row
+    shape; ``scope_files`` is capped at the first 10 paths."""
+
+    def test_module_and_scope_files_stamped_when_provided(self):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        msg = _mk_result(result="ok", total_cost_usd=0.05)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-audit-health"],
+                category="audit", agent="cai-audit-health",
+                module="audit",
+                scope_files=["a.py", "b.py"],
+            )
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].get("module"), "audit")
+        self.assertEqual(captured[0].get("scope_files"), ["a.py", "b.py"])
+
+    def test_module_and_scope_files_omitted_when_unset(self):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        msg = _mk_result(result="ok", total_cost_usd=0.05)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-refine"],
+                category="refine", agent="cai-refine",
+            )
+
+        self.assertEqual(len(captured), 1)
+        self.assertNotIn("module", captured[0])
+        self.assertNotIn("scope_files", captured[0])
+
+    def test_scope_files_truncated_to_ten(self):
+        from cai_lib import subprocess_utils
+        from cai_lib.subprocess_utils import _run_claude_p
+
+        captured: list[dict] = []
+
+        def _fake_log_cost(row: dict) -> None:
+            captured.append(dict(row))
+
+        many = [f"file_{i}.py" for i in range(15)]
+        msg = _mk_result(result="ok", total_cost_usd=0.05)
+        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+            _run_claude_p(
+                ["claude", "-p", "--agent", "cai-implement"],
+                category="implement", agent="cai-implement",
+                scope_files=many,
+            )
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(len(captured[0]["scope_files"]), 10)
+        self.assertEqual(captured[0]["scope_files"], many[:10])
+
+
 if __name__ == "__main__":
     unittest.main()

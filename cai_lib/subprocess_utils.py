@@ -529,17 +529,24 @@ def _run_claude_p(
     ``subagents`` (subagent invocation counts, issue #1205), ``fsm_state``
     (dispatcher funnel position, issue #1203), ``cache_hit_rate`` (pre-computed
     aggregate hit rate, issue #1205), ``prompt_fingerprint`` (16-char SHA256
-    hash for cache-rate regression detection, issue #1207), ``target_kind``
-    (``"issue"`` or ``"pr"``, issue #1210), ``target_number`` (numeric
-    issue/PR ID, issue #1210), and ``fix_attempt_count`` (count of prior
-    closed-unmerged PRs for the linked issue — matches the ``_log_outcome``
-    semantic in ``cai-outcomes.jsonl`` so the two logs can be joined; stamped
-    only by fix-retry flows: ``implement`` / ``revise`` / ``fix-ci``,
+    hash for cache-rate regression detection, issue #1207), ``module``
+    (caller-supplied module name for grouping spend by module, issue #1206),
+    ``scope_files`` (caller-supplied file list for grouping spend by declared
+    scope, issue #1206), ``target_kind`` (``"issue"`` or ``"pr"``, issue #1210),
+    ``target_number`` (numeric issue/PR ID, issue #1210), and ``fix_attempt_count``
+    (count of prior closed-unmerged PRs for the linked issue — matches the
+    ``_log_outcome`` semantic in ``cai-outcomes.jsonl`` so the two logs can be
+    joined; stamped only by fix-retry flows: ``implement`` / ``revise`` / ``fix-ci``,
     issue #1204). Rows from non-handler call sites (rescue, unblock, dup-check,
     audit, init) typically omit ``fsm_state`` and other optional fields,
-    preserving back-compat for legacy rows. ``parent_cost_usd`` is intentionally
-    dropped — the CLI format emits exactly one result event so there is nothing
-    to attribute.
+    preserving back-compat for legacy rows. Optional ``module`` and ``scope_files``
+    kwargs (when set by the caller) stamp ``row["module"]`` / ``row["scope_files"]``
+    onto the cost-log row so downstream cost tooling can group spend by module
+    (audit runs) or declared file scope (implement runs). Both keys are omitted
+    when the kwargs are unset — and ``scope_files`` is capped at the first 10
+    paths when set — preserving pre-change row shape for every non-participating
+    call site. ``parent_cost_usd`` is intentionally dropped — the CLI format
+    emits exactly one result event so there is nothing to attribute.
     """
     if len(cmd) < 2 or cmd[0] != "claude" or cmd[1] != "-p":
         raise ValueError("_run_claude_p requires cmd[:2] == ['claude', '-p']")
@@ -684,10 +691,18 @@ def _run_claude_p(
         else (options.system_prompt or "") + "\n---\n" + (prompt or "")
     )
     row["prompt_fingerprint"] = hashlib.sha256(fp_src.encode()).hexdigest()[:16]
-    if module:
+    # Issue #1206: stamp the caller-supplied module / scope_files so
+    # cai-audit-cost-reduction and cai-cost-optimize can group spend by
+    # module (audit runs) or declared file scope (implement runs).
+    # Each key is omitted when the caller did not supply it, keeping
+    # the row byte-identical to the pre-#1206 shape for every
+    # non-participating call site. ``scope_files`` is capped at the
+    # first 10 paths to bound row size.
+    if module is not None:
         row["module"] = module
-    if scope_files is not None:
-        row["scope_files"] = list(scope_files)
+    if scope_files:
+        row["scope_files"] = list(scope_files)[:10]
+    # Issue #1210: stamp target kind and number for cost attribution.
     if target_kind is not None:
         row["target_kind"] = target_kind
     if target_number is not None:

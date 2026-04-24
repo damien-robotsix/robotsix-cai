@@ -67,6 +67,7 @@ from cai_lib.actions.plan import (
     _FILES_TO_CHANGE_SECTION_RE,
     _FILES_TO_CHANGE_PATH_RE,
 )
+from cai_lib.cmd_helpers_issues import _parse_files_to_change
 from cai_lib.fsm import (
     fire_trigger,
     IssueState,
@@ -1227,6 +1228,13 @@ def handle_implement(issue: dict) -> int:
                            "--max-budget-usd", "2.50"]
         claude_cmd += ["--dangerously-skip-permissions",
                        "--add-dir", str(work_dir)]
+        # Issue #1206: stamp the plan's declared file scope onto the
+        # cost-log row so cai-audit-cost-reduction and cai-cost-optimize
+        # can group implement spend by declared scope. Parsed from the
+        # issue body's ``### Files to change`` section; an empty list
+        # (section absent or contains no paths) is converted to None so
+        # the key is omitted, preserving pre-change row shape.
+        scope_files = _parse_files_to_change(issue.get("body") or "")
         print(f"[cai implement] running cai-implement subagent for {work_dir}", flush=True)
         _plan_scope_files: list[str] | None = None
         if selected_plan:
@@ -1241,7 +1249,7 @@ def handle_implement(issue: dict) -> int:
             cwd="/app",
             target_kind="issue",
             target_number=issue_number,
-            scope_files=_plan_scope_files,
+            scope_files=_plan_scope_files or scope_files or None,
             fingerprint_payload=user_message,
             fix_attempt_count=len(attempts),
         )
