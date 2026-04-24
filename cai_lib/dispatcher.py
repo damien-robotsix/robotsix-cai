@@ -595,10 +595,6 @@ def _pr_close_actor(pr_number: int) -> Optional[str]:
     return login or None
 
 
-def _was_merged(pr: dict) -> bool:
-    return bool(pr.get("mergedAt")) or pr.get("state") == "MERGED"
-
-
 def _resolve_pr_state(issue: dict) -> Union[int, HandlerResult]:
     """Decide what to do for an issue at ``IssueState.PR``.
 
@@ -616,7 +612,7 @@ def _resolve_pr_state(issue: dict) -> Union[int, HandlerResult]:
 
     closed_pr = _find_recent_closed_linked_pr(issue_number)
     if closed_pr is not None:
-        if _was_merged(closed_pr):
+        if bool(closed_pr.get("mergedAt")) or closed_pr.get("state") == "MERGED":
             print(
                 f"[cai dispatch] issue #{issue_number}: linked PR "
                 f"#{closed_pr['number']} merged but issue still at :pr-open — "
