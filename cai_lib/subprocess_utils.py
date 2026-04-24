@@ -48,8 +48,9 @@ _CAPTURED_STDERR_MAX_CHARS = 4000
 # Issue #1203: per-invocation FSM state stamp for cost-log rows.
 #
 # The dispatcher (``cai_lib/dispatcher.py``) wraps each handler call with
-# ``set_current_fsm_state(state.name)`` so that any ``_run_claude_p`` call
-# made inside the handler records the funnel position (e.g. ``"REFINING"``,
+# ``set_current_fsm_state(state.name)`` so that any ``_run_claude_p`` or
+# ``run_subagent`` call made inside the handler records the funnel position
+# (e.g. ``"REFINING"``,
 # ``"PLANNING"``, ``"IN_PROGRESS"``, ``"REVIEWING_CODE"``) into the row's
 # optional ``fsm_state`` key. Non-FSM call sites (``cmd_rescue``,
 # ``cmd_unblock``, ``dup_check``, ``audit/runner.py``, ``cmd_misc.init``)
@@ -62,7 +63,7 @@ _CURRENT_FSM_STATE: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 
 @contextmanager
 def set_current_fsm_state(name: str | None):
-    """Set the FSM state stamp for every ``_run_claude_p`` call in the block.
+    """Set the FSM state stamp for every ``_run_claude_p`` or ``run_subagent`` call in the block.
 
     ``name`` should be the ``.name`` of an :class:`IssueState` or
     :class:`PRState` enum member (e.g. ``"REFINING"``). Passing ``None``
