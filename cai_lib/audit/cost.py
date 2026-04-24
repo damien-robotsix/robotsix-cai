@@ -8,16 +8,16 @@ from pathlib import Path
 from cai_lib.config import COST_LOG_AGGREGATE_DIR, COST_LOG_PATH, OUTCOME_LOG_PATH
 
 
-def _load_outcome_counts(days: int = 90) -> dict:
-    """Read OUTCOME_LOG_PATH and return per-category {total, solved} counts.
+def _iter_outcome_rows(days: int):
+    """Yield parsed outcome-log rows within the trailing ``days`` day window.
 
-    Filters to trailing `days` days. Malformed lines are skipped silently.
-    Returns an empty dict if the file is missing or unreadable.
+    Handles file-existence guard, cutoff calculation, OS errors, and
+    per-line JSON/timestamp parsing. Rows with unparsable timestamps are
+    silently skipped (``_row_ts`` returns 0.0, which is always < cutoff).
     """
     if not OUTCOME_LOG_PATH.exists():
-        return {}
+        return
     cutoff_ts = datetime.now(timezone.utc).timestamp() - days * 86400
-    counts: dict = {}  # category -> {"total": N, "solved": N}
     try:
         with OUTCOME_LOG_PATH.open("r") as f:
             for line in f:
@@ -28,23 +28,27 @@ def _load_outcome_counts(days: int = 90) -> dict:
                     row = json.loads(line)
                 except (json.JSONDecodeError, ValueError):
                     continue
-                ts = row.get("ts", "")
-                try:
-                    row_ts = datetime.strptime(
-                        ts, "%Y-%m-%dT%H:%M:%SZ"
-                    ).replace(tzinfo=timezone.utc).timestamp()
-                except ValueError:
+                if _row_ts(row) < cutoff_ts:
                     continue
-                if row_ts < cutoff_ts:
-                    continue
-                cat = row.get("category") or "(unknown)"
-                outcome = row.get("outcome", "")
-                bucket = counts.setdefault(cat, {"total": 0, "solved": 0})
-                bucket["total"] += 1
-                if outcome == "solved":
-                    bucket["solved"] += 1
+                yield row
     except OSError:
-        return {}
+        return
+
+
+def _load_outcome_counts(days: int = 90) -> dict:
+    """Read OUTCOME_LOG_PATH and return per-category {total, solved} counts.
+
+    Filters to trailing `days` days. Malformed lines are skipped silently.
+    Returns an empty dict if the file is missing or unreadable.
+    """
+    counts: dict = {}  # category -> {"total": N, "solved": N}
+    for row in _iter_outcome_rows(days):
+        cat = row.get("category") or "(unknown)"
+        outcome = row.get("outcome", "")
+        bucket = counts.setdefault(cat, {"total": 0, "solved": 0})
+        bucket["total"] += 1
+        if outcome == "solved":
+            bucket["solved"] += 1
     return counts
 
 
@@ -134,38 +138,15 @@ def _load_outcome_index(days: int = 90) -> dict[int, dict]:
     Returns {} when the file is absent, the required fields are missing,
     or any read failure occurs — all section joins degrade gracefully.
     """
-    if not OUTCOME_LOG_PATH.exists():
-        return {}
-    cutoff_ts = datetime.now(timezone.utc).timestamp() - days * 86400
     result: dict[int, dict] = {}
-    try:
-        with OUTCOME_LOG_PATH.open("r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                issue_num = row.get("issue_number")
-                if not isinstance(issue_num, int):
-                    continue
-                ts = row.get("ts", "")
-                try:
-                    row_ts = datetime.strptime(
-                        ts, "%Y-%m-%dT%H:%M:%SZ",
-                    ).replace(tzinfo=timezone.utc).timestamp()
-                except ValueError:
-                    continue
-                if row_ts < cutoff_ts:
-                    continue
-                result[issue_num] = {
-                    "outcome": row.get("outcome"),
-                    "fix_attempt_count": row.get("fix_attempt_count"),
-                }
-    except OSError:
-        return {}
+    for row in _iter_outcome_rows(days):
+        issue_num = row.get("issue_number")
+        if not isinstance(issue_num, int):
+            continue
+        result[issue_num] = {
+            "outcome": row.get("outcome"),
+            "fix_attempt_count": row.get("fix_attempt_count"),
+        }
     return result
 
 
