@@ -72,7 +72,6 @@ class TestSdkSpikeParity(unittest.TestCase):
     def test_cost_rows_match_modulo_volatile_fields(self):
         import cai_lib.cai_subagent as cai_subagent_mod
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
         from cai_lib.cai_subagent import run_subagent
 
@@ -84,7 +83,7 @@ class TestSdkSpikeParity(unittest.TestCase):
 
         msg_a = _mk_result()
         with patch.object(core, "query", _mock_query(msg_a)), \
-             patch.object(legacy, "log_cost", side_effect=_capture):
+             patch.object(cai_subagent_mod, "log_cost", side_effect=_capture):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-confirm"],
                 category="confirm",
@@ -112,8 +111,8 @@ class TestSdkSpikeParity(unittest.TestCase):
         )
 
     def test_returncode_stdout_stderr_match_on_success(self):
+        import cai_lib.cai_subagent as cai_subagent_mod
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
         from cai_lib.cai_subagent import run_subagent
 
@@ -121,7 +120,7 @@ class TestSdkSpikeParity(unittest.TestCase):
 
         msg_a = _mk_result(result="payload-text")
         with patch.object(core, "query", _mock_query(msg_a)), \
-             patch.object(legacy, "log_cost"):
+             patch.object(cai_subagent_mod, "log_cost"):
             facade = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-confirm"],
                 category="confirm",
@@ -145,8 +144,8 @@ class TestSdkSpikeParity(unittest.TestCase):
         self.assertEqual(facade.stdout, native.stdout)
 
     def test_returncode_stdout_stderr_match_on_error(self):
+        import cai_lib.cai_subagent as cai_subagent_mod
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
         from cai_lib.cai_subagent import run_subagent
 
@@ -158,7 +157,7 @@ class TestSdkSpikeParity(unittest.TestCase):
             result="exhausted",
         )
         with patch.object(core, "query", _mock_query(msg_a)), \
-             patch.object(legacy, "log_cost"), \
+             patch.object(cai_subagent_mod, "log_cost"), \
              patch("builtins.print"):
             facade = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-confirm"],
