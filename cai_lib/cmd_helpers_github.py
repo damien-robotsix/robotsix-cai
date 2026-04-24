@@ -32,13 +32,6 @@ _BOT_COMMENT_MARKERS = (
 )
 
 
-# Duplicates of module-level markers in cai.py. Kept in sync with the
-# cai.py definitions; these copies exist so cmd_helpers is importable
-# without a circular dependency on cai.py.
-_NO_ADDITIONAL_CHANGES_MARKER = "## Revise subagent: no additional changes"
-_REBASE_FAILED_MARKER = "## Revise subagent: rebase resolution failed"
-
-
 def _gh_user_identity() -> tuple[str, str]:
     """Resolve the gh-token owner's git name and email."""
     user = _gh_json(["api", "user"])
