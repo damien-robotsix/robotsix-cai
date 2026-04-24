@@ -35,7 +35,7 @@ from cai_lib.dispatcher import HandlerResult
 from cai_lib.subagent import _run_claude_p
 from cai_lib.subprocess_utils import _run
 from cai_lib.cmd_helpers import _git, _gh_user_identity, _work_directory_block
-from cai_lib.github import _fetch_linked_issue_block
+from cai_lib.github import _fetch_linked_issue_block, _post_pr_comment
 from cai_lib.utils.log import log_run
 
 
@@ -49,18 +49,6 @@ def _rebase_conflict_files(work_dir: Path) -> list[str]:
     res = _git(work_dir, "diff", "--name-only", "--diff-filter=U", check=False)
     return [line.strip() for line in (res.stdout or "").splitlines() if line.strip()]
 
-
-def _post_pr_comment(pr_number: int, body: str) -> None:
-    """Best-effort comment post; never raises."""
-    try:
-        _run(
-            ["gh", "pr", "comment", str(pr_number),
-             "--repo", REPO, "--body", body],
-            capture_output=True,
-        )
-    except Exception as exc:
-        print(f"[cai rebase] PR #{pr_number}: comment post failed: {exc}",
-              file=sys.stderr)
 
 
 _REBASE_EXIT_RESULT = HandlerResult(trigger="rebasing_to_reviewing_code")
@@ -143,6 +131,7 @@ def handle_rebase(pr: dict) -> HandlerResult:
                     + "\n\nDeterministic rebase succeeded but the force-push "
                     "was rejected.\n\n```\n" + (push.stderr or "")
                     + "\n```\n\n---\n_Posted by `cai rebase`._",
+                    log_prefix="cai rebase",
                 )
                 log_run("rebase", repo=REPO, pr=pr_number,
                         result="push_failed", exit=0)
@@ -153,6 +142,7 @@ def handle_rebase(pr: dict) -> HandlerResult:
                 _REBASE_COMMENT_HEADING_SUCCESS.format(sha=new_sha[:8])
                 + f"\n\nDeterministic rebase against `origin/main` succeeded; "
                 f"new HEAD is `{new_sha}`.\n\n---\n_Posted by `cai rebase`._",
+                log_prefix="cai rebase",
             )
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
@@ -218,6 +208,7 @@ def handle_rebase(pr: dict) -> HandlerResult:
                    + stderr_excerpt + "\n```\n\n" if stderr_excerpt else "")
                 + "---\n_Posted by `cai rebase`. The next review tick will "
                 "see this comment; expect findings or a human-needed divert._",
+                log_prefix="cai rebase",
             )
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
@@ -238,6 +229,7 @@ def handle_rebase(pr: dict) -> HandlerResult:
                 + "\n\ncai-rebase exited cleanly but `origin/main` is not an "
                 "ancestor of HEAD. Refusing to push a non-rebased branch.\n\n"
                 "---\n_Posted by `cai rebase`._",
+                log_prefix="cai rebase",
             )
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
@@ -257,6 +249,7 @@ def handle_rebase(pr: dict) -> HandlerResult:
                 + "\n\nRebase succeeded locally but force-push was rejected.\n\n"
                 + "```\n" + (push.stderr or "") + "\n```\n\n"
                 + "---\n_Posted by `cai rebase`._",
+                log_prefix="cai rebase",
             )
             dur = f"{int(time.monotonic() - t0)}s"
             log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
@@ -269,6 +262,7 @@ def handle_rebase(pr: dict) -> HandlerResult:
             + f"\n\ncai-rebase resolved the conflicts and rebased onto "
             f"`origin/main`. New HEAD is `{new_sha}`.\n\n"
             + "---\n_Posted by `cai rebase`._",
+            log_prefix="cai rebase",
         )
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("rebase", repo=REPO, pr=pr_number, duration=dur,
