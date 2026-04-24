@@ -42,7 +42,7 @@ from cai_lib.fsm import (
 )
 from cai_lib.fsm_confidence import Confidence, parse_confidence
 from cai_lib.github import _build_issue_block, _set_labels
-from cai_lib.subprocess_utils import _run_claude_p
+from cai_lib.subagent import _run_claude_p
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_implement import _parse_decomposition
 from cai_lib.actions.refine import _create_sub_issues, _issue_depth

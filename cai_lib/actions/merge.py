@@ -45,7 +45,8 @@ from cai_lib.github import (
     _gh_json, _set_labels, _issue_has_label, close_issue_not_planned,
     _strip_cost_comments,
 )
-from cai_lib.subprocess_utils import _run, _run_claude_p
+from cai_lib.subagent import _run_claude_p
+from cai_lib.subprocess_utils import _run
 from cai_lib.cmd_helpers import (
     _pr_set_needs_human,
     _parse_iso_ts,

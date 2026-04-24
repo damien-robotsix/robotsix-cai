@@ -22,7 +22,8 @@ from cai_lib.config import REPO
 from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm import get_pr_state, PRState
 from cai_lib.github import _gh_json, _fetch_linked_issue_block
-from cai_lib.subprocess_utils import _run, _run_claude_p
+from cai_lib.subagent import _run_claude_p
+from cai_lib.subprocess_utils import _run
 from cai_lib.cmd_helpers import (
     _git, _gh_user_identity, _work_directory_block,
     _setup_agent_edit_staging, _apply_agent_edit_staging,

@@ -17,7 +17,7 @@ from typing import Optional
 
 from cai_lib.config import REPO
 from cai_lib.github import _gh_json
-from cai_lib.subprocess_utils import _run_claude_p
+from cai_lib.subagent import _run_claude_p
 
 
 # ---------------------------------------------------------------------------

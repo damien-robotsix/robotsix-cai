@@ -23,7 +23,8 @@ from cai_lib.config import (
     LABEL_PR_NEEDS_HUMAN,
 )
 from cai_lib.github import _set_labels, _build_issue_block
-from cai_lib.subprocess_utils import _run, _run_claude_p
+from cai_lib.subagent import _run_claude_p
+from cai_lib.subprocess_utils import _run
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import _work_directory_block, _strip_stored_plan_block
 

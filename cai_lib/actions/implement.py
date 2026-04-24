@@ -51,7 +51,8 @@ from cai_lib.github import (
     _build_implement_user_message,
     close_issue_not_planned,
 )
-from cai_lib.subprocess_utils import _run, _run_claude_p
+from cai_lib.subagent import _run_claude_p
+from cai_lib.subprocess_utils import _run
 from cai_lib.logging_utils import log_run
 from cai_lib.cmd_helpers import (
     _work_directory_block,

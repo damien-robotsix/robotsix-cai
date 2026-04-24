@@ -52,7 +52,7 @@ def _mk_result(**fields) -> ResultMessage:
 
 
 def _mock_query(*messages):
-    """Async-iterator replacement for ``cai_lib.subprocess_utils.query``."""
+    """Async-iterator replacement for ``cai_lib.subagent.core.query``."""
     async def _gen(*, prompt, options=None, transport=None):
         for m in messages:
             yield m
@@ -70,8 +70,7 @@ class TestSdkSpikeParity(unittest.TestCase):
     """``run_subagent`` emits the same cost-row payload as ``_run_claude_p``."""
 
     def test_cost_rows_match_modulo_volatile_fields(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p, run_subagent
+        from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
 
         prompt = "## test prompt\n\nfor parity check"
         captured: list[dict] = []
@@ -80,8 +79,8 @@ class TestSdkSpikeParity(unittest.TestCase):
             captured.append(dict(row))
 
         msg_a = _mk_result()
-        with patch.object(subprocess_utils, "query", _mock_query(msg_a)), \
-             patch.object(subprocess_utils, "log_cost", side_effect=_capture):
+        with patch.object(core, "query", _mock_query(msg_a)), \
+             patch.object(legacy, "log_cost", side_effect=_capture):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-confirm"],
                 category="confirm",
@@ -90,8 +89,8 @@ class TestSdkSpikeParity(unittest.TestCase):
             )
 
         msg_b = _mk_result()
-        with patch.object(subprocess_utils, "query", _mock_query(msg_b)), \
-             patch.object(subprocess_utils, "log_cost", side_effect=_capture):
+        with patch.object(core, "query", _mock_query(msg_b)), \
+             patch.object(core, "log_cost", side_effect=_capture):
             opts = ClaudeAgentOptions(extra_args={"agent": "cai-confirm"})
             run_subagent(
                 prompt,
@@ -109,14 +108,13 @@ class TestSdkSpikeParity(unittest.TestCase):
         )
 
     def test_returncode_stdout_stderr_match_on_success(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p, run_subagent
+        from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
 
         prompt = "## another fixture"
 
         msg_a = _mk_result(result="payload-text")
-        with patch.object(subprocess_utils, "query", _mock_query(msg_a)), \
-             patch.object(subprocess_utils, "log_cost"):
+        with patch.object(core, "query", _mock_query(msg_a)), \
+             patch.object(legacy, "log_cost"):
             facade = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-confirm"],
                 category="confirm",
@@ -125,8 +123,8 @@ class TestSdkSpikeParity(unittest.TestCase):
             )
 
         msg_b = _mk_result(result="payload-text")
-        with patch.object(subprocess_utils, "query", _mock_query(msg_b)), \
-             patch.object(subprocess_utils, "log_cost"):
+        with patch.object(core, "query", _mock_query(msg_b)), \
+             patch.object(core, "log_cost"):
             opts = ClaudeAgentOptions(extra_args={"agent": "cai-confirm"})
             native = run_subagent(
                 prompt,
@@ -140,8 +138,7 @@ class TestSdkSpikeParity(unittest.TestCase):
         self.assertEqual(facade.stderr, native.stderr)
 
     def test_returncode_stdout_stderr_match_on_error(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p, run_subagent
+        from cai_lib.subagent import _run_claude_p, core, legacy, run_subagent
 
         prompt = "## error fixture"
 
@@ -150,8 +147,8 @@ class TestSdkSpikeParity(unittest.TestCase):
             is_error=True,
             result="exhausted",
         )
-        with patch.object(subprocess_utils, "query", _mock_query(msg_a)), \
-             patch.object(subprocess_utils, "log_cost"), \
+        with patch.object(core, "query", _mock_query(msg_a)), \
+             patch.object(legacy, "log_cost"), \
              patch("builtins.print"):
             facade = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-confirm"],
@@ -165,8 +162,8 @@ class TestSdkSpikeParity(unittest.TestCase):
             is_error=True,
             result="exhausted",
         )
-        with patch.object(subprocess_utils, "query", _mock_query(msg_b)), \
-             patch.object(subprocess_utils, "log_cost"), \
+        with patch.object(core, "query", _mock_query(msg_b)), \
+             patch.object(core, "log_cost"), \
              patch("builtins.print"):
             opts = ClaudeAgentOptions(extra_args={"agent": "cai-confirm"})
             native = run_subagent(

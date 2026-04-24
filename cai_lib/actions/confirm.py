@@ -37,7 +37,8 @@ from cai_lib.logging_utils import (
 )
 from claude_agent_sdk import ClaudeAgentOptions
 
-from cai_lib.subprocess_utils import _run, run_subagent
+from cai_lib.subagent import run_subagent
+from cai_lib.subprocess_utils import _run
 
 
 def _parse_verdicts(text: str) -> list[tuple[int, str, str]]:
