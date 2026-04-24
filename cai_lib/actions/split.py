@@ -53,14 +53,6 @@ _UNCLEAR_MARKER = "VERDICT: UNCLEAR"
 _DECOMPOSITION_MARKER = "## Multi-Step Decomposition"
 
 
-def _extract_verdict_block(stdout: str, marker: str) -> str:
-    """Return the slice starting at *marker* (trimmed), or empty string."""
-    pos = stdout.find(marker)
-    if pos == -1:
-        return ""
-    return stdout[pos:].strip()
-
-
 def handle_split(issue: dict) -> int:
     """Evaluate scope of a refined issue via cai-split.
 
@@ -265,7 +257,7 @@ def handle_split(issue: dict) -> int:
 
     # 3c. Unclear verdict or missing marker — divert to human.
     if has_unclear:
-        verdict_block = _extract_verdict_block(stdout, _UNCLEAR_MARKER)
+        verdict_block = (stdout[stdout.find(_UNCLEAR_MARKER):].strip() if _UNCLEAR_MARKER in stdout else "")
         divert_reason = (
             "cai-split returned VERDICT: UNCLEAR — the agent was not "
             "confident enough to decide atomic vs. decompose. Admin "
