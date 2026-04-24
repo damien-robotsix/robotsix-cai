@@ -186,18 +186,18 @@ def handle_confirm(issue: dict) -> int:
         target_kind="issue",
         target_number=issue["number"],
     )
-    if confirm.returncode != 0:
+    if not confirm.ok:
         print(
-            f"[cai confirm] claude -p failed (exit {confirm.returncode}):\n"
-            f"{confirm.stderr}",
+            f"[cai confirm] claude -p failed (exit 1):\n"
+            f"{confirm.error_summary or ''}",
             flush=True,
         )
         dur = f"{int(time.monotonic() - t0)}s"
         log_run("confirm", repo=REPO, merged_checked=len(merged_issues),
                 solved=0, unsolved=0, inconclusive=0,
                 sessions=session_count, in_tokens=in_tokens, out_tokens=out_tokens,
-                duration=dur, exit=confirm.returncode)
-        return confirm.returncode
+                duration=dur, exit=1)
+        return 1
 
     # 5. Parse verdicts.
     verdicts = _parse_verdicts(confirm.stdout)
@@ -252,9 +252,9 @@ def handle_confirm(issue: dict) -> int:
                     target_kind="issue",
                     target_number=issue_num,
                 )
-                if mem.returncode != 0:
+                if not mem.ok:
                     print(
-                        f"[cai confirm] cai-memorize failed (exit {mem.returncode}) — "
+                        f"[cai confirm] cai-memorize failed (exit 1) — "
                         f"continuing",
                         flush=True,
                     )

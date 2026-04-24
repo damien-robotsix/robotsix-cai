@@ -18,12 +18,11 @@ stripped from :mod:`cai_lib.subagent.core` and
 from __future__ import annotations
 
 import shutil
-import subprocess
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions
 
-from cai_lib.subagent.core import SubAgent
+from cai_lib.subagent.core import RunResult, SubAgent
 from cai_lib.subagent.cost_tracker import CostRow, CostTracker
 from cai_lib.cost_comment import _post_cost_comment
 from cai_lib.fsm_state import _CURRENT_FSM_STATE
@@ -106,12 +105,12 @@ def run_subagent(
     extra_target_kind: str | None = None,
     extra_target_number: int | None = None,
     timeout: float | None = None,
-) -> subprocess.CompletedProcess:
+) -> RunResult:
     """Cai-specific one-shot subagent invocation over :class:`CaiSubAgent`.
 
     Constructs a :class:`CaiSubAgent` (with a :class:`CaiCostTracker` built
     from the optional target metadata), calls ``.run(prompt)`` once, and
-    returns the :class:`subprocess.CompletedProcess`.
+    returns the :class:`~cai_lib.subagent.core.RunResult`.
 
     This is the cai-repository-specific counterpart to
     :func:`cai_lib.subagent.core.run_subagent`. Callers that need CLI-pin,

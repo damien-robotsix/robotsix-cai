@@ -78,3 +78,14 @@ mocked `ResultMessage` fixture are equal modulo the volatile
 `subprocess.CompletedProcess.{returncode, stdout, stderr}` triples
 match byte-for-byte on success, structured-output, and
 `is_error=True` paths.
+
+## Return type evolution to `RunResult` (PR #1277)
+
+Following the spike, the `subprocess.CompletedProcess` return type was
+replaced with a typed `RunResult` Pydantic model (issue #1277). The new
+return type preserves the same observable behavior (`.ok` property mirrors
+`.returncode == 0`, `.stdout` carries the same content, `.error_summary`
+replaces `.stderr`), but provides structured access to the
+`ResultMessage`, error subtypes, and captured stderr lines without
+re-parsing opaque strings. The parity test continues to verify that both
+call paths emit identical cost-row payloads.
