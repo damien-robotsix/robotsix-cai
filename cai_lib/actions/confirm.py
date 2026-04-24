@@ -35,7 +35,9 @@ from cai_lib.logging_utils import (
     _log_outcome,
     log_run,
 )
-from cai_lib.subprocess_utils import _run, _run_claude_p
+from claude_agent_sdk import ClaudeAgentOptions
+
+from cai_lib.subprocess_utils import _run, run_subagent
 
 
 def _parse_verdicts(text: str) -> list[tuple[int, str, str]]:
@@ -170,11 +172,16 @@ def handle_confirm(issue: dict) -> int:
     )
 
     # 4. Invoke the declared cai-confirm subagent.
-    confirm = _run_claude_p(
-        ["claude", "-p", "--agent", "cai-confirm"],
+    #    Issue #1226 spike: this handler talks to the SDK directly via
+    #    ``run_subagent`` instead of the ``_run_claude_p`` argv facade.
+    confirm_options = ClaudeAgentOptions(
+        extra_args={"agent": "cai-confirm"},
+    )
+    confirm = run_subagent(
+        user_message,
+        confirm_options,
         category="confirm",
         agent="cai-confirm",
-        input=user_message,
         target_kind="issue",
         target_number=issue["number"],
     )
@@ -233,11 +240,14 @@ def handle_confirm(issue: dict) -> int:
                         f"## Merged PR diff (PR #{mi['_pr_number']})\n\n"
                         f"```diff\n{mi['_pr_diff']}\n```\n"
                     )
-                mem = _run_claude_p(
-                    ["claude", "-p", "--agent", "cai-memorize"],
+                memorize_options = ClaudeAgentOptions(
+                    extra_args={"agent": "cai-memorize"},
+                )
+                mem = run_subagent(
+                    memorize_msg,
+                    memorize_options,
                     category="confirm",
                     agent="cai-memorize",
-                    input=memorize_msg,
                     target_kind="issue",
                     target_number=issue_num,
                 )

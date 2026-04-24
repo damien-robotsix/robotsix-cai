@@ -128,12 +128,13 @@ modules:
     doc: "docs/modules/workflows.md"
 
   - name: docs
-    summary: User-facing prose docs, README, license, CLAUDE.md, and the auto-generated index.
+    summary: User-facing prose docs, README, license, CLAUDE.md, SDK spike notes, and the auto-generated index.
     globs:
       - "docs/**"
       - "README.md"
       - "LICENSE"
       - "CLAUDE.md"
+      - "SDK_SPIKE_NOTES.md"
     doc: "docs/modules/docs.md"
 
   - name: tests
