@@ -9,7 +9,8 @@ defines the subagents themselves; each is invoked by a `cmd_*`
 function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
 
 ## Key entry points
-- [`cai_lib/audit/cost.py`](../../cai_lib/audit/cost.py) — `_load_outcome_counts`,
+- [`cai_lib/audit/cost.py`](../../cai_lib/audit/cost.py) — `_iter_outcome_rows` (shared
+  outcome-log iterator consolidating duplicate readers), `_load_outcome_counts`,
   `_load_cost_log`, `_load_outcome_index`, `_row_ts`, `_primary_model`,
   `_build_module_index`, `_infer_module_from_files`, `_build_cost_summary`; 
   token/cost helpers consumed by `cmd_cost_report`, `cmd_cost_optimize`, 

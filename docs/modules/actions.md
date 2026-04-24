@@ -94,7 +94,8 @@ PR-side handlers (take a PR dict):
 - Imports from **cmd_helpers*** — shared worktree setup,
   agent-edit staging (`_setup_agent_edit_staging`,
   `_apply_agent_edit_staging`), and issue-body formatting.
-- Imports from **subprocess_utils** — `_run`, `_run_claude_p`.
+- Imports from **subprocess_utils** — `_run` (shell wrapper).
+- Imports from **subagent** — `_run_claude_p` (agent SDK).
 - Imports from **utils.log** — `log_run` for cost/outcome
   accounting.
 - Imported by **cli** — the dispatcher registry is built from

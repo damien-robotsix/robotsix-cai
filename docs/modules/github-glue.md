@@ -40,8 +40,9 @@ through this module.
 
 ## Inter-module dependencies
 - Imports from **config** — `REPO`, label constants, log paths.
-- Imports from **subprocess_utils** — `_run`, `_run_claude_p` (the
-  latter used by `dup_check.py` to call the haiku subagent).
+- Imports from **subprocess_utils** — `_run` (generic shell wrapper).
+- Imports from **subagent** — `_run_claude_p` (used by `dup_check.py`
+  to call the haiku subagent).
 - Imports from **utils.log** — `log_run`.
 - Imports from **fsm** — `watchdog.py` pulls in state/transition
   helpers, not this module directly; `github.py` does not import
