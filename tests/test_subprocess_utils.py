@@ -1,4 +1,4 @@
-"""Tests for cai_lib.subprocess_utils — ResultMessage parsing in _run_claude_p.
+"""Tests for cai_lib.subagent — ResultMessage parsing in _run_claude_p.
 
 Focus: the stdout rewrite priority order when a ``claude -p`` invocation
 returns a ResultMessage via the claude-agent-sdk ``query()`` async
@@ -40,7 +40,7 @@ def _mk_result(**fields) -> ResultMessage:
 
 
 def _mock_query(*messages):
-    """Return an async-generator replacement for cai_lib.subprocess_utils.query."""
+    """Return an async-generator replacement for cai_lib.subagent.core.query."""
     async def _gen(*, prompt, options=None, transport=None):
         for m in messages:
             yield m
@@ -50,7 +50,7 @@ def _mock_query(*messages):
 class TestRunClaudePEnvelope(unittest.TestCase):
     """_run_claude_p rewrites proc.stdout based on ResultMessage priority."""
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_structured_output_wins_over_result(self, _mock_log):
         """When --json-schema succeeded, structured_output must override result text.
 
@@ -60,8 +60,7 @@ class TestRunClaudePEnvelope(unittest.TestCase):
         stdout must be the validated payload — not the prose the model
         produced.
         """
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         validated = {"plan": "do X", "confidence": "HIGH",
                      "confidence_reason": "sound"}
@@ -70,7 +69,7 @@ class TestRunClaudePEnvelope(unittest.TestCase):
             structured_output=validated,
             result=reasoning,
         )
-        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+        with patch.object(core, "query", _mock_query(msg)):
             proc = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-select",
                  "--json-schema", "{}"],
@@ -80,11 +79,10 @@ class TestRunClaudePEnvelope(unittest.TestCase):
         self.assertEqual(json.loads(proc.stdout), validated)
         self.assertNotIn("Routed", proc.stdout)
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_retries_exhausted_leaves_stdout_empty(self, _mock_log):
         """error_max_structured_output_retries → empty stdout + diagnostic log."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(
             subtype="error_max_structured_output_retries",
@@ -92,7 +90,7 @@ class TestRunClaudePEnvelope(unittest.TestCase):
             result="I couldn't match the schema sorry",
             total_cost_usd=0.2,
         )
-        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+        with patch.object(core, "query", _mock_query(msg)):
             with patch("builtins.print") as mock_print:
                 proc = _run_claude_p(
                     ["claude", "-p", "--agent", "cai-triage",
@@ -104,14 +102,13 @@ class TestRunClaudePEnvelope(unittest.TestCase):
         printed = " ".join(str(c) for c in mock_print.call_args_list)
         self.assertIn("structured output retries exhausted", printed)
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_result_text_used_when_no_schema(self, _mock_log):
         """Without --json-schema the envelope has no structured_output; use result."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(result="plain agent output", total_cost_usd=0.05)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+        with patch.object(core, "query", _mock_query(msg)):
             proc = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-plan"],
                 category="plan.plan", agent="cai-plan",
@@ -119,18 +116,17 @@ class TestRunClaudePEnvelope(unittest.TestCase):
 
         self.assertEqual(proc.stdout, "plain agent output")
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_structured_output_none_falls_through_to_result(self, _mock_log):
         """structured_output: null must not be treated as present."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(
             structured_output=None,
             result="fallback text",
             total_cost_usd=0.05,
         )
-        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+        with patch.object(core, "query", _mock_query(msg)):
             proc = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-plan"],
                 category="plan.plan", agent="cai-plan",
@@ -147,11 +143,10 @@ class TestStderrEnrichment(unittest.TestCase):
     ``stderr=""``, which is why issue #910 produced five
     byte-identical ``result=subagent_failed exit=1`` rows."""
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_is_error_populates_stderr_with_subtype(self, _mock_log):
         """is_error=True must surface sdk_subtype and is_error in stderr."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(
             subtype="error_max_turns",
@@ -159,7 +154,7 @@ class TestStderrEnrichment(unittest.TestCase):
             result="Agent exhausted max_turns=60 before producing a plan.",
             total_cost_usd=0.4,
         )
-        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+        with patch.object(core, "query", _mock_query(msg)):
             proc = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-implement"],
                 category="implement", agent="cai-implement",
@@ -170,11 +165,10 @@ class TestStderrEnrichment(unittest.TestCase):
         self.assertIn("is_error=True", proc.stderr)
         self.assertIn("Agent exhausted max_turns", proc.stderr)
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_is_error_without_result_text_still_has_summary(self, _mock_log):
         """is_error=True with result=None must still carry subtype/is_error."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(
             subtype="error_max_structured_output_retries",
@@ -182,7 +176,7 @@ class TestStderrEnrichment(unittest.TestCase):
             result=None,
             total_cost_usd=0.2,
         )
-        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+        with patch.object(core, "query", _mock_query(msg)):
             with patch("builtins.print"):
                 proc = _run_claude_p(
                     ["claude", "-p", "--agent", "cai-triage",
@@ -197,14 +191,13 @@ class TestStderrEnrichment(unittest.TestCase):
         )
         self.assertIn("is_error=True", proc.stderr)
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_success_leaves_stderr_empty(self, _mock_log):
         """returncode=0 must NOT leak a diagnostic summary into stderr."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(result="ok", total_cost_usd=0.05)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+        with patch.object(core, "query", _mock_query(msg)):
             proc = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-plan"],
                 category="plan.plan", agent="cai-plan",
@@ -215,15 +208,14 @@ class TestStderrEnrichment(unittest.TestCase):
 
     def test_no_result_message_populates_stderr(self):
         """The no-ResultMessage fallback path must surface a diagnostic."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         # No ResultMessage and no AssistantMessage — the empty-iterator case.
         async def _empty_gen(*, prompt, options=None, transport=None):
             if False:
                 yield  # pragma: no cover
 
-        with patch.object(subprocess_utils, "query", _empty_gen):
+        with patch.object(core, "query", _empty_gen):
             with patch("builtins.print"):
                 proc = _run_claude_p(
                     ["claude", "-p", "--agent", "cai-implement"],
@@ -250,8 +242,7 @@ class TestCliStderrCapture(unittest.TestCase):
 
     def test_exception_path_includes_captured_cli_stderr(self):
         """SDK exception → stderr field must carry captured CLI stderr tail."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         cli_lines = [
             "node: fatal: unexpected end of stream on stdin",
@@ -271,7 +262,7 @@ class TestCliStderrCapture(unittest.TestCase):
             )
             yield  # pragma: no cover — make it an async generator
 
-        with patch.object(subprocess_utils, "query", _fake_query):
+        with patch.object(core, "query", _fake_query):
             with patch("builtins.print") as mock_print:
                 proc = _run_claude_p(
                     ["claude", "-p", "--agent", "cai-implement"],
@@ -290,14 +281,13 @@ class TestCliStderrCapture(unittest.TestCase):
 
     def test_exception_without_captured_stderr_falls_back(self):
         """When the CLI emitted no stderr, behaviour matches the pre-#1 contract."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         async def _fake_query(*, prompt, options=None, transport=None):
             raise RuntimeError("boom")
             yield  # pragma: no cover
 
-        with patch.object(subprocess_utils, "query", _fake_query):
+        with patch.object(core, "query", _fake_query):
             with patch("builtins.print"):
                 proc = _run_claude_p(
                     ["claude", "-p", "--agent", "cai-implement"],
@@ -309,7 +299,7 @@ class TestCliStderrCapture(unittest.TestCase):
 
     def test_stderr_capture_is_bounded(self):
         """The sink must cap at _CAPTURED_STDERR_MAX_LINES to avoid leaks."""
-        from cai_lib.subprocess_utils import (
+        from cai_lib.subagent.stderr_sink import (
             _CAPTURED_STDERR_MAX_LINES,
             _captured_stderr_text,
             _make_stderr_sink,
@@ -333,7 +323,7 @@ class TestSdkErrorSummary(unittest.TestCase):
     """Direct unit tests for the issue-#1106 summary helper."""
 
     def test_summary_with_subtype_and_result_text(self):
-        from cai_lib.subprocess_utils import _sdk_error_summary
+        from cai_lib.subagent.errors import _sdk_error_summary
 
         class _R:
             subtype = "error_max_turns"
@@ -349,7 +339,7 @@ class TestSdkErrorSummary(unittest.TestCase):
         self.assertNotIn("\n", s)
 
     def test_summary_with_missing_fields_defaults_to_none(self):
-        from cai_lib.subprocess_utils import _sdk_error_summary
+        from cai_lib.subagent.errors import _sdk_error_summary
 
         class _R:  # no subtype, no is_error, no result
             pass
@@ -364,13 +354,12 @@ class TestCostCommentKwargsBackwardsCompat(unittest.TestCase):
     ``None`` so every existing call site (27+) that never passes them
     keeps working byte-for-byte identical to pre-#1168 behaviour."""
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_omitting_kwargs_does_not_change_returncode_or_stdout(self, _mock_log):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(result="unchanged", total_cost_usd=0.01)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)):
+        with patch.object(core, "query", _mock_query(msg)):
             proc = _run_claude_p(
                 ["claude", "-p", "--agent", "cai-plan"],
                 category="plan.plan", agent="cai-plan",
@@ -379,13 +368,12 @@ class TestCostCommentKwargsBackwardsCompat(unittest.TestCase):
         self.assertEqual(proc.stdout, "unchanged")
         self.assertEqual(proc.stderr, "")
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_kwargs_accept_issue_and_pr_values(self, _mock_log):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(result="ok", total_cost_usd=0.01)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+        with patch.object(core, "query", _mock_query(msg)), \
              patch("cai_lib.github._post_issue_comment", return_value=True), \
              patch("cai_lib.github._post_pr_comment", return_value=True):
             proc1 = _run_claude_p(
@@ -409,13 +397,12 @@ class TestExtraTargetCostComment(unittest.TestCase):
     ``extra_target_number`` drive that second post.
     """
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_extra_target_posts_to_both_pr_and_issue(self, _mock_log):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(result="ok", total_cost_usd=0.02)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+        with patch.object(core, "query", _mock_query(msg)), \
              patch(
                 "cai_lib.github._post_issue_comment", return_value=True,
              ) as mock_issue_post, \
@@ -437,13 +424,12 @@ class TestExtraTargetCostComment(unittest.TestCase):
         self.assertEqual(pr_args[0], 42)
         self.assertEqual(issue_args[0], 99)
 
-    @patch("cai_lib.subprocess_utils.log_cost")
+    @patch("cai_lib.subagent.legacy.log_cost")
     def test_extra_target_omitted_posts_only_to_primary(self, _mock_log):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         msg = _mk_result(result="ok", total_cost_usd=0.02)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
+        with patch.object(core, "query", _mock_query(msg)), \
              patch(
                 "cai_lib.github._post_issue_comment", return_value=True,
              ) as mock_issue_post, \
@@ -467,9 +453,8 @@ class TestFsmStateStamping(unittest.TestCase):
     key entirely when the contextvar is unset."""
 
     def test_fsm_state_stamped_when_contextvar_set(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import (
-            _run_claude_p, set_current_fsm_state,
+        from cai_lib.subagent import (
+            _run_claude_p, core, legacy, set_current_fsm_state,
         )
 
         captured: list[dict] = []
@@ -478,8 +463,8 @@ class TestFsmStateStamping(unittest.TestCase):
             captured.append(dict(row))
 
         msg = _mk_result(result="ok", total_cost_usd=0.05)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             with set_current_fsm_state("REFINING"):
                 _run_claude_p(
                     ["claude", "-p", "--agent", "cai-refine"],
@@ -490,8 +475,7 @@ class TestFsmStateStamping(unittest.TestCase):
         self.assertEqual(captured[0].get("fsm_state"), "REFINING")
 
     def test_fsm_state_omitted_when_contextvar_unset(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         captured: list[dict] = []
 
@@ -499,8 +483,8 @@ class TestFsmStateStamping(unittest.TestCase):
             captured.append(dict(row))
 
         msg = _mk_result(result="ok", total_cost_usd=0.05)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-audit-health"],
                 category="audit", agent="cai-audit-health",
@@ -511,9 +495,8 @@ class TestFsmStateStamping(unittest.TestCase):
 
     def test_fsm_state_reset_after_block_exits(self):
         """Nested/sequential blocks must restore the prior value on exit."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import (
-            _run_claude_p, set_current_fsm_state,
+        from cai_lib.subagent import (
+            _run_claude_p, core, legacy, set_current_fsm_state,
         )
 
         captured: list[dict] = []
@@ -522,8 +505,8 @@ class TestFsmStateStamping(unittest.TestCase):
             captured.append(dict(row))
 
         msg = _mk_result(result="ok", total_cost_usd=0.01)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             with set_current_fsm_state("PLANNING"):
                 _run_claude_p(
                     ["claude", "-p", "--agent", "cai-plan"],
@@ -548,8 +531,7 @@ class TestCacheHitRateAnnotation(unittest.TestCase):
     omit the field so legacy rows stay byte-identical."""
 
     def test_cache_hit_rate_set_when_tokens_present(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         captured: list[dict] = []
 
@@ -566,8 +548,8 @@ class TestCacheHitRateAnnotation(unittest.TestCase):
         msg = _mk_result(
             usage=usage, result="ok", total_cost_usd=0.01,
         )
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-plan"],
                 category="plan.plan", agent="cai-plan",
@@ -578,8 +560,7 @@ class TestCacheHitRateAnnotation(unittest.TestCase):
         self.assertAlmostEqual(captured[0]["cache_hit_rate"], 0.5, places=4)
 
     def test_cache_hit_rate_omitted_when_denominator_zero(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         captured: list[dict] = []
 
@@ -594,8 +575,8 @@ class TestCacheHitRateAnnotation(unittest.TestCase):
         msg = _mk_result(
             usage=usage, result="ok", total_cost_usd=0.01,
         )
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-plan"],
                 category="plan.plan", agent="cai-plan",
@@ -608,8 +589,7 @@ class TestCacheHitRateAnnotation(unittest.TestCase):
         """Each ``models[m]`` entry gets a ``cacheHitRate`` when its
         per-model cache/input tokens are non-zero. Entries whose
         denominator is zero are skipped (no key written)."""
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         captured: list[dict] = []
 
@@ -648,8 +628,8 @@ class TestCacheHitRateAnnotation(unittest.TestCase):
             }
             yield msg
 
-        with patch.object(subprocess_utils, "query", _gen), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _gen), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-plan"],
                 category="plan.plan", agent="cai-plan",
@@ -679,8 +659,7 @@ class TestFixAttemptCountStamping(unittest.TestCase):
     """
 
     def test_omitting_fix_attempt_count_leaves_row_unchanged(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         captured: list[dict] = []
 
@@ -688,8 +667,8 @@ class TestFixAttemptCountStamping(unittest.TestCase):
             captured.append(dict(row))
 
         msg = _mk_result(result="ok", total_cost_usd=0.05)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-plan"],
                 category="plan.plan", agent="cai-plan",
@@ -699,8 +678,7 @@ class TestFixAttemptCountStamping(unittest.TestCase):
         self.assertNotIn("fix_attempt_count", captured[0])
 
     def test_passing_fix_attempt_count_stamps_row(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         captured: list[dict] = []
 
@@ -708,8 +686,8 @@ class TestFixAttemptCountStamping(unittest.TestCase):
             captured.append(dict(row))
 
         msg = _mk_result(result="ok", total_cost_usd=0.05)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             # First attempt: zero must land in the row (is-not-None check).
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-implement"],
@@ -739,8 +717,7 @@ class TestModuleAndScopeFilesStamping(unittest.TestCase):
     shape; ``scope_files`` is capped at the first 10 paths."""
 
     def test_module_and_scope_files_stamped_when_provided(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         captured: list[dict] = []
 
@@ -748,8 +725,8 @@ class TestModuleAndScopeFilesStamping(unittest.TestCase):
             captured.append(dict(row))
 
         msg = _mk_result(result="ok", total_cost_usd=0.05)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-audit-health"],
                 category="audit", agent="cai-audit-health",
@@ -762,8 +739,7 @@ class TestModuleAndScopeFilesStamping(unittest.TestCase):
         self.assertEqual(captured[0].get("scope_files"), ["a.py", "b.py"])
 
     def test_module_and_scope_files_omitted_when_unset(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         captured: list[dict] = []
 
@@ -771,8 +747,8 @@ class TestModuleAndScopeFilesStamping(unittest.TestCase):
             captured.append(dict(row))
 
         msg = _mk_result(result="ok", total_cost_usd=0.05)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-refine"],
                 category="refine", agent="cai-refine",
@@ -783,8 +759,7 @@ class TestModuleAndScopeFilesStamping(unittest.TestCase):
         self.assertNotIn("scope_files", captured[0])
 
     def test_scope_files_truncated_to_ten(self):
-        from cai_lib import subprocess_utils
-        from cai_lib.subprocess_utils import _run_claude_p
+        from cai_lib.subagent import _run_claude_p, core, legacy
 
         captured: list[dict] = []
 
@@ -793,8 +768,8 @@ class TestModuleAndScopeFilesStamping(unittest.TestCase):
 
         many = [f"file_{i}.py" for i in range(15)]
         msg = _mk_result(result="ok", total_cost_usd=0.05)
-        with patch.object(subprocess_utils, "query", _mock_query(msg)), \
-             patch.object(subprocess_utils, "log_cost", _fake_log_cost):
+        with patch.object(core, "query", _mock_query(msg)), \
+             patch.object(legacy, "log_cost", _fake_log_cost):
             _run_claude_p(
                 ["claude", "-p", "--agent", "cai-implement"],
                 category="implement", agent="cai-implement",

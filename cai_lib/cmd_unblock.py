@@ -48,7 +48,8 @@ from cai_lib.github import (
     open_blockers,
 )
 from cai_lib.logging_utils import log_run
-from cai_lib.subprocess_utils import _run, _run_claude_p
+from cai_lib.subagent import _run_claude_p
+from cai_lib.subprocess_utils import _run
 
 
 # Resume-transition lookup tables. Replace the former
