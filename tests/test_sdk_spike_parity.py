@@ -115,7 +115,7 @@ class TestSdkSpikeParity(unittest.TestCase):
         from cai_lib.claude_argv import _run_claude_p
         import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
-        from cai_lib.subagent.core import run_subagent
+        from cai_lib.cai_subagent import run_subagent
 
         prompt = "## another fixture"
 
@@ -147,7 +147,7 @@ class TestSdkSpikeParity(unittest.TestCase):
         from cai_lib.claude_argv import _run_claude_p
         import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
-        from cai_lib.subagent.core import run_subagent
+        from cai_lib.cai_subagent import run_subagent
 
         prompt = "## error fixture"
 
