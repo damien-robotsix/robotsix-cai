@@ -391,6 +391,18 @@ def _count_edit_steps(plan_text):
     return len(_STEP_EDIT_HEADER_RE.findall(plan_text))
 
 
+def _plan_meets_thresholds(plan_text, file_threshold, edit_threshold):
+    """Return ``True`` when *plan_text* meets both *file_threshold* and
+    *edit_threshold*.  Returns ``False`` on empty or ``None`` input.
+    """
+    if not plan_text:
+        return False
+    return (
+        _count_files_to_change(plan_text) >= file_threshold
+        and _count_edit_steps(plan_text) >= edit_threshold
+    )
+
+
 def _plan_is_large_mechanical_refactor(plan_text):
     """Return ``True`` when *plan_text* qualifies as a large mechanical
     refactor worth pre-emptively routing to the Opus implement tier
@@ -411,13 +423,9 @@ def _plan_is_large_mechanical_refactor(plan_text):
     reads ``opus_escalation = True`` on the next dispatch tick and
     skips the Sonnet attempt entirely.
     """
-    if not plan_text:
-        return False
-    if _count_files_to_change(plan_text) < _LARGE_REFACTOR_FILE_THRESHOLD:
-        return False
-    if _count_edit_steps(plan_text) < _LARGE_REFACTOR_EDIT_SITE_THRESHOLD:
-        return False
-    return True
+    return _plan_meets_thresholds(
+        plan_text, _LARGE_REFACTOR_FILE_THRESHOLD, _LARGE_REFACTOR_EDIT_SITE_THRESHOLD,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -484,13 +492,9 @@ def _plan_qualifies_for_extended_retries(plan_text):
     raises its broad consecutive-failure cap from 3 to 5 at the
     Sonnet tier on the next dispatch tick.
     """
-    if not plan_text:
-        return False
-    if _count_files_to_change(plan_text) < _EXTENDED_RETRY_FILE_THRESHOLD:
-        return False
-    if _count_edit_steps(plan_text) < _EXTENDED_RETRY_EDIT_SITE_THRESHOLD:
-        return False
-    return True
+    return _plan_meets_thresholds(
+        plan_text, _EXTENDED_RETRY_FILE_THRESHOLD, _EXTENDED_RETRY_EDIT_SITE_THRESHOLD,
+    )
 
 
 # ---------------------------------------------------------------------------
