@@ -27,13 +27,22 @@ from claude_agent_sdk.types import (
     AssistantMessage,
     ResultMessage,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 from pydantic import BaseModel, ConfigDict, Field
 
 from .cost_tracker import CostRow, CostTracker
 from .errors import _sdk_error_summary
 from .stderr_sink import _captured_stderr_text, _make_stderr_sink
+from .transcript import (
+    AssistantTextEvent,
+    RunTranscript,
+    SubAgentNode,
+    ToolResultEvent,
+    ToolUseEvent,
+)
 
 
 class RunStatus(StrEnum):
@@ -76,6 +85,13 @@ class RunResult(BaseModel):
         default_factory=list,
         description="Raw CLI stderr lines collected during this run.",
     )
+    transcript: RunTranscript | None = Field(
+        default=None,
+        description=(
+            "Full typed transcript of the run; None on exception "
+            "before query() started (issue #1280)."
+        ),
+    )
 
     @property
     def ok(self) -> bool:
@@ -86,60 +102,85 @@ class RunResult(BaseModel):
 async def _collect_results(
     prompt: str,
     options: ClaudeAgentOptions,
-) -> tuple[list[ResultMessage], str, str | None, dict[str, int]]:
-    """Drive ``query()`` to completion.
+) -> RunTranscript:
+    """Drive ``query()`` to completion and build a :class:`RunTranscript`.
 
-    Returns ``(result_messages, last_non_empty_assistant_text,
-    parent_model, subagent_counts)``. Collects every ResultMessage
-    (forward-compat: today the CLI emits exactly one) and records the
-    final non-empty ``AssistantMessage`` TextBlock so the priority-4
-    stdout-salvage path can fall back to it when ``result`` is absent
-    (e.g. ``subtype == "error_max_budget_usd"``).
+    The returned :class:`RunTranscript` captures the SDK stream as a
+    tree: top-level :class:`AssistantTextEvent` / :class:`ToolUseEvent`
+    / :class:`ToolResultEvent`, with each ``Task`` spawn becoming a
+    :class:`SubAgentNode` whose ``events`` recursively hold the
+    subagent's own stream. Routing uses ``parent_tool_use_id``: messages
+    with no parent (or whose parent id is unknown) land at the top
+    level; messages whose ``parent_tool_use_id`` matches a registered
+    Task ``ToolUseBlock.id`` land inside that node's ``events``. The
+    singular terminating :class:`ResultMessage` (issue #1279) is
+    stored on :attr:`RunTranscript.result`.
 
-    ``parent_model`` is the model of the first ``AssistantMessage`` whose
-    ``parent_tool_use_id is None`` — i.e. the top-level agent. The SDK's
-    ``ResultMessage.model_usage`` aggregates every model a run touched
-    (parent + any Task subagents + Claude Code's own haiku-backed helpers
-    like the memory-project loader), so a bare ``next(iter(model_usage))``
-    can mislabel the run with a subagent's haiku instead of the parent's
-    opus. ``parent_model`` lets the cost-comment renderer pick the right
-    one deterministically.
-
-    ``subagent_counts`` maps ``subagent_type`` → invocation count, built
-    from every ``ToolUseBlock`` with ``name == "Task"``. Counts every
-    spawn, including nested Task calls from subagents and multiple
-    invocations of the same ``subagent_type``. A ``Task`` call with no
-    explicit ``subagent_type`` is bucketed as ``"general-purpose"``
-    (Claude Code's documented default).
+    Existing ``_collect_results`` projections — ``last_assistant``,
+    ``parent_model``, ``subagent_counts`` — are exposed as derived
+    properties on :class:`RunTranscript` so :class:`SubAgent` callers
+    are unaffected.
 
     Kept as a module-level function for backwards import stability;
-    :class:`SubAgent` is the primary consumer. Before #1274 the
-    deprecated ``_run_claude_p`` argv facade imported it directly;
-    post-#1274 the facade delegates to :class:`SubAgent` and no
-    longer touches this helper.
+    :class:`SubAgent` is the primary consumer.
     """
-    results: list[ResultMessage] = []
-    last_assistant = ""
-    parent_model: str | None = None
-    subagent_counts: dict[str, int] = {}
+    transcript = RunTranscript()
+    nodes_by_tool_use_id: dict[str, SubAgentNode] = {}
+
     async for msg in query(prompt=prompt, options=options):
         if isinstance(msg, ResultMessage):
-            results.append(msg)
-        elif isinstance(msg, AssistantMessage):
-            if parent_model is None and msg.parent_tool_use_id is None:
-                parent_model = msg.model or None
-            parts = [
-                b.text for b in msg.content
-                if isinstance(b, TextBlock) and b.text.strip()
-            ]
-            if parts:
-                last_assistant = "".join(parts).strip()
+            transcript.result = msg
+            continue
+
+        parent_id = getattr(msg, "parent_tool_use_id", None)
+        if parent_id is not None:
+            if parent_id in nodes_by_tool_use_id:
+                container = nodes_by_tool_use_id[parent_id].events
+            else:
+                # parent_tool_use_id is set but not registered as a Task
+                # node (e.g. a haiku-backed helper that ran before the
+                # parent's first Task call). Skip rather than routing to
+                # top-level — preserves the parent_model invariant that
+                # only parent_tool_use_id=None messages are top-level.
+                continue
+        else:
+            container = transcript.events
+
+        if isinstance(msg, AssistantMessage):
             for block in msg.content:
-                if isinstance(block, ToolUseBlock) and block.name == "Task":
-                    sub = (block.input or {}).get("subagent_type") \
+                if isinstance(block, TextBlock) and block.text.strip():
+                    container.append(AssistantTextEvent(
+                        model=msg.model or "",
+                        text=block.text,
+                    ))
+                elif isinstance(block, ToolUseBlock) and block.name == "Task":
+                    sub_type = (
+                        (block.input or {}).get("subagent_type")
                         or "general-purpose"
-                    subagent_counts[sub] = subagent_counts.get(sub, 0) + 1
-    return results, last_assistant, parent_model, subagent_counts
+                    )
+                    node = SubAgentNode(
+                        tool_use_id=block.id,
+                        subagent_type=sub_type,
+                    )
+                    nodes_by_tool_use_id[block.id] = node
+                    container.append(node)
+                elif isinstance(block, ToolUseBlock):
+                    container.append(ToolUseEvent(
+                        tool_use_id=block.id,
+                        name=block.name,
+                        input=dict(block.input or {}),
+                    ))
+        elif isinstance(msg, UserMessage):
+            content = msg.content
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, ToolResultBlock):
+                        container.append(ToolResultEvent(
+                            tool_use_id=block.tool_use_id,
+                            content=block.content,
+                        ))
+
+    return transcript
 
 
 class SubAgent(BaseModel):
@@ -193,20 +234,22 @@ class SubAgent(BaseModel):
         """Drive one full run against ``prompt`` and return the RunResult."""
         self._prepare_options()
         try:
-            results, last_assistant, parent_model, subagent_counts = (
-                self._drive_query(prompt)
-            )
+            transcript = self._drive_query(prompt)
         except Exception as exc:  # noqa: BLE001
             self.runs += 1
             return self._to_run_result(exc=exc)
 
         self.runs += 1
+        last_assistant = transcript.last_assistant_text
         self.last_assistant = last_assistant
 
-        if not results:
-            return self._to_run_result(stdout=last_assistant or "")
+        if transcript.result is None:
+            return self._to_run_result(
+                stdout=last_assistant or "",
+                transcript=transcript,
+            )
 
-        result = results[-1]
+        result = transcript.result
         self.last_result = result
 
         self.cost_tracker.record(CostRow.from_result_message(
@@ -215,12 +258,14 @@ class SubAgent(BaseModel):
             prompt=prompt,
             system_prompt=self.options.system_prompt,
             result=result,
-            parent_model=parent_model,
-            subagent_counts=subagent_counts,
+            parent_model=transcript.parent_model,
+            subagent_counts=transcript.subagent_counts,
         ))
 
         stdout = self._extract_stdout(result, last_assistant)
-        return self._to_run_result(result=result, stdout=stdout)
+        return self._to_run_result(
+            result=result, stdout=stdout, transcript=transcript,
+        )
 
     def _prepare_options(self) -> None:
         """Attach a fresh stderr sink and reset :attr:`last_captured_stderr`.
@@ -236,7 +281,7 @@ class SubAgent(BaseModel):
     def _drive_query(
         self,
         prompt: str,
-    ) -> tuple[list[ResultMessage], str, str | None, dict[str, int]]:
+    ) -> RunTranscript:
         """Run :func:`_collect_results` to completion, honouring timeout."""
         if self.timeout is not None:
             return asyncio.run(
@@ -270,6 +315,7 @@ class SubAgent(BaseModel):
         result: ResultMessage | None = None,
         stdout: str = "",
         exc: Exception | None = None,
+        transcript: RunTranscript | None = None,
     ) -> RunResult:
         """Build a :class:`RunResult` from the run outcome.
 
@@ -279,6 +325,11 @@ class SubAgent(BaseModel):
         - ``result`` is ``None`` (and ``exc`` is ``None``) → :attr:`RunStatus.NO_RESULT`
         - ``result.is_error`` → :attr:`RunStatus.SDK_ERROR`
         - otherwise → :attr:`RunStatus.OK`
+
+        ``transcript`` is forwarded onto the :class:`RunResult` for every
+        non-exception path. Exception paths leave ``transcript=None``
+        because the failure happened before / during the SDK stream was
+        drained (issue #1280).
         """
         captured = list(self.last_captured_stderr)
         if exc is not None:
@@ -298,6 +349,7 @@ class SubAgent(BaseModel):
                 result=None,
                 error_summary=str(exc),
                 captured_stderr=captured,
+                transcript=transcript,
             )
         if result is None:
             preview = (self.last_assistant or "")[:120].replace("\n", " ")
@@ -317,6 +369,7 @@ class SubAgent(BaseModel):
                 result=None,
                 error_summary=f"no_ResultMessage last_assistant={preview!r}",
                 captured_stderr=captured,
+                transcript=transcript,
             )
         if result.is_error:
             return RunResult(
@@ -325,6 +378,7 @@ class SubAgent(BaseModel):
                 result=result,
                 error_summary=_sdk_error_summary(result),
                 captured_stderr=captured,
+                transcript=transcript,
             )
         return RunResult(
             status=RunStatus.OK,
@@ -332,6 +386,7 @@ class SubAgent(BaseModel):
             result=result,
             error_summary=None,
             captured_stderr=captured,
+            transcript=transcript,
         )
 
 
