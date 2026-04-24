@@ -134,7 +134,7 @@ class TestStripCostComments(unittest.TestCase):
 
 
 class TestRunClaudePPostsCostComment(unittest.TestCase):
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_posts_issue_comment_when_target_issue(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
@@ -163,7 +163,7 @@ class TestRunClaudePPostsCostComment(unittest.TestCase):
         self.assertIn("Agent cost:", body)
         self.assertIsNotNone(CAI_COST_COMMENT_RE.search(body))
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_posts_pr_comment_when_target_pr(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
@@ -185,7 +185,7 @@ class TestRunClaudePPostsCostComment(unittest.TestCase):
         self.assertEqual(mock_pr.call_count, 1)
         self.assertEqual(mock_issue.call_count, 0)
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_no_comment_when_kwargs_omitted(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
@@ -203,7 +203,7 @@ class TestRunClaudePPostsCostComment(unittest.TestCase):
         self.assertEqual(mock_issue.call_count, 0)
         self.assertEqual(mock_pr.call_count, 0)
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_no_comment_when_only_one_kwarg_set(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
@@ -222,7 +222,7 @@ class TestRunClaudePPostsCostComment(unittest.TestCase):
         self.assertEqual(mock_issue.call_count, 0)
         self.assertEqual(mock_pr.call_count, 0)
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_posting_failure_does_not_change_returncode(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
@@ -243,7 +243,7 @@ class TestRunClaudePPostsCostComment(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stdout, "ok")
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_posts_comment_on_agent_error_path(self, _mock_log):
         """is_error=True still posts a cost comment — cost is incurred
         either way and the attribution is useful for diagnosing failed
@@ -277,7 +277,7 @@ class TestCostCommentParentModel(unittest.TestCase):
     not ``next(iter(model_usage))`` — which otherwise mislabels opus-
     configured agents with whichever haiku subagent/helper fired first."""
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_parent_model_wins_over_first_model_usage_key(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
@@ -315,7 +315,7 @@ class TestCostCommentParentModel(unittest.TestCase):
         # and definitely NOT the haiku-first mislabel
         self.assertNotIn("model=claude-haiku-4-5-20251001", body)
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_falls_back_to_model_usage_when_no_parent_message(
         self, _mock_log,
     ):
@@ -341,7 +341,7 @@ class TestCostCommentParentModel(unittest.TestCase):
         # no subagents when only one model was used
         self.assertNotIn("subagent_models=", body)
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_single_model_run_has_no_subagent_field(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
@@ -368,7 +368,7 @@ class TestCostCommentParentModel(unittest.TestCase):
 class TestCostCommentPerModelDetail(unittest.TestCase):
     """Per-model cost/token breakdown in the comment body."""
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_per_model_lines_rendered(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
@@ -413,7 +413,7 @@ class TestCostCommentPerModelDetail(unittest.TestCase):
         # parent comes before subagent in the body
         self.assertLess(body.index("(parent)"), body.index("(subagent)"))
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_per_category_cost_split_rendered(self, _mock_log):
         """Each per-model line carries an inline $X.XXXX split for
         each of in / out / cache_read / cache_create, derived from
@@ -495,7 +495,7 @@ class TestCostCommentSubagentInvocations(unittest.TestCase):
             parent_tool_use_id=None,
         )
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_subagent_counts_rendered(self, mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
@@ -531,7 +531,7 @@ class TestCostCommentSubagentInvocations(unittest.TestCase):
             row.get("subagents"), {"cai-dup-check": 2, "Explore": 1},
         )
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_missing_subagent_type_buckets_as_general_purpose(
         self, _mock_log,
     ):
@@ -554,7 +554,7 @@ class TestCostCommentSubagentInvocations(unittest.TestCase):
         (_num, body), _kwargs = mock_issue.call_args
         self.assertIn("`general-purpose` ×1", body)
 
-    @patch("cai_lib.claude_argv.log_cost")
+    @patch("cai_lib.cai_subagent.log_cost")
     def test_no_subagent_line_when_no_task_invocations(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
         from cai_lib.subagent import core
