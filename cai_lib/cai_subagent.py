@@ -17,6 +17,7 @@ stripped from :mod:`cai_lib.subagent.core` and
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from pathlib import Path
 
@@ -32,17 +33,51 @@ from cai_lib.utils.log import log_cost
 class CaiCostTracker(CostTracker):
     """CostTracker subclass that logs to disk and mirrors GH comments.
 
-    Overrides :meth:`_emit` to stamp the FSM state contextvar onto the
-    row, call :func:`~cai_lib.utils.log.log_cost`, and post the
-    cost-attribution comment on the issue/PR target (and optional extra
-    target) via :func:`~cai_lib.cost_comment._post_cost_comment`.
+    Overrides :meth:`_emit` to stamp the FSM-state contextvar and any
+    caller-supplied row extras onto the :class:`CostRow` (so both the
+    in-memory ``cost_rows`` reference and the serialised dict carry
+    them), call :func:`~cai_lib.utils.log.log_cost`, and post the
+    cost-attribution comment on the issue/PR target (and optional
+    extra target) via
+    :func:`~cai_lib.cost_comment._post_cost_comment`.
+
+    The four extras (``module``, ``scope_files``, ``fingerprint_payload``,
+    ``fix_attempt_count``) are the caller-per-call kwargs that
+    ``_run_claude_p`` previously threaded through its inline row
+    builder. Moving them onto the tracker lets the facade collapse to
+    a thin shim (#1274) while keeping every production row stamp
+    byte-identical. ``fingerprint_payload`` overrides the
+    ``prompt_fingerprint`` that
+    :meth:`~cai_lib.subagent.cost_tracker.CostRow.from_result_message`
+    derived from ``system_prompt + prompt`` — callers use this to
+    supply a stable cache-health key when the prompt is not by itself
+    a stable identifier (issue #1207).
     """
 
+    module: str | None = None
+    scope_files: list[str] | None = None
+    fingerprint_payload: str | None = None
+    fix_attempt_count: int | None = None
+
     def _emit(self, row: CostRow, agent: str) -> None:
-        """Stamp FSM state, log cost row, and post GH cost-attribution comment."""
+        """Stamp FSM state + caller extras, log cost row, and post GH comments."""
+        if self.fingerprint_payload is not None:
+            row.prompt_fingerprint = hashlib.sha256(
+                self.fingerprint_payload.encode()
+            ).hexdigest()[:16]
         fsm_state = _CURRENT_FSM_STATE.get()
         if fsm_state:
             row.fsm_state = fsm_state
+        if self.module is not None:
+            row.module = self.module
+        if self.scope_files:
+            row.scope_files = list(self.scope_files)[:10]
+        if self.fix_attempt_count is not None:
+            row.fix_attempt_count = self.fix_attempt_count
+        if self.target_kind is not None:
+            row.target_kind = self.target_kind
+        if self.target_number is not None:
+            row.target_number = self.target_number
         dumped = row.model_dump(exclude_none=True)
         log_cost(dumped)
         if self.target_kind is not None and self.target_number is not None:

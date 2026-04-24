@@ -112,11 +112,11 @@ async def _collect_results(
     explicit ``subagent_type`` is bucketed as ``"general-purpose"``
     (Claude Code's documented default).
 
-    Kept as a module-level function (rather than a :class:`SubAgent`
-    method) because :mod:`cai_lib.subagent.legacy` imports it directly
-    to drive the deprecated ``_run_claude_p`` argv facade without
-    pulling in the cost-row / cost-comment / FSM-state plumbing the
-    class owns.
+    Kept as a module-level function for backwards import stability;
+    :class:`SubAgent` is the primary consumer. Before #1274 the
+    deprecated ``_run_claude_p`` argv facade imported it directly;
+    post-#1274 the facade delegates to :class:`SubAgent` and no
+    longer touches this helper.
     """
     results: list[ResultMessage] = []
     last_assistant = ""
