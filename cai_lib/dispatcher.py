@@ -309,22 +309,6 @@ _PR_ENTRY_TRANSITIONS: dict[PRState, str] = {
 }
 
 
-# Transitions present in ``cai_lib/fsm_transitions.py`` that are
-# unreachable from the collapsed-registry dispatch flow. Kept here as
-# documentation so the catalog-trim follow-up (#1129) can audit them
-# and decide which to delete.
-_UNREACHABLE_ISSUE_TRANSITIONS: tuple[str, ...] = (
-    "raise_to_refining",       # superseded by raise_to_triaging entry
-    "refined_to_planning",     # superseded by refined_to_splitting entry
-)
-
-_UNREACHABLE_PR_TRANSITIONS: tuple[str, ...] = (
-    "reviewing_code_to_ci_failing",
-    "revision_pending_to_ci_failing",
-    "reviewing_docs_to_ci_failing",
-    "reviewing_docs_to_reviewing_code",
-)
-
 
 # ---------------------------------------------------------------------------
 # Handler tables
