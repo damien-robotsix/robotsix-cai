@@ -148,6 +148,7 @@ modules:
     summary: Agent invocation infrastructure — SDK execution, legacy argv facade, cost attribution, stderr capture, and FSM state stamping.
     globs:
       - "cai_lib/subagent/*.py"
+      - "cai_lib/cai_subagent.py"
     doc: "docs/modules/subagent.md"
 
   - name: config
@@ -156,6 +157,7 @@ modules:
       - "cai_lib/config.py"
       - "cai_lib/utils/*.py"
       - "cai_lib/subprocess_utils.py"
+      - "cai_lib/cost_comment.py"
       - "cai_lib/cost_summary.py"
       - "cai_lib/watchdog.py"
     doc: "docs/modules/config.md"
