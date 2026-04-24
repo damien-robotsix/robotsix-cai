@@ -1,0 +1,6 @@
+{
+  "name": "cai-skills",
+  "version": "1.0.0",
+  "description": "CAI helper tools for agent cost exploration",
+  "skills": "skills"
+}
