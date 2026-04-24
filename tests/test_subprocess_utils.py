@@ -61,7 +61,6 @@ class TestRunClaudePEnvelope(unittest.TestCase):
         produced.
         """
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         validated = {"plan": "do X", "confidence": "HIGH",
@@ -85,7 +84,6 @@ class TestRunClaudePEnvelope(unittest.TestCase):
     def test_retries_exhausted_leaves_stdout_empty(self, _mock_log):
         """error_max_structured_output_retries → empty stdout + diagnostic log."""
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(
@@ -110,7 +108,6 @@ class TestRunClaudePEnvelope(unittest.TestCase):
     def test_result_text_used_when_no_schema(self, _mock_log):
         """Without --json-schema the envelope has no structured_output; use result."""
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(result="plain agent output", total_cost_usd=0.05)
@@ -126,7 +123,6 @@ class TestRunClaudePEnvelope(unittest.TestCase):
     def test_structured_output_none_falls_through_to_result(self, _mock_log):
         """structured_output: null must not be treated as present."""
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(
@@ -155,7 +151,6 @@ class TestStderrEnrichment(unittest.TestCase):
     def test_is_error_populates_stderr_with_subtype(self, _mock_log):
         """is_error=True must surface sdk_subtype and is_error in stderr."""
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(
@@ -179,7 +174,6 @@ class TestStderrEnrichment(unittest.TestCase):
     def test_is_error_without_result_text_still_has_summary(self, _mock_log):
         """is_error=True with result=None must still carry subtype/is_error."""
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(
@@ -207,7 +201,6 @@ class TestStderrEnrichment(unittest.TestCase):
     def test_success_leaves_stderr_empty(self, _mock_log):
         """returncode=0 must NOT leak a diagnostic summary into stderr."""
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(result="ok", total_cost_usd=0.05)
@@ -223,7 +216,6 @@ class TestStderrEnrichment(unittest.TestCase):
     def test_no_result_message_populates_stderr(self):
         """The no-ResultMessage fallback path must surface a diagnostic."""
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         # No ResultMessage and no AssistantMessage — the empty-iterator case.
@@ -259,7 +251,6 @@ class TestCliStderrCapture(unittest.TestCase):
     def test_exception_path_includes_captured_cli_stderr(self):
         """SDK exception → stderr field must carry captured CLI stderr tail."""
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         cli_lines = [
@@ -300,7 +291,6 @@ class TestCliStderrCapture(unittest.TestCase):
     def test_exception_without_captured_stderr_falls_back(self):
         """When the CLI emitted no stderr, behaviour matches the pre-#1 contract."""
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         async def _fake_query(*, prompt, options=None, transport=None):
@@ -377,7 +367,6 @@ class TestCostCommentKwargsBackwardsCompat(unittest.TestCase):
     @patch("cai_lib.claude_argv.log_cost")
     def test_omitting_kwargs_does_not_change_returncode_or_stdout(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(result="unchanged", total_cost_usd=0.01)
@@ -393,7 +382,6 @@ class TestCostCommentKwargsBackwardsCompat(unittest.TestCase):
     @patch("cai_lib.claude_argv.log_cost")
     def test_kwargs_accept_issue_and_pr_values(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(result="ok", total_cost_usd=0.01)
@@ -424,7 +412,6 @@ class TestExtraTargetCostComment(unittest.TestCase):
     @patch("cai_lib.claude_argv.log_cost")
     def test_extra_target_posts_to_both_pr_and_issue(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(result="ok", total_cost_usd=0.02)
@@ -453,7 +440,6 @@ class TestExtraTargetCostComment(unittest.TestCase):
     @patch("cai_lib.claude_argv.log_cost")
     def test_extra_target_omitted_posts_only_to_primary(self, _mock_log):
         from cai_lib.claude_argv import _run_claude_p
-        import cai_lib.claude_argv as legacy
         from cai_lib.subagent import core
 
         msg = _mk_result(result="ok", total_cost_usd=0.02)
