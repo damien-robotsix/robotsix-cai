@@ -28,6 +28,13 @@ ripple everywhere.
   for the deprecated `_run_claude_p` argv facade and
   [`cai_lib/cai_subagent.py`](../../cai_lib/cai_subagent.py) for the
   new SDK-native `run_subagent` path.
+- [`cai_lib/cost_comment.py`](../../cai_lib/cost_comment.py) —
+  Cost-row schema helpers and best-effort issue/PR comment posting.
+  `_split_cost_by_category()` allocates a `CostRow`'s total cost across
+  token categories; `_post_cost_comment()` formats and posts the
+  `<!-- cai-cost … -->` attribution comment. Relocated from
+  `cai_lib/subagent.cost` to decouple the base subagent module from
+  repo-specific dependencies (issue #1269).
 - [`cai_lib/cost_summary.py`](../../cai_lib/cost_summary.py) —
   `post_final_cost_summary(issue_number, pr_number)` aggregates
   per-invocation cost records tagged against an issue or its linked PR
