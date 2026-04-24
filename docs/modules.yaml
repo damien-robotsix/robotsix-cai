@@ -154,7 +154,7 @@ modules:
     summary: Shared infra — constants, logging, subprocess helpers, cost accounting, and watchdog.
     globs:
       - "cai_lib/config.py"
-      - "cai_lib/utils/log.py"
+      - "cai_lib/utils/*.py"
       - "cai_lib/subprocess_utils.py"
       - "cai_lib/cost_summary.py"
       - "cai_lib/watchdog.py"
