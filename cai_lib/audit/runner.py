@@ -116,7 +116,7 @@ def _run_one_module(kind: str, agent: str, entry) -> int:  # type: ignore[no-unt
 
     try:
         user_message = _build_module_prompt(entry, findings_file)
-        if sys.stderr.isatty():
+        if kind == "cost-reduction" and sys.stderr.isatty():
             _banner = _build_cost_summary()
             if _banner:
                 print(
