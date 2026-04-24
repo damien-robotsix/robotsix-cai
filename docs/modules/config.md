@@ -16,7 +16,7 @@ ripple everywhere.
   `is_admin_login(login)`, `audit_log_path(kind, module)`.
   `AUDIT_LOG_DIR` is `/var/log/cai/audit` — see `docs/modules/audit.md`
   for the per-workflow structured log format.
-- [`cai_lib/logging_utils.py`](../../cai_lib/logging_utils.py) —
+- [`cai_lib/utils/log.py`](../../cai_lib/utils/log.py) —
   `log_run(category, **fields)` appends a structured row to
   `LOG_PATH`; `log_cost(row)` writes cost events;
   `_get_issue_category(issue)`, `_log_outcome(…)`,

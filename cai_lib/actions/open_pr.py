@@ -19,7 +19,7 @@ from __future__ import annotations
 from cai_lib.actions.merge import _BOT_BRANCH_RE
 from cai_lib.config import REPO
 from cai_lib.dispatcher import HandlerResult
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 from cai_lib.subprocess_utils import _run
 
 

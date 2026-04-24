@@ -46,12 +46,12 @@ function in `cai_lib/cmd_agents.py` or `cai_lib/cmd_misc.py`.
 
 ## Inter-module dependencies
 - Imports from **config** — `COST_LOG_PATH`, `OUTCOME_LOG_PATH`,
-  `LOG_PATH` (consumed by `cost.py` and `logging_utils`).
+  `LOG_PATH` (consumed by `cost.py` and `utils/log.py`).
 - Imports from **docs** (indirect) — `modules.py` parses
   `docs/modules.yaml` and validates file coverage against every
   tracked source file.
 - Imported by **cli** — `cmd_agents.py`, `cmd_misc.py`, and
-  `cmd_rescue.py` invoke these subagents; `logging_utils.py`
+  `cmd_rescue.py` invoke these subagents; `utils/log.py`
   imports `_load_outcome_counts` from `cost.py`.
 - Imported by **scripts** — `scripts/check-modules-coverage.py`
   imports `load_modules` and `coverage_check` from

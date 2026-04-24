@@ -42,7 +42,7 @@ from cai_lib.fsm import (
     get_pr_state,
 )
 from cai_lib.github import _fetch_linked_issue_block
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 from cai_lib.subagent import _run_claude_p
 from cai_lib.subprocess_utils import _run
 

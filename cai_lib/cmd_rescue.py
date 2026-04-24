@@ -49,7 +49,7 @@ from cai_lib.github import (
     blocking_issue_numbers,
     open_blockers,
 )
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 from cai_lib.subagent import _run_claude_p
 
 

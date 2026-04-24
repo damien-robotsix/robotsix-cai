@@ -10,7 +10,7 @@ from cai_lib.watchdog import (
 )
 from cai_lib.dispatcher import dispatch_drain
 from cai_lib.issues import close_completed_parents
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 
 
 def _run_step(name: str, handler, args) -> int:

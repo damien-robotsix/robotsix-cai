@@ -53,7 +53,7 @@ from cai_lib.github import (
 )
 from cai_lib.subagent import _run_claude_p
 from cai_lib.subprocess_utils import _run
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 from cai_lib.cmd_helpers import (
     _work_directory_block,
     _git,

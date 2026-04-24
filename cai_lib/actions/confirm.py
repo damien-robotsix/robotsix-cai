@@ -30,7 +30,7 @@ from cai_lib import transcript_sync
 from cai_lib.cmd_helpers import _fetch_previous_fix_attempts
 from cai_lib.fsm import fire_trigger
 from cai_lib.github import _gh_json, _set_labels, close_issue_completed
-from cai_lib.logging_utils import (
+from cai_lib.utils.log import (
     _get_issue_category,
     _log_outcome,
     log_run,

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions
 
-from cai_lib.logging_utils import log_cost
+from cai_lib.utils.log import log_cost
 
 from .core import _CLI_PATH, _collect_results
 from .cost import _post_cost_comment

@@ -35,7 +35,7 @@ from cai_lib.github import (
     _delete_issue_comment,
     _list_lock_comments,
 )
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 
 
 def _lock_claim_age_seconds(number: int, now: float) -> float | None:

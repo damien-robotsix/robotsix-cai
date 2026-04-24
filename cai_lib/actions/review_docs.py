@@ -29,7 +29,7 @@ from cai_lib.cmd_helpers import (
     _setup_agent_edit_staging, _apply_agent_edit_staging,
     _parse_oob_issues, _create_oob_issues,
 )
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 
 
 # Docs-review comment headings. Duplicated from cai.py because cmd_merge

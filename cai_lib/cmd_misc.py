@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from cai_lib.config import *  # noqa: F403,F401
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 from cai_lib.audit.cost import _load_cost_log, _load_outcome_counts
 from cai_lib import transcript_sync
 from cai_lib.subagent import _run_claude_p

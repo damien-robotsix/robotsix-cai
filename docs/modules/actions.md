@@ -95,7 +95,7 @@ PR-side handlers (take a PR dict):
   agent-edit staging (`_setup_agent_edit_staging`,
   `_apply_agent_edit_staging`), and issue-body formatting.
 - Imports from **subprocess_utils** — `_run`, `_run_claude_p`.
-- Imports from **logging_utils** — `log_run` for cost/outcome
+- Imports from **utils.log** — `log_run` for cost/outcome
   accounting.
 - Imported by **cli** — the dispatcher registry is built from
   these handler callables.

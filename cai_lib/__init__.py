@@ -52,7 +52,7 @@ from cai_lib.config import (
     _STALE_MERGED_DAYS,
 )
 
-from cai_lib.logging_utils import (
+from cai_lib.utils.log import (
     log_run,
     log_cost,
     _get_issue_category,

@@ -1,4 +1,4 @@
-"""Audit-side cost/outcome helpers (moved from cai_lib/logging_utils.py)."""
+"""Audit-side cost/outcome helpers (moved from cai_lib/utils/log.py)."""
 
 import fnmatch
 import json

@@ -61,7 +61,7 @@ from cai_lib.actions.plan import (
     _FILES_TO_CHANGE_PATH_RE,
 )
 from cai_lib.actions.revise import _filter_comments_with_haiku
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 
 
 # ---------------------------------------------------------------------------

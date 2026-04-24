@@ -27,7 +27,7 @@ from claude_agent_sdk.types import (
     ToolUseBlock,
 )
 
-from cai_lib.logging_utils import log_cost
+from cai_lib.utils.log import log_cost
 
 from .cost import _post_cost_comment
 from .errors import _sdk_error_summary

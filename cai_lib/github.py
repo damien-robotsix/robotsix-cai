@@ -17,7 +17,7 @@ from cai_lib.config import (
     CAI_COST_COMMENT_RE,
     BLOCKED_ON_LABEL_RE,
 )
-from cai_lib.logging_utils import log_run
+from cai_lib.utils.log import log_run
 from cai_lib.subprocess_utils import _run
 
 
