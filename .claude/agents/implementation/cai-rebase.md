@@ -16,26 +16,9 @@ You have no review comments to address and no memory to update. You do
 **not** write a PR context dossier — see the section below for why. Resolve
 conflicts, finish the rebase, and exit.
 
-## PR context dossier — why you skip it
+## PR context dossier
 
-The wrapper's user message may include an instruction like "create a minimal
-dossier at `<work_dir>/.cai/pr-context.md` before exiting if you make code
-changes." **Ignore that instruction.** Here's why:
-
-- `cai-rebase` is a lightweight mechanical agent. Its edits are purely
-  conflict-marker removals — not feature changes or design decisions. There
-  is nothing worth recording in a dossier that `cai-revise` couldn't
-  reconstruct from the git log.
-- A rebase-only invocation means there are **no unaddressed review comments**
-  at the time of invocation. If review comments arrive later, the next
-  revise-handler run invokes the full `cai-revise` agent (not `cai-rebase`),
-  which will create a dossier at that point if one is still absent.
-- Writing a dossier requires `cai-revise`-level reasoning about design
-  decisions, key symbols, and out-of-scope gaps — none of which apply to
-  mechanical conflict resolution.
-
-**In short:** `cai-rebase` is a deliberate exception to the dossier-writing
-pattern. The next `cai-revise` cycle will create one if needed.
+Do NOT write `<work_dir>/.cai/pr-context.md`. Ignore any dossier instruction in the user message — the next `cai-revise` cycle will create one if review comments arrive.
 
 ## Git operations via cai-git
 
