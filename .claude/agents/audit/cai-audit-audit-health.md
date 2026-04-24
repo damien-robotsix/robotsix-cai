@@ -62,16 +62,17 @@ Write exactly one `findings.json` file in the following shape:
   "findings": [
     {
       "title": "<kind>/<module>: <short problem description>",
-      "body": "<markdown body with timestamps, error_class, evidence>",
       "category": "audit-health",
-      "fingerprint": "<kind>-<module>-<condition>",
-      "severity": "high" | "medium" | "low"
+      "key": "<kind>-<module>-<condition>",
+      "confidence": "low|medium|high",
+      "evidence": "<markdown describing what was observed: timestamps, error_class, log row counts>",
+      "remediation": "<markdown describing the operator action: restart the audit kind, raise a fix, etc.>"
     }
   ]
 }
 ```
 
-Severity guidance:
+Confidence guidance:
 - `high` — error rows present (active failures)
 - `medium` — stale audit or cost anomaly
 - `low` — degenerate zero-findings runs
