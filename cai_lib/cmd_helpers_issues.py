@@ -4,7 +4,7 @@ import re
 import subprocess
 import sys
 
-from cai_lib.config import REPO, LABEL_RAISED
+from cai_lib.config import REPO, LABEL_RAISED, is_admin_login
 from cai_lib.github import _gh_json, _strip_cost_comments
 from cai_lib.subprocess_utils import _run
 
@@ -234,3 +234,46 @@ def _strip_stored_plan_block(issue_body: str) -> str:
     while after < len(issue_body) and issue_body[after] == "\n":
         after += 1
     return issue_body[:start] + issue_body[after:]
+
+
+def _build_target_message(*, kind: str, target: dict, mark_admin: bool = True) -> str:
+    """Format the user message for cai-unblock and cai-rescue agents.
+
+    Includes the target's labels, body, and the full comment thread
+    (chronological, all authors). When *mark_admin* is ``True`` (default),
+    admin comments are annotated with ``[admin]`` — used by cai-unblock so
+    the agent can identify the admin resume signal. Set *mark_admin* to
+    ``False`` for cai-rescue, which does not need the annotation.
+    """
+    body = target.get("body") or "(no body)"
+    labels = [
+        (lb.get("name") if isinstance(lb, dict) else lb)
+        for lb in target.get("labels", [])
+    ]
+    labels_line = ", ".join(labels) if labels else "(none)"
+
+    comments = target.get("comments") or []
+    comments_block = ""
+    for c in comments:
+        author = (c.get("author") or {}).get("login") or "unknown"
+        created = c.get("createdAt", "") or c.get("created_at", "")
+        if mark_admin:
+            marker = " [admin]" if is_admin_login(author) else ""
+        else:
+            marker = ""
+        text = c.get("body", "") or ""
+        comments_block += f"\n**{author}**{marker} ({created}):\n{text}\n"
+
+    return (
+        f"Kind: {kind}\n"
+        f"\n"
+        f"## Labels\n"
+        f"{labels_line}\n"
+        f"\n"
+        f"## Body\n\n"
+        f"### #{target['number']} — {target.get('title', '')}\n\n"
+        f"{body}\n"
+        f"\n"
+        f"## Comments\n"
+        f"{comments_block or '(no comments)'}\n"
+    )

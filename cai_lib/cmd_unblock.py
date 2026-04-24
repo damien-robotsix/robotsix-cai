@@ -37,6 +37,7 @@ from cai_lib.fsm import (
     fire_trigger,
 )
 from cai_lib.cmd_helpers_issues import (
+    _build_target_message,
     _extract_stored_plan,
     _strip_stored_plan_block,
 )
@@ -161,44 +162,6 @@ def _extract_admin_comments(issue: dict) -> list[dict]:
     return out
 
 
-def _build_unblock_message(*, kind: str, issue: dict) -> str:
-    """Format the user message for the cai-unblock agent.
-
-    Includes the target's labels, body, and the full comment thread
-    (chronological, all authors) — the agent uses the admin's most recent
-    comment as the resume signal and the rest as context.
-    """
-    body = issue.get("body") or "(no body)"
-    labels = [
-        (lb.get("name") if isinstance(lb, dict) else lb)
-        for lb in issue.get("labels", [])
-    ]
-    labels_line = ", ".join(labels) if labels else "(none)"
-
-    comments = issue.get("comments") or []
-    comments_block = ""
-    for c in comments:
-        author = (c.get("author") or {}).get("login") or "unknown"
-        created = c.get("createdAt", "") or c.get("created_at", "")
-        marker = " [admin]" if is_admin_login(author) else ""
-        text = c.get("body", "") or ""
-        comments_block += f"\n**{author}**{marker} ({created}):\n{text}\n"
-
-    return (
-        f"Kind: {kind}\n"
-        f"\n"
-        f"## Labels\n"
-        f"{labels_line}\n"
-        f"\n"
-        f"## Body\n\n"
-        f"### #{issue['number']} — {issue.get('title', '')}\n\n"
-        f"{body}\n"
-        f"\n"
-        f"## Comments\n"
-        f"{comments_block or '(no comments)'}\n"
-    )
-
-
 # Minimum comment length to treat as a "substantive" admin amendment.
 # Short acknowledgments ("ok", "approved", "lgtm") are noise — skip them
 # so the stored plan block stays useful. Empirically, anything a human
@@ -307,7 +270,7 @@ def _try_unblock_issue(issue: dict) -> Optional[str]:
         # parked. The label stays on so we retry once a comment lands.
         return "no_admin_comment"
 
-    user_message = _build_unblock_message(kind="issue", issue=issue)
+    user_message = _build_target_message(kind="issue", target=issue)
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-unblock",
          "--dangerously-skip-permissions",
@@ -494,7 +457,7 @@ def _try_unblock_pr(pr: dict) -> Optional[str]:
     if not admin_comments:
         return "no_admin_comment"
 
-    user_message = _build_unblock_message(kind="pr", issue=pr)
+    user_message = _build_target_message(kind="pr", target=pr)
     result = _run_claude_p(
         ["claude", "-p", "--agent", "cai-unblock",
          "--dangerously-skip-permissions",

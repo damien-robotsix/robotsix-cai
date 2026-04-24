@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # place so is_admin_login sees our test logins.
 from cai_lib import cmd_unblock as U  # noqa: E402
 from cai_lib import config as _config  # noqa: E402
+from cai_lib.cmd_helpers_issues import _build_target_message  # noqa: E402
 _config.ADMIN_LOGINS = frozenset({"alice", "bob"})
 
 
@@ -72,7 +73,7 @@ class TestBuildUnblockMessage(unittest.TestCase):
 
     def test_contains_required_sections(self):
         issue = self._fixture()
-        msg = U._build_unblock_message(kind="issue", issue=issue)
+        msg = _build_target_message(kind="issue", target=issue)
         self.assertIn("Kind: issue", msg)
         self.assertIn("## Labels", msg)
         self.assertIn("auto-improve:human-needed", msg)
@@ -94,7 +95,7 @@ class TestBuildUnblockMessage(unittest.TestCase):
             "labels": [],
             "comments": [],
         }
-        msg = U._build_unblock_message(kind="issue", issue=issue)
+        msg = _build_target_message(kind="issue", target=issue)
         self.assertIn("(no comments)", msg)
 
 
