@@ -18,11 +18,6 @@ from datetime import datetime, timezone
 from claude_agent_sdk.types import ResultMessage
 from pydantic import BaseModel, ConfigDict, Field
 
-from cai_lib.utils.log import log_cost
-
-from .cost import _post_cost_comment
-from .fsm_state import _CURRENT_FSM_STATE
-
 
 class CostTracker(BaseModel):
     """Accumulates cost rows for a SubAgent and mirrors them as GH comments.
@@ -144,9 +139,6 @@ class CostTracker(BaseModel):
             row["parent_model"] = parent_model
         if subagent_counts:
             row["subagents"] = dict(subagent_counts)
-        fsm_state = _CURRENT_FSM_STATE.get()
-        if fsm_state:
-            row["fsm_state"] = fsm_state
         fp_src = (system_prompt or "") + "\n---\n" + (prompt or "")
         row["prompt_fingerprint"] = hashlib.sha256(
             fp_src.encode()
@@ -154,17 +146,5 @@ class CostTracker(BaseModel):
         return row
 
     def _emit(self, row: dict, agent: str) -> None:
-        """Append the cost row to the jsonl log and mirror as a GH comment."""
-        log_cost(row)
-        if self.target_kind is not None and self.target_number is not None:
-            _post_cost_comment(
-                self.target_kind, self.target_number, row, agent,
-            )
-        if (
-            self.extra_target_kind is not None
-            and self.extra_target_number is not None
-        ):
-            _post_cost_comment(
-                self.extra_target_kind, self.extra_target_number,
-                row, agent,
-            )
+        """No-op base implementation — override in repo-specific subclasses."""
+        pass

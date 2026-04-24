@@ -52,7 +52,7 @@ from cai_lib.github import (
     open_blockers,
 )
 from cai_lib.issues import list_sub_issues
-from cai_lib.subagent import set_current_fsm_state
+from cai_lib.fsm_state import set_current_fsm_state
 
 
 # ---------------------------------------------------------------------------

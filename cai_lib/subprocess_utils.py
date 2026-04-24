@@ -5,8 +5,8 @@ agent-SDK driver, cost-row emission and the cost-attribution comment
 poster. Issue #1230 extracted all of that into :mod:`cai_lib.subagent`;
 what remains here is the generic shell helper the rest of the codebase
 uses to shell out to ``gh``, ``git``, ``jq``, etc. Import the agent
-helpers from :mod:`cai_lib.subagent` (``run_subagent``, ``_run_claude_p``)
-or :mod:`cai_lib.subagent.fsm_state` (``set_current_fsm_state``) — this
+helpers from :mod:`cai_lib.cai_subagent` (``run_subagent``, ``_run_claude_p``)
+or :mod:`cai_lib.fsm_state` (``set_current_fsm_state``) — this
 module is shell-only now.
 """
 

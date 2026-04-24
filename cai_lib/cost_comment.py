@@ -5,6 +5,10 @@ format, and the best-effort issue/PR comment post that fires after
 ``log_cost(row)`` when ``_run_claude_p``/``run_subagent`` are called
 with a target kind and number. See ``cai_lib.config.CAI_COST_COMMENT_RE``
 and ``_strip_cost_comments`` for the matching reader side.
+
+Previously located at :mod:`cai_lib.subagent.cost`; moved here to
+decouple the base :mod:`cai_lib.subagent` package from repo-specific
+dependencies (issue #1269).
 """
 
 from __future__ import annotations
