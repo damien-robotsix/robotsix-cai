@@ -22,11 +22,11 @@ ripple everywhere.
   `_get_issue_category(issue)`, `_log_outcome(…)`,
   `_load_outcome_stats(days)` power the audit helpers.
 - [`cai_lib/subprocess_utils.py`](../../cai_lib/subprocess_utils.py)
-  — `_run(cmd, **kwargs)` is the subprocess wrapper with timeout
-  and logging; `_run_claude_p(…)` launches a headless claude-code
-  session via the Claude Agent SDK and returns a CompletedProcess
-  with `.stdout` containing the result; `_argv_to_options(argv, cwd)`
-  parses command-line arguments into SDK options.
+  — `_run(cmd, **kwargs)` is the thin subprocess wrapper for shell
+  operations (gh, git, jq). Agent invocation infrastructure
+  (`_run_claude_p`, `_argv_to_options`) has been extracted to
+  [`cai_lib/subagent/`](../../cai_lib/subagent/) — see the
+  **subagent** module for details.
 - [`cai_lib/cost_summary.py`](../../cai_lib/cost_summary.py) —
   `post_final_cost_summary(issue_number, pr_number)` aggregates
   per-invocation cost records tagged against an issue or its linked PR
