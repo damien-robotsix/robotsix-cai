@@ -761,17 +761,21 @@ def handle_merge(pr: dict) -> HandlerResult:
         )
     issue_number = int(m.group(1))
 
-    # Safety filter 2: unmergeable PRs (conflicts).
+    # Safety filter 2: unmergeable PRs (conflicts). Route to REBASING so
+    # cai-rebase can resolve the conflict with main; the rebased PR then
+    # re-enters REVIEWING_CODE and the merge flow continues automatically.
+    # Previously this returned ``trigger=""``, which left the PR idling
+    # at APPROVED with no progress until a human intervened.
     mergeable = pr.get("mergeable", "")
     if mergeable == "CONFLICTING":
         print(
             f"[cai merge] PR #{pr_number}: unmergeable (conflicts); "
-            f"skipping",
+            f"routing to REBASING",
             flush=True,
         )
         log_run("merge", repo=REPO, pr=pr_number,
-                result="conflicting", exit=0)
-        return HandlerResult(trigger="")
+                result="conflicting_rebasing", exit=0)
+        return HandlerResult(trigger="approved_to_rebasing")
 
     # Safety filter 3: linked issue must be in :pr-open state.
     try:
@@ -1277,6 +1281,33 @@ def handle_merge(pr: dict) -> HandlerResult:
                 f"{merge_result.stderr}",
                 file=sys.stderr,
             )
+            # Re-query mergeable state. If a race with an intervening
+            # merge to main left this branch CONFLICTING after the
+            # pre-merge review was clean, route to REBASING so
+            # cai-rebase can resolve the conflict automatically.
+            # Other failure modes (branch protection, missing required
+            # checks, permissions) still park at human-needed because
+            # they need a human to diagnose.
+            post_mergeable = ""
+            try:
+                post_pr = _gh_json([
+                    "pr", "view", str(pr_number),
+                    "--repo", REPO,
+                    "--json", "mergeable",
+                ])
+                post_mergeable = post_pr.get("mergeable", "")
+            except subprocess.CalledProcessError:
+                pass
+            if post_mergeable == "CONFLICTING":
+                print(
+                    f"[cai merge] PR #{pr_number}: conflicts detected "
+                    f"post-merge; routing to REBASING",
+                    flush=True,
+                )
+                log_run("merge", repo=REPO, pr=pr_number,
+                        duration=dur(),
+                        result="merge_failed_conflicting", exit=0)
+                return HandlerResult(trigger="approved_to_rebasing")
             log_run("merge", repo=REPO, pr=pr_number,
                     duration=dur(), result="merge_failed", exit=0)
             return HandlerResult(
