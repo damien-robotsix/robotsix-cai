@@ -23,10 +23,11 @@ ripple everywhere.
   `_load_outcome_stats(days)` power the audit helpers.
 - [`cai_lib/subprocess_utils.py`](../../cai_lib/subprocess_utils.py)
   — `_run(cmd, **kwargs)` is the thin subprocess wrapper for shell
-  operations (gh, git, jq). Agent invocation infrastructure
-  (`_run_claude_p`, `_argv_to_options`) has been extracted to
-  [`cai_lib/subagent/`](../../cai_lib/subagent/) — see the
-  **subagent** module for details.
+  operations (gh, git, jq). Agent invocation infrastructure has been
+  extracted to the **subagent** module — see [`cai_lib/claude_argv.py`](../../cai_lib/claude_argv.py)
+  for the deprecated `_run_claude_p` argv facade and
+  [`cai_lib/cai_subagent.py`](../../cai_lib/cai_subagent.py) for the
+  new SDK-native `run_subagent` path.
 - [`cai_lib/cost_summary.py`](../../cai_lib/cost_summary.py) —
   `post_final_cost_summary(issue_number, pr_number)` aggregates
   per-invocation cost records tagged against an issue or its linked PR
