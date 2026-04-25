@@ -398,62 +398,30 @@ def _finding_body_for_dupcheck(f: Finding) -> str:
     )
 
 
+_NAMESPACE_REGISTRY: dict[str, tuple] = {
+    "audit": (AUDIT_LABELS, AUDIT_CATEGORIES),
+    "code-audit": (CODE_AUDIT_LABELS, CODE_AUDIT_CATEGORIES),
+    "update-check": (UPDATE_CHECK_LABELS, UPDATE_CHECK_CATEGORIES),
+    "check-workflows": (CHECK_WORKFLOWS_LABELS, CHECK_WORKFLOWS_CATEGORIES),
+    "agent-audit": (AGENT_AUDIT_LABELS, AGENT_AUDIT_CATEGORIES),
+    "external-scout": (EXTERNAL_SCOUT_LABELS, EXTERNAL_SCOUT_CATEGORIES),
+    "audit-external-libs": (AUDIT_EXTERNAL_LIBS_LABELS, AUDIT_EXTERNAL_LIBS_CATEGORIES),
+    "audit-good-practices": (AUDIT_GOOD_PRACTICES_LABELS, AUDIT_GOOD_PRACTICES_CATEGORIES),
+    "audit-code-reduction": (AUDIT_CODE_REDUCTION_LABELS, AUDIT_CODE_REDUCTION_CATEGORIES),
+    "audit-cost-reduction": (AUDIT_COST_REDUCTION_LABELS, AUDIT_COST_REDUCTION_CATEGORIES),
+    "audit-workflow-enhancement": (AUDIT_WORKFLOW_ENHANCEMENT_LABELS, AUDIT_WORKFLOW_ENHANCEMENT_CATEGORIES),
+    "audit-health": (AUDIT_HEALTH_LABELS, AUDIT_HEALTH_CATEGORIES),
+}
+
+
 def _label_set_for(namespace: str):
     """Return the label set for the given namespace."""
-    if namespace == "audit":
-        return AUDIT_LABELS
-    if namespace == "code-audit":
-        return CODE_AUDIT_LABELS
-    if namespace == "update-check":
-        return UPDATE_CHECK_LABELS
-    if namespace == "check-workflows":
-        return CHECK_WORKFLOWS_LABELS
-    if namespace == "agent-audit":
-        return AGENT_AUDIT_LABELS
-    if namespace == "external-scout":
-        return EXTERNAL_SCOUT_LABELS
-    if namespace == "audit-external-libs":
-        return AUDIT_EXTERNAL_LIBS_LABELS
-    if namespace == "audit-good-practices":
-        return AUDIT_GOOD_PRACTICES_LABELS
-    if namespace == "audit-code-reduction":
-        return AUDIT_CODE_REDUCTION_LABELS
-    if namespace == "audit-cost-reduction":
-        return AUDIT_COST_REDUCTION_LABELS
-    if namespace == "audit-workflow-enhancement":
-        return AUDIT_WORKFLOW_ENHANCEMENT_LABELS
-    if namespace == "audit-health":
-        return AUDIT_HEALTH_LABELS
-    return LABELS
+    return _NAMESPACE_REGISTRY.get(namespace, (LABELS, VALID_CATEGORIES))[0]
 
 
 def _category_set_for(namespace: str) -> set[str]:
     """Return the valid-category set for the given namespace."""
-    if namespace == "audit":
-        return AUDIT_CATEGORIES
-    if namespace == "code-audit":
-        return CODE_AUDIT_CATEGORIES
-    if namespace == "update-check":
-        return UPDATE_CHECK_CATEGORIES
-    if namespace == "check-workflows":
-        return CHECK_WORKFLOWS_CATEGORIES
-    if namespace == "agent-audit":
-        return AGENT_AUDIT_CATEGORIES
-    if namespace == "external-scout":
-        return EXTERNAL_SCOUT_CATEGORIES
-    if namespace == "audit-external-libs":
-        return AUDIT_EXTERNAL_LIBS_CATEGORIES
-    if namespace == "audit-good-practices":
-        return AUDIT_GOOD_PRACTICES_CATEGORIES
-    if namespace == "audit-code-reduction":
-        return AUDIT_CODE_REDUCTION_CATEGORIES
-    if namespace == "audit-cost-reduction":
-        return AUDIT_COST_REDUCTION_CATEGORIES
-    if namespace == "audit-workflow-enhancement":
-        return AUDIT_WORKFLOW_ENHANCEMENT_CATEGORIES
-    if namespace == "audit-health":
-        return AUDIT_HEALTH_CATEGORIES
-    return VALID_CATEGORIES
+    return _NAMESPACE_REGISTRY.get(namespace, (LABELS, VALID_CATEGORIES))[1]
 
 
 def ensure_labels(namespace: str = "auto-improve") -> None:
