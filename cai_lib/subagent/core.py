@@ -116,11 +116,26 @@ async def _collect_results(
     properties on :class:`RunTranscript` so :class:`SubAgent` callers
     are unaffected.
 
+    Per-scope token usage (issue #1286): each
+    :class:`~cai_lib.subagent.transcript.AssistantMessage` is routed to
+    either :attr:`RunTranscript.usage` (``parent_tool_use_id is None``)
+    or the matching :class:`SubAgentNode`'s
+    :attr:`~cai_lib.subagent.transcript.SubAgentNode.usage`. Messages
+    are deduplicated by
+    :attr:`~claude_agent_sdk.types.AssistantMessage.message_id` within
+    each scope to handle the parallel-tool-call case where the SDK
+    emits multiple ``AssistantMessage``s with the same ``id`` and
+    identical usage counts.
+
     Kept as a module-level function for backwards import stability;
     :class:`SubAgent` is the primary consumer.
     """
     transcript = RunTranscript()
     nodes_by_tool_use_id: dict[str, SubAgentNode] = {}
+    # Per-scope deduplication: maps scope_key → set of seen message_ids.
+    # scope_key is None for top-level (RunTranscript.usage) and the
+    # SubAgentNode.tool_use_id for each subagent scope.
+    seen_ids_by_scope: dict[str | None, set[str]] = {None: set()}
 
     async for msg in query(prompt=prompt, options=options):
         if isinstance(msg, ResultMessage):
@@ -131,6 +146,7 @@ async def _collect_results(
         if parent_id is not None:
             if parent_id in nodes_by_tool_use_id:
                 container = nodes_by_tool_use_id[parent_id].events
+                scope_key: str | None = parent_id
             else:
                 # parent_tool_use_id is set but not registered as a Task
                 # node (e.g. a haiku-backed helper that ran before the
@@ -140,8 +156,38 @@ async def _collect_results(
                 continue
         else:
             container = transcript.events
+            scope_key = None
 
         if isinstance(msg, AssistantMessage):
+            # Accumulate per-scope token usage, deduping by message_id
+            # (issue #1286). Parallel tool calls can emit multiple
+            # AssistantMessages sharing the same message_id and usage —
+            # count each unique ID only once per scope.
+            msg_usage = msg.usage or {}
+            if isinstance(msg_usage, dict) and msg_usage:
+                msg_id: str | None = getattr(msg, "message_id", None)
+                seen_ids = seen_ids_by_scope.setdefault(scope_key, set())
+                if msg_id is None or msg_id not in seen_ids:
+                    if msg_id is not None:
+                        seen_ids.add(msg_id)
+                    usage_target = (
+                        transcript.usage
+                        if scope_key is None
+                        else nodes_by_tool_use_id[scope_key].usage
+                    )
+                    usage_target.input_tokens += int(
+                        msg_usage.get("input_tokens") or 0
+                    )
+                    usage_target.output_tokens += int(
+                        msg_usage.get("output_tokens") or 0
+                    )
+                    usage_target.cache_read_input_tokens += int(
+                        msg_usage.get("cache_read_input_tokens") or 0
+                    )
+                    usage_target.cache_creation_input_tokens += int(
+                        msg_usage.get("cache_creation_input_tokens") or 0
+                    )
+
             for block in msg.content:
                 if isinstance(block, TextBlock) and block.text.strip():
                     container.append(AssistantTextEvent(

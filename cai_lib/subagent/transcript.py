@@ -20,6 +20,45 @@ from claude_agent_sdk.types import ResultMessage
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class TokenUsage(BaseModel):
+    """Accumulated token usage for one transcript scope (top-level or subagent).
+
+    Populated by :func:`cai_lib.subagent.core._collect_results` as it
+    routes each :class:`~claude_agent_sdk.types.AssistantMessage` to the
+    correct scope (top-level :class:`RunTranscript` or the matching
+    :class:`SubAgentNode`) and deduplicates by
+    :attr:`~claude_agent_sdk.types.AssistantMessage.message_id` within
+    each scope (issue #1286).
+
+    :attr:`cache_hit_rate` is a derived property and is **not** serialised
+    — it is recomputed from the four int fields on every access.
+    """
+
+    input_tokens: int = Field(default=0, description="Accumulated input tokens for this scope.")
+    output_tokens: int = Field(default=0, description="Accumulated output tokens for this scope.")
+    cache_read_input_tokens: int = Field(
+        default=0,
+        description="Accumulated cache-read input tokens for this scope.",
+    )
+    cache_creation_input_tokens: int = Field(
+        default=0,
+        description="Accumulated cache-creation input tokens for this scope.",
+    )
+
+    @property
+    def cache_hit_rate(self) -> float | None:
+        """Cache read / (cache read + cache create + input); ``None`` when denom=0."""
+        denom = (
+            self.cache_read_input_tokens
+            + self.cache_creation_input_tokens
+            + self.input_tokens
+        )
+        return (
+            round(self.cache_read_input_tokens / denom, 4)
+            if denom > 0 else None
+        )
+
+
 class AssistantTextEvent(BaseModel):
     """One non-empty :class:`TextBlock` from an ``AssistantMessage``.
 
@@ -85,6 +124,10 @@ class SubAgentNode(BaseModel):
     ``parent_tool_use_id`` matches that id route their events into
     :attr:`events` (which may itself contain further
     :class:`SubAgentNode` instances).
+
+    :attr:`usage` accumulates the token counts from every
+    :class:`~claude_agent_sdk.types.AssistantMessage` routed to this
+    node's scope, deduped by ``message_id`` (issue #1286).
     """
 
     kind: Literal["subagent"] = "subagent"
@@ -97,6 +140,10 @@ class SubAgentNode(BaseModel):
             "Task input.subagent_type or 'general-purpose' "
             "if unspecified."
         ),
+    )
+    usage: TokenUsage = Field(
+        default_factory=TokenUsage,
+        description="Accumulated token usage for this subagent's scope (issue #1286).",
     )
     events: list["AgentEvent"] = Field(
         default_factory=list,
@@ -125,6 +172,11 @@ class RunTranscript(BaseModel):
     ``parent_tool_use_id``); :attr:`result` carries the singular
     terminating :class:`ResultMessage` (None on exception or no-result
     paths).
+
+    :attr:`usage` accumulates the token counts from every top-level
+    :class:`~claude_agent_sdk.types.AssistantMessage`
+    (``parent_tool_use_id is None``), deduped by ``message_id``
+    (issue #1286).
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -132,6 +184,10 @@ class RunTranscript(BaseModel):
     events: list[AgentEvent] = Field(
         default_factory=list,
         description="Top-level event stream.",
+    )
+    usage: TokenUsage = Field(
+        default_factory=TokenUsage,
+        description="Accumulated top-level token usage (parent_tool_use_id=None messages, issue #1286).",
     )
     result: ResultMessage | None = Field(
         default=None,

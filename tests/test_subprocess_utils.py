@@ -519,13 +519,15 @@ class TestFsmStateStamping(unittest.TestCase):
 
 
 class TestCacheHitRateAnnotation(unittest.TestCase):
-    """Issue #1205: ``_run_claude_p`` must pre-compute a single
-    authoritative ``cache_hit_rate`` value on each cost-log row
-    (aggregate) and a ``cacheHitRate`` value inside each ``models[m]``
-    entry (per-model). Rows with no cache/input tokens observed must
-    omit the field so legacy rows stay byte-identical."""
+    """Issue #1205/#1286: per-model ``cacheHitRate`` inside ``models[m]``
+    entries is still computed and stamped. The aggregate ``cache_hit_rate``
+    flat field was removed from ``CostRow`` in issue #1286 — flat token
+    counters now live on ``RunTranscript.usage`` / ``SubAgentNode.usage``
+    instead of on the cost-log row."""
 
-    def test_cache_hit_rate_set_when_tokens_present(self):
+    def test_aggregate_cache_hit_rate_absent_from_row(self):
+        """Issue #1286: aggregate ``cache_hit_rate`` is no longer written
+        to cost-log rows — the field was removed from ``CostRow``."""
         from cai_lib.claude_argv import _run_claude_p
         import cai_lib.cai_subagent as cai_subagent_mod
         from cai_lib.subagent import core
@@ -535,7 +537,6 @@ class TestCacheHitRateAnnotation(unittest.TestCase):
         def _fake_log_cost(row: dict) -> None:
             captured.append(dict(row))
 
-        # 50 cache_read + 25 cache_create + 25 input → denom=100, hit=0.5.
         usage = {
             "input_tokens": 25,
             "output_tokens": 10,
@@ -553,8 +554,13 @@ class TestCacheHitRateAnnotation(unittest.TestCase):
             )
 
         self.assertEqual(len(captured), 1)
-        self.assertIn("cache_hit_rate", captured[0])
-        self.assertAlmostEqual(captured[0]["cache_hit_rate"], 0.5, places=4)
+        # Aggregate cache_hit_rate removed in #1286 — must not appear.
+        self.assertNotIn("cache_hit_rate", captured[0])
+        # Flat token counters also removed in #1286.
+        self.assertNotIn("input_tokens", captured[0])
+        self.assertNotIn("output_tokens", captured[0])
+        self.assertNotIn("cache_read_input_tokens", captured[0])
+        self.assertNotIn("cache_creation_input_tokens", captured[0])
 
     def test_cache_hit_rate_omitted_when_denominator_zero(self):
         from cai_lib.claude_argv import _run_claude_p

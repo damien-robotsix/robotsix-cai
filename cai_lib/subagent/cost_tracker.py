@@ -19,14 +19,20 @@ serialised dict, preserving byte-identical output with the
 pre-refactor ``dict``-based shape.
 
 Row construction is owned by :meth:`CostRow.from_result_message`: a
-classmethod factory on the data class that derives the flat token
-counters, aggregate and per-model ``cacheHitRate``, and SHA256
-prompt fingerprint from the SDK's :class:`ResultMessage`. Constructing
-fresh :class:`ModelUsage` instances (via ``model_validate``) also
-fixes the issue-#1272 comment bug where the legacy builder mutated
-``result.model_usage`` in place — polluting
-``SubAgent.last_result.model_usage`` with ``cacheHitRate`` keys the
-SDK never emitted.
+classmethod factory on the data class that derives the per-model
+``cacheHitRate`` and SHA256 prompt fingerprint from the SDK's
+:class:`ResultMessage`. Constructing fresh :class:`ModelUsage`
+instances (via ``model_validate``) also fixes the issue-#1272 comment
+bug where the legacy builder mutated ``result.model_usage`` in place —
+polluting ``SubAgent.last_result.model_usage`` with ``cacheHitRate``
+keys the SDK never emitted.
+
+Flat aggregate token counters (``input_tokens``, ``output_tokens``,
+``cache_*_input_tokens``, ``cache_hit_rate``) were removed in issue
+#1286. Per-scope token usage now lives on
+:class:`~cai_lib.subagent.transcript.RunTranscript` and each
+:class:`~cai_lib.subagent.transcript.SubAgentNode` as a
+:class:`~cai_lib.subagent.transcript.TokenUsage` instance.
 """
 
 from __future__ import annotations
@@ -137,30 +143,6 @@ class CostRow(BaseModel):
         ),
     )
 
-    input_tokens: int | None = Field(
-        default=None, description="SDK usage.input_tokens (optional)",
-    )
-    output_tokens: int | None = Field(
-        default=None, description="SDK usage.output_tokens (optional)",
-    )
-    cache_creation_input_tokens: int | None = Field(
-        default=None,
-        description="SDK usage.cache_creation_input_tokens (optional)",
-    )
-    cache_read_input_tokens: int | None = Field(
-        default=None,
-        description="SDK usage.cache_read_input_tokens (optional)",
-    )
-
-    cache_hit_rate: float | None = Field(
-        default=None,
-        description=(
-            "Derived aggregate: cache_read / "
-            "(cache_read + cache_create + input), rounded to 4dp; "
-            "omitted when denom=0 (issue #1205)."
-        ),
-    )
-
     models: dict[str, ModelUsage] | None = Field(
         default=None,
         description=(
@@ -236,33 +218,19 @@ class CostRow(BaseModel):
     ) -> "CostRow":
         """Build a :class:`CostRow` from an SDK :class:`ResultMessage`.
 
-        Derives the flat token counters, aggregate and per-model
-        ``cacheHitRate``, and SHA256 fingerprint. Constructs **fresh**
-        :class:`ModelUsage` instances via :meth:`ModelUsage.model_validate`
-        so ``result.model_usage`` is never mutated — fixing the issue
-        #1272 SDK-dict-mutation bug. Optional stamps default to ``None``
-        and are excluded from the serialised dict, preserving the
-        pre-refactor row shape for non-participating call sites.
-        """
-        usage = result.usage or {}
-        flat_keys = (
-            "input_tokens",
-            "output_tokens",
-            "cache_creation_input_tokens",
-            "cache_read_input_tokens",
-        )
-        flat = {
-            k: usage[k] for k in flat_keys
-            if isinstance(usage.get(k), (int, float))
-        }
-        returncode = 1 if result.is_error else 0
+        Derives the per-model ``cacheHitRate`` and SHA256 fingerprint.
+        Constructs **fresh** :class:`ModelUsage` instances via
+        :meth:`ModelUsage.model_validate` so ``result.model_usage`` is
+        never mutated — fixing the issue #1272 SDK-dict-mutation bug.
+        Optional stamps default to ``None`` and are excluded from the
+        serialised dict, preserving the pre-refactor row shape for
+        non-participating call sites.
 
-        # Aggregate cache hit rate (issue #1205) — omitted when denom=0.
-        cr = flat.get("cache_read_input_tokens") or 0
-        cc = flat.get("cache_creation_input_tokens") or 0
-        it = flat.get("input_tokens") or 0
-        denom = cr + cc + it
-        cache_hit_rate = round(cr / denom, 4) if denom > 0 else None
+        Flat aggregate token counters (``input_tokens`` etc.) were
+        removed in issue #1286; per-scope token usage now lives on
+        :class:`~cai_lib.subagent.transcript.RunTranscript`.
+        """
+        returncode = 1 if result.is_error else 0
 
         # Per-model rollup: build a FRESH ModelUsage per SDK entry so
         # ``result.model_usage`` is never mutated in place. Non-dict
@@ -309,13 +277,6 @@ class CostRow(BaseModel):
             exit=returncode,
             is_error=bool(result.is_error),
             prompt_fingerprint=fingerprint,
-            input_tokens=flat.get("input_tokens"),
-            output_tokens=flat.get("output_tokens"),
-            cache_creation_input_tokens=flat.get(
-                "cache_creation_input_tokens",
-            ),
-            cache_read_input_tokens=flat.get("cache_read_input_tokens"),
-            cache_hit_rate=cache_hit_rate,
             models=models_out,
             parent_model=parent_model or None,
             subagents=(
