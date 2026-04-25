@@ -3,7 +3,19 @@
 Avoids byte-identical fixture duplication across the merge-test
 trio (``test_merge_approach_mismatch``, ``test_merge_low_to_revision``,
 ``test_merge_workflow_review_label``). See issue #1319.
+
+``_mock_query`` is a shared async-iterator replacement for
+``cai_lib.subagent.core.query`` used across the SDK-level tests. See
+issue #1320.
 """
+
+
+def _mock_query(*messages):
+    """Return an async-generator replacement for cai_lib.subagent.core.query."""
+    async def _gen(*, prompt, options=None, transport=None):
+        for m in messages:
+            yield m
+    return _gen
 
 
 def _pr_fixture(number: int = 1234) -> dict:

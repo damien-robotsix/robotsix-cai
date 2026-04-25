@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk.types import ResultMessage
+from tests._helpers import _mock_query
 
 
 def _mk_result(**fields) -> ResultMessage:
@@ -49,14 +50,6 @@ def _mk_result(**fields) -> ResultMessage:
             },
         }),
     )
-
-
-def _mock_query(*messages):
-    """Async-iterator replacement for ``cai_lib.subagent.core.query``."""
-    async def _gen(*, prompt, options=None, transport=None):
-        for m in messages:
-            yield m
-    return _gen
 
 
 _VOLATILE_KEYS = {"ts", "session_id", "host"}
