@@ -300,7 +300,7 @@ class CostRow(BaseModel):
             ts=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             category=category,
             agent=agent,
-            cost_usd=result.total_cost_usd,
+            cost_usd=result.total_cost_usd or 0.0,
             duration_ms=result.duration_ms,
             duration_api_ms=result.duration_api_ms,
             num_turns=result.num_turns,
