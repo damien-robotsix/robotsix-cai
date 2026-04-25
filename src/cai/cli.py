@@ -1,9 +1,4 @@
-#!/usr/bin/env python3
-"""Thin entry point. Launches an interactive Claude Code session.
-
-Subcommands will land here as the rewrite progresses.
-"""
-
+"""Default `cai` entry point: launch an interactive Claude Code session."""
 from __future__ import annotations
 
 import os

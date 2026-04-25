@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cai"
+version = "0.1.0"
+description = "Containerized Claude Code launcher with GitHub App identity"
+requires-python = ">=3.12"
+dependencies = [
+    "PyGithub>=2.3",
+    "pydantic>=2",
+    "pydantic-settings>=2",
+]
+
+[project.scripts]
+cai = "cai.cli:main"
+cai-app-init = "cai.github.init:main"
+cai-git-credential = "cai.github.credential:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cai"]

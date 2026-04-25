@@ -91,6 +91,86 @@ echo "Authenticating with GitHub..."
 $DC exec --user cai cai gh auth login
 
 echo
+echo "Configure cai as a GitHub App? (Optional)"
+echo "  Lets cai push commits, open PRs and issues as 'cai[bot]' instead"
+echo "  of your personal account."
+prompt SETUP_BOT "Configure now? [y/N]" "n"
+
+case "$SETUP_BOT" in
+  y|Y|yes|YES)
+    echo
+    echo "[1/5] Register the App"
+    echo "  Open: https://github.com/settings/apps/new"
+    echo "  Required settings:"
+    echo "    Name:                       cai (or cai-<yourhandle> if taken)"
+    echo "    Homepage URL:               https://github.com/damien-robotsix/robotsix-cai"
+    echo "    Webhook -> Active:          UNCHECK"
+    echo "    Repository permissions:"
+    echo "      Contents:                 Read & write"
+    echo "      Pull requests:            Read & write"
+    echo "      Issues:                   Read & write"
+    echo "    Organization permissions:"
+    echo "      Members:                  Read"
+    echo "      Projects:                 Read & write"
+    echo "    Where can it be installed:  Only on this account"
+    echo
+    prompt _CONFIRM "Press Enter once the App is created"
+
+    while :; do
+      prompt APP_ID "[2/5] App ID (numeric, top of the App page)"
+      [[ "$APP_ID" =~ ^[0-9]+$ ]] && break
+      echo "  App ID must be numeric."
+    done
+
+    while :; do
+      prompt PEM_PATH "[3/5] Path to the .pem you downloaded from the App page"
+      if [[ ! -f "$PEM_PATH" ]]; then
+        echo "  No file at: $PEM_PATH"
+        continue
+      fi
+      if openssl rsa  -in "$PEM_PATH" -noout 2>/dev/null \
+      || openssl pkey -in "$PEM_PATH" -noout 2>/dev/null; then
+        break
+      fi
+      echo "  $PEM_PATH does not look like a PEM private key."
+    done
+
+    echo
+    echo "[4/5] Saving credentials to /home/cai/.config/cai/ (cai_home volume)"
+    $DC exec --user cai cai mkdir -p /home/cai/.config/cai
+    $DC exec -T --user cai cai sh -c \
+      'umask 077 && cat > /home/cai/.config/cai/github-app.pem' < "$PEM_PATH"
+    $DC exec -T --user cai cai sh -c \
+      "umask 077 && printf 'APP_ID=%s\n' '$APP_ID' > /home/cai/.config/cai/app.env"
+
+    echo "  Validating with GitHub..."
+    if ! $DC exec --user cai cai python -c "
+from cai import CaiBot
+info = CaiBot().verify()
+print(f'  OK: authenticated as App {info[\"name\"]!r} (slug={info[\"slug\"]}, id={info[\"id\"]})')
+"; then
+      echo "  FAILED: GitHub rejected the App ID / private key combination."
+      echo "  Re-run install.sh to retry."
+      exit 1
+    fi
+
+    echo
+    echo "[5/5] Install the App on the cai repo, then bootstrap"
+    echo "  Open: https://github.com/apps/<your-app-slug> -> Install"
+    echo "    (or: https://github.com/settings/installations)"
+    echo "  Add: damien-robotsix/robotsix-cai (the repo cloned at /app)"
+    echo
+    prompt _CONFIRM "Press Enter once installed (Ctrl-C to skip)"
+    if $DC exec --workdir /app --user cai cai cai-app-init; then
+      echo "  OK: /app inside the container will now push as cai[bot]."
+      echo "  For other repos, clone them and run 'cai-app-init' inside."
+    else
+      echo "  FAILED. Confirm the App is installed on damien-robotsix/robotsix-cai."
+    fi
+    ;;
+esac
+
+echo
 echo "Add a 'cai' alias to your shell rc?"
 echo "    cai     opens an interactive claude session in the container"
 prompt ADD_ALIAS "Add alias? [y/N]" "n"
@@ -104,7 +184,7 @@ case "$ADD_ALIAS" in
     esac
     prompt RC_FILE "Shell rc file" "$RC_DEFAULT"
 
-    ALIAS_LINE="alias cai='${DC} exec --user cai cai python /app/cai.py'"
+    ALIAS_LINE="alias cai='${DC} exec --user cai cai cai'"
     if grep -qF '# robotsix-cai alias' "$RC_FILE" 2>/dev/null; then
       sed -i '/^# robotsix-cai alias/,/^alias cai=/d' "$RC_FILE"
     fi

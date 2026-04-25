@@ -40,8 +40,6 @@ RUN groupadd --system --gid 1000 cai \
     && mkdir -p /home/cai/.config/gh /home/cai/.claude \
     && chown -R cai:cai /home/cai
 
-RUN pip install --no-cache-dir --root-user-action=ignore pydantic pydantic-settings
-
 # /app is populated by cloning the repo at build time so the image ships
 # with a real working tree + .git directory — interactive `docker exec`
 # sessions can use git, inspect diffs, and commit/push from inside.
@@ -63,5 +61,12 @@ ADD "https://api.github.com/repos/damien-robotsix/robotsix-cai/commits/${CAI_GIT
 RUN git clone "${CAI_GIT_URL}" /app \
     && git -C /app checkout "${CAI_GIT_REF}" \
     && chmod +x /app/entrypoint.sh
+
+# Install the cai package globally so `cai`, `cai-app-init`, and
+# `cai-git-credential` are on $PATH for any user inside the container.
+# Project deps (PyGithub, pydantic, ...) are declared in pyproject.toml.
+USER root
+RUN pip install --no-cache-dir --root-user-action=ignore /app
+USER cai
 
 CMD ["/app/entrypoint.sh"]
