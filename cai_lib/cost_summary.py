@@ -106,21 +106,11 @@ def _stage_key(row: dict) -> str:
     return "(unknown)"
 
 
-def _sum_float(rows: list[dict], key: str) -> float:
-    total = 0.0
+def _sum_field(rows: list[dict], key: str, cast=int):
+    total = cast(0)
     for r in rows:
         try:
-            total += float(r.get(key) or 0.0)
-        except (TypeError, ValueError):
-            continue
-    return total
-
-
-def _sum_int(rows: list[dict], key: str) -> int:
-    total = 0
-    for r in rows:
-        try:
-            total += int(r.get(key) or 0)
+            total += cast(r.get(key) or 0)
         except (TypeError, ValueError):
             continue
     return total
@@ -140,13 +130,13 @@ def _build_final_cost_summary(
     if not rows:
         return ("", "")
 
-    total_usd = _sum_float(rows, "cost_usd")
-    total_turns = _sum_int(rows, "num_turns")
-    total_duration_ms = _sum_int(rows, "duration_ms")
-    total_input = _sum_int(rows, "input_tokens")
-    total_output = _sum_int(rows, "output_tokens")
-    total_cache_read = _sum_int(rows, "cache_read_input_tokens")
-    total_cache_create = _sum_int(rows, "cache_creation_input_tokens")
+    total_usd = _sum_field(rows, "cost_usd", float)
+    total_turns = _sum_field(rows, "num_turns")
+    total_duration_ms = _sum_field(rows, "duration_ms")
+    total_input = _sum_field(rows, "input_tokens")
+    total_output = _sum_field(rows, "output_tokens")
+    total_cache_read = _sum_field(rows, "cache_read_input_tokens")
+    total_cache_create = _sum_field(rows, "cache_creation_input_tokens")
     n_rows = len(rows)
     seconds = total_duration_ms / 1000.0
 
