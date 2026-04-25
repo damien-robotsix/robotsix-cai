@@ -97,8 +97,7 @@ class CaiCostTracker(CostTracker):
 class CaiSubAgent(SubAgent):
     """SubAgent subclass that pins the CLI path and injects the cai-skills plugin.
 
-    Overrides :meth:`_prepare_options` to call the parent's stderr-sink
-    setup, then additionally:
+    Overrides :meth:`_prepare_options` to:
 
     * Pin ``options.cli_path`` to the npm-installed ``claude`` binary so
       the SDK reuses the binary audited in the Dockerfile.
@@ -107,10 +106,7 @@ class CaiSubAgent(SubAgent):
     """
 
     def _prepare_options(self) -> None:
-        """Pin cli_path, auto-inject cai-skills plugin, attach stderr sink."""
-        # Base: reset captured stderr and attach fresh stderr sink.
-        super()._prepare_options()
-
+        """Pin cli_path and auto-inject the cai-skills plugin."""
         _cli_path = shutil.which("claude")
         if _cli_path and not getattr(self.options, "cli_path", None):
             self.options.cli_path = _cli_path

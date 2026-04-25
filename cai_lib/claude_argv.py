@@ -9,6 +9,14 @@ returned :class:`~cai_lib.subagent.core.RunResult` to a
 :class:`subprocess.CompletedProcess` with ``args=cmd`` so existing
 callers that inspect the argv see their original command.
 
+This facade also owns the stderr-capture sink — it allocates a
+local buffer and wires it onto ``options.stderr`` before driving the
+SDK so the back-compat ``CompletedProcess.stderr`` carries the real
+``claude -p`` subprocess crash tail. SDK-native callers (which read
+:class:`~cai_lib.subagent.core.RunResult` directly) do not need it,
+so :class:`~cai_lib.subagent.core.SubAgent` itself does no stderr
+capture.
+
 Do not add new call sites; port existing ones to
 :func:`cai_lib.cai_subagent.run_subagent` instead.
 """
@@ -23,7 +31,7 @@ from claude_agent_sdk import ClaudeAgentOptions
 
 from cai_lib.cai_subagent import CaiCostTracker, CaiSubAgent
 from cai_lib.subagent.core import RunResult, RunStatus
-from cai_lib.subagent.stderr_sink import _captured_stderr_text
+from cai_lib.subagent.stderr_sink import _captured_stderr_text, _make_stderr_sink
 
 
 def _argv_to_options(
@@ -103,7 +111,7 @@ def _argv_to_options(
 
 
 def _to_completed_process(
-    rr: RunResult, cmd: list[str],
+    rr: RunResult, cmd: list[str], cli_stderr_buf: list[str],
 ) -> subprocess.CompletedProcess:
     """Adapt a :class:`RunResult` to a :class:`subprocess.CompletedProcess`.
 
@@ -119,6 +127,11 @@ def _to_completed_process(
           * ``error_summary + "\\n--- cli stderr ---\\n" + cli_stderr``
             on EXCEPTION and NO_RESULT, matching the pre-refactor
             ``combined`` string byte-for-byte.
+
+    ``cli_stderr_buf`` is the buffer wired into ``options.stderr`` by
+    :func:`_run_claude_p` for this run — its captured CLI tail is
+    appended to ``stderr`` on the EXCEPTION/NO_RESULT paths so the
+    real subprocess crash reason still surfaces to back-compat callers.
     """
     if rr.status == RunStatus.OK:
         return subprocess.CompletedProcess(
@@ -130,7 +143,7 @@ def _to_completed_process(
             stderr=rr.error_summary or "",
         )
     combined = rr.error_summary or ""
-    cli_stderr = _captured_stderr_text(rr.captured_stderr)
+    cli_stderr = _captured_stderr_text(cli_stderr_buf)
     if cli_stderr:
         combined = f"{combined}\n--- cli stderr ---\n{cli_stderr}"
     return subprocess.CompletedProcess(
@@ -201,6 +214,13 @@ def _run_claude_p(
     options, positional_prompt = _argv_to_options(cmd[2:], cwd=cwd)
     prompt = input if input is not None else positional_prompt
 
+    # Wire a stderr-capture sink onto options before driving the SDK.
+    # SDK-native callers do not need this — only the back-compat
+    # ``CompletedProcess.stderr`` adapter consumes the buffer so the real
+    # ``claude -p`` subprocess crash reason still surfaces.
+    cli_stderr_buf: list[str] = []
+    options.stderr = _make_stderr_sink(cli_stderr_buf)
+
     tracker = CaiCostTracker(
         target_kind=target_kind,
         target_number=target_number,
@@ -218,4 +238,4 @@ def _run_claude_p(
         timeout=timeout,
         cost_tracker=tracker,
     ).run(prompt)
-    return _to_completed_process(rr, cmd)
+    return _to_completed_process(rr, cmd, cli_stderr_buf)
