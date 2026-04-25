@@ -12,8 +12,7 @@ through this module.
   `check_claude_auth` are the readiness gates; label/comment
   helpers `_set_labels`, `_set_pr_labels`, `_post_issue_comment`,
   `_post_pr_comment`, `_issue_has_label`; message builders
-  `_build_issue_block`, `_fetch_linked_issue_block`,
-  `_build_implement_user_message`; closure helpers
+  `_build_issue_block`, `_fetch_linked_issue_block`; closure helpers
   `close_issue_not_planned`, `close_issue_completed`;
   stale-PR recovery `_recover_stale_pr_open`,
   `_close_orphaned_prs`; remote-lock primitives
