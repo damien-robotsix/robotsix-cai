@@ -48,7 +48,7 @@ _OPUS_MODEL_ID = "claude-opus-4-7"
 from cai_lib.github import (
     _gh_json,
     _set_labels,
-    _build_implement_user_message,
+    _build_issue_block,
     close_issue_not_planned,
 )
 from cai_lib.claude_argv import _run_claude_p
@@ -1186,7 +1186,7 @@ def handle_implement(issue: dict) -> int:
         user_message = (
             _work_directory_block(work_dir, issue.get("body") or "")
             + "\n"
-            + _build_implement_user_message(issue, attempt_history_block)
+            + _build_issue_block(issue) + attempt_history_block
         )
         if selected_plan:
             user_message = (
@@ -1198,7 +1198,7 @@ def handle_implement(issue: dict) -> int:
                 + "Follow this plan to implement the fix.\n\n"
                 + f"{selected_plan}\n\n"
                 + "---\n\n"
-                + _build_implement_user_message(issue, attempt_history_block)
+                + _build_issue_block(issue) + attempt_history_block
             )
         claude_cmd = ["claude", "-p", "--agent", "cai-implement"]
         if opus_escalation:

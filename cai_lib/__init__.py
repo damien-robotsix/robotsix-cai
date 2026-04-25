@@ -77,7 +77,6 @@ from cai_lib.github import (
     _set_labels,
     _issue_has_label,
     _build_issue_block,
-    _build_implement_user_message,
 )
 
 from cai_lib.watchdog import (
@@ -118,7 +117,7 @@ __all__ = [
     "_run", "_run_claude_p",
     # github
     "_gh_json", "check_gh_auth", "check_claude_auth", "_transcript_dir_is_empty",
-    "_set_labels", "_issue_has_label", "_build_issue_block", "_build_implement_user_message",
+    "_set_labels", "_issue_has_label", "_build_issue_block",
     # watchdog
     "_rollback_stale_in_progress",
     "_rollback_stale_pr_locks",

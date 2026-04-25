@@ -242,18 +242,6 @@ def _fetch_linked_issue_block(pr_body: str) -> str:
     )
 
 
-def _build_implement_user_message(issue: dict, attempt_history_block: str = "") -> str:
-    """Build the dynamic per-run user message for the cai-implement agent.
-
-    The system prompt, tool allowlist, and hard rules live in
-    `.claude/agents/cai-implement.md`; durable per-agent learnings live
-    in its `memory: project` pool. The wrapper passes the issue
-    body, reviewer comments, and (when available) a summary of
-    prior closed PRs for this issue.
-    """
-    return _build_issue_block(issue) + attempt_history_block
-
-
 def close_issue_not_planned(
     issue_number: int,
     comment: str,
