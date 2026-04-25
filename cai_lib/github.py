@@ -130,6 +130,21 @@ def _set_pr_labels(pr_number: int, *, add: list[str] = (), remove: list[str] = (
                           log_prefix=log_prefix, target_msg=f"PR #{pr_number}")
 
 
+def _do_post_comment(verb: str, number: int, body: str, log_prefix: str, target_msg: str) -> bool:
+    """Shared helper: post a comment via ``gh <verb> comment``, log on failure."""
+    result = _run(
+        ["gh", verb, "comment", str(number), "--repo", REPO, "--body", body],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"[{log_prefix}] failed to post comment on {target_msg}:\n{result.stderr}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def _post_issue_comment(issue_number: int, body: str, *, log_prefix: str = "cai") -> bool:
     """Post a comment on an issue. Returns True on success.
 
@@ -137,34 +152,12 @@ def _post_issue_comment(issue_number: int, body: str, *, log_prefix: str = "cai"
     caller's state transition. The comment is informational context for
     the admin.
     """
-    result = _run(
-        ["gh", "issue", "comment", str(issue_number),
-         "--repo", REPO, "--body", body],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        print(
-            f"[{log_prefix}] failed to post comment on #{issue_number}:\n{result.stderr}",
-            file=sys.stderr,
-        )
-        return False
-    return True
+    return _do_post_comment("issue", issue_number, body, log_prefix, f"#{issue_number}")
 
 
 def _post_pr_comment(pr_number: int, body: str, *, log_prefix: str = "cai") -> bool:
     """Post a comment on a PR. Returns True on success. See :func:`_post_issue_comment`."""
-    result = _run(
-        ["gh", "pr", "comment", str(pr_number),
-         "--repo", REPO, "--body", body],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        print(
-            f"[{log_prefix}] failed to post comment on PR #{pr_number}:\n{result.stderr}",
-            file=sys.stderr,
-        )
-        return False
-    return True
+    return _do_post_comment("pr", pr_number, body, log_prefix, f"PR #{pr_number}")
 
 
 def _issue_has_label(issue_number: int, label: str) -> bool:
