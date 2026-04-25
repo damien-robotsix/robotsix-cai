@@ -61,6 +61,22 @@ upsert_env() {
   printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
 }
 
+# Set KEY=VALUE in .env, replacing any existing value. Used for credentials
+# that rotate (e.g. Claude OAuth access tokens) so re-running install.sh
+# refreshes the value rather than silently keeping a stale one.
+set_env() {
+  local key="$1" val="$2"
+  if [[ -f "$ENV_FILE" ]] && grep -q "^${key}=" "$ENV_FILE"; then
+    # Use a delimiter unlikely to appear in tokens (|), and escape any
+    # forward slashes / pipes in val for sed safety.
+    local escaped
+    escaped=$(printf '%s' "$val" | sed -e 's/[\/&|]/\\&/g')
+    sed -i "s|^${key}=.*|${key}=${escaped}|" "$ENV_FILE"
+  else
+    printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
+  fi
+}
+
 touch "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
@@ -92,8 +108,9 @@ volumes:
 EOF
 
 echo "Claude authentication:"
-echo "  1) OAuth login (recommended; persisted in cai_home volume)"
-echo "  2) Anthropic API key"
+echo "  1) Claude subscription via OAuth (recommended; mints a 1-year token,"
+echo "     bills against your Pro/Max plan quota — no per-token charges)"
+echo "  2) Anthropic API key (pay-per-token)"
 prompt AUTH_CHOICE "Choice" "1"
 
 if [[ "$AUTH_CHOICE" == "2" ]]; then
@@ -106,8 +123,58 @@ $DC up -d
 
 if [[ "$AUTH_CHOICE" != "2" ]]; then
   echo
-  echo "Launching claude REPL for OAuth login. Type /exit when done."
-  $DC exec --user cai cai claude
+  echo "Minting a long-lived (1-year) Claude OAuth token..."
+  echo "Follow the OAuth prompts inside the container — the token will be captured"
+  echo "automatically and written to .env as CLAUDE_CODE_OAUTH_TOKEN."
+
+  # Write a capture wrapper to the container that runs 'claude setup-token'
+  # under a PTY, forwards I/O to the user's terminal so the interactive auth
+  # works, and writes the extracted sk-ant-oat01-... token to a temp file.
+  $DC exec -T --user cai cai bash -c 'cat > /tmp/_cai_setup_token.py' <<'PY'
+import os
+import pty
+import re
+import sys
+
+captured = bytearray()
+
+
+def master_read(fd):
+    data = os.read(fd, 4096)
+    captured.extend(data)
+    return data
+
+
+exit_status = pty.spawn(["claude", "setup-token"], master_read)
+
+text = bytes(captured).decode("utf-8", "replace")
+# Strip ANSI escape sequences so colour codes don't break the regex.
+clean = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
+match = re.search(r"sk-ant-oat01-[A-Za-z0-9_-]+", clean)
+
+with open("/tmp/_cai_oauth_token", "w") as f:
+    if match:
+        f.write(match.group())
+
+sys.exit(exit_status if isinstance(exit_status, int) else 0)
+PY
+
+  # Redirect stdin from the resolved TTY so 'curl | bash' invocations don't
+  # leave docker compose exec without a real TTY for the OAuth prompts.
+  $DC exec --user cai cai python3 /tmp/_cai_setup_token.py < "$TTY"
+
+  TOKEN=$($DC exec -T --user cai cai cat /tmp/_cai_oauth_token 2>/dev/null || true)
+  $DC exec -T --user cai cai rm -f /tmp/_cai_setup_token.py /tmp/_cai_oauth_token
+
+  if [[ -z "$TOKEN" ]]; then
+    echo "  Failed to extract OAuth token from 'claude setup-token' output."
+    echo "  Re-run install.sh once you've completed the auth flow successfully."
+    exit 1
+  fi
+
+  set_env CLAUDE_CODE_OAUTH_TOKEN "$TOKEN"
+  echo "  CLAUDE_CODE_OAUTH_TOKEN written to .env. Restarting cai..."
+  $DC up -d --force-recreate
 fi
 
 echo
