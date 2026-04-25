@@ -1,0 +1,14 @@
+# Local development.
+#
+# Build and run:    docker compose up
+# Pull published:   docker compose pull && docker compose up
+#
+# Pushes to main publish docker.io/robotsix/cai:latest.
+
+services:
+  cai:
+    image: robotsix/cai:latest
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
