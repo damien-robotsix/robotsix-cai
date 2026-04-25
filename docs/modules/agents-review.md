@@ -48,8 +48,8 @@ REVIEWING_CODE → REVIEWING_DOCS → APPROVED pipeline.
   NOT list `docs/**` as off-limits in its scope guardrails
   (it is always allowed).
 - **FSM invariant.** `cai-merge` emits a structured verdict; a
-  missing/malformed `Confidence:` line defaults to STOP and keeps
-  the PR in REVIEWING_CODE rather than merging.
+  missing/malformed `Confidence:` line diverts the PR and keeps
+  it in REVIEWING_CODE rather than merging.
 - **CI implications.** Stale narratives are a common failure
   mode; `scripts/check-modules-coverage.py` is the backstop,
   while `cai-review-docs` is the proactive enforcer.

@@ -11,7 +11,7 @@ from cai_lib.fsm import (
     ISSUE_TRANSITIONS, PR_TRANSITIONS,
     get_issue_state, render_fsm_mermaid,
     find_transition,
-    parse_confidence, parse_confidence_reason, parse_resume_target,
+    parse_confidence, parse_confidence_reason,
     fire_trigger,
 )
 from cai_lib.config import (
@@ -570,18 +570,6 @@ class TestBackfillSilentHumanNeeded(unittest.TestCase):
         # (PRs are never rescue prevention findings even if their body
         # happens to contain the fingerprint string).
         self.assertIn("human:solved", posted[0]["body"])
-
-
-class TestResumeFromHuman(unittest.TestCase):
-
-    def test_parse_resume_target_valid(self):
-        self.assertEqual(parse_resume_target("ResumeTo: REFINED"), "REFINED")
-        self.assertEqual(parse_resume_target("lead\nResumeTo: PLAN_APPROVED\ntail"), "PLAN_APPROVED")
-        self.assertEqual(parse_resume_target("ResumeTo=SOLVED"), "SOLVED")
-
-    def test_parse_resume_target_missing(self):
-        self.assertIsNone(parse_resume_target(""))
-        self.assertIsNone(parse_resume_target("no resume line here"))
 
 
 class TestRefineNextStepParser(unittest.TestCase):

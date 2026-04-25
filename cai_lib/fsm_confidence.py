@@ -120,25 +120,3 @@ def parse_approvable_at_medium(text: str) -> bool:
     if not m:
         return False
     return m.group(1).lower() == "true"
-
-
-_RESUME_RE = re.compile(
-    r"^\s*ResumeTo\s*[:=]\s*([A-Z_]+)\s*$",
-    re.MULTILINE,
-)
-
-
-def parse_resume_target(text: str) -> Optional[str]:
-    """Extract ``ResumeTo: <STATE_NAME>`` from a cai-unblock agent reply.
-
-    Returns the raw state name as written by the agent (uppercased per
-    our structured-output convention) or ``None`` if the marker is
-    missing. The caller decides whether the returned name maps to a
-    real IssueState/PRState member.
-    """
-    if not text:
-        return None
-    m = _RESUME_RE.search(text)
-    if not m:
-        return None
-    return m.group(1).upper()
