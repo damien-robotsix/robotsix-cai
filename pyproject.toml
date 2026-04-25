@@ -17,6 +17,7 @@ dependencies = [
 cai = "cai.cli:main"
 cai-app-init = "cai.github.init:main"
 cai-git-credential = "cai.github.credential:main"
+cai-issue = "cai.github.issue_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cai"]
