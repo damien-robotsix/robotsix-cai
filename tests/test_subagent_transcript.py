@@ -22,28 +22,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk.types import (
     AssistantMessage,
-    ResultMessage,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
 )
 
-from tests._helpers import _mock_query
-
-
-def _mk_result(**fields) -> ResultMessage:
-    return ResultMessage(
-        subtype=fields.pop("subtype", "success"),
-        duration_ms=fields.pop("duration_ms", 100),
-        duration_api_ms=fields.pop("duration_api_ms", 50),
-        is_error=fields.pop("is_error", False),
-        num_turns=fields.pop("num_turns", 1),
-        session_id=fields.pop("session_id", "sess-x"),
-        total_cost_usd=fields.pop("total_cost_usd", 0.01),
-        usage=fields.pop("usage", None),
-        result=fields.pop("result", "ok"),
-    )
+from tests._helpers import _mock_query, _mk_result
 
 
 class TestRunTranscriptCollection(unittest.TestCase):

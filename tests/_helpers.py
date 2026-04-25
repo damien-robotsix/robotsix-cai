@@ -10,9 +10,50 @@ issue #1320.
 
 ``_rsync_available`` gates rsync-dependent tests in ``test_cost_sync``
 and ``test_transcript_sync``. See issue #1321.
+
+``_mk_result`` is a shared ``ResultMessage`` builder used across the
+SDK-level tests. Uses the richest default set (from ``test_sdk_spike_parity``)
+so all callers that need different values can override via ``**fields``.
+See issue #1322.
 """
 
 import subprocess
+
+from claude_agent_sdk.types import ResultMessage
+
+
+def _mk_result(**fields) -> ResultMessage:
+    """Build a ResultMessage with deterministic defaults.
+
+    Uses the richest default set (from ``test_sdk_spike_parity``) — all
+    callers that need different values already override them via **fields.
+    """
+    return ResultMessage(
+        subtype=fields.pop("subtype", "success"),
+        duration_ms=fields.pop("duration_ms", 1234),
+        duration_api_ms=fields.pop("duration_api_ms", 999),
+        is_error=fields.pop("is_error", False),
+        num_turns=fields.pop("num_turns", 3),
+        session_id=fields.pop("session_id", "sess-fixed"),
+        total_cost_usd=fields.pop("total_cost_usd", 0.1234),
+        usage=fields.pop("usage", {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 200,
+            "cache_read_input_tokens": 800,
+        }),
+        result=fields.pop("result", "ok"),
+        structured_output=fields.pop("structured_output", None),
+        model_usage=fields.pop("model_usage", {
+            "claude-sonnet-4": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "cacheReadInputTokens": 800,
+                "cacheCreationInputTokens": 200,
+                "costUSD": 0.1234,
+            },
+        }),
+    )
 
 
 def _rsync_available() -> bool:
