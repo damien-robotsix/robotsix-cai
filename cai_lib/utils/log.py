@@ -5,7 +5,6 @@ import re
 from datetime import datetime, timezone
 
 from cai_lib.config import LOG_PATH, COST_LOG_PATH, OUTCOME_LOG_PATH
-from cai_lib.audit.cost import _load_outcome_counts
 
 
 def log_run(category: str, **fields) -> None:
@@ -68,19 +67,3 @@ def _log_outcome(issue_number: int, category: str, outcome: str, fix_attempt_cou
             f.flush()
     except Exception:
         pass
-
-
-def _load_outcome_stats(days: int = 90) -> dict:
-    """Load per-category success rates from the trailing `days` days of outcome data.
-
-    Returns a dict mapping category name to success rate (0.0–1.0).
-    Categories with fewer than 3 observations get a neutral prior of 0.60.
-    """
-    counts = _load_outcome_counts(days)
-    rates: dict = {}
-    for cat, c in counts.items():
-        if c["total"] < 3:
-            rates[cat] = 0.60
-        else:
-            rates[cat] = c["solved"] / c["total"]
-    return rates

@@ -57,7 +57,6 @@ from cai_lib.utils.log import (
     log_cost,
     _get_issue_category,
     _log_outcome,
-    _load_outcome_stats,
 )
 from cai_lib.audit.cost import (
     _load_outcome_counts,
@@ -112,7 +111,7 @@ __all__ = [
     # logging
     "log_run", "log_cost",
     "_get_issue_category", "_log_outcome", "_load_outcome_counts",
-    "_load_outcome_stats", "_load_cost_log", "_row_ts", "_build_cost_summary",
+    "_load_cost_log", "_row_ts", "_build_cost_summary",
     # subprocess
     "_run", "_run_claude_p",
     # github
