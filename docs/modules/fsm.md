@@ -29,8 +29,7 @@ import from `cai_lib.fsm` rather than the split modules directly.
   the `≥HIGH` / `caller-gated` display labels).
 - [`cai_lib/fsm_confidence.py`](../../cai_lib/fsm_confidence.py) —
   `Confidence` enum (HIGH, MEDIUM, LOW, STOP);
-  `parse_confidence`, `parse_confidence_reason`,
-  `parse_resume_target`.
+  `parse_confidence`, `parse_confidence_reason`.
 - [`cai_lib/fsm.py`](../../cai_lib/fsm.py) — umbrella re-exporter;
   the canonical import path for handlers.
 - [`cai_lib/admin_sigils.py`](../../cai_lib/admin_sigils.py) —
