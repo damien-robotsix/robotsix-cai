@@ -38,6 +38,22 @@ from cai_lib.github import (
 from cai_lib.utils.log import log_run
 
 
+def _delete_lock_claim_comments(number: int) -> None:
+    """Fetch and delete all ``<!-- cai-lock ... -->`` claim comments on *number*."""
+    try:
+        comments = _gh_json([
+            "api", f"/repos/{REPO}/issues/{number}/comments",
+            "--paginate",
+        ]) or []
+    except subprocess.CalledProcessError:
+        comments = []
+    for c in comments:
+        if CAI_LOCK_COMMENT_RE.search(c.get("body", "") or ""):
+            cid = c.get("id")
+            if cid is not None:
+                _delete_issue_comment(int(cid), log_prefix="cai audit")
+
+
 def _lock_claim_age_seconds(number: int, now: float) -> float | None:
     """Age (seconds since ``now``) of the oldest ``cai-lock`` claim comment.
 
@@ -209,20 +225,7 @@ def _rollback_stale_in_progress(*, immediate: bool = False) -> list[dict]:
                     log_prefix="cai audit",
                 )
                 if ok:
-                    try:
-                        comments = _gh_json([
-                            "api", f"/repos/{REPO}/issues/{issue_num}/comments",
-                            "--paginate",
-                        ]) or []
-                    except subprocess.CalledProcessError:
-                        comments = []
-                    for c in comments:
-                        body = c.get("body", "") or ""
-                        if CAI_LOCK_COMMENT_RE.search(body):
-                            cid = c.get("id")
-                            if cid is not None:
-                                _delete_issue_comment(int(cid),
-                                                      log_prefix="cai audit")
+                    _delete_lock_claim_comments(issue_num)
             else:
                 # In-progress lock: roll back to :refined.
                 # Audit-originated issues carry an "audit" source tag so they
@@ -320,19 +323,7 @@ def _rollback_stale_pr_locks(*, immediate: bool = False) -> list[dict]:
         # Delete this PR's cai-lock claim comments, if any. Same endpoint
         # as the issue path — GitHub posts PR-level issue comments at
         # /repos/.../issues/<N>/comments.
-        try:
-            comments = _gh_json([
-                "api", f"/repos/{REPO}/issues/{pr_num}/comments",
-                "--paginate",
-            ]) or []
-        except subprocess.CalledProcessError:
-            comments = []
-        for c in comments:
-            body = c.get("body", "") or ""
-            if CAI_LOCK_COMMENT_RE.search(body):
-                cid = c.get("id")
-                if cid is not None:
-                    _delete_issue_comment(int(cid), log_prefix="cai audit")
+        _delete_lock_claim_comments(pr_num)
 
         rolled_back.append(pr)
         log_run(
