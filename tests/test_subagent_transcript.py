@@ -29,6 +29,8 @@ from claude_agent_sdk.types import (
     UserMessage,
 )
 
+from tests._helpers import _mock_query
+
 
 def _mk_result(**fields) -> ResultMessage:
     return ResultMessage(
@@ -42,13 +44,6 @@ def _mk_result(**fields) -> ResultMessage:
         usage=fields.pop("usage", None),
         result=fields.pop("result", "ok"),
     )
-
-
-def _mock_query(*messages):
-    async def _gen(*, prompt, options=None, transport=None):
-        for m in messages:
-            yield m
-    return _gen
 
 
 class TestRunTranscriptCollection(unittest.TestCase):

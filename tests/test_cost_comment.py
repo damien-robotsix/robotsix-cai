@@ -23,6 +23,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from tests._helpers import _mock_query
 from claude_agent_sdk.types import (
     AssistantMessage,
     ResultMessage,
@@ -57,13 +58,6 @@ def _mk_assistant(model: str, *, parent_tool_use_id: str | None = None,
         model=model,
         parent_tool_use_id=parent_tool_use_id,
     )
-
-
-def _mock_query(*messages):
-    async def _gen(*, prompt, options=None, transport=None):
-        for m in messages:
-            yield m
-    return _gen
 
 
 class TestCostMarkerRegex(unittest.TestCase):

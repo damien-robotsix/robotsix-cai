@@ -21,6 +21,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from claude_agent_sdk.types import ResultMessage
+from tests._helpers import _mock_query
 
 
 def _mk_result(**fields) -> ResultMessage:
@@ -37,14 +38,6 @@ def _mk_result(**fields) -> ResultMessage:
         result=fields.pop("result", None),
         structured_output=fields.pop("structured_output", None),
     )
-
-
-def _mock_query(*messages):
-    """Return an async-generator replacement for cai_lib.subagent.core.query."""
-    async def _gen(*, prompt, options=None, transport=None):
-        for m in messages:
-            yield m
-    return _gen
 
 
 class TestRunClaudePEnvelope(unittest.TestCase):
