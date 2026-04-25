@@ -7,7 +7,10 @@ ENV BROWSER=echo
 
 # Install Node (for claude-code), gh CLI from GitHub's apt repo, and
 # the runtime utilities the CLIs shell out to.
-RUN apt-get update \
+# Acquire::Retries lets apt recover from transient mirror sync glitches
+# (e.g. truncated .deb downloads) instead of failing the whole build.
+RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         nodejs \
         npm \
