@@ -21,6 +21,8 @@ from cai_lib.actions.merge import _verdict_cites_concrete_code_bug
 from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm_transitions import PR_TRANSITIONS
 
+from tests._helpers import _pr_fixture
+
 
 class TestVerdictCitesConcreteCodeBug(unittest.TestCase):
     """The detector fires only on concrete, mechanically-fixable bugs."""
@@ -116,23 +118,6 @@ class TestApprovedToRevisionPendingTransition(unittest.TestCase):
         self.assertEqual(t.to_state, PRState.REVISION_PENDING)
         self.assertIn(LABEL_PR_APPROVED, t.labels_remove)
         self.assertIn(LABEL_PR_REVISION_PENDING, t.labels_add)
-
-
-def _pr_fixture(number: int = 1234) -> dict:
-    return {
-        "number": number,
-        "title": "auto-improve: example",
-        "headRefName": f"auto-improve/{number}-example",
-        "headRefOid": "d7becb043dfd84c2796f35b7deb1353881435930",
-        "labels": [{"name": "pr:approved"}],
-        "state": "OPEN",
-        "mergeable": "MERGEABLE",
-        "mergeStateStatus": "CLEAN",
-        "mergedAt": None,
-        "comments": [],
-        "reviews": [],
-        "createdAt": "2026-04-20T00:00:00Z",
-    }
 
 
 class TestHandleMergeLowHoldRouting(unittest.TestCase):
