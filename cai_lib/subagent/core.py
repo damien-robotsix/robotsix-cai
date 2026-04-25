@@ -8,11 +8,6 @@ across many prompts — its cost history accumulates on the embedded
 (``runs``, ``last_result``, ``last_captured_stderr``) survives between
 runs and can be introspected between calls.
 
-:func:`run_subagent` stays as a thin module-level shim that constructs
-a :class:`SubAgent` (with a :class:`CostTracker` built from the
-optional target metadata), calls ``.run(prompt)`` once, and returns
-the :class:`RunResult`. Existing call sites and test fixtures
-(``patch.object(core, "query", ...)``) are unaffected.
 """
 
 from __future__ import annotations
@@ -388,39 +383,3 @@ class SubAgent(BaseModel):
             captured_stderr=captured,
             transcript=transcript,
         )
-
-
-def run_subagent(
-    prompt: str,
-    options: ClaudeAgentOptions,
-    *,
-    category: str,
-    agent: str,
-    target_kind: str | None = None,
-    target_number: int | None = None,
-    extra_target_kind: str | None = None,
-    extra_target_number: int | None = None,
-    timeout: float | None = None,
-) -> RunResult:
-    """SDK-native subagent invocation — one-shot shim over :class:`SubAgent`.
-
-    Kept as a module-level function so existing call sites
-    (``actions/confirm.py``) and test fixtures that do
-    ``patch.object(core, "query", ...)`` keep their import shape
-    unchanged. New call sites that want to reuse one agent across
-    multiple prompts — and accumulate ``cost_tracker.cost_rows`` —
-    should construct :class:`SubAgent` directly.
-    """
-    tracker = CostTracker(
-        target_kind=target_kind,
-        target_number=target_number,
-        extra_target_kind=extra_target_kind,
-        extra_target_number=extra_target_number,
-    )
-    return SubAgent(
-        options=options,
-        category=category,
-        agent=agent,
-        timeout=timeout,
-        cost_tracker=tracker,
-    ).run(prompt)

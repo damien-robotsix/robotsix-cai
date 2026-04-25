@@ -146,12 +146,6 @@ def run_subagent(
     Constructs a :class:`CaiSubAgent` (with a :class:`CaiCostTracker` built
     from the optional target metadata), calls ``.run(prompt)`` once, and
     returns the :class:`~cai_lib.subagent.core.RunResult`.
-
-    This is the cai-repository-specific counterpart to
-    :func:`cai_lib.subagent.core.run_subagent`. Callers that need CLI-pin,
-    plugin-inject, cost-log, and GH-comment behaviors should use this
-    function; the base :func:`cai_lib.subagent.run_subagent` is a stripped
-    version without those behaviors.
     """
     tracker = CaiCostTracker(
         target_kind=target_kind,
