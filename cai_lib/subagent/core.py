@@ -5,8 +5,8 @@
 :meth:`run` call takes a fresh prompt. One instance can be reused
 across many prompts — its cost history accumulates on the embedded
 :class:`~cai_lib.subagent.cost_tracker.CostTracker`. Instance state
-(``runs``, ``last_result``, ``last_captured_stderr``) survives between
-runs and can be introspected between calls.
+(``runs``, ``last_result``) survives between runs and can be
+introspected between calls.
 
 """
 
@@ -30,7 +30,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .cost_tracker import CostRow, CostTracker
 from .errors import _sdk_error_summary
-from .stderr_sink import _captured_stderr_text, _make_stderr_sink
 from .transcript import (
     AssistantTextEvent,
     RunTranscript,
@@ -57,9 +56,9 @@ class RunResult(BaseModel):
     """Typed result returned by :meth:`SubAgent.run`.
 
     Replaces the legacy :class:`subprocess.CompletedProcess` shape so
-    callers can inspect the structured :class:`ResultMessage`, the error
-    subtype, and the raw CLI stderr lines directly — without re-parsing
-    opaque ``.stdout`` / ``.stderr`` strings.
+    callers can inspect the structured :class:`ResultMessage` and the
+    error subtype directly — without re-parsing opaque ``.stdout`` /
+    ``.stderr`` strings.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -75,10 +74,6 @@ class RunResult(BaseModel):
             "_sdk_error_summary(result) on SDK_ERROR; str(exc) on EXCEPTION; "
             "no_ResultMessage preview on NO_RESULT; None on OK."
         ),
-    )
-    captured_stderr: list[str] = Field(
-        default_factory=list,
-        description="Raw CLI stderr lines collected during this run.",
     )
     transcript: RunTranscript | None = Field(
         default=None,
@@ -194,9 +189,6 @@ class SubAgent(BaseModel):
       exception and no-ResultMessage paths).
     - :attr:`last_result` — the final :class:`ResultMessage` from the
       most recent successful run, or ``None``.
-    - :attr:`last_captured_stderr` — CLI stderr lines from the most
-      recent run. Replaced on every run (not accumulated) so callers
-      can introspect a single run's sink.
 
     The returned :class:`RunResult` contract:
 
@@ -223,7 +215,6 @@ class SubAgent(BaseModel):
     runs: int = 0
     last_result: ResultMessage | None = None
     last_assistant: str = ""
-    last_captured_stderr: list[str] = Field(default_factory=list)
 
     def run(self, prompt: str) -> RunResult:
         """Drive one full run against ``prompt`` and return the RunResult."""
@@ -263,15 +254,13 @@ class SubAgent(BaseModel):
         )
 
     def _prepare_options(self) -> None:
-        """Attach a fresh stderr sink and reset :attr:`last_captured_stderr`.
+        """Per-run options hook for subclasses.
 
-        Resets :attr:`last_captured_stderr` to a fresh list each run so a
-        reused instance does not leak stderr lines across runs. Subclasses
-        (e.g. :class:`cai_lib.cai_subagent.CaiSubAgent`) call ``super()``
-        first and then add repo-specific setup (CLI path pin, plugin inject).
+        No-op in the base class. Subclasses (e.g.
+        :class:`cai_lib.cai_subagent.CaiSubAgent`) override to perform
+        repo-specific setup such as pinning ``options.cli_path`` or
+        injecting a local plugin.
         """
-        self.last_captured_stderr = []
-        self.options.stderr = _make_stderr_sink(self.last_captured_stderr)
 
     def _drive_query(
         self,
@@ -326,44 +315,31 @@ class SubAgent(BaseModel):
         because the failure happened before / during the SDK stream was
         drained (issue #1280).
         """
-        captured = list(self.last_captured_stderr)
         if exc is not None:
             preview = str(exc)[:200].replace("\n", " ")
-            cli_text = _captured_stderr_text(captured)
-            cli_preview = cli_text.replace("\n", " | ")[:400]
-            msg = (
-                f"[cai cost] claude-agent-sdk query failed "
-                f"({self.category}/{self.agent}): {preview}"
+            logging.getLogger(__name__).warning(
+                "[cai cost] claude-agent-sdk query failed (%s/%s): %s",
+                self.category, self.agent, preview,
             )
-            if cli_preview:
-                msg += f" | cli_stderr={cli_preview!r}"
-            logging.getLogger(__name__).warning(msg)
             return RunResult(
                 status=RunStatus.EXCEPTION,
                 stdout="",
                 result=None,
                 error_summary=str(exc),
-                captured_stderr=captured,
                 transcript=transcript,
             )
         if result is None:
             preview = (self.last_assistant or "")[:120].replace("\n", " ")
-            cli_text = _captured_stderr_text(captured)
-            cli_preview = cli_text.replace("\n", " | ")[:400]
-            msg = (
-                f"[cai cost] no ResultMessage from claude-agent-sdk "
-                f"({self.category}/{self.agent}); last assistant starts with: "
-                f"{preview!r}"
+            logging.getLogger(__name__).warning(
+                "[cai cost] no ResultMessage from claude-agent-sdk "
+                "(%s/%s); last assistant starts with: %r",
+                self.category, self.agent, preview,
             )
-            if cli_preview:
-                msg += f" | cli_stderr={cli_preview!r}"
-            logging.getLogger(__name__).warning(msg)
             return RunResult(
                 status=RunStatus.NO_RESULT,
                 stdout=stdout,
                 result=None,
                 error_summary=f"no_ResultMessage last_assistant={preview!r}",
-                captured_stderr=captured,
                 transcript=transcript,
             )
         if result.is_error:
@@ -372,7 +348,6 @@ class SubAgent(BaseModel):
                 stdout=stdout,
                 result=result,
                 error_summary=_sdk_error_summary(result),
-                captured_stderr=captured,
                 transcript=transcript,
             )
         return RunResult(
@@ -380,6 +355,5 @@ class SubAgent(BaseModel):
             stdout=stdout,
             result=result,
             error_summary=None,
-            captured_stderr=captured,
             transcript=transcript,
         )

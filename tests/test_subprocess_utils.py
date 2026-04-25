@@ -220,9 +220,13 @@ class TestCliStderrCapture(unittest.TestCase):
     reason vanished into the parent's inherited stderr and we could not
     diagnose the intermittent failures breaking the cycle loop.
 
-    These tests verify that ``_run_claude_p`` now attaches a stderr sink
-    and surfaces the captured lines in both the logged message and the
-    returned ``CompletedProcess.stderr``.
+    The sink is wired by the back-compat ``_run_claude_p`` facade
+    itself — :class:`~cai_lib.subagent.core.SubAgent` does no stderr
+    capture, since SDK-native callers read structured fields off
+    :class:`~cai_lib.subagent.core.RunResult` instead.
+
+    These tests verify that ``_run_claude_p`` still surfaces the
+    captured CLI tail in the returned ``CompletedProcess.stderr``.
     """
 
     def test_exception_path_includes_captured_cli_stderr(self):
@@ -248,8 +252,8 @@ class TestCliStderrCapture(unittest.TestCase):
             )
             yield  # pragma: no cover — make it an async generator
 
-        with self.assertLogs("cai_lib.subagent.core", level="WARNING") as cm:
-            with patch.object(core, "query", _fake_query):
+        with patch.object(core, "query", _fake_query):
+            with patch("builtins.print"):
                 proc = _run_claude_p(
                     ["claude", "-p", "--agent", "cai-implement"],
                     category="implement", agent="cai-implement",
@@ -259,11 +263,6 @@ class TestCliStderrCapture(unittest.TestCase):
         self.assertIn("unexpected end of stream", proc.stderr)
         self.assertIn("cli.js:42", proc.stderr)
         self.assertIn("--- cli stderr ---", proc.stderr)
-        # Log line must also mention cli_stderr=... so grepping the
-        # wrapper's own log surfaces the real cause.
-        log_text = "\n".join(cm.output)
-        self.assertIn("cli_stderr=", log_text)
-        self.assertIn("unexpected end of stream", log_text)
 
     def test_exception_without_captured_stderr_falls_back(self):
         """When the CLI emitted no stderr, behaviour matches the pre-#1 contract."""
