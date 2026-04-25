@@ -19,6 +19,7 @@ from pydantic_deep import DeepAgentDeps, LocalBackend, create_deep_agent
 
 from cai.agents.loader import AGENT_DIR, build_model, parse_agent_md
 from cai.github.issues import IssueMeta
+from cai.observability import setup_langfuse
 
 AGENT_DEFINITION = AGENT_DIR / "cai-refine.md"
 
@@ -35,6 +36,7 @@ class RefineOutput(BaseModel):
 
 @lru_cache(maxsize=1)
 def _agent():
+    setup_langfuse()
     config, instructions = parse_agent_md(AGENT_DEFINITION)
     return create_deep_agent(
         build_model(config),

@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "PyGithub>=2.3",
     "claude-code-model>=0.4",
+    "langfuse>=3",
     "pydantic>=2",
     "pydantic-ai>=0.0.50",
     "pydantic-deep>=0.3",
