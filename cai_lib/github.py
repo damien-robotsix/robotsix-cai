@@ -90,6 +90,23 @@ def _transcript_dir_is_empty() -> bool:
     return not any(TRANSCRIPT_DIR.rglob("*.jsonl"))
 
 
+def _do_label_edit(verb: str, number: int, *, add: list[str], remove: list[str], log_prefix: str, target_msg: str) -> bool:
+    """Shared helper: build args, run gh <verb> edit, handle errors."""
+    args = [verb, "edit", str(number), "--repo", REPO]
+    for label in add:
+        args.extend(["--add-label", label])
+    for label in remove:
+        args.extend(["--remove-label", label])
+    result = _run(["gh"] + args, capture_output=True)
+    if result.returncode != 0:
+        print(
+            f"[{log_prefix}] failed to update labels on {target_msg}:\n{result.stderr}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (), log_prefix: str = "cai implement") -> bool:
     """Add and/or remove labels on an issue. Returns True on success."""
     # Auto-add the base label for any state-prefixed label being added.
@@ -103,37 +120,14 @@ def _set_labels(issue_number: int, *, add: list[str] = (), remove: list[str] = (
             if base in _BASE_NAMESPACES and base not in add:
                 auto_added_bases.add(base)
     effective_add = list(add) + sorted(auto_added_bases)
-
-    args = ["issue", "edit", str(issue_number), "--repo", REPO]
-    for label in effective_add:
-        args.extend(["--add-label", label])
-    for label in remove:
-        args.extend(["--remove-label", label])
-    result = _run(["gh"] + args, capture_output=True)
-    if result.returncode != 0:
-        print(
-            f"[{log_prefix}] failed to update labels on #{issue_number}:\n{result.stderr}",
-            file=sys.stderr,
-        )
-        return False
-    return True
+    return _do_label_edit("issue", issue_number, add=effective_add, remove=list(remove),
+                          log_prefix=log_prefix, target_msg=f"#{issue_number}")
 
 
 def _set_pr_labels(pr_number: int, *, add: list[str] = (), remove: list[str] = (), log_prefix: str = "cai") -> bool:
     """Add and/or remove labels on a PR. Returns True on success."""
-    args = ["pr", "edit", str(pr_number), "--repo", REPO]
-    for label in add:
-        args.extend(["--add-label", label])
-    for label in remove:
-        args.extend(["--remove-label", label])
-    result = _run(["gh"] + args, capture_output=True)
-    if result.returncode != 0:
-        print(
-            f"[{log_prefix}] failed to update labels on PR #{pr_number}:\n{result.stderr}",
-            file=sys.stderr,
-        )
-        return False
-    return True
+    return _do_label_edit("pr", pr_number, add=list(add), remove=list(remove),
+                          log_prefix=log_prefix, target_msg=f"PR #{pr_number}")
 
 
 def _post_issue_comment(issue_number: int, body: str, *, log_prefix: str = "cai") -> bool:
