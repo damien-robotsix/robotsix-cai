@@ -66,11 +66,10 @@ to detect progress. Handlers return a `HandlerResult` NamedTuple
 The catalog currently still contains every intermediate
 transition the pre-inline pipeline relied on. A catalog trim to
 a structural subset (Pattern A entry, approve, divert, resume)
-is tracked on parent issue #1037 via sibling issue #1129; as of
-#1172, `cmd_unblock` and `cmd_rescue` no longer call the
-FSM-side helpers `resume_transition_for` and `resume_pr_transition_for`
-(replaced with local state-name → trigger-name dicts), though the
-helpers remain callable for now until they are deleted by #1129.
+is tracked on parent issue #1037. As of #1172, `cmd_unblock` and
+`cmd_rescue` route resume targets through local state-name →
+trigger-name dicts (`_ISSUE_RESUME_TRANSITIONS` /
+`_PR_RESUME_TRANSITIONS`) instead of FSM-side resolver helpers.
 
 Resume paths do not consult a fixed label-to-step table. The
 [`cai-resume-locator`](../../.claude/agents/lifecycle/cai-resume-locator.md)
