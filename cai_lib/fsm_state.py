@@ -12,8 +12,7 @@ know ``category``.
 
 Previously located at :mod:`cai_lib.subagent.fsm_state`; moved here to
 decouple the base :mod:`cai_lib.subagent` package from repo-specific
-dependencies (issue #1269). :mod:`cai_lib.subagent.fsm_state` is kept as
-a thin re-export shim for backwards-compatibility.
+dependencies (issue #1269).
 """
 
 from __future__ import annotations
