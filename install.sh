@@ -64,28 +64,15 @@ upsert_env() {
 touch "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
-echo "Install mode:"
-echo "  1) server  — host the full Langfuse stack on this machine"
-echo "  2) client  — cai only; sends traces to an existing Langfuse server"
-prompt MODE_CHOICE "Choice" "1"
-case "$MODE_CHOICE" in
-  2|client) MODE=client ;;
-  *)        MODE=server ;;
-esac
+echo "Langfuse server details (run Langfuse separately — see README):"
+prompt LF_BASE_URL "Base URL (e.g. https://langfuse.your-domain.com)"
+prompt LF_PK "Project public key (pk-lf-...)"
+prompt LF_SK "Project secret key (sk-lf-...)"
+upsert_env LANGFUSE_BASE_URL    "$LF_BASE_URL"
+upsert_env LANGFUSE_PUBLIC_KEY  "$LF_PK"
+upsert_env LANGFUSE_SECRET_KEY  "$LF_SK"
 
-if [[ "$MODE" == "client" ]]; then
-  # Client mode: ask for the remote Langfuse details. The cai container
-  # picks them up from .env via env_file.
-  echo
-  echo "Remote Langfuse server details:"
-  prompt LF_BASE_URL "Base URL (e.g. https://langfuse.your-domain.com)"
-  prompt LF_PK "Project public key (pk-lf-...)"
-  prompt LF_SK "Project secret key (sk-lf-...)"
-  upsert_env LANGFUSE_BASE_URL    "$LF_BASE_URL"
-  upsert_env LANGFUSE_PUBLIC_KEY  "$LF_PK"
-  upsert_env LANGFUSE_SECRET_KEY  "$LF_SK"
-
-  cat > docker-compose.yml <<EOF
+cat > docker-compose.yml <<EOF
 # cai client. Traces are shipped to the Langfuse server in .env
 # (LANGFUSE_BASE_URL / LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY).
 
@@ -102,187 +89,6 @@ volumes:
   cai_home:
     name: cai_home
 EOF
-else
-  # Server mode: ask for the public-facing URL so NEXTAUTH_URL is right.
-  # Defaults to localhost for single-machine setups; users with TLS in
-  # front (Caddy/nginx/Traefik) supply the public https URL.
-  echo
-  prompt LF_PUBLIC_URL "Public URL of this Langfuse server" "http://localhost:3000"
-  upsert_env LANGFUSE_PUBLIC_URL "$LF_PUBLIC_URL"
-
-  # Strong randoms for Langfuse + its data services. Sticky on re-run so
-  # rotating them doesn't desync from already-initialised volumes.
-  upsert_env NEXTAUTH_SECRET                  "$(openssl rand -base64 32)"
-  upsert_env SALT                             "$(openssl rand -base64 32)"
-  upsert_env ENCRYPTION_KEY                   "$(openssl rand -hex 32)"
-  upsert_env POSTGRES_PASSWORD                "$(openssl rand -hex 32)"
-  upsert_env CLICKHOUSE_PASSWORD              "$(openssl rand -hex 32)"
-  upsert_env REDIS_AUTH                       "$(openssl rand -hex 32)"
-  upsert_env MINIO_ROOT_PASSWORD              "$(openssl rand -hex 32)"
-  upsert_env LANGFUSE_INIT_PROJECT_PUBLIC_KEY "pk-lf-$(openssl rand -hex 16)"
-  upsert_env LANGFUSE_INIT_PROJECT_SECRET_KEY "sk-lf-$(openssl rand -hex 16)"
-  upsert_env LANGFUSE_INIT_USER_EMAIL         "admin@cai.local"
-  upsert_env LANGFUSE_INIT_USER_PASSWORD      "$(openssl rand -base64 24)"
-
-  cat > docker-compose.yml <<EOF
-# Self-hosted Langfuse + cai stack. Secrets live in .env.
-# Langfuse UI: ${LF_PUBLIC_URL}
-
-services:
-  cai:
-    image: robotsix/cai:${IMAGE_TAG}
-    restart: unless-stopped
-    depends_on:
-      langfuse-web:
-        condition: service_started
-    env_file:
-      - .env
-    environment:
-      LANGFUSE_BASE_URL: http://langfuse-web:3000
-      LANGFUSE_PUBLIC_KEY: \${LANGFUSE_INIT_PROJECT_PUBLIC_KEY}
-      LANGFUSE_SECRET_KEY: \${LANGFUSE_INIT_PROJECT_SECRET_KEY}
-    volumes:
-      - cai_home:/home/cai
-
-  langfuse-worker:
-    image: docker.io/langfuse/langfuse-worker:3
-    restart: unless-stopped
-    depends_on: &langfuse-depends-on
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    ports:
-      - 127.0.0.1:3030:3030
-    environment: &langfuse-worker-env
-      DATABASE_URL: postgresql://postgres:\${POSTGRES_PASSWORD}@postgres:5432/postgres
-      SALT: \${SALT}
-      ENCRYPTION_KEY: \${ENCRYPTION_KEY}
-      TELEMETRY_ENABLED: "true"
-      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
-      CLICKHOUSE_URL: http://clickhouse:8123
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: \${CLICKHOUSE_PASSWORD}
-      CLICKHOUSE_CLUSTER_ENABLED: "false"
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: \${MINIO_ROOT_PASSWORD}
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
-      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
-      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
-      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: \${MINIO_ROOT_PASSWORD}
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
-      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_AUTH: \${REDIS_AUTH}
-      REDIS_TLS_ENABLED: "false"
-      NEXTAUTH_URL: ${LF_PUBLIC_URL}
-
-  langfuse-web:
-    image: docker.io/langfuse/langfuse:3
-    restart: unless-stopped
-    depends_on: *langfuse-depends-on
-    ports:
-      - 3000:3000
-    environment:
-      <<: *langfuse-worker-env
-      NEXTAUTH_SECRET: \${NEXTAUTH_SECRET}
-      LANGFUSE_INIT_ORG_ID: cai
-      LANGFUSE_INIT_ORG_NAME: cai
-      LANGFUSE_INIT_PROJECT_ID: cai
-      LANGFUSE_INIT_PROJECT_NAME: cai
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: \${LANGFUSE_INIT_PROJECT_PUBLIC_KEY}
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: \${LANGFUSE_INIT_PROJECT_SECRET_KEY}
-      LANGFUSE_INIT_USER_EMAIL: \${LANGFUSE_INIT_USER_EMAIL}
-      LANGFUSE_INIT_USER_NAME: admin
-      LANGFUSE_INIT_USER_PASSWORD: \${LANGFUSE_INIT_USER_PASSWORD}
-
-  clickhouse:
-    image: docker.io/clickhouse/clickhouse-server
-    restart: unless-stopped
-    user: "101:101"
-    environment:
-      CLICKHOUSE_DB: default
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: \${CLICKHOUSE_PASSWORD}
-    volumes:
-      - langfuse_clickhouse_data:/var/lib/clickhouse
-      - langfuse_clickhouse_logs:/var/log/clickhouse-server
-    healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 1s
-
-  minio:
-    image: cgr.dev/chainguard/minio
-    restart: unless-stopped
-    entrypoint: sh
-    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
-    environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: \${MINIO_ROOT_PASSWORD}
-    volumes:
-      - langfuse_minio_data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 1s
-      timeout: 5s
-      retries: 5
-      start_period: 1s
-
-  redis:
-    image: docker.io/redis:7
-    restart: unless-stopped
-    command: >
-      --requirepass \${REDIS_AUTH}
-      --maxmemory-policy noeviction
-    volumes:
-      - langfuse_redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 3s
-      timeout: 10s
-      retries: 10
-
-  postgres:
-    image: docker.io/postgres:17
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
-      POSTGRES_DB: postgres
-      TZ: UTC
-      PGTZ: UTC
-    volumes:
-      - langfuse_postgres_data:/var/lib/postgresql/data
-
-volumes:
-  cai_home:
-    name: cai_home
-  langfuse_postgres_data:
-  langfuse_clickhouse_data:
-  langfuse_clickhouse_logs:
-  langfuse_minio_data:
-  langfuse_redis_data:
-EOF
-fi
 
 echo "Claude authentication:"
 echo "  1) OAuth login (recommended; persisted in cai_home volume)"
@@ -429,19 +235,7 @@ case "$ADD_ALIAS" in
 esac
 
 echo
-if [[ "$MODE" == "client" ]]; then
-  echo "Langfuse observability:"
-  echo "  Sending traces to: $(grep '^LANGFUSE_BASE_URL=' "$ENV_FILE" | cut -d= -f2-)"
-  echo "  Project public key: $(grep '^LANGFUSE_PUBLIC_KEY=' "$ENV_FILE" | cut -d= -f2-)"
-else
-  echo "Langfuse observability:"
-  echo "  UI:        $(grep '^LANGFUSE_PUBLIC_URL=' "$ENV_FILE" | cut -d= -f2-)"
-  echo "  Login as:  $(grep '^LANGFUSE_INIT_USER_EMAIL=' "$ENV_FILE" | cut -d= -f2-)"
-  echo "  Password:  $(grep '^LANGFUSE_INIT_USER_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"
-  echo "  Project keys (share with cai client installs):"
-  echo "    LANGFUSE_PUBLIC_KEY=$(grep '^LANGFUSE_INIT_PROJECT_PUBLIC_KEY=' "$ENV_FILE" | cut -d= -f2-)"
-  echo "    LANGFUSE_SECRET_KEY=$(grep '^LANGFUSE_INIT_PROJECT_SECRET_KEY=' "$ENV_FILE" | cut -d= -f2-)"
-  echo "  (all credentials are in $ENV_FILE)"
-fi
+echo "Langfuse observability:"
+echo "  Sending traces to: $(grep '^LANGFUSE_BASE_URL=' "$ENV_FILE" | cut -d= -f2-)"
 echo
 echo "Done. Try: cai"
