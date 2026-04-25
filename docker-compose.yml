@@ -1,14 +1,19 @@
-# Local development.
-#
-# Build and run:    docker compose up
-# Pull published:   docker compose pull && docker compose up
+# Local dev:    docker compose build && docker compose up -d
+# Pull image:   docker compose pull && docker compose up -d
 #
 # Pushes to main publish docker.io/robotsix/cai:latest.
+#
+# `cai_home` persists claude-code OAuth credentials and gh config
+# across container restarts.
 
 services:
   cai:
     image: robotsix/cai:latest
     build: .
     restart: unless-stopped
-    env_file:
-      - .env
+    volumes:
+      - cai_home:/home/cai
+
+volumes:
+  cai_home:
+    name: cai_home
