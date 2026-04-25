@@ -23,6 +23,8 @@ from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm_states import IssueState
 from cai_lib.fsm_transitions import ISSUE_TRANSITIONS
 
+from tests._helpers import _pr_fixture
+
 
 class TestPrToPlanApprovedTransition(unittest.TestCase):
     """The new issue FSM transition must be registered with the right shape."""
@@ -40,23 +42,6 @@ class TestPrToPlanApprovedTransition(unittest.TestCase):
         self.assertEqual(t.to_state, IssueState.PLAN_APPROVED)
         self.assertIn(LABEL_PR_OPEN, t.labels_remove)
         self.assertIn(LABEL_PLAN_APPROVED, t.labels_add)
-
-
-def _pr_fixture(number: int = 1234) -> dict:
-    return {
-        "number": number,
-        "title": "auto-improve: example",
-        "headRefName": f"auto-improve/{number}-example",
-        "headRefOid": "d7becb043dfd84c2796f35b7deb1353881435930",
-        "labels": [{"name": "pr:approved"}],
-        "state": "OPEN",
-        "mergeable": "MERGEABLE",
-        "mergeStateStatus": "CLEAN",
-        "mergedAt": None,
-        "comments": [],
-        "reviews": [],
-        "createdAt": "2026-04-20T00:00:00Z",
-    }
 
 
 class TestHandleMergeApproachMismatchRouting(unittest.TestCase):

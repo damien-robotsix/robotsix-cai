@@ -20,6 +20,8 @@ from cai_lib.actions import merge as merge_mod
 from cai_lib.actions.merge import _pr_touches_workflow_files
 from cai_lib.config import LABEL_PR_NEEDS_WORKFLOW_REVIEW
 
+from tests._helpers import _pr_fixture
+
 
 class TestPrTouchesWorkflowFiles(unittest.TestCase):
     """The detector matches only `.github/workflows/` diff headers."""
@@ -76,30 +78,13 @@ class TestPrTouchesWorkflowFiles(unittest.TestCase):
         self.assertTrue(_pr_touches_workflow_files(diff))
 
 
-def _pr_fixture(number: int = 2000) -> dict:
-    return {
-        "number": number,
-        "title": "auto-improve: example",
-        "headRefName": f"auto-improve/{number}-example",
-        "headRefOid": "d7becb043dfd84c2796f35b7deb1353881435930",
-        "labels": [{"name": "pr:approved"}],
-        "state": "OPEN",
-        "mergeable": "MERGEABLE",
-        "mergeStateStatus": "CLEAN",
-        "mergedAt": None,
-        "comments": [],
-        "reviews": [],
-        "createdAt": "2026-04-20T00:00:00Z",
-    }
-
-
 class TestHandleMergeWorkflowReviewLabel(unittest.TestCase):
     """handle_merge must attach `needs-workflow-review` only on
     `medium + hold` verdicts for workflow-touching PRs."""
 
     def _invoke(self, confidence: str, action: str, reasoning: str,
                 diff_stdout: str) -> tuple[MagicMock, MagicMock]:
-        pr = _pr_fixture()
+        pr = _pr_fixture(2000)
 
         def run_side_effect(cmd, *args, **kwargs):
             result = MagicMock()
