@@ -1,7 +1,7 @@
 ---
 name: explore
 description: Read-only repo explorer. Delegate questions about the codebase — "where is X defined?", "how does Y work?", "list all callers of Z" — and get back a concise findings summary with file:line citations.
-model: haiku
+model: google/gemini-flash-1.5
 tools:
   - filesystem_read
 ---

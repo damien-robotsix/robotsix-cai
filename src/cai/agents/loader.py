@@ -5,7 +5,7 @@ followed by the markdown that becomes the agent's system prompt::
 
     ---
     name: cai-refine
-    model: opus
+    model: anthropic/claude-sonnet-4-6
     ---
 
     # Refinement Agent
@@ -19,42 +19,25 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from pydantic_ai import Agent
-from pydantic_ai.models.anthropic import AnthropicModel
-from pydantic_ai.providers.anthropic import AnthropicProvider
-
-# Map the short names used in agent frontmatter to concrete Anthropic model IDs.
-# TODO: this mapping must be updated manually whenever Anthropic releases new
-# model versions (e.g. claude-sonnet-4-7, claude-opus-5-x, …). Consider
-# fetching the live model list from the Anthropic models API
-# (GET /v1/models) and resolving "latest opus/sonnet/haiku" dynamically so
-# the mapping never goes stale.
-_MODEL_IDS: dict[str, str] = {
-    "opus": "claude-opus-4-7",
-    "sonnet": "claude-sonnet-4-6",
-    "haiku": "claude-haiku-4-5-20251001",
-}
-
-DEFAULT_MODEL = "sonnet"
-VALID_MODELS = set(_MODEL_IDS)
+from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 AGENT_DIR = Path(__file__).resolve().parent
 
 
 @lru_cache(maxsize=None)
-def _provider() -> AnthropicProvider:
-    """Build an AnthropicProvider, preferring a Claude Code OAuth token.
-
-    Set ``CLAUDE_CODE_OAUTH_TOKEN`` (mint via ``claude setup-token``) to
-    bill against your Max plan. Otherwise the SDK falls back to
-    ``ANTHROPIC_API_KEY`` env for paid API metering. Cached so all
-    agents in the process share one HTTP client.
-    """
-    oauth = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
-    if oauth:
-        return AnthropicProvider(anthropic_client=AsyncAnthropic(auth_token=oauth))
-    return AnthropicProvider()
+def _provider() -> OpenAIProvider:
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
+    return OpenAIProvider(
+        openai_client=AsyncOpenAI(
+            api_key=key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+    )
 
 
 def parse_agent_md(path: str | Path) -> tuple[dict, str]:
@@ -71,19 +54,16 @@ def parse_agent_md(path: str | Path) -> tuple[dict, str]:
     return config, parts[2].strip()
 
 
-def build_model(config: dict) -> AnthropicModel:
-    """Build a pydantic-ai ``AnthropicModel`` from frontmatter ``config``.
+def build_model(config: dict) -> OpenAIModel:
+    """Build a pydantic-ai model from the ``model`` frontmatter key.
 
-    Model selection comes from the ``model`` frontmatter key — one of
-    ``sonnet``, ``opus``, ``haiku``, mapped to concrete Anthropic model
-    IDs. Auth is handled by ``_provider()`` (OAuth token or API key).
+    The value is the full OpenRouter model ID, e.g. ``anthropic/claude-sonnet-4-6``
+    or ``google/gemini-flash-1.5``.
     """
-    name = config.get("model", DEFAULT_MODEL)
-    if name not in _MODEL_IDS:
-        raise ValueError(
-            f"invalid model {name!r} — must be one of {sorted(_MODEL_IDS)}"
-        )
-    return AnthropicModel(_MODEL_IDS[name], provider=_provider())
+    model_id = config.get("model")
+    if not model_id:
+        raise ValueError("frontmatter missing required 'model' field")
+    return OpenAIModel(model_id, provider=_provider())
 
 
 # Maps a ``tools:`` frontmatter entry to the ``create_deep_agent`` flags it enables.
@@ -225,6 +205,11 @@ def build_deep_agent(
     sub_configs = _resolve_subagents(config)
     if sub_configs and "subagents" not in extra:
         extra["subagents"] = sub_configs
+
+    # pydantic-deep defaults max_tokens to 4096 but enables thinking with
+    # budget_tokens=16384, which the API rejects (budget must be < max_tokens).
+    # Raise the default so thinking has room; callers may override via extra.
+    extra.setdefault("model_settings", {"max_tokens": 32768})
 
     agent = create_deep_agent(
         build_model(config),

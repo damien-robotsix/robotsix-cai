@@ -137,98 +137,29 @@ volumes:
     name: cai_home
 EOF
 
-echo "Claude authentication:"
+echo "OpenRouter API key (for agent/programmatic model calls):"
+echo "  Get one at https://openrouter.ai/keys — lets cai use any provider (Anthropic, etc.)"
 
-_existing_token=$(read_env CLAUDE_CODE_OAUTH_TOKEN)
-_existing_api_key=$(read_env ANTHROPIC_API_KEY)
-_skip_claude_auth=0
+_existing_or=$(read_env OPENROUTER_API_KEY)
 
-if [[ -n "$_existing_token" && "$_existing_token" == sk-ant-oat01-* ]]; then
-  echo "  Existing Claude OAuth token found in .env."
-  prompt _REAUTH "Re-authenticate? [y/N]" "n"
-  case "$_REAUTH" in
-    y|Y|yes|YES) ;;
-    *) _skip_claude_auth=1; AUTH_CHOICE="1" ;;
+if [[ -n "$_existing_or" ]]; then
+  echo "  Existing OpenRouter API key found in .env."
+  prompt _OR_RECONFIG "Reconfigure? [y/N]" "n"
+  case "$_OR_RECONFIG" in
+    y|Y|yes|YES)
+      prompt OR_KEY "OpenRouter API key"
+      set_env OPENROUTER_API_KEY "$OR_KEY"
+      ;;
   esac
-elif [[ -n "$_existing_api_key" ]]; then
-  echo "  Existing Anthropic API key found in .env."
-  prompt _REAUTH "Reconfigure API key? [y/N]" "n"
-  case "$_REAUTH" in
-    y|Y|yes|YES) ;;
-    *) _skip_claude_auth=1; AUTH_CHOICE="2" ;;
-  esac
-fi
-
-if [[ "$_skip_claude_auth" -eq 0 ]]; then
-  echo "  1) Claude subscription via OAuth (recommended; mints a 1-year token,"
-  echo "     bills against your Pro/Max plan quota — no per-token charges)"
-  echo "  2) Anthropic API key (pay-per-token)"
-  prompt AUTH_CHOICE "Choice" "1"
-
-  if [[ "$AUTH_CHOICE" == "2" ]]; then
-    prompt API_KEY "Anthropic API key"
-    upsert_env ANTHROPIC_API_KEY "$API_KEY"
+else
+  prompt OR_KEY "OpenRouter API key [leave blank to skip]"
+  if [[ -n "$OR_KEY" ]]; then
+    upsert_env OPENROUTER_API_KEY "$OR_KEY"
   fi
 fi
 
 $DC pull
 $DC up -d
-
-if [[ "$_skip_claude_auth" -eq 0 && "$AUTH_CHOICE" != "2" ]]; then
-  echo
-  echo "Minting a long-lived (1-year) Claude OAuth token..."
-  echo "Follow the OAuth prompts inside the container — the token will be captured"
-  echo "automatically and written to .env as CLAUDE_CODE_OAUTH_TOKEN."
-
-  # Write a capture wrapper to the container that runs 'claude setup-token'
-  # under a PTY, forwards I/O to the user's terminal so the interactive auth
-  # works, and writes the extracted sk-ant-oat01-... token to a temp file.
-  $DC exec -T --user cai cai bash -c 'cat > /tmp/_cai_setup_token.py' <<'PY'
-import os
-import pty
-import re
-import sys
-
-captured = bytearray()
-
-
-def master_read(fd):
-    data = os.read(fd, 4096)
-    captured.extend(data)
-    return data
-
-
-exit_status = pty.spawn(["claude", "setup-token"], master_read)
-
-text = bytes(captured).decode("utf-8", "replace")
-# Strip ANSI escape sequences so colour codes don't break the regex.
-clean = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
-match = re.search(r"sk-ant-oat01-[A-Za-z0-9_-]+", clean)
-
-with open("/tmp/_cai_oauth_token", "w") as f:
-    if match:
-        f.write(match.group())
-
-sys.exit(exit_status if isinstance(exit_status, int) else 0)
-PY
-
-  # Redirect stdin from the resolved TTY so 'curl | bash' invocations don't
-  # leave docker compose exec without a real TTY for the OAuth prompts.
-  $DC exec --user cai cai python3 /tmp/_cai_setup_token.py < "$TTY"
-
-  TOKEN=$($DC exec -T --user cai cai cat /tmp/_cai_oauth_token 2>/dev/null || true)
-  $DC exec -T --user cai cai rm -f /tmp/_cai_setup_token.py /tmp/_cai_oauth_token
-
-  if [[ -z "$TOKEN" ]]; then
-    echo "  Failed to extract OAuth token from 'claude setup-token' output."
-    echo "  Re-run install.sh once you've completed the auth flow successfully."
-    exit 1
-  fi
-
-  set_env CLAUDE_CODE_OAUTH_TOKEN "$TOKEN"
-  echo "  CLAUDE_CODE_OAUTH_TOKEN written to .env. Restarting cai..."
-  $DC up -d --force-recreate
-fi
 
 echo
 echo "Authenticate the gh CLI as your GitHub user?"
