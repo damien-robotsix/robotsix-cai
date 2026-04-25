@@ -732,61 +732,6 @@ def _run_post_plan_resplit(issue, plan_text):
 # Helpers (moved from cai.py — only used by the plan phase).
 # ---------------------------------------------------------------------------
 
-def _select_plan_target(issue_number: int | None = None):
-    """Return the oldest open :refined issue eligible for planning, or None.
-
-    If *issue_number* is given, fetch that issue directly (validating it is
-    open and not locked).  Otherwise query for the oldest :refined issue
-    that is not :in-progress or :pr-open.
-    """
-    import subprocess  # local import — keeps module-level deps tight
-
-    if issue_number is not None:
-        try:
-            issue = _gh_json([
-                "issue", "view", str(issue_number),
-                "--repo", REPO,
-                "--json", "number,title,body,labels,state,createdAt,comments",
-            ])
-        except subprocess.CalledProcessError as e:
-            print(f"[cai plan] gh issue view #{issue_number} failed:\n{e.stderr}",
-                  file=sys.stderr)
-            return None
-        if issue.get("state", "").upper() != "OPEN":
-            print(f"[cai plan] issue #{issue_number} is not open; nothing to do",
-                  flush=True)
-            return None
-        label_names = {lbl["name"] for lbl in issue.get("labels", [])}
-        if LABEL_IN_PROGRESS in label_names or LABEL_PR_OPEN in label_names:
-            print(f"[cai plan] issue #{issue_number} is locked; skipping",
-                  flush=True)
-            return None
-        return issue
-
-    # Queue-based: oldest :refined issue not locked.
-    try:
-        candidates = _gh_json([
-            "issue", "list",
-            "--repo", REPO,
-            "--label", LABEL_REFINED,
-            "--state", "open",
-            "--json", "number,title,body,labels,createdAt,comments",
-            "--limit", "100",
-        ]) or []
-    except subprocess.CalledProcessError as e:
-        print(f"[cai plan] gh issue list failed:\n{e.stderr}",
-              file=sys.stderr)
-        return None
-    candidates = [
-        c for c in candidates
-        if not {lbl["name"] for lbl in c.get("labels", [])}
-            & {LABEL_IN_PROGRESS, LABEL_PR_OPEN}
-    ]
-    if not candidates:
-        return None
-    return min(candidates, key=lambda c: c.get("createdAt", ""))
-
-
 def _run_plan_agent(issue: dict, plan_index: int, work_dir: Path, attempt_history_block: str = "", first_plan: str = "") -> str:
     """Run a single cai-plan agent and return its stdout.
 
