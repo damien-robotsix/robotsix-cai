@@ -45,7 +45,7 @@ the agent prompt files for that category:
     cai-revise, cai-select).
   - `lifecycle/` — FSM lifecycle handlers and helpers
     (cai-confirm, cai-dup-check, cai-explore, cai-propose,
-    cai-propose-review, cai-refine, cai-rescue, cai-resume-locator,
+    cai-propose-review, cai-refine, cai-rescue,
     cai-split, cai-triage, cai-unblock).
   - `ops/` — operational / maintenance agents
     (cai-check-workflows, cai-maintain, cai-update-check).
@@ -131,8 +131,8 @@ wrapper pre-creates is the workaround for both cases:
      `.cai-staging/claudemd/subdir/CLAUDE.md`.
   2. The wrapper scans `.cai-staging/claudemd/` for all files named
      exactly `CLAUDE.md` and copies each to the matching path in
-     `<work_dir>/` after you exit, then deletes the staging
-     directory.
+     `<work_dir>/` after you exit, then deletes the
+     staging directory.
 
 **For deleting agent files** (`.claude/agents/*.md` removals and
 migrations):

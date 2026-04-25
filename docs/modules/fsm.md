@@ -70,12 +70,6 @@ is tracked on parent issue #1037. As of #1172, `cmd_unblock` and
 trigger-name dicts (`_ISSUE_RESUME_TRANSITIONS` /
 `_PR_RESUME_TRANSITIONS`) instead of FSM-side resolver helpers.
 
-Resume paths do not consult a fixed label-to-step table. The
-[`cai-resume-locator`](../../.claude/agents/lifecycle/cai-resume-locator.md)
-lifecycle agent is defined to pick a resume step from the
-target's labels, body, and recent comments — see
-[`docs/modules/agents-lifecycle.md`](agents-lifecycle.md).
-
 ## Inter-module dependencies
 - Imported by **actions** — every handler in `cai_lib/actions/*.py`
   reads the current state and applies a transition.
