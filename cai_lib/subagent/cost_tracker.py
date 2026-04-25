@@ -75,7 +75,7 @@ class ModelUsage(BaseModel):
     )
     costUSD: float | None = Field(
         default=None,
-        description="SDK model_usage[m].costUSD (omitted when absent)",
+        description="SDK model_usage[m].costUSD — client-side estimate (see CostRow.cost_usd); omitted when absent.",
     )
     cacheHitRate: float | None = Field(
         default=None,
@@ -110,7 +110,7 @@ class CostRow(BaseModel):
         ..., description="subagent name (e.g. 'cai-refine')",
     )
     cost_usd: float = Field(
-        ..., description="SDK result.total_cost_usd",
+        ..., description="SDK result.total_cost_usd — client-side estimate (price-table at SDK build time); not authoritative billing data, do not use for end-user billing.",
     )
     duration_ms: int = Field(
         ..., description="SDK result.duration_ms (wall)",
