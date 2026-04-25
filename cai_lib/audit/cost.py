@@ -115,15 +115,6 @@ def _row_ts(row: dict) -> float:
         return 0.0
 
 
-def _primary_model(row: dict) -> str:
-    """Return the model name with the most output tokens, or ''."""
-    models = row.get("models")
-    if not models or not isinstance(models, dict):
-        return ""
-    best = max(models.items(), key=lambda kv: kv[1].get("outputTokens", 0))
-    return best[0] if best else ""
-
-
 def _load_outcome_index(days: int = 90) -> dict[int, dict]:
     """Return a mapping of issue_number -> {outcome, fix_attempt_count}
     from the outcome log. Used by _build_cost_summary for §3 and §4 joins.
