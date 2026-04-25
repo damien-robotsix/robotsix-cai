@@ -71,6 +71,7 @@ def _row_ts(row: dict) -> float:
 
 def cost_query(
     *,
+    issue_number: int | None = None,
     agent: str | None = None,
     target: int | None = None,
     phase: str | None = None,
@@ -87,6 +88,8 @@ def cost_query(
 
     Parameters
     ----------
+    issue_number: if provided, delegates to ``cost_issue(issue_number)``
+                  and all other parameters are ignored
     agent:        exact match on the ``agent`` field
     target:       exact match on ``target_number``
     phase:        exact match on ``fsm_state``
@@ -100,7 +103,12 @@ def cost_query(
     last_n:       keep only the last N rows (takes precedence over since/until)
 
     Returns a JSON-serialisable list of dicts (or a dict when group_by is set).
+    When issue_number is provided, returns the structured dict from cost_issue().
     """
+    # Route to cost_issue when issue_number is provided.
+    if issue_number is not None:
+        return cost_issue(issue_number)
+
     rows = _load_rows()
 
     # Chronological sort (stable for subsequent last_n slice).
