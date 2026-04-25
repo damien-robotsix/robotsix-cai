@@ -143,18 +143,6 @@ def _run_rsync(args: list[str], *, label: str) -> int:
     return result.returncode
 
 
-def _ensure_local_bucket() -> None:
-    """In local mode, create this host's bucket directory if missing.
-
-    SSH mode uses rsync's ``--mkpath`` to auto-create remote intermediate
-    directories; local mode hits the filesystem directly, so we make sure
-    the target exists.
-    """
-    if not _is_local_url(config.TRANSCRIPT_SYNC_URL):
-        return
-    Path(_server_bucket()).mkdir(parents=True, exist_ok=True)
-
-
 def push() -> int:
     """Push the local transcript tree into this host's server bucket.
 
@@ -170,7 +158,8 @@ def push() -> int:
         return 0
     if not _ensure_rsync():
         return 0
-    _ensure_local_bucket()
+    if _is_local_url(config.TRANSCRIPT_SYNC_URL):
+        Path(_server_bucket()).mkdir(parents=True, exist_ok=True)
     return _run_rsync(
         [
             "-az",
