@@ -55,9 +55,8 @@ the Python caller.
   measurable quality regression; `cai-cost-optimize` weighs these
   trade-offs.
 - **FSM invariant.** Every agent here must emit `Confidence:
-  HIGH|MEDIUM|LOW|STOP` on its last line; missing or malformed
-  confidence is parsed as `STOP` and diverts the target to
-  `:human-needed`.
+  HIGH|MEDIUM|LOW` on its last line; missing or malformed
+  confidence diverts the target to `:human-needed`.
 - **Worktree model.** The caller provides a work-directory path
   in the user message (`/tmp/cai-*-<n>-<hash>`); the agent uses
   absolute paths under that tree for every Read/Edit/Write.

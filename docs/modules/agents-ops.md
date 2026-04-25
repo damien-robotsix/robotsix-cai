@@ -44,7 +44,7 @@ rather than inside them.
   subagent after the image rebuild, so downstream tests must
   pass before the proposal is applied.
 - **FSM invariant.** `cai-maintain` emits `Confidence:
-  HIGH|MEDIUM|LOW|STOP`; the handler treats anything below HIGH
+  HIGH|MEDIUM|LOW`; the handler treats anything below HIGH
   as a divert-to-human.
 - **CI implications.** `tests/test_maintain.py` pins
   `handle_maintain` routing.
