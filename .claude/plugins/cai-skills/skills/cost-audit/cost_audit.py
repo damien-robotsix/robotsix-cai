@@ -39,20 +39,9 @@ def _load_rows(days: int = 90) -> list[dict]:
 
     rows: list[dict] = []
     for path in paths:
-        try:
-            with path.open("r") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        row = json.loads(line)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-                    if _row_ts(row) >= cutoff:
-                        rows.append(row)
-        except OSError:
-            continue
+        for row in _iter_jsonl(path):
+            if _row_ts(row) >= cutoff:
+                rows.append(row)
     return rows
 
 
@@ -64,6 +53,22 @@ def _row_ts(row: dict) -> float:
         ).timestamp()
     except ValueError:
         return 0.0
+
+
+def _iter_jsonl(path: Path):
+    """Yield each JSON object in *path*; silently skip malformed lines/missing files."""
+    try:
+        with path.open("r") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    yield json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+    except OSError:
+        return
 
 
 # ── cost_query ────────────────────────────────────────────────────────────────
@@ -192,20 +197,9 @@ def cost_issue(issue_number: int) -> dict:
     # Outcome log.
     outcome: dict | None = None
     if _OUTCOME_LOG.exists():
-        try:
-            with _OUTCOME_LOG.open("r") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        row = json.loads(line)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-                    if row.get("issue_number") == issue_number:
-                        outcome = row  # last matching row wins
-        except OSError:
-            pass
+        for row in _iter_jsonl(_OUTCOME_LOG):
+            if row.get("issue_number") == issue_number:
+                outcome = row  # last matching row wins
 
     # PR-linked rows: cost rows where the PR's target_number points at
     # our issue (i.e. rows tagged with a PR number that was opened for
