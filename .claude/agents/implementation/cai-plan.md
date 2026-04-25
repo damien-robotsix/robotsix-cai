@@ -267,38 +267,6 @@ the "anti-pattern" shapes.
     """
     ```
 
-✗ **Anti-pattern 2 (natural-language-only edit target — the same MEDIUM cap applies even for a one-line import addition):**
-
-    #### Step 2 — Edit `/tmp/work/bar.py`
-    Locate the `from cai_lib.github import` block near the top
-    of the file and append `_strip_cost_comments` to its import
-    list.
-
-✓ **Correct 2 (verbatim `old_string` / `new_string`, even for a single-line import addition):**
-
-    #### Step 2 — Edit `/tmp/work/bar.py`
-
-    **Locate:** top-of-file import block, line 12.
-
-    **old_string:**
-
-    ```
-    from cai_lib.github import (
-        _foo,
-        _bar,
-    )
-    ```
-
-    **new_string:**
-
-    ```
-    from cai_lib.github import (
-        _foo,
-        _bar,
-        _strip_cost_comments,
-    )
-    ```
-
 Be concrete and specific. Name functions, variables, and line
 numbers. The fix agent will follow your plan literally and copy
 your `new_string` / file body directly into the Edit / Write call
