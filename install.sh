@@ -61,6 +61,13 @@ upsert_env() {
   printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
 }
 
+# Read VALUE for KEY from .env (empty string if not present).
+read_env() {
+  local key="$1"
+  [[ -f "$ENV_FILE" ]] || return 0
+  grep -m1 "^${key}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true
+}
+
 # Set KEY=VALUE in .env, replacing any existing value. Used for credentials
 # that rotate (e.g. Claude OAuth access tokens) so re-running install.sh
 # refreshes the value rather than silently keeping a stale one.
@@ -82,12 +89,35 @@ chmod 600 "$ENV_FILE"
 
 echo "Langfuse server details:"
 echo "  (host one yourself first — see docs/langfuse-server.md)"
-prompt LF_BASE_URL "Base URL (e.g. https://langfuse.your-domain.com)"
-prompt LF_PK "Project public key (pk-lf-...)"
-prompt LF_SK "Project secret key (sk-lf-...)"
-upsert_env LANGFUSE_BASE_URL    "$LF_BASE_URL"
-upsert_env LANGFUSE_PUBLIC_KEY  "$LF_PK"
-upsert_env LANGFUSE_SECRET_KEY  "$LF_SK"
+
+_lf_url=$(read_env LANGFUSE_BASE_URL)
+_lf_pk=$(read_env LANGFUSE_PUBLIC_KEY)
+_lf_sk=$(read_env LANGFUSE_SECRET_KEY)
+
+if [[ -n "$_lf_url" && -n "$_lf_pk" && -n "$_lf_sk" ]]; then
+  echo "  Existing Langfuse credentials found in .env ($( printf '%s' "$_lf_url"))."
+  prompt _LF_RECONFIG "Reconfigure? [y/N]" "n"
+  case "$_LF_RECONFIG" in
+    y|Y|yes|YES)
+      prompt LF_BASE_URL "Base URL" "$_lf_url"
+      prompt LF_PK      "Project public key (pk-lf-...)" "$_lf_pk"
+      prompt LF_SK      "Project secret key (sk-lf-...)" "$_lf_sk"
+      set_env LANGFUSE_BASE_URL   "$LF_BASE_URL"
+      set_env LANGFUSE_PUBLIC_KEY "$LF_PK"
+      set_env LANGFUSE_SECRET_KEY "$LF_SK"
+      ;;
+    *)
+      LF_BASE_URL="$_lf_url"
+      ;;
+  esac
+else
+  prompt LF_BASE_URL "Base URL (e.g. https://langfuse.your-domain.com)"
+  prompt LF_PK "Project public key (pk-lf-...)"
+  prompt LF_SK "Project secret key (sk-lf-...)"
+  set_env LANGFUSE_BASE_URL   "$LF_BASE_URL"
+  set_env LANGFUSE_PUBLIC_KEY "$LF_PK"
+  set_env LANGFUSE_SECRET_KEY "$LF_SK"
+fi
 
 cat > docker-compose.yml <<EOF
 # cai client. Traces are shipped to the Langfuse server in .env
@@ -108,20 +138,43 @@ volumes:
 EOF
 
 echo "Claude authentication:"
-echo "  1) Claude subscription via OAuth (recommended; mints a 1-year token,"
-echo "     bills against your Pro/Max plan quota — no per-token charges)"
-echo "  2) Anthropic API key (pay-per-token)"
-prompt AUTH_CHOICE "Choice" "1"
 
-if [[ "$AUTH_CHOICE" == "2" ]]; then
-  prompt API_KEY "Anthropic API key"
-  upsert_env ANTHROPIC_API_KEY "$API_KEY"
+_existing_token=$(read_env CLAUDE_CODE_OAUTH_TOKEN)
+_existing_api_key=$(read_env ANTHROPIC_API_KEY)
+_skip_claude_auth=0
+
+if [[ -n "$_existing_token" && "$_existing_token" == sk-ant-oat01-* ]]; then
+  echo "  Existing Claude OAuth token found in .env."
+  prompt _REAUTH "Re-authenticate? [y/N]" "n"
+  case "$_REAUTH" in
+    y|Y|yes|YES) ;;
+    *) _skip_claude_auth=1; AUTH_CHOICE="1" ;;
+  esac
+elif [[ -n "$_existing_api_key" ]]; then
+  echo "  Existing Anthropic API key found in .env."
+  prompt _REAUTH "Reconfigure API key? [y/N]" "n"
+  case "$_REAUTH" in
+    y|Y|yes|YES) ;;
+    *) _skip_claude_auth=1; AUTH_CHOICE="2" ;;
+  esac
+fi
+
+if [[ "$_skip_claude_auth" -eq 0 ]]; then
+  echo "  1) Claude subscription via OAuth (recommended; mints a 1-year token,"
+  echo "     bills against your Pro/Max plan quota — no per-token charges)"
+  echo "  2) Anthropic API key (pay-per-token)"
+  prompt AUTH_CHOICE "Choice" "1"
+
+  if [[ "$AUTH_CHOICE" == "2" ]]; then
+    prompt API_KEY "Anthropic API key"
+    upsert_env ANTHROPIC_API_KEY "$API_KEY"
+  fi
 fi
 
 $DC pull
 $DC up -d
 
-if [[ "$AUTH_CHOICE" != "2" ]]; then
+if [[ "$_skip_claude_auth" -eq 0 && "$AUTH_CHOICE" != "2" ]]; then
   echo
   echo "Minting a long-lived (1-year) Claude OAuth token..."
   echo "Follow the OAuth prompts inside the container — the token will be captured"
@@ -181,7 +234,13 @@ echo
 echo "Authenticate the gh CLI as your GitHub user?"
 echo "  Needed for 'gh pr/issue/api ...' calls and for git push in repos"
 echo "  not bootstrapped with the cai GitHub App below."
-prompt GH_LOGIN "Run 'gh auth login' now? [Y/n]" "y"
+
+if $DC exec -T --user cai cai gh auth status >/dev/null 2>&1; then
+  echo "  Already authenticated with gh CLI."
+  prompt GH_LOGIN "Re-authenticate? [y/N]" "n"
+else
+  prompt GH_LOGIN "Run 'gh auth login' now? [Y/n]" "y"
+fi
 
 case "$GH_LOGIN" in
   n|N|no|NO) ;;
@@ -192,7 +251,13 @@ echo
 echo "Configure cai as a GitHub App? (Optional)"
 echo "  Lets cai push commits, open PRs and issues as 'cai[bot]' instead"
 echo "  of your personal account."
-prompt SETUP_BOT "Configure now? [y/N]" "n"
+
+if $DC exec -T --user cai cai test -f /home/cai/.config/cai/github-app.pem 2>/dev/null; then
+  echo "  Existing GitHub App configuration found in the container."
+  prompt SETUP_BOT "Reconfigure? [y/N]" "n"
+else
+  prompt SETUP_BOT "Configure now? [y/N]" "n"
+fi
 
 case "$SETUP_BOT" in
   y|Y|yes|YES)
