@@ -17,9 +17,6 @@ from pathlib import Path
 from cai_lib.config import (
     REPO,
     LABEL_REVISING,
-    LABEL_PR_OPEN,
-    LABEL_PR_NEEDS_HUMAN,
-    LABEL_MERGE_BLOCKED,
 )
 from cai_lib.dispatcher import HandlerResult
 from cai_lib.fsm import PRState
