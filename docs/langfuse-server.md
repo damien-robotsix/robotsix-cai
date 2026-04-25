@@ -18,7 +18,7 @@ Point a record at the server's public IP:
 langfuse.your-domain.com   A    <server public IP>
 ```
 
-Wait until it propagates before step 4 — Caddy's automatic TLS will
+Wait until it propagates before step 4 — automatic TLS issuance will
 fail if the hostname doesn't yet resolve.
 
 ```bash
@@ -27,12 +27,10 @@ dig +short langfuse.your-domain.com
 
 ## 2. Firewall
 
-On the server:
-
-- Allow inbound `:80` (Let's Encrypt HTTP-01 challenge) and `:443`
-  (HTTPS).
-- **Block inbound `:3000`.** Caddy proxies to it on `localhost`; you
-  don't want it reachable from the public internet.
+Open the ports your reverse proxy needs (typically `:80` and `:443`)
+and **block inbound `:3000`** — the Langfuse compose binds it to all
+interfaces, but the proxy reaches it on `localhost` and you don't
+want it exposed publicly.
 
 ## 3. Bring up the Langfuse stack
 
@@ -87,24 +85,17 @@ docker compose up -d
 Wait ~30s for the migrations to run. `docker compose logs langfuse-web`
 should end with `Ready in …`.
 
-## 4. Caddy reverse proxy with auto-TLS
+## 4. Reverse proxy with TLS
 
-Install Caddy (`apt install caddy` on Debian/Ubuntu) and put this in
-`/etc/caddy/Caddyfile`:
+Front Langfuse with whatever reverse proxy you already use (Caddy,
+nginx, Traefik, HAProxy…). Two requirements:
 
-```
-langfuse.your-domain.com {
-    reverse_proxy localhost:3000
-}
-```
+- Terminate TLS for `langfuse.your-domain.com` with a valid
+  certificate.
+- Forward all traffic to `http://localhost:3000` (or the docker host
+  IP, if the proxy runs on a different machine).
 
-Reload Caddy:
-
-```bash
-sudo systemctl reload caddy
-```
-
-Caddy fetches a Let's Encrypt cert on first request. Verify:
+Verify once it's up:
 
 ```bash
 curl -I https://langfuse.your-domain.com/api/public/health
