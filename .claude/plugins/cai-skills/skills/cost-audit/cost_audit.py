@@ -4,19 +4,11 @@ Provides two functions:
   cost_query(...)   — filter / group cost-log rows
   cost_issue(n)     — join cost rows + outcome + PR-linked rows for issue N
 
-Both functions return JSON-serialisable Python objects. When executed
-as __main__ they parse sys.argv and print JSON to stdout so a skill
-prompt can invoke them via Bash (if available) or Claude can read the
-file and reproduce the logic inline using Read + Glob.
-
-Usage (standalone):
-  python cost_audit.py cost_query '{"agent":"cai-implement","last_n":10}'
-  python cost_audit.py cost_issue '{"issue_number":1208}'
+Both functions return JSON-serialisable Python objects.
 """
 from __future__ import annotations
 
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -240,43 +232,3 @@ def cost_issue(issue_number: int) -> dict:
         "outcome": outcome,
         "linked_pr_rows": linked_pr_rows,
     }
-
-
-# ── CLI entry point ───────────────────────────────────────────────────────────
-
-
-def _parse_args(argv: list[str]) -> tuple[str, dict]:
-    """Parse ``mode args_json`` from argv[1:].
-
-    Returns (mode, kwargs_dict).
-    """
-    if len(argv) < 2:
-        raise SystemExit("Usage: cost_audit.py <cost_query|cost_issue> ['{...}']")
-    mode = argv[1]
-    raw = argv[2] if len(argv) > 2 else "{}"
-    try:
-        kwargs = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"Invalid JSON arguments: {exc}") from exc
-    if not isinstance(kwargs, dict):
-        raise SystemExit("Arguments must be a JSON object ({...})")
-    return mode, kwargs
-
-
-def main(argv: list[str] | None = None) -> None:
-    argv = argv or sys.argv
-    mode, kwargs = _parse_args(argv)
-    if mode == "cost_query":
-        result = cost_query(**kwargs)
-    elif mode == "cost_issue":
-        n = kwargs.get("issue_number")
-        if not isinstance(n, int):
-            raise SystemExit("cost_issue requires {\"issue_number\": <int>}")
-        result = cost_issue(n)
-    else:
-        raise SystemExit(f"Unknown mode: {mode!r}. Use cost_query or cost_issue.")
-    print(json.dumps(result, default=str, indent=2))
-
-
-if __name__ == "__main__":
-    main()
