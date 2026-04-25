@@ -64,7 +64,8 @@ upsert_env() {
 touch "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
-echo "Langfuse server details (run Langfuse separately — see README):"
+echo "Langfuse server details:"
+echo "  (host one yourself first — see docs/langfuse-server.md)"
 prompt LF_BASE_URL "Base URL (e.g. https://langfuse.your-domain.com)"
 prompt LF_PK "Project public key (pk-lf-...)"
 prompt LF_SK "Project secret key (sk-lf-...)"

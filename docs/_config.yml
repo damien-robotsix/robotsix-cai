@@ -1,0 +1,12 @@
+title: robotsix-cai
+description: Containerized Claude Code launcher with GitHub App identity and Langfuse trace auditing
+remote_theme: just-the-docs/just-the-docs
+
+# GitHub Pages project site — baseurl is the repo name; url is the
+# user.github.io host. Both are needed for assets and internal links to
+# resolve correctly.
+url: https://damien-robotsix.github.io
+baseurl: /robotsix-cai
+
+aux_links:
+  GitHub: https://github.com/damien-robotsix/robotsix-cai
