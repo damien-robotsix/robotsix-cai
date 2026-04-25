@@ -502,6 +502,19 @@ def issue_exists(key: str) -> bool:
     return bool(result.stdout.strip() and result.stdout.strip() != "[]")
 
 
+_NAMESPACE_SOURCE: dict[str, tuple[str, str]] = {
+    "update-check": ("cai update-check agent", ".claude/agents/ops/cai-update-check.md"),
+    "check-workflows": ("cai check-workflows agent", ".claude/agents/cai-check-workflows.md"),
+    "external-scout": ("cai external-scout agent", ".claude/agents/cai-external-scout.md"),
+    "audit-external-libs": ("cai external-libs audit agent", ".claude/agents/audit/cai-audit-external-libs.md"),
+    "audit-good-practices": ("cai good-practices audit agent", ".claude/agents/audit/cai-audit-good-practices.md"),
+    "audit-code-reduction": ("cai code-reduction audit agent", ".claude/agents/audit/cai-audit-code-reduction.md"),
+    "audit-cost-reduction": ("cai cost-reduction audit agent", ".claude/agents/audit/cai-audit-cost-reduction.md"),
+    "audit-workflow-enhancement": ("cai workflow-enhancement audit agent", ".claude/agents/audit/cai-audit-workflow-enhancement.md"),
+    "audit-health": ("cai audit-health monitor agent", ".claude/agents/audit/cai-audit-audit-health.md"),
+}
+
+
 def create_issue(
     f: Finding,
     namespace: str = "auto-improve",
@@ -515,36 +528,9 @@ def create_issue(
     ``---`` separator. Future per-module audit runs can scope their
     dedup search by both fingerprint and module footer.
     """
-    if namespace == "update-check":
-        source_note = "cai update-check agent"
-        source_file = ".claude/agents/ops/cai-update-check.md"
-    elif namespace == "check-workflows":
-        source_note = "cai check-workflows agent"
-        source_file = ".claude/agents/cai-check-workflows.md"
-    elif namespace == "external-scout":
-        source_note = "cai external-scout agent"
-        source_file = ".claude/agents/cai-external-scout.md"
-    elif namespace == "audit-external-libs":
-        source_note = "cai external-libs audit agent"
-        source_file = ".claude/agents/audit/cai-audit-external-libs.md"
-    elif namespace == "audit-good-practices":
-        source_note = "cai good-practices audit agent"
-        source_file = ".claude/agents/audit/cai-audit-good-practices.md"
-    elif namespace == "audit-code-reduction":
-        source_note = "cai code-reduction audit agent"
-        source_file = ".claude/agents/audit/cai-audit-code-reduction.md"
-    elif namespace == "audit-cost-reduction":
-        source_note = "cai cost-reduction audit agent"
-        source_file = ".claude/agents/audit/cai-audit-cost-reduction.md"
-    elif namespace == "audit-workflow-enhancement":
-        source_note = "cai workflow-enhancement audit agent"
-        source_file = ".claude/agents/audit/cai-audit-workflow-enhancement.md"
-    elif namespace == "audit-health":
-        source_note = "cai audit-health monitor agent"
-        source_file = ".claude/agents/audit/cai-audit-audit-health.md"
-    else:
-        source_note = "cai self-analyzer"
-        source_file = ".claude/agents/cai-refine.md"
+    source_note, source_file = _NAMESPACE_SOURCE.get(
+        namespace, ("cai self-analyzer", ".claude/agents/cai-refine.md"),
+    )
     module_footer = f"<!-- module: {module_name} -->\n" if module_name else ""
     body = (
         f"<!-- fingerprint: {f.key} -->\n"
