@@ -178,6 +178,20 @@ def push() -> int:
     )
 
 
+def _pull_inner(source_slug: str, dest_dir: Path, *, label: str) -> int:
+    if not config.transcript_sync_enabled():
+        return 0
+    if not _ensure_rsync():
+        return 0
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    if _is_local_url(config.TRANSCRIPT_SYNC_URL) and not Path(source_slug).exists():
+        return 0
+    return _run_rsync(
+        ["-az", *_transport_args(), f"{source_slug}/", f"{dest_dir}/"],
+        label=label,
+    )
+
+
 def pull() -> int:
     """Pull every machine's bucket into the local aggregate mirror.
 
@@ -185,26 +199,7 @@ def pull() -> int:
     missing. Does NOT use ``--delete`` so a transient server outage can't
     empty the local mirror mid-run.
     """
-    if not config.transcript_sync_enabled():
-        return 0
-    if not _ensure_rsync():
-        return 0
-    config.TRANSCRIPT_AGGREGATE_DIR.mkdir(parents=True, exist_ok=True)
-    if _is_local_url(config.TRANSCRIPT_SYNC_URL):
-        # In local mode the source may not exist yet (no machine has
-        # pushed). rsync would emit "No such file or directory" and
-        # return non-zero — harmless but noisy. Skip gracefully.
-        if not Path(_server_slug()).exists():
-            return 0
-    return _run_rsync(
-        [
-            "-az",
-            *_transport_args(),
-            f"{_server_slug()}/",
-            f"{config.TRANSCRIPT_AGGREGATE_DIR}/",
-        ],
-        label="pull",
-    )
+    return _pull_inner(_server_slug(), config.TRANSCRIPT_AGGREGATE_DIR, label="pull")
 
 
 def sync() -> int:
@@ -300,23 +295,7 @@ def pull_cost() -> int:
     No-op (returns 0) when disabled. Creates the aggregate directory if
     missing. Does NOT use ``--delete`` for the same reason as ``pull()``.
     """
-    if not config.transcript_sync_enabled():
-        return 0
-    if not _ensure_rsync():
-        return 0
-    config.COST_LOG_AGGREGATE_DIR.mkdir(parents=True, exist_ok=True)
-    if _is_local_url(config.TRANSCRIPT_SYNC_URL):
-        if not Path(_cost_server_slug()).exists():
-            return 0
-    return _run_rsync(
-        [
-            "-az",
-            *_transport_args(),
-            f"{_cost_server_slug()}/",
-            f"{config.COST_LOG_AGGREGATE_DIR}/",
-        ],
-        label="cost-pull",
-    )
+    return _pull_inner(_cost_server_slug(), config.COST_LOG_AGGREGATE_DIR, label="cost-pull")
 
 
 def parse_source() -> Path:
