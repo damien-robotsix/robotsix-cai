@@ -78,6 +78,16 @@ is_schedule_disabled() {
   [[ -z "$val" || "$val" == "disabled" || "$val" == "off" ]]
 }
 
+emit_schedule() {
+  local var="$1" cmd="$2" label="$3"
+  local sched="${!var}"
+  if ! is_schedule_disabled "$sched"; then
+    echo "$sched $cmd" >> "$CRONTAB_PATH"
+  else
+    echo "[entrypoint] $var disabled — skipping $label cron line"
+  fi
+}
+
 CRONTAB_PATH=/tmp/crontab
 
 cat > "$CRONTAB_PATH" <<CRONTAB
@@ -86,33 +96,15 @@ cat > "$CRONTAB_PATH" <<CRONTAB
 # other lines are orthogonal tasks with their own cadence.
 CRONTAB
 
-if ! is_schedule_disabled "$CAI_CYCLE_SCHEDULE"; then
-  echo "$CAI_CYCLE_SCHEDULE python /app/cai.py cycle" >> "$CRONTAB_PATH"
-else
-  echo "[entrypoint] CAI_CYCLE_SCHEDULE disabled — skipping cycle cron line"
-fi
-
-if ! is_schedule_disabled "$CAI_VERIFY_SCHEDULE"; then
-  echo "$CAI_VERIFY_SCHEDULE python /app/cai.py verify" >> "$CRONTAB_PATH"
-else
-  echo "[entrypoint] CAI_VERIFY_SCHEDULE disabled — skipping verify cron line"
-fi
-
-if ! is_schedule_disabled "$CAI_RESCUE_SCHEDULE"; then
-  echo "$CAI_RESCUE_SCHEDULE python /app/cai.py rescue" >> "$CRONTAB_PATH"
-else
-  echo "[entrypoint] CAI_RESCUE_SCHEDULE disabled — skipping rescue cron line"
-fi
+emit_schedule CAI_CYCLE_SCHEDULE "python /app/cai.py cycle" cycle
+emit_schedule CAI_VERIFY_SCHEDULE "python /app/cai.py verify" verify
+emit_schedule CAI_RESCUE_SCHEDULE "python /app/cai.py rescue" rescue
 
 # Append the transcript-sync cron line only when sync is actually
 # configured. The cmd_transcript_sync handler no-ops when disabled, but
 # running it every 15 min for no reason would clutter docker logs.
 if [ -n "$CAI_TRANSCRIPT_SYNC_URL" ]; then
-  if ! is_schedule_disabled "$CAI_TRANSCRIPT_SYNC_SCHEDULE"; then
-    echo "$CAI_TRANSCRIPT_SYNC_SCHEDULE python /app/cai.py transcript-sync" >> "$CRONTAB_PATH"
-  else
-    echo "[entrypoint] CAI_TRANSCRIPT_SYNC_SCHEDULE disabled — skipping transcript-sync cron line"
-  fi
+  emit_schedule CAI_TRANSCRIPT_SYNC_SCHEDULE "python /app/cai.py transcript-sync" transcript-sync
 fi
 
 # Append per-workspace cycle lines from the workspaces config file.
