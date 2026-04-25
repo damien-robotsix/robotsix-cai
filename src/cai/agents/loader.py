@@ -19,10 +19,33 @@ from typing import Any
 import yaml
 from claude_code_model import ClaudeCodeModel
 from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.settings import ModelSettings
 
 DEFAULT_MODEL = "sonnet"
 VALID_MODELS = {"sonnet", "opus", "haiku"}
 DEFAULT_TIMEOUT = 300  # claude-code-model defaults to 30s — too tight for deep-agent runs.
+
+
+class _NamedClaudeCodeModel(ClaudeCodeModel):
+    """ClaudeCodeModel that stamps ``model_name`` on every response.
+
+    Upstream returns ``ModelResponse`` with ``model_name=None``, which makes
+    pydantic-ai's instrumentation log a warning per call ("Model name is
+    required to calculate price") and leaves Langfuse traces without a
+    model identifier. We fill it in from ``self.model_name``.
+    """
+
+    async def request(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+    ) -> ModelResponse:
+        response = await super().request(messages, model_settings, model_request_parameters)
+        response.model_name = self.model_name
+        return response
 
 AGENT_DIR = Path(__file__).resolve().parent
 
@@ -54,7 +77,7 @@ def build_model(config: dict) -> ClaudeCodeModel:
         raise ValueError(
             f"invalid model {name!r} — must be one of {sorted(VALID_MODELS)}"
         )
-    return ClaudeCodeModel(model=name, timeout=int(config.get("timeout", DEFAULT_TIMEOUT)))
+    return _NamedClaudeCodeModel(model=name, timeout=int(config.get("timeout", DEFAULT_TIMEOUT)))
 
 
 def load_agent_from_md(
