@@ -330,11 +330,6 @@ def pull_cost() -> int:
     )
 
 
-def transcript_sync_enabled() -> bool:
-    """Backwards-compat shim — prefer ``config.transcript_sync_enabled()``."""
-    return config.transcript_sync_enabled()
-
-
 def parse_source() -> Path:
     """Return the directory parse.py should walk.
 
