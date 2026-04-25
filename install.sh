@@ -87,8 +87,15 @@ if [[ "$AUTH_CHOICE" != "2" ]]; then
 fi
 
 echo
-echo "Authenticating with GitHub..."
-$DC exec --user cai cai gh auth login
+echo "Authenticate the gh CLI as your GitHub user?"
+echo "  Needed for 'gh pr/issue/api ...' calls and for git push in repos"
+echo "  not bootstrapped with the cai GitHub App below."
+prompt GH_LOGIN "Run 'gh auth login' now? [Y/n]" "y"
+
+case "$GH_LOGIN" in
+  n|N|no|NO) ;;
+  *) $DC exec --user cai cai gh auth login ;;
+esac
 
 echo
 echo "Configure cai as a GitHub App? (Optional)"
@@ -122,8 +129,15 @@ case "$SETUP_BOT" in
       echo "  App ID must be numeric."
     done
 
+    echo
+    echo "[3/5] Generate the App's private key"
+    echo "  On the App page, scroll to 'Private keys' -> 'Generate a"
+    echo "  private key'. A .pem file downloads to your machine."
+    echo "  Provide its full path below (e.g. ~/Downloads/cai.<date>.private-key.pem)."
     while :; do
-      prompt PEM_PATH "[3/5] Path to the .pem you downloaded from the App page"
+      prompt PEM_PATH "      Path to the downloaded .pem"
+      # Expand a leading ~ since read does not.
+      PEM_PATH="${PEM_PATH/#\~/$HOME}"
       if [[ ! -f "$PEM_PATH" ]]; then
         echo "  No file at: $PEM_PATH"
         continue
