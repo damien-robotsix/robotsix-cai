@@ -626,12 +626,20 @@ def _before_human_needed(event_data) -> None:
         raise MachineError(f"Missing divert_reason for {entity} transition")
 
 
-def _after_label_change_normal(event_data) -> None:
-    """After-callback for normal (non-divert) transitions.
+def _after_label_change(event_data) -> None:
+    """Unified after-callback for normal and confidence-gated divert transitions.
 
-    Applies ``labels_add`` / ``labels_remove`` from the catalog entry and,
-    when the destination is HUMAN_NEEDED / PR_HUMAN_NEEDED, posts the
-    ``_divert_reason`` comment supplied by the caller.
+    Detects whether this is the divert sibling by comparing the transition's
+    actual destination to the catalog entry's intended destination.  When the
+    destinations differ the confidence-gate divert path is active; otherwise
+    the normal path applies.
+
+    Normal path: applies ``labels_add`` / ``labels_remove`` from the catalog
+    entry and, when the destination is HUMAN_NEEDED / PR_HUMAN_NEEDED, posts
+    the ``_divert_reason`` comment supplied by the caller.
+
+    Divert path: applies ``human_label_if_below`` + ``labels_remove`` and
+    always posts the confidence-gate divert reason comment.
     """
     trigger_name = event_data.event.name
     is_pr = event_data.kwargs.get("_is_pr", False)
@@ -639,58 +647,6 @@ def _after_label_change_normal(event_data) -> None:
     extra_remove = event_data.kwargs.get("_extra_remove", ())
     log_prefix = event_data.kwargs.get("_log_prefix", "cai")
     divert_reason = event_data.kwargs.get("_divert_reason") or ""
-    set_fn = event_data.kwargs.get("_set_pr_labels_fn" if is_pr else "_set_labels_fn")
-    post_fn = event_data.kwargs.get("_post_comment_fn")
-    result_box = event_data.kwargs.get("_result_box", {})
-
-    transition_list = PR_TRANSITIONS if is_pr else ISSUE_TRANSITIONS
-    original_trans = find_transition(trigger_name, transition_list)
-
-    add_labels = list(original_trans.labels_add)
-    remove_labels = list(original_trans.labels_remove) + list(extra_remove)
-
-    if set_fn is None:
-        if is_pr:
-            from cai_lib.github import _set_pr_labels as set_fn  # local import — avoids cycle
-        else:
-            from cai_lib.github import _set_labels as set_fn  # local import — avoids cycle
-
-    ok = set_fn(number, add=add_labels, remove=remove_labels, log_prefix=log_prefix)
-    result_box["ok"] = ok
-    if not ok:
-        return
-
-    # Post HUMAN_NEEDED comment for explicit human-destination transitions.
-    human_dest_name = PRState.PR_HUMAN_NEEDED.name if is_pr else IssueState.HUMAN_NEEDED.name
-    if original_trans.to_state.name != human_dest_name:
-        return
-
-    msg = _render_human_divert_reason(
-        transition_name=trigger_name,
-        transition=original_trans,
-        confidence=None,
-        extra=divert_reason,
-    )
-    if post_fn is None:
-        if is_pr:
-            from cai_lib.github import _post_pr_comment as post_fn  # local import — avoids cycle
-        else:
-            from cai_lib.github import _post_issue_comment as post_fn  # local import — avoids cycle
-    post_fn(number, msg, log_prefix=log_prefix)
-
-
-def _after_label_change_divert(event_data) -> None:
-    """After-callback for confidence-gated divert siblings.
-
-    Applies ``human_label_if_below`` + ``labels_remove`` from the original
-    catalog entry and posts the confidence-gate divert reason comment so the
-    audit parser and ``cai unblock`` have context.
-    """
-    trigger_name = event_data.event.name
-    is_pr = event_data.kwargs.get("_is_pr", False)
-    number = event_data.kwargs.get("_number")
-    extra_remove = event_data.kwargs.get("_extra_remove", ())
-    log_prefix = event_data.kwargs.get("_log_prefix", "cai")
     confidence = event_data.kwargs.get("_confidence")
     reason_extra = event_data.kwargs.get("_reason_extra", "")
     set_fn = event_data.kwargs.get("_set_pr_labels_fn" if is_pr else "_set_labels_fn")
@@ -700,7 +656,14 @@ def _after_label_change_divert(event_data) -> None:
     transition_list = PR_TRANSITIONS if is_pr else ISSUE_TRANSITIONS
     original_trans = find_transition(trigger_name, transition_list)
 
-    add_labels = [original_trans.human_label_if_below]
+    # Detect the divert sibling structurally: when the machine landed somewhere
+    # other than the catalog's intended destination, the confidence check failed.
+    is_divert = (event_data.transition.dest != original_trans.to_state.name)
+
+    add_labels = (
+        [original_trans.human_label_if_below] if is_divert
+        else list(original_trans.labels_add)
+    )
     remove_labels = list(original_trans.labels_remove) + list(extra_remove)
 
     if set_fn is None:
@@ -714,12 +677,18 @@ def _after_label_change_divert(event_data) -> None:
     if not ok:
         return
 
-    # Post confidence-gate divert reason comment.
+    # Post human-needed comment:
+    # - divert path: always (confidence-gate divert reason)
+    # - normal path: only when destination is HUMAN_NEEDED / PR_HUMAN_NEEDED
+    human_dest_name = PRState.PR_HUMAN_NEEDED.name if is_pr else IssueState.HUMAN_NEEDED.name
+    if not is_divert and original_trans.to_state.name != human_dest_name:
+        return
+
     msg = _render_human_divert_reason(
         transition_name=trigger_name,
         transition=original_trans,
-        confidence=confidence,
-        extra=reason_extra,
+        confidence=confidence if is_divert else None,
+        extra=reason_extra if is_divert else divert_reason,
     )
     if post_fn is None:
         if is_pr:
@@ -799,7 +768,7 @@ def _build_machine(
                 dest=trans.to_state.name,
                 conditions=[_confidence_ok(trans.min_confidence)],
                 before=before_cbs,
-                after=[_after_label_change_normal],
+                after=[_after_label_change],
             )
             # Divert sibling: fires when the confidence check fails.
             machine.add_transition(
@@ -807,7 +776,7 @@ def _build_machine(
                 source=trans.from_state.name,
                 dest=human_dest_state.name,
                 unless=[_confidence_ok(trans.min_confidence)],
-                after=[_after_label_change_divert],
+                after=[_after_label_change],
             )
         else:
             # Unconditional (caller-gated or no confidence gate).
@@ -816,7 +785,7 @@ def _build_machine(
                 source=trans.from_state.name,
                 dest=trans.to_state.name,
                 before=before_cbs,
-                after=[_after_label_change_normal],
+                after=[_after_label_change],
             )
 
     return machine, model
