@@ -25,6 +25,11 @@ from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 
 # Map the short names used in agent frontmatter to concrete Anthropic model IDs.
+# TODO: this mapping must be updated manually whenever Anthropic releases new
+# model versions (e.g. claude-sonnet-4-7, claude-opus-5-x, …). Consider
+# fetching the live model list from the Anthropic models API
+# (GET /v1/models) and resolving "latest opus/sonnet/haiku" dynamically so
+# the mapping never goes stale.
 _MODEL_IDS: dict[str, str] = {
     "opus": "claude-opus-4-7",
     "sonnet": "claude-sonnet-4-6",
