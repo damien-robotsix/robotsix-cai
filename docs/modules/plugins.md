@@ -11,16 +11,17 @@ and supporting Python implementation code.
   Plugin package metadata defining the plugin name, version, and skill
   discovery path.
 - [`.claude/plugins/cai-skills/skills/cost-audit/`](../../.claude/plugins/cai-skills/skills/cost-audit/) —
-  Cost exploration and auditing skills (`cost_query`, `cost_issue`)
-  used by `cai-audit-cost-reduction` to analyze agent spend patterns.
-  Includes `SKILL.md` definitions and `cost_audit.py` implementation.
+  Cost exploration and auditing skill (`cost_query`, with optional
+  `issue_number` routing for per-issue lookups) used by
+  `cai-audit-cost-reduction` to analyze agent spend patterns.
+  Includes `SKILL.md` definition and `cost_audit.py` implementation.
 
 ## Inter-module dependencies
 
 - **Consumed by audit** — The `cai-audit-cost-reduction` agent
-  (`audit` module) depends on `cost_query` and `cost_issue` skills
-  defined in this module. The agent frontmatter declares these skills
-  in its `tools:` line.
+  (`audit` module) depends on the `cost_query` skill defined in this
+  module (per-issue lookups are routed via the `issue_number` parameter).
+  The agent frontmatter declares the skill in its `tools:` line.
 - **Loaded by Claude Code harness** — The harness automatically discovers
   plugins under `.claude/plugins/` at startup; each plugin's manifest
   is read and skills are registered before any agent invocation.
