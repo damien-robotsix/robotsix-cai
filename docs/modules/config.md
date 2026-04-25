@@ -19,8 +19,7 @@ ripple everywhere.
 - [`cai_lib/utils/log.py`](../../cai_lib/utils/log.py) —
   `log_run(category, **fields)` appends a structured row to
   `LOG_PATH`; `log_cost(row)` writes cost events;
-  `_get_issue_category(issue)`, `_log_outcome(…)`,
-  `_load_outcome_stats(days)` power the audit helpers.
+  `_get_issue_category(issue)`, `_log_outcome(…)` power the audit helpers.
 - [`cai_lib/subprocess_utils.py`](../../cai_lib/subprocess_utils.py)
   — `_run(cmd, **kwargs)` is the thin subprocess wrapper for shell
   operations (gh, git, jq). Agent invocation infrastructure has been
