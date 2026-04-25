@@ -26,10 +26,11 @@ _COST_COMMENT_MAX_CHARS = 800
 # Claude 4.x pricing ratios relative to the input-token rate. These
 # hold across Opus / Sonnet / Haiku and across 200k / 1M context
 # windows because Anthropic scales all four rates uniformly per model.
-# Used to split a known ``costUSD`` into per-category dollars without
-# having to hardcode per-model prices (which drift with new model
-# releases). The breakdown is informational — the authoritative total
-# is still ``costUSD`` as reported by the SDK.
+# Used to split a known ``costUSD`` (a client-side estimate) into
+# per-category dollars without having to hardcode per-model prices
+# (which drift with new model releases). The breakdown is informational —
+# ``costUSD`` itself is a client-side estimate based on the SDK's
+# price table at build time, not authoritative billing data.
 _TOKEN_COST_RATIOS = {
     "input": 1.0,
     "output": 5.0,
