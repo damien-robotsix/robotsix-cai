@@ -9,7 +9,6 @@ in ``cai_lib.cmd_unblock``).
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -21,14 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 from cai_lib import config, transcript_sync  # noqa: E402
-
-
-def _rsync_available() -> bool:
-    try:
-        subprocess.run(["rsync", "--version"], check=True, capture_output=True)
-        return True
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return False
+from tests._helpers import _rsync_available  # noqa: E402
 
 
 class TestDisabled(unittest.TestCase):
