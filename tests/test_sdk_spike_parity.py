@@ -19,37 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk.types import ResultMessage
-from tests._helpers import _mock_query
-
-
-def _mk_result(**fields) -> ResultMessage:
-    """Build a ResultMessage with deterministic defaults."""
-    return ResultMessage(
-        subtype=fields.pop("subtype", "success"),
-        duration_ms=fields.pop("duration_ms", 1234),
-        duration_api_ms=fields.pop("duration_api_ms", 999),
-        is_error=fields.pop("is_error", False),
-        num_turns=fields.pop("num_turns", 3),
-        session_id=fields.pop("session_id", "sess-fixed"),
-        total_cost_usd=fields.pop("total_cost_usd", 0.1234),
-        usage=fields.pop("usage", {
-            "input_tokens": 100,
-            "output_tokens": 50,
-            "cache_creation_input_tokens": 200,
-            "cache_read_input_tokens": 800,
-        }),
-        result=fields.pop("result", "ok"),
-        structured_output=fields.pop("structured_output", None),
-        model_usage=fields.pop("model_usage", {
-            "claude-sonnet-4": {
-                "inputTokens": 100,
-                "outputTokens": 50,
-                "cacheReadInputTokens": 800,
-                "cacheCreationInputTokens": 200,
-                "costUSD": 0.1234,
-            },
-        }),
-    )
+from tests._helpers import _mock_query, _mk_result
 
 
 _VOLATILE_KEYS = {"ts", "session_id", "host"}

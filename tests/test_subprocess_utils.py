@@ -21,23 +21,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from claude_agent_sdk.types import ResultMessage
-from tests._helpers import _mock_query
-
-
-def _mk_result(**fields) -> ResultMessage:
-    """Build a ResultMessage with sane defaults for required fields."""
-    return ResultMessage(
-        subtype=fields.pop("subtype", "success"),
-        duration_ms=fields.pop("duration_ms", 1),
-        duration_api_ms=fields.pop("duration_api_ms", 1),
-        is_error=fields.pop("is_error", False),
-        num_turns=fields.pop("num_turns", 1),
-        session_id=fields.pop("session_id", "s1"),
-        total_cost_usd=fields.pop("total_cost_usd", 0.1),
-        usage=fields.pop("usage", {"input_tokens": 10, "output_tokens": 5}),
-        result=fields.pop("result", None),
-        structured_output=fields.pop("structured_output", None),
-    )
+from tests._helpers import _mock_query, _mk_result
 
 
 class TestRunClaudePEnvelope(unittest.TestCase):

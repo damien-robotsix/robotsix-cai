@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tests._helpers import _mock_query
+from tests._helpers import _mock_query, _mk_result
 from claude_agent_sdk.types import (
     AssistantMessage,
     ResultMessage,
@@ -33,22 +33,6 @@ from claude_agent_sdk.types import (
 
 from cai_lib.config import CAI_COST_COMMENT_RE
 from cai_lib.github import _strip_cost_comments
-
-
-def _mk_result(**fields) -> ResultMessage:
-    return ResultMessage(
-        subtype=fields.pop("subtype", "success"),
-        duration_ms=fields.pop("duration_ms", 1234),
-        duration_api_ms=fields.pop("duration_api_ms", 999),
-        is_error=fields.pop("is_error", False),
-        num_turns=fields.pop("num_turns", 3),
-        session_id=fields.pop("session_id", "s1"),
-        total_cost_usd=fields.pop("total_cost_usd", 0.1234),
-        usage=fields.pop("usage", {"input_tokens": 100, "output_tokens": 50}),
-        result=fields.pop("result", "ok"),
-        structured_output=fields.pop("structured_output", None),
-        model_usage=fields.pop("model_usage", {"claude-sonnet-4": {}}),
-    )
 
 
 def _mk_assistant(model: str, *, parent_tool_use_id: str | None = None,
