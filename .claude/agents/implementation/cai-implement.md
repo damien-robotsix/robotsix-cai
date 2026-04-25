@@ -325,38 +325,7 @@ the `## PR Summary` block. This replaces the old
 "guess-and-hope" behaviour (rule 4's exception) with an actual
 measurement so you know what your change broke.
 
-Invoke it with the absolute path of the work directory:
-
-~~~
-Agent(
-  subagent_type="cai-test-runner",
-  description="Run regression tests",
-  prompt="work_dir=<work_dir>"
-)
-~~~
-
-Parse the reply's `## Test Result` header. On `PASS`, proceed to the
-dossier. On `FAIL`:
-
-1. Read the `## Failures` block to identify which tests broke and why.
-2. Decide which side is correct:
-   - **Your change is wrong** — fix the code.
-   - **The test pins obsolete behavior** — update the test (rule 4's
-     exception permits this).
-3. Re-invoke `cai-test-runner` to confirm the fix.
-4. **Cap yourself at two iterations.** If the same or a new failure is
-   still present after two fix attempts, stop and exit anyway — do
-   not burn the rest of your turn budget chasing a test you cannot
-   reason about. The wrapper will push the PR regardless and re-run
-   the suite post-exit; if it still fails, the wrapper posts the
-   failure summary as a top-level PR comment and routes the PR to
-   `:pr-revision-pending` so `cai-revise` picks it up as a
-   reviewer finding.
-
-A green run is strongly preferred but not mandatory. Your goal is to
-hand off a PR with the smallest number of failing tests possible, not
-to guarantee zero — the PR-side `cai-revise` handoff is the safety
-net, not a reason to skip this step.
+Use the standard `cai-test-runner` invocation recipe in `CLAUDE.md`.
 
 Do not invoke `cai-test-runner` on a zero-diff exit path (ambiguous
 issue, `## Needs Spike` bail, memory-overlap bail). There is nothing
