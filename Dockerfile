@@ -16,7 +16,6 @@ RUN apt-get update \
         gnupg \
         git \
         jq \
-        openssh-client \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg \
         https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -35,16 +34,31 @@ RUN apt-get update \
 # volumes line up without extra chown.
 RUN groupadd --system --gid 1000 cai \
     && useradd --system --gid cai --uid 1000 --create-home --shell /bin/bash cai \
-    && mkdir -p /home/cai/.config/gh /home/cai/.claude /home/cai/.ssh \
-    && chmod 700 /home/cai/.ssh \
+    && mkdir -p /home/cai/.config/gh /home/cai/.claude \
     && chown -R cai:cai /home/cai
 
 RUN pip install --no-cache-dir --root-user-action=ignore pydantic pydantic-settings
 
+# /app is populated by cloning the repo at build time so the image ships
+# with a real working tree + .git directory — interactive `docker exec`
+# sessions can use git, inspect diffs, and commit/push from inside.
+# CAI_GIT_REF defaults to main; CI passes the exact commit SHA for
+# deterministic published images.
+ARG CAI_GIT_URL=https://github.com/damien-robotsix/robotsix-cai.git
+ARG CAI_GIT_REF=main
+
+RUN mkdir -p /app && chown cai:cai /app
+
 USER cai
 WORKDIR /app
 
-COPY --chown=cai:cai --chmod=755 entrypoint.sh /app/
-COPY --chown=cai:cai cai.py /app/
+# Cache-bust the clone layer when the upstream ref moves: ADD on a URL
+# uses the response ETag as cache key, so when main advances the clone
+# layer is rebuilt. For pinned SHAs the JSON is stable and cache hits.
+ADD "https://api.github.com/repos/damien-robotsix/robotsix-cai/commits/${CAI_GIT_REF}" /tmp/cai-git-ref.json
+
+RUN git clone "${CAI_GIT_URL}" /app \
+    && git -C /app checkout "${CAI_GIT_REF}" \
+    && chmod +x /app/entrypoint.sh
 
 CMD ["/app/entrypoint.sh"]
