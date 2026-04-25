@@ -67,7 +67,7 @@ an FSM issue/PR state transition.
 | Agent | Description | Tools | Model | Lifecycle trigger | Mode |
 |---|---|---|---|---|---|
 | `cai-audit-code-reduction` | On-demand code-reduction audit for a `robotsix-cai` module — surfaces dead code, near-duplicate functions, over-abstraction, and inlineable helpers, and writes concrete line-count reduction proposals to findings.json | Read, Grep, Glob, Agent, Write | opus | On-demand | Worktree |
-| `cai-audit-cost-reduction` | On-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings | Read, Grep, Glob, Agent, Write, cost_query, cost_issue | opus | On-demand | Worktree |
+| `cai-audit-cost-reduction` | On-demand cost-reduction audit for a module — analyzes token/dollar spend of agent invocations and proposes concrete savings | Read, Grep, Glob, Agent, Write, cost_query | opus | On-demand | Worktree |
 | `cai-audit-external-libs` | On-demand auditor for spotting in-house code replaceable by mature open-source libraries — external-libs audit for a declared module scope | Read, Grep, Glob, Agent, Write, WebSearch, WebFetch | opus | On-demand | Worktree |
 | `cai-audit-good-practices` | On-demand auditor for Claude Code best practices and documentation-vs-implementation drift in a declared module scope | Read, Grep, Glob, Agent, Write | opus | On-demand | Worktree |
 | `cai-audit-workflow-enhancement` | On-demand workflow-enhancement audit for a module — identifies recurring inefficiencies in agent workflows and proposes targeted remediations | Read, Grep, Glob, Agent, Write | opus | On-demand | Worktree |
