@@ -17,8 +17,7 @@ audit host.
   `parse.py` shim).
 - [`cai_lib/transcript_sync.py`](../../cai_lib/transcript_sync.py)
   — `push()`, `pull()`, `sync()` move JSONL files over rsync+SSH;
-  `transcript_sync_enabled()` gates on config; `parse_source()`
-  resolves the local bucket; `cmd_transcript_sync(args)` is the
+  `parse_source()` resolves the local bucket; `cmd_transcript_sync(args)` is the
   CLI subcommand. `_ssh_command`, `_server_bucket`,
   `_server_slug`, `_transport_args` compose the transport.
 
@@ -42,7 +41,7 @@ audit host.
   `CAI_PARSE_CUTOFF_*` env vars bound the per-run load.
 - **SSH transport.** `transcript_sync` assumes rsync over SSH to
   the configured server bucket. Missing `rsync` or a missing SSH
-  key degrades to a no-op — verify via `transcript_sync_enabled`
+  key degrades to a no-op — verify via `config.transcript_sync_enabled()`
   before diagnosing phantom failures.
 - **Cross-host concerns.** Multiple workers push to the same
   server bucket; the server-side cleanup script
