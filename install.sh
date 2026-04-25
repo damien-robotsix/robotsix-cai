@@ -48,9 +48,85 @@ echo
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-cat > docker-compose.yml <<EOF
-# Self-hosted Langfuse + cai stack. Secrets live in .env (gitignore-worthy).
-# Langfuse UI: http://localhost:3000
+ENV_FILE="${INSTALL_DIR}/.env"
+DC="docker compose -f ${INSTALL_DIR}/docker-compose.yml"
+
+# Upsert KEY=VALUE in .env so re-runs preserve already-set values.
+# Existing values win; only missing keys get filled in.
+upsert_env() {
+  local key="$1" val="$2"
+  if [[ -f "$ENV_FILE" ]] && grep -q "^${key}=" "$ENV_FILE"; then
+    return
+  fi
+  printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
+}
+
+touch "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+
+echo "Install mode:"
+echo "  1) server  — host the full Langfuse stack on this machine"
+echo "  2) client  — cai only; sends traces to an existing Langfuse server"
+prompt MODE_CHOICE "Choice" "1"
+case "$MODE_CHOICE" in
+  2|client) MODE=client ;;
+  *)        MODE=server ;;
+esac
+
+if [[ "$MODE" == "client" ]]; then
+  # Client mode: ask for the remote Langfuse details. The cai container
+  # picks them up from .env via env_file.
+  echo
+  echo "Remote Langfuse server details:"
+  prompt LF_BASE_URL "Base URL (e.g. https://langfuse.your-domain.com)"
+  prompt LF_PK "Project public key (pk-lf-...)"
+  prompt LF_SK "Project secret key (sk-lf-...)"
+  upsert_env LANGFUSE_BASE_URL    "$LF_BASE_URL"
+  upsert_env LANGFUSE_PUBLIC_KEY  "$LF_PK"
+  upsert_env LANGFUSE_SECRET_KEY  "$LF_SK"
+
+  cat > docker-compose.yml <<EOF
+# cai client. Traces are shipped to the Langfuse server in .env
+# (LANGFUSE_BASE_URL / LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY).
+
+services:
+  cai:
+    image: robotsix/cai:${IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - cai_home:/home/cai
+
+volumes:
+  cai_home:
+    name: cai_home
+EOF
+else
+  # Server mode: ask for the public-facing URL so NEXTAUTH_URL is right.
+  # Defaults to localhost for single-machine setups; users with TLS in
+  # front (Caddy/nginx/Traefik) supply the public https URL.
+  echo
+  prompt LF_PUBLIC_URL "Public URL of this Langfuse server" "http://localhost:3000"
+  upsert_env LANGFUSE_PUBLIC_URL "$LF_PUBLIC_URL"
+
+  # Strong randoms for Langfuse + its data services. Sticky on re-run so
+  # rotating them doesn't desync from already-initialised volumes.
+  upsert_env NEXTAUTH_SECRET                  "$(openssl rand -base64 32)"
+  upsert_env SALT                             "$(openssl rand -base64 32)"
+  upsert_env ENCRYPTION_KEY                   "$(openssl rand -hex 32)"
+  upsert_env POSTGRES_PASSWORD                "$(openssl rand -hex 32)"
+  upsert_env CLICKHOUSE_PASSWORD              "$(openssl rand -hex 32)"
+  upsert_env REDIS_AUTH                       "$(openssl rand -hex 32)"
+  upsert_env MINIO_ROOT_PASSWORD              "$(openssl rand -hex 32)"
+  upsert_env LANGFUSE_INIT_PROJECT_PUBLIC_KEY "pk-lf-$(openssl rand -hex 16)"
+  upsert_env LANGFUSE_INIT_PROJECT_SECRET_KEY "sk-lf-$(openssl rand -hex 16)"
+  upsert_env LANGFUSE_INIT_USER_EMAIL         "admin@cai.local"
+  upsert_env LANGFUSE_INIT_USER_PASSWORD      "$(openssl rand -base64 24)"
+
+  cat > docker-compose.yml <<EOF
+# Self-hosted Langfuse + cai stack. Secrets live in .env.
+# Langfuse UI: ${LF_PUBLIC_URL}
 
 services:
   cai:
@@ -110,7 +186,7 @@ services:
       REDIS_PORT: 6379
       REDIS_AUTH: \${REDIS_AUTH}
       REDIS_TLS_ENABLED: "false"
-      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: ${LF_PUBLIC_URL}
 
   langfuse-web:
     image: docker.io/langfuse/langfuse:3
@@ -206,37 +282,7 @@ volumes:
   langfuse_minio_data:
   langfuse_redis_data:
 EOF
-
-DC="docker compose -f ${INSTALL_DIR}/docker-compose.yml"
-ENV_FILE="${INSTALL_DIR}/.env"
-
-# Upsert KEY=VALUE in .env so re-runs preserve already-generated secrets.
-# Existing values win; only missing keys get filled in.
-upsert_env() {
-  local key="$1" val="$2"
-  if [[ -f "$ENV_FILE" ]] && grep -q "^${key}=" "$ENV_FILE"; then
-    return
-  fi
-  printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
-}
-
-touch "$ENV_FILE"
-chmod 600 "$ENV_FILE"
-
-# Strong randoms for Langfuse + the data services it depends on. Once
-# written they are sticky (re-running install.sh won't rotate them and
-# break existing volumes).
-upsert_env NEXTAUTH_SECRET                 "$(openssl rand -base64 32)"
-upsert_env SALT                            "$(openssl rand -base64 32)"
-upsert_env ENCRYPTION_KEY                  "$(openssl rand -hex 32)"
-upsert_env POSTGRES_PASSWORD               "$(openssl rand -hex 32)"
-upsert_env CLICKHOUSE_PASSWORD             "$(openssl rand -hex 32)"
-upsert_env REDIS_AUTH                      "$(openssl rand -hex 32)"
-upsert_env MINIO_ROOT_PASSWORD             "$(openssl rand -hex 32)"
-upsert_env LANGFUSE_INIT_PROJECT_PUBLIC_KEY "pk-lf-$(openssl rand -hex 16)"
-upsert_env LANGFUSE_INIT_PROJECT_SECRET_KEY "sk-lf-$(openssl rand -hex 16)"
-upsert_env LANGFUSE_INIT_USER_EMAIL        "admin@cai.local"
-upsert_env LANGFUSE_INIT_USER_PASSWORD     "$(openssl rand -base64 24)"
+fi
 
 echo "Claude authentication:"
 echo "  1) OAuth login (recommended; persisted in cai_home volume)"
@@ -383,10 +429,19 @@ case "$ADD_ALIAS" in
 esac
 
 echo
-echo "Langfuse observability:"
-echo "  UI:        http://localhost:3000"
-echo "  Login as:  $(grep '^LANGFUSE_INIT_USER_EMAIL=' "$ENV_FILE" | cut -d= -f2-)"
-echo "  Password:  $(grep '^LANGFUSE_INIT_USER_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"
-echo "  (credentials are also in $ENV_FILE)"
+if [[ "$MODE" == "client" ]]; then
+  echo "Langfuse observability:"
+  echo "  Sending traces to: $(grep '^LANGFUSE_BASE_URL=' "$ENV_FILE" | cut -d= -f2-)"
+  echo "  Project public key: $(grep '^LANGFUSE_PUBLIC_KEY=' "$ENV_FILE" | cut -d= -f2-)"
+else
+  echo "Langfuse observability:"
+  echo "  UI:        $(grep '^LANGFUSE_PUBLIC_URL=' "$ENV_FILE" | cut -d= -f2-)"
+  echo "  Login as:  $(grep '^LANGFUSE_INIT_USER_EMAIL=' "$ENV_FILE" | cut -d= -f2-)"
+  echo "  Password:  $(grep '^LANGFUSE_INIT_USER_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"
+  echo "  Project keys (share with cai client installs):"
+  echo "    LANGFUSE_PUBLIC_KEY=$(grep '^LANGFUSE_INIT_PROJECT_PUBLIC_KEY=' "$ENV_FILE" | cut -d= -f2-)"
+  echo "    LANGFUSE_SECRET_KEY=$(grep '^LANGFUSE_INIT_PROJECT_SECRET_KEY=' "$ENV_FILE" | cut -d= -f2-)"
+  echo "  (all credentials are in $ENV_FILE)"
+fi
 echo
 echo "Done. Try: cai"
