@@ -31,6 +31,53 @@ from claude_agent_sdk.types import (
 from tests._helpers import _mock_query, _mk_result
 
 
+class TestResultMessageModelRoundTrip(unittest.TestCase):
+    """ResultMessageModel serialises and deserialises cleanly (issue #1281)."""
+
+    def test_from_sdk_round_trips_all_fields(self):
+        from cai_lib.subagent.transcript import ResultMessageModel
+
+        result_msg = _mk_result()
+        model = ResultMessageModel.from_sdk(result_msg)
+
+        self.assertEqual(model.subtype, result_msg.subtype)
+        self.assertEqual(model.duration_ms, result_msg.duration_ms)
+        self.assertEqual(model.duration_api_ms, result_msg.duration_api_ms)
+        self.assertEqual(model.is_error, result_msg.is_error)
+        self.assertEqual(model.num_turns, result_msg.num_turns)
+        self.assertEqual(model.session_id, result_msg.session_id)
+        self.assertAlmostEqual(model.total_cost_usd, result_msg.total_cost_usd)
+        self.assertEqual(model.result, result_msg.result)
+        self.assertEqual(model.structured_output, result_msg.structured_output)
+        self.assertEqual(model.model_usage, result_msg.model_usage)
+
+    def test_pydantic_round_trip(self):
+        """model_validate(model_dump()) preserves every field."""
+        from cai_lib.subagent.transcript import ResultMessageModel
+
+        result_msg = _mk_result()
+        model = ResultMessageModel.from_sdk(result_msg)
+        restored = ResultMessageModel.model_validate(model.model_dump())
+
+        self.assertEqual(restored.subtype, model.subtype)
+        self.assertEqual(restored.duration_ms, model.duration_ms)
+        self.assertEqual(restored.session_id, model.session_id)
+        self.assertAlmostEqual(restored.total_cost_usd, model.total_cost_usd)
+
+    def test_json_round_trip(self):
+        """model_validate_json(model_dump_json()) produces an identical model."""
+        from cai_lib.subagent.transcript import ResultMessageModel
+
+        result_msg = _mk_result()
+        model = ResultMessageModel.from_sdk(result_msg)
+        json_str = model.model_dump_json()
+        restored = ResultMessageModel.model_validate_json(json_str)
+
+        self.assertEqual(restored.subtype, model.subtype)
+        self.assertEqual(restored.session_id, model.session_id)
+        self.assertEqual(restored.num_turns, model.num_turns)
+
+
 class TestRunTranscriptCollection(unittest.TestCase):
     def test_nested_subagents_and_round_trip(self):
         from cai_lib.subagent import core
@@ -145,8 +192,13 @@ class TestRunTranscriptCollection(unittest.TestCase):
         self.assertIsInstance(inner_node.events[0], AssistantTextEvent)
         self.assertEqual(inner_node.events[0].text, "inner-think")
 
-        # (b) result is the singular terminating ResultMessage.
-        self.assertIs(transcript.result, result_msg)
+        # (b) result is the singular terminating ResultMessage, stored as
+        # a ResultMessageModel (Pydantic mirror, issue #1281).
+        from cai_lib.subagent.transcript import ResultMessageModel
+        self.assertIsInstance(transcript.result, ResultMessageModel)
+        self.assertEqual(transcript.result.subtype, result_msg.subtype)
+        self.assertEqual(transcript.result.session_id, result_msg.session_id)
+        self.assertEqual(transcript.result.num_turns, result_msg.num_turns)
 
         # (c) recursive subagent_counts.
         self.assertEqual(
@@ -159,22 +211,23 @@ class TestRunTranscriptCollection(unittest.TestCase):
         self.assertEqual(transcript.last_assistant_text, "done")
         self.assertEqual(transcript.parent_model, "claude-opus")
 
-        # (e) JSON round-trip — drop the embedded ResultMessage which is
-        # an SDK dataclass not registered with Pydantic. Events tree
-        # alone round-trips cleanly through validate_json.
-        data = transcript.model_dump(exclude={"result"}, mode="json")
+        # (e) Full JSON round-trip including result (issue #1281 goal).
+        data = transcript.model_dump(mode="json")
         restored = RunTranscript.model_validate(data)
         self.assertEqual(
             restored.subagent_counts,
             {"general-purpose": 1, "cai-explore": 1},
         )
         self.assertEqual(restored.last_assistant_text, "done")
+        self.assertIsInstance(restored.result, ResultMessageModel)
+        self.assertEqual(restored.result.session_id, result_msg.session_id)
 
-        # And model_dump_json() does not raise (with result excluded).
-        json_blob = transcript.model_dump_json(exclude={"result"})
+        # model_dump_json() succeeds end-to-end including result.
+        json_blob = transcript.model_dump_json()
         self.assertIn("general-purpose", json_blob)
         self.assertIn("cai-explore", json_blob)
         self.assertIn("inner-result", json_blob)
+        self.assertIn("sess-fixed", json_blob)
 
 
 if __name__ == "__main__":

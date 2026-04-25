@@ -20,6 +20,50 @@ from claude_agent_sdk.types import ResultMessage
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ResultMessageModel(BaseModel):
+    """Pydantic mirror of the SDK's :class:`ResultMessage` dataclass.
+
+    Enables clean JSON round-trips for :class:`RunTranscript` and
+    :class:`~cai_lib.subagent.core.RunResult` — the SDK's stdlib
+    ``@dataclass`` cannot be validated back from JSON by Pydantic v2
+    without this mirror (issue #1281).
+
+    All fields are optional-with-None defaults so the model survives
+    future SDK additions without a schema churn release.
+    """
+
+    subtype: str
+    duration_ms: int
+    duration_api_ms: int
+    is_error: bool
+    num_turns: int
+    session_id: str
+    total_cost_usd: float | None = None
+    usage: dict[str, Any] | None = None
+    result: str | None = None
+    stop_reason: str | None = None
+    structured_output: Any = None
+    model_usage: dict[str, Any] | None = None
+
+    @classmethod
+    def from_sdk(cls, msg: ResultMessage) -> "ResultMessageModel":
+        """Convert an SDK :class:`ResultMessage` dataclass to this model."""
+        return cls(
+            subtype=msg.subtype,
+            duration_ms=msg.duration_ms,
+            duration_api_ms=msg.duration_api_ms,
+            is_error=msg.is_error,
+            num_turns=msg.num_turns,
+            session_id=msg.session_id,
+            total_cost_usd=msg.total_cost_usd,
+            usage=msg.usage,
+            result=msg.result,
+            stop_reason=getattr(msg, "stop_reason", None),
+            structured_output=msg.structured_output,
+            model_usage=msg.model_usage,
+        )
+
+
 class AssistantTextEvent(BaseModel):
     """One non-empty :class:`TextBlock` from an ``AssistantMessage``.
 
@@ -123,21 +167,20 @@ class RunTranscript(BaseModel):
 
     :attr:`events` carries the top-level event stream (no
     ``parent_tool_use_id``); :attr:`result` carries the singular
-    terminating :class:`ResultMessage` (None on exception or no-result
-    paths).
+    terminating :class:`ResultMessageModel` (None on exception or
+    no-result paths). Using the Pydantic mirror instead of the SDK
+    dataclass enables clean JSON round-trips (issue #1281).
     """
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     events: list[AgentEvent] = Field(
         default_factory=list,
         description="Top-level event stream.",
     )
-    result: ResultMessage | None = Field(
+    result: ResultMessageModel | None = Field(
         default=None,
         description=(
-            "Singular terminating ResultMessage (issue #1279). "
-            "None on exception / no-result."
+            "Singular terminating result as a Pydantic mirror "
+            "(issue #1281). None on exception / no-result."
         ),
     )
 

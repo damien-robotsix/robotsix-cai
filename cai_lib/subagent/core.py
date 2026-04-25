@@ -32,6 +32,7 @@ from .cost_tracker import CostRow, CostTracker
 from .errors import _sdk_error_summary
 from .transcript import (
     AssistantTextEvent,
+    ResultMessageModel,
     RunTranscript,
     SubAgentNode,
     ToolResultEvent,
@@ -56,17 +57,18 @@ class RunResult(BaseModel):
     """Typed result returned by :meth:`SubAgent.run`.
 
     Replaces the legacy :class:`subprocess.CompletedProcess` shape so
-    callers can inspect the structured :class:`ResultMessage` and the
-    error subtype directly — without re-parsing opaque ``.stdout`` /
-    ``.stderr`` strings.
-    """
+    callers can inspect the structured :class:`ResultMessage`, the error
+    subtype, and the raw CLI stderr lines directly — without re-parsing
+    opaque ``.stdout`` / ``.stderr`` strings.
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    All fields are Pydantic-native so :meth:`model_dump_json` round-trips
+    cleanly end-to-end (issue #1281).
+    """
 
     status: RunStatus = Field(..., description="Outcome classification.")
     stdout: str = Field(..., description="Extracted agent stdout (same priority order as before).")
-    result: ResultMessage | None = Field(
-        None, description="The final ResultMessage when present; None on exception or no-result."
+    result: ResultMessageModel | None = Field(
+        None, description="The final result as a Pydantic mirror (issue #1281); None on exception or no-result."
     )
     error_summary: str | None = Field(
         None,
@@ -119,7 +121,7 @@ async def _collect_results(
 
     async for msg in query(prompt=prompt, options=options):
         if isinstance(msg, ResultMessage):
-            transcript.result = msg
+            transcript.result = ResultMessageModel.from_sdk(msg)
             continue
 
         parent_id = getattr(msg, "parent_tool_use_id", None)
@@ -208,12 +210,18 @@ class SubAgent(BaseModel):
 
     category: str
     agent: str
-    options: ClaudeAgentOptions
+    options: ClaudeAgentOptions = Field(
+        exclude=True,
+        description=(
+            "Runtime-only SDK options; excluded from model_dump() so "
+            "SubAgent serialises cleanly (issue #1281)."
+        ),
+    )
     timeout: float | None = None
     cost_tracker: CostTracker = Field(default_factory=CostTracker)
 
     runs: int = 0
-    last_result: ResultMessage | None = None
+    last_result: ResultMessageModel | None = None
     last_assistant: str = ""
 
     def run(self, prompt: str) -> RunResult:
@@ -277,7 +285,7 @@ class SubAgent(BaseModel):
         return asyncio.run(_collect_results(prompt, self.options))
 
     def _extract_stdout(
-        self, result: ResultMessage, last_assistant: str,
+        self, result: ResultMessageModel, last_assistant: str,
     ) -> str:
         """Stdout priority: structured → retry-exhausted → result → salvage."""
         if result.structured_output is not None:
@@ -296,7 +304,7 @@ class SubAgent(BaseModel):
     def _to_run_result(
         self,
         *,
-        result: ResultMessage | None = None,
+        result: ResultMessageModel | None = None,
         stdout: str = "",
         exc: Exception | None = None,
         transcript: RunTranscript | None = None,

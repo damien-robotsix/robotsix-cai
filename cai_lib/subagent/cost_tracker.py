@@ -38,6 +38,8 @@ from datetime import datetime, timezone
 from claude_agent_sdk.types import ResultMessage
 from pydantic import BaseModel, ConfigDict, Field
 
+from .transcript import ResultMessageModel
+
 
 class ModelUsage(BaseModel):
     """Per-model rollup entry inside :attr:`CostRow.models`.
@@ -222,7 +224,7 @@ class CostRow(BaseModel):
         *,
         category: str,
         agent: str,
-        result: ResultMessage,
+        result: ResultMessage | ResultMessageModel,
         prompt: str = "",
         system_prompt: str | None = None,
         parent_model: str | None = None,
