@@ -558,16 +558,6 @@ in the generated `docker-compose.yml` (any valid 5-field cron expression, or `@h
 docker compose up -d
 ```
 
-### Triggering a run ad-hoc
-
-You don't have to wait for the next cron tick — any subcommand can be
-invoked directly against the running container, which is what
-GitHub Actions or a host cron job would use to kick off a task:
-
-```bash
-docker compose exec cai python /app/cai.py dispatch
-```
-
 ### One-shot smoke test (no install)
 
 If you just want to verify the published image works without writing
