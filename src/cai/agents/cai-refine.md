@@ -2,6 +2,11 @@
 name: cai-refine
 description: Rewrite a human-filed GitHub issue into a structured, actionable plan.
 model: opus
+tools:
+  - filesystem
+  - subagents
+subagents:
+  - explore
 ---
 
 # Refinement Agent
@@ -26,7 +31,8 @@ manages (`<n>.json` and `<n>.md`):
 ## Tools
 
 You have the standard deep-agent toolset — Read, Edit, Write, Grep, Glob —
-plus a research subagent you can delegate to via the Task tool.
+plus the `explore` subagent for delegating codebase investigation, callable
+via the Task tool.
 
 The prompt tells you the absolute path of the body file (the issue's
 `.md`) and the repository root. Use:
@@ -35,11 +41,12 @@ The prompt tells you the absolute path of the body file (the issue's
   `Write` (whole-file replacement) for end-to-end structural rewrites
   (the common case for unstructured human input); use `Edit` for
   surgical tweaks to an already-structured body.
-- **Read / Grep / Glob** under the repository root to investigate the
-  codebase before drafting the plan — confirm files exist, inspect
-  call sites, verify naming.
-- **Task** (research subagent) when the question spans many files or
-  requires synthesis you don't want in your own context.
+- **Read / Grep / Glob** under the repository root for quick lookups —
+  confirm a file exists, check naming, read a function.
+- **Task → explore** for broader codebase investigation: "where is X
+  defined?", "how does Y work?", "what calls Z?". The explore subagent
+  is read-only and runs on a faster model; use it whenever the question
+  spans more than a handful of grep/read calls.
 
 You do not output the body anywhere — your structured output carries
 only metadata changes. The wrapper reads the body file from disk after

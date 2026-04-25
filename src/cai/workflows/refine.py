@@ -15,9 +15,9 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic import BaseModel, Field
-from pydantic_deep import DeepAgentDeps, LocalBackend, create_deep_agent
+from pydantic_deep import DeepAgentDeps, LocalBackend
 
-from cai.agents.loader import AGENT_DIR, build_model, parse_agent_md
+from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
 from cai.github.issues import IssueMeta
 from cai.observability import setup_langfuse
 
@@ -38,14 +38,7 @@ class RefineOutput(BaseModel):
 def _agent():
     setup_langfuse()
     config, instructions = parse_agent_md(AGENT_DEFINITION)
-    return create_deep_agent(
-        build_model(config),
-        instructions=instructions,
-        output_type=RefineOutput,
-        web_search=False,
-        web_fetch=False,
-        include_skills=False,
-    )
+    return build_deep_agent(config, instructions, output_type=RefineOutput)
 
 
 def _deps(body_path: Path, repo_root: Path) -> DeepAgentDeps:
