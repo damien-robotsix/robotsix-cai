@@ -8,7 +8,6 @@ test_transcript_sync.py.
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
