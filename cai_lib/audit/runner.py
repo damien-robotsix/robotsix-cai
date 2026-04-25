@@ -32,8 +32,6 @@ from cai_lib.claude_argv import _run_claude_p
 from cai_lib.subprocess_utils import _run
 
 
-MODULES_YAML_REL = Path("docs/modules.yaml")
-
 # Map CLI ``--kind`` argument to the on-demand audit agent that must
 # run once per module. Each kind has a matching publish namespace of
 # the form ``audit-<kind>`` registered in :mod:`cai_lib.publish`.
@@ -43,15 +41,6 @@ KIND_TO_AGENT = {
     "cost-reduction":       "cai-audit-cost-reduction",
     "workflow-enhancement": "cai-audit-workflow-enhancement",
 }
-
-
-def _resolve_manifest_path() -> Path:
-    """Return the absolute path to ``docs/modules.yaml`` at the repo root.
-
-    ``cai_lib/audit/runner.py`` -> parents[0]=audit, parents[1]=cai_lib,
-    parents[2]=repo root.
-    """
-    return Path(__file__).resolve().parents[2] / MODULES_YAML_REL
 
 
 def _build_module_prompt(entry, findings_file: Path) -> str:  # type: ignore[no-untyped-def]
@@ -285,7 +274,7 @@ def run_module_audit(kind: str) -> tuple[int, int]:
         )
 
     agent = KIND_TO_AGENT[kind]
-    manifest = _resolve_manifest_path()
+    manifest = Path(__file__).resolve().parents[2] / "docs/modules.yaml"
     modules = load_modules(manifest)
 
     t0 = time.monotonic()
