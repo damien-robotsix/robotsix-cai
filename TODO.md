@@ -14,6 +14,13 @@
   tool calls. Either bump the default in `cai.agents.loader.build_model`
   or expose `timeout` as a frontmatter knob per agent.
 
+- [ ] **Keep model IDs current.** `src/cai/agents/loader.py` hardcodes
+  `_MODEL_IDS` mapping short names (`opus`, `sonnet`, `haiku`) to concrete
+  Anthropic model IDs. This must be updated manually whenever Anthropic
+  releases new versions. Consider fetching the live model list from the
+  Anthropic models API (`GET /v1/models`) and resolving "latest
+  opus/sonnet/haiku" dynamically so the mapping never goes stale.
+
 - [ ] **Enforce the `cai-refine` body template.** The persona in
   `src/cai/agents/cai-refine.md` prescribes a strict structure
   (`## Refined Issue` with `### Description` / `### Plan` /
