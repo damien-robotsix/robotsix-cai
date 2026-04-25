@@ -213,3 +213,33 @@ Example of deleting an arbitrary repo file:
 
   - GOOD: `Write("<work_dir>/.cai-staging/files-delete/cai_lib/cmd_agents.py", "")`
   - BAD:  Stubbing the file with `raise ImportError(...)` as a workaround
+
+## Invoking cai-test-runner
+
+When your agent definition file directs you to "use the standard
+`cai-test-runner` invocation recipe in `CLAUDE.md`", use this block:
+
+~~~
+Agent(
+  subagent_type="cai-test-runner",
+  description="Run regression tests",
+  prompt="work_dir=<work_dir>"
+)
+~~~
+
+Parse the reply's `## Test Result` header. On `PASS`, proceed to the
+next step. On `FAIL`:
+
+1. Read the `## Failures` block to identify which tests broke and why.
+2. Decide which side is correct:
+   - **Your change is wrong** — fix the code.
+   - **The test pins obsolete behavior** — update the test.
+3. Re-invoke `cai-test-runner` to confirm the fix.
+4. **Cap yourself at two iterations.** If the same or a new failure is
+   still present after two fix attempts, stop and exit anyway — do
+   not burn the rest of your turn budget chasing a test you cannot
+   reason about. The wrapper will push the PR regardless and handle
+   downstream routing if tests still fail post-push.
+
+A green run is strongly preferred but not mandatory. Your goal is to
+hand off the cleanest tree possible — not to guarantee zero failures.

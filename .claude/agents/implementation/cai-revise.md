@@ -148,37 +148,7 @@ re-entering the same routing loop on the next review cycle.
   failed` marker — no trigger fired, and a haiku call with no
   signal is waste.
 
-Invoke the runner with the absolute path of the work directory:
-
-~~~
-Agent(
-  subagent_type="cai-test-runner",
-  description="Run regression tests",
-  prompt="work_dir=<work_dir>"
-)
-~~~
-
-Parse the reply's `## Test Result` header. On `PASS`, proceed to the
-dossier update. On `FAIL`:
-
-1. Read the `## Failures` block to identify which tests broke and why.
-2. Decide which side is correct:
-   - **Your fix is wrong** — edit the code again.
-   - **The test pins obsolete behavior** — update the failing test
-     (hard rule 6 under "editing and efficiency" permits this when
-     your change legitimately changed behavior).
-3. Re-invoke `cai-test-runner` to confirm the fix.
-4. **Cap yourself at two iterations.** If the same or a new failure
-   is still present after two fix attempts, stop and exit anyway —
-   do not burn the rest of your turn budget chasing a test you
-   cannot reason about. The wrapper pushes the PR regardless; if
-   tests still fail post-push, the next review cycle catches it
-   via the same `## Local regression tests failed` marker that
-   triggered this run.
-
-A green run is strongly preferred but not mandatory. Your goal is
-to avoid re-entering the same routing loop on the next review
-cycle — not to guarantee zero failures.
+Use the standard `cai-test-runner` invocation recipe in `CLAUDE.md`.
 
 ### Update the PR context dossier before you exit
 
