@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from cai.github.bot import CaiBot
 from cai.github.issues import IssueMeta
 
 
@@ -28,6 +29,7 @@ class RefineOutput(BaseModel):
 
 @dataclass
 class IssueState:
+    bot: CaiBot
     meta: IssueMeta
     body_path: Path
     repo_root: Path

@@ -15,6 +15,9 @@ from __future__ import annotations
 import atexit
 import os
 import sys
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import Any
 
 from genai_prices.update_prices import UpdatePrices as _UpdatePrices
 
@@ -51,3 +54,32 @@ def setup_langfuse() -> bool:
 
     _initialized = True
     return True
+
+
+@contextmanager
+def langfuse_workflow(
+    name: str,
+    *,
+    input: Any = None,
+    metadata: dict[str, Any] | None = None,
+) -> Generator[None, None, None]:
+    """Wrap a block in a named Langfuse parent span (type=agent).
+
+    All pydantic-ai agent runs inside the block are nested under this span
+    via OTel context propagation, grouping explore + refine into one trace.
+    Falls through silently when Langfuse is not configured.
+    """
+    if not setup_langfuse():
+        yield
+        return
+
+    from langfuse import get_client
+
+    client = get_client()
+    with client.start_as_current_observation(
+        name=name,
+        as_type="agent",
+        input=input,
+        metadata=metadata,
+    ):
+        yield

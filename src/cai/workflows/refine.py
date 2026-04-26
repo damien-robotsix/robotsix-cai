@@ -8,7 +8,7 @@ from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, End, GraphRunContext
 
 from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
-from cai.github.issues import IssueMeta
+from cai.github.issues import IssueMeta, push
 from cai.workflows.state import IssueState, RefineOutput
 
 _MAX_FILE_BYTES = 100_000
@@ -77,4 +77,9 @@ class RefineNode(BaseNode[IssueState]):
         new_meta = state.meta.model_copy(update={"title": out.title})
         state.new_meta = new_meta
         state.refine_output = out
+
+        json_path = state.body_path.with_suffix(".json")
+        json_path.write_text(new_meta.model_dump_json(indent=2) + "\n")
+        push(state.bot, json_path)
+
         return End(new_meta)

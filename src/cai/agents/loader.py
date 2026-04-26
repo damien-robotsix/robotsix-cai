@@ -75,6 +75,66 @@ def build_model(config: dict) -> OpenAIModel:
     return OpenAIModel(model_id, provider=_provider())
 
 
+def build_model_settings(config: dict) -> dict[str, Any] | None:
+    """Translate optional model knobs from frontmatter to a ``model_settings`` dict.
+
+    Supported keys: ``max_tokens``, ``temperature``, ``frequency_penalty``,
+    ``presence_penalty``. All are optional; returns ``None`` when none are set.
+
+    ``frequency_penalty`` / ``presence_penalty`` are the primary defence against
+    token-repetition loops (the "ataata"/[PAD] meltdown): they add a per-token
+    cost proportional to how often the token has already appeared, making it
+    mathematically harder for the model to cycle forever.
+    """
+    settings: dict[str, Any] = {}
+
+    max_tokens = config.get("max_tokens")
+    if max_tokens is not None:
+        if not isinstance(max_tokens, int) or max_tokens <= 0:
+            raise ValueError(f"'max_tokens' must be a positive int, got {max_tokens!r}")
+        settings["max_tokens"] = max_tokens
+
+    temperature = config.get("temperature")
+    if temperature is not None:
+        if not isinstance(temperature, (int, float)) or not (0.0 <= float(temperature) <= 2.0):
+            raise ValueError(f"'temperature' must be a float in [0, 2], got {temperature!r}")
+        settings["temperature"] = float(temperature)
+
+    for penalty_key in ("frequency_penalty", "presence_penalty"):
+        value = config.get(penalty_key)
+        if value is not None:
+            if not isinstance(value, (int, float)) or not (-2.0 <= float(value) <= 2.0):
+                raise ValueError(
+                    f"'{penalty_key}' must be a float in [-2, 2], got {value!r}"
+                )
+            settings[penalty_key] = float(value)
+
+    return settings or None
+
+
+# Appended to an agent's instructions when its frontmatter declares
+# ``structured_output: true``. pydantic-ai registers ``final_result`` as the
+# implicit termination tool but only describes it as "The final response which
+# ends this conversation" — open-source models often spend many thinking
+# tokens before figuring that out. This block makes the contract explicit.
+_OUTPUT_PROTOCOL = """
+
+## Final answer protocol
+
+When you have what you need, call the `final_result` tool with the
+structured output.
+"""
+
+
+def _expects_structured_output(config: dict) -> bool:
+    value = config.get("structured_output", False)
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"'structured_output' must be a bool, got {type(value).__name__}"
+        )
+    return value
+
+
 # Maps a ``tools:`` frontmatter entry to the ``create_deep_agent`` flags it enables.
 # Anything not listed in an agent's ``tools:`` is forced off — the full surface is
 # explicit, so adding a new toolset to pydantic-deep won't silently leak in.
@@ -219,7 +279,19 @@ def build_deep_agent(
     if sub_configs and "subagents" not in extra:
         extra["subagents"] = sub_configs
 
-    model_id = config.get("model", "")
+    settings = build_model_settings(config)
+    if settings is not None and "model_settings" not in extra:
+        extra["model_settings"] = settings
+
+    if _expects_structured_output(config):
+        instructions = instructions + _OUTPUT_PROTOCOL
+
+    # 'exhaustive' so a model that emits a side-effect tool call (e.g.
+    # write_file) in the same assistant turn as final_result still has the
+    # side-effect executed. The pydantic-ai default 'early' silently stubs
+    # those calls with "Tool not executed - a final result was already
+    # processed", which lost the refined body in cai-solve.
+    extra.setdefault("end_strategy", "exhaustive")
 
     agent = create_deep_agent(
         build_model(config),
@@ -247,12 +319,20 @@ def load_agent_from_md(
     and callables.
     """
     config, instructions = parse_agent_md(path)
+    if _expects_structured_output(config):
+        instructions = instructions + _OUTPUT_PROTOCOL
     kwargs: dict = {
         "system_prompt": instructions,
         "name": config["name"],
         "output_type": output_type,
         "tools": tools or [],
+        # See build_deep_agent: 'exhaustive' so side-effect tool calls
+        # bundled in the final-result turn still execute.
+        "end_strategy": "exhaustive",
     }
     if deps_type is not None:
         kwargs["deps_type"] = deps_type
+    settings = build_model_settings(config)
+    if settings is not None:
+        kwargs["model_settings"] = settings
     return Agent(build_model(config), **kwargs)

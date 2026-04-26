@@ -1,7 +1,8 @@
 ---
 name: refine
 description: Rewrite a human-filed GitHub issue into a structured, actionable plan.
-model: moonshotai/kimi-k2.6
+model: google/gemini-3.1-pro-preview
+structured_output: true
 tools:
   - filesystem_write
 ---
@@ -36,12 +37,6 @@ You have **Write** and **Edit** on the body file path only.
 You do not output the body anywhere — your structured output carries
 only metadata changes. The wrapper reads the body file from disk after
 your run.
-
-## What you return
-
-A single JSON object matching the `RefineOutput` schema:
-
-- `title`: refined title (or the original if it's already clear).
 
 ## Body format
 

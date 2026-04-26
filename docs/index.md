@@ -11,9 +11,9 @@ launcher that ships with:
 - A GitHub App identity (`cai[bot]`) so commits and PRs aren't tied to
   your personal account.
 - Built-in tools for round-tripping issues as JSON+MD pairs (`cai-issue`)
-  and refining them with a deep agent (`cai-refine`).
+  and solving them with a deep agent graph (`cai-solve`).
 - [Langfuse](https://langfuse.com) instrumentation on every pydantic-ai
-  agent run so each `cai-refine` call is fully auditable.
+  agent run so each `cai-solve` call is fully auditable.
 
 ## Install
 

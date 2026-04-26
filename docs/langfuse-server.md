@@ -120,13 +120,13 @@ When prompted, supply:
 - **Public key**: the `pk-lf-…` from step 3
 - **Secret key**: the `sk-lf-…` from step 3
 
-Each client writes those into its own `.env`; `cai-refine` runs ship
+Each client writes those into its own `.env`; `cai-solve` runs ship
 traces to the central project automatically.
 
 ## Known quirk
 
 `LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT` defaults to `http://localhost:9090`
 in the Langfuse compose. That only matters for browser-side media
-playback in the Langfuse playground — irrelevant for `cai-refine`
+playback in the Langfuse playground — irrelevant for `cai-solve`
 tracing. You can ignore it unless you start uploading media via the
 Langfuse UI.

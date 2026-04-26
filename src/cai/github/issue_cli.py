@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import re
 from pathlib import Path
 
 from .bot import CaiBot
 from .issues import pull, push
-
-_PULL_TARGET = re.compile(r"^(?P<repo>[^/\s]+/[^/#\s]+)#(?P<number>\d+)$")
+from .repo import parse_issue_ref
 
 
 def main() -> None:
@@ -32,10 +30,11 @@ def main() -> None:
     bot = CaiBot()
 
     if args.cmd == "pull":
-        match = _PULL_TARGET.match(args.target)
-        if not match:
+        ref = parse_issue_ref(args.target)
+        if ref is None:
             parser.error(f"expected owner/repo#number, got {args.target!r}")
-        json_path, md_path = pull(bot, match["repo"], int(match["number"]), args.dir)
+        repo, number = ref
+        json_path, md_path = pull(bot, repo, number, args.dir)
         print(json_path)
         print(md_path)
     elif args.cmd == "push":
