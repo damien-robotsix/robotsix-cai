@@ -25,6 +25,14 @@ class RefineOutput(BaseModel):
     """Structured metadata changes. The body is mutated on disk by the agent."""
 
     title: str = Field(description="Refined title (or the original if already clear).")
+    sub_issues: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Titles of decomposed sub-tasks to create as child GitHub issues. "
+            "Each string is the title of one new sub-issue. "
+            "Leave empty for single-feature issues."
+        ),
+    )
 
 
 @dataclass

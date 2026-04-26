@@ -2,7 +2,6 @@
 name: refine
 description: Rewrite a human-filed GitHub issue into a structured, actionable plan.
 model: google/gemini-3.1-pro-preview
-structured_output: true
 tools:
   - filesystem_write
 ---
@@ -37,6 +36,29 @@ You have **Write** and **Edit** on the body file path only.
 You do not output the body anywhere — your structured output carries
 only metadata changes. The wrapper reads the body file from disk after
 your run.
+
+## Decomposition
+
+**Actively look for decomposition opportunities** before deciding to keep
+everything unified. Ask: does this issue span more than one architectural
+layer (API plumbing, AI agent, workflow wiring)? Does it introduce more than
+one new module? Could two of the plan steps be assigned to different engineers
+without coordination? If yes to any of these, list the sub-task titles in
+`sub_issues`.
+
+**Decompose when:** the plan spans multiple architectural layers; or the total
+"Files to change" list exceeds ~4 files with few shared edits; or independent
+feature streams exist that could be parallelised.
+
+**Keep unified when:** steps are tightly coupled (each step's output is the
+next step's input), touch the same 1–2 files, or the whole change is under
+~50 lines.
+
+When you decompose, rewrite the parent body as a high-level overview and give
+each sub-task a specific, self-contained title in `sub_issues`. For each
+sub-issue at index `n` (0-based), also write a full body file named
+`sub_issue_n.md` (e.g. `sub_issue_0.md`, `sub_issue_1.md`) as a sibling of
+the main body file, following the same body format as the parent.
 
 ## Body format
 

@@ -112,29 +112,6 @@ def build_model_settings(config: dict) -> dict[str, Any] | None:
     return settings or None
 
 
-# Appended to an agent's instructions when its frontmatter declares
-# ``structured_output: true``. pydantic-ai registers ``final_result`` as the
-# implicit termination tool but only describes it as "The final response which
-# ends this conversation" — open-source models often spend many thinking
-# tokens before figuring that out. This block makes the contract explicit.
-_OUTPUT_PROTOCOL = """
-
-## Final answer protocol
-
-When you have what you need, call the `final_result` tool with the
-structured output.
-"""
-
-
-def _expects_structured_output(config: dict) -> bool:
-    value = config.get("structured_output", False)
-    if not isinstance(value, bool):
-        raise ValueError(
-            f"'structured_output' must be a bool, got {type(value).__name__}"
-        )
-    return value
-
-
 # Maps a ``tools:`` frontmatter entry to the ``create_deep_agent`` flags it enables.
 # Anything not listed in an agent's ``tools:`` is forced off — the full surface is
 # explicit, so adding a new toolset to pydantic-deep won't silently leak in.
@@ -283,9 +260,6 @@ def build_deep_agent(
     if settings is not None and "model_settings" not in extra:
         extra["model_settings"] = settings
 
-    if _expects_structured_output(config):
-        instructions = instructions + _OUTPUT_PROTOCOL
-
     # 'exhaustive' so a model that emits a side-effect tool call (e.g.
     # write_file) in the same assistant turn as final_result still has the
     # side-effect executed. The pydantic-ai default 'early' silently stubs
@@ -319,8 +293,6 @@ def load_agent_from_md(
     and callables.
     """
     config, instructions = parse_agent_md(path)
-    if _expects_structured_output(config):
-        instructions = instructions + _OUTPUT_PROTOCOL
     kwargs: dict = {
         "system_prompt": instructions,
         "name": config["name"],

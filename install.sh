@@ -203,6 +203,7 @@ case "$SETUP_BOT" in
     echo "      Contents:                 Read & write"
     echo "      Pull requests:            Read & write"
     echo "      Issues:                   Read & write"
+    echo "      Issue fields:             Read & write  (required for sub-issue linking)"
     echo "    Organization permissions:"
     echo "      Members:                  Read"
     echo "      Projects:                 Read & write"

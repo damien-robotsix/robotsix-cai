@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
+import requests
 from github.GithubObject import NotSet
 from github.Issue import Issue
 from github.Repository import Repository
@@ -28,6 +29,27 @@ class IssueMeta(BaseModel):
     labels: list[str] = Field(default_factory=list)
     assignees: list[str] = Field(default_factory=list)
     milestone: str | None = None
+
+
+def add_sub_issue(bot: CaiBot, parent_repo: str, parent_number: int, child_id: int) -> None:
+    """Link ``child_id`` (the internal GitHub issue ID) as a sub-issue of ``parent_number``.
+
+    Note: ``child_id`` is the internal GitHub issue ID (``issue.id``), not the issue number.
+    Requires the GitHub App to have the ``issue_fields: write`` permission.
+    """
+    token = bot.token_for(parent_repo)
+    url = f"https://api.github.com/repos/{parent_repo}/issues/{parent_number}/sub_issues"
+    resp = requests.post(
+        url,
+        json={"sub_issue_id": child_id},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
 
 
 def _meta_paths(directory: Path, number: int) -> tuple[Path, Path]:
