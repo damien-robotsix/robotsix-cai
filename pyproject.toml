@@ -23,7 +23,7 @@ cai = "cai.cli:main"
 cai-app-init = "cai.github.init:main"
 cai-git-credential = "cai.github.credential:main"
 cai-issue = "cai.github.issue_cli:main"
-cai-refine = "cai.workflows.refine:main"
+cai-refine = "cai.workflows.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cai"]

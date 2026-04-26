@@ -16,6 +16,12 @@ import atexit
 import os
 import sys
 
+from genai_prices.update_prices import UpdatePrices as _UpdatePrices
+
+# Kick off a background price-data refresh so models added after the last
+# package release (e.g. newly released Claude versions) get correct costs.
+_UpdatePrices().start()
+
 _initialized = False
 
 

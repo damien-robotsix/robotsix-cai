@@ -18,6 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import httpx
 import yaml
 from openai import AsyncOpenAI
 from pydantic_ai import Agent
@@ -25,6 +26,12 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 AGENT_DIR = Path(__file__).resolve().parent
+
+# httpx defaults read/write/pool to None (infinite). Without these, a silently
+# dropped OpenRouter request will hang the agent indefinitely instead of
+# surfacing as a retryable error.
+_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=10.0)
+_MAX_RETRIES = 3
 
 
 @lru_cache(maxsize=None)
@@ -36,6 +43,8 @@ def _provider() -> OpenAIProvider:
         openai_client=AsyncOpenAI(
             api_key=key,
             base_url="https://openrouter.ai/api/v1",
+            timeout=_HTTP_TIMEOUT,
+            max_retries=_MAX_RETRIES,
         )
     )
 
@@ -72,6 +81,7 @@ def build_model(config: dict) -> OpenAIModel:
 TOOL_FLAGS: dict[str, dict[str, Any]] = {
     "filesystem": {"include_filesystem": True},
     "filesystem_read": {"include_filesystem": True},
+    "filesystem_write": {"include_filesystem": True},
     "todo": {"include_todo": True},
     "subagents": {
         "include_subagents": True,
@@ -92,7 +102,7 @@ TOOL_FLAGS: dict[str, dict[str, Any]] = {
 
 # Pairs of tool keys that map to the same backing toolset and so cannot coexist.
 _TOOL_CONFLICTS: list[frozenset[str]] = [
-    frozenset({"filesystem", "filesystem_read"}),
+    frozenset({"filesystem", "filesystem_read", "filesystem_write"}),
 ]
 
 # Pruning rules applied after ``create_deep_agent`` for tool keys that share
@@ -102,6 +112,9 @@ _TOOL_CONFLICTS: list[frozenset[str]] = [
 _TOOL_PRUNE: dict[str, dict[str, frozenset[str]]] = {
     "filesystem_read": {
         "deep-console": frozenset({"read_file", "ls", "glob", "grep"}),
+    },
+    "filesystem_write": {
+        "deep-console": frozenset({"write_file", "edit_file"}),
     },
 }
 
@@ -206,10 +219,7 @@ def build_deep_agent(
     if sub_configs and "subagents" not in extra:
         extra["subagents"] = sub_configs
 
-    # pydantic-deep defaults max_tokens to 4096 but enables thinking with
-    # budget_tokens=16384, which the API rejects (budget must be < max_tokens).
-    # Raise the default so thinking has room; callers may override via extra.
-    extra.setdefault("model_settings", {"max_tokens": 32768})
+    model_id = config.get("model", "")
 
     agent = create_deep_agent(
         build_model(config),
