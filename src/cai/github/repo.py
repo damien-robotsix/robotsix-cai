@@ -25,7 +25,7 @@ from cai.git import clone
 
 from .bot import CaiBot
 from .issues import pull
-from .pr import get_pr_head_branch
+from .pr import get_pr_meta
 
 WORKSPACE_ROOT = Path("/tmp/cai-solve")
 PR_WORKSPACE_ROOT = Path("/tmp/cai-address")
@@ -107,17 +107,20 @@ class PRWorkspace:
     repo: str
     number: int
     head_branch: str
+    title: str
+    body: str
 
 
 def prepare_pr_workspace(bot: CaiBot, repo: str, number: int) -> PRWorkspace:
     """Clone the repo with the PR head branch checked out.
 
-    Idempotent: existing clones are kept as-is on a re-run. The head
-    branch is resolved against GitHub on every call so the same workspace
-    can be reused even after a PR is renamed (the ref name persists, but
-    the call would fail loudly anyway if the branch was deleted).
+    Idempotent: existing clones are kept as-is on a re-run. PR metadata
+    (title/body/head_branch) is resolved against GitHub on every call so
+    the same workspace can be reused even after a PR is renamed (the ref
+    name persists, but the call would fail loudly anyway if the branch
+    was deleted).
     """
-    head_branch = get_pr_head_branch(bot, repo, number)
+    title, body, head_branch = get_pr_meta(bot, repo, number)
     root = pr_workspace(repo, number)
     root.mkdir(parents=True, exist_ok=True)
 
@@ -136,4 +139,6 @@ def prepare_pr_workspace(bot: CaiBot, repo: str, number: int) -> PRWorkspace:
         repo=repo,
         number=number,
         head_branch=head_branch,
+        title=title,
+        body=body,
     )

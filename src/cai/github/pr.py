@@ -56,9 +56,10 @@ def create_pull_request(
     return pr.html_url
 
 
-def get_pr_head_branch(bot: CaiBot, repo: str, number: int) -> str:
-    """Return the head branch name of pull request ``number``."""
-    return bot.repo(repo).get_pull(number).head.ref
+def get_pr_meta(bot: CaiBot, repo: str, number: int) -> tuple[str, str, str]:
+    """Return ``(title, body, head_branch)`` for pull request ``number``."""
+    pr = bot.repo(repo).get_pull(number)
+    return pr.title, pr.body or "", pr.head.ref
 
 
 def _graphql(bot: CaiBot, repo: str, query: str, variables: dict) -> dict:
@@ -108,6 +109,29 @@ query($owner: String!, $name: String!, $number: Int!) {
 """
 
 
+def _parse_thread_node(node: dict) -> ReviewThread | None:
+    comment_nodes = node["comments"]["nodes"]
+    if not comment_nodes:
+        return None
+    head = comment_nodes[0]
+    comments = [
+        ReviewComment(
+            author=(c.get("author") or {}).get("login") or "ghost",
+            body=c["body"],
+            created_at=c["createdAt"],
+        )
+        for c in comment_nodes
+    ]
+    return ReviewThread(
+        id=node["id"],
+        path=node["path"],
+        line=node["line"],
+        diff_hunk=head["diffHunk"] or "",
+        first_comment_id=head["databaseId"],
+        comments=comments,
+    )
+
+
 def list_unresolved_threads(
     bot: CaiBot,
     repo: str,
@@ -134,31 +158,38 @@ def list_unresolved_threads(
     for node in nodes:
         if node["isResolved"] or node["isOutdated"]:
             continue
-        comment_nodes = node["comments"]["nodes"]
-        if not comment_nodes:
-            continue
-        head = comment_nodes[0]
+        head = (node["comments"]["nodes"] or [{}])[0]
         head_author = (head.get("author") or {}).get("login")
         if head_author in exclude_authors:
             continue
-        comments = [
-            ReviewComment(
-                author=(c.get("author") or {}).get("login") or "ghost",
-                body=c["body"],
-                created_at=c["createdAt"],
-            )
-            for c in comment_nodes
-        ]
-        threads.append(
-            ReviewThread(
-                id=node["id"],
-                path=node["path"],
-                line=node["line"],
-                diff_hunk=head["diffHunk"] or "",
-                first_comment_id=head["databaseId"],
-                comments=comments,
-            )
-        )
+        thread = _parse_thread_node(node)
+        if thread is not None:
+            threads.append(thread)
+    return threads
+
+
+def list_resolved_threads(bot: CaiBot, repo: str, number: int) -> list[ReviewThread]:
+    """List resolved (non-outdated) review threads on PR ``number``.
+
+    Used as "prior corrections" context for the address agent: it shows
+    what reviewers previously asked for and how cai[bot] responded, so
+    the agent doesn't undo a prior fix when handling a new thread.
+    """
+    owner, name = repo.split("/", 1)
+    data = _graphql(
+        bot,
+        repo,
+        _LIST_THREADS_QUERY,
+        {"owner": owner, "name": name, "number": number},
+    )
+    nodes = data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    threads: list[ReviewThread] = []
+    for node in nodes:
+        if not node["isResolved"] or node["isOutdated"]:
+            continue
+        thread = _parse_thread_node(node)
+        if thread is not None:
+            threads.append(thread)
     return threads
 
 

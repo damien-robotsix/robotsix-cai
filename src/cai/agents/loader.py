@@ -22,10 +22,37 @@ import httpx
 import yaml
 from openai import AsyncOpenAI
 from pydantic_ai import Agent
+from pydantic_ai.capabilities.abstract import AbstractCapability
+from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 AGENT_DIR = Path(__file__).resolve().parent
+
+
+class ToolErrorAsRetry(AbstractCapability):
+    """Turn uncaught tool exceptions into ``ModelRetry`` so the agent can recover.
+
+    Without this, an invalid glob pattern, a malformed regex, a transient
+    permission error, or any other Python exception raised inside a tool
+    implementation crashes the entire ``agent.run()`` — wasting the run's
+    cost and leaving no chance for the model to fix its arguments. With it,
+    the model gets the exception type + message back as a retry prompt and
+    can correct the call.
+
+    ``ModelRetry`` itself is re-raised untouched so the existing retry
+    machinery still works.
+    """
+
+    async def on_tool_execute_error(
+        self, ctx, *, call, tool_def, args, error
+    ):
+        if isinstance(error, ModelRetry):
+            raise error
+        raise ModelRetry(
+            f"Tool {call.tool_name!r} raised {type(error).__name__}: {error}. "
+            f"Adjust the arguments and try again."
+        )
 
 # httpx defaults read/write/pool to None (infinite). Without these, a silently
 # dropped OpenRouter request will hang the agent indefinitely instead of
@@ -266,6 +293,11 @@ def build_deep_agent(
     # those calls with "Tool not executed - a final result was already
     # processed", which lost the refined body in cai-solve.
     extra.setdefault("end_strategy", "exhaustive")
+
+    # Tool implementations sometimes raise on bad model inputs (invalid
+    # glob, malformed regex). Without this capability such a single-call
+    # failure aborts the whole run.
+    extra["capabilities"] = [*(extra.get("capabilities") or []), ToolErrorAsRetry()]
 
     agent = create_deep_agent(
         build_model(config),

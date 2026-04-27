@@ -28,8 +28,13 @@ that decision plus the reply you want posted.
 2. Open the file at the cited path and read the surrounding code.
 3. Decide:
    - **Fix** — the comment names a concrete change you can confidently
-     make. Edit the relevant files. Keep the change scoped to what the
-     comment requested; do not refactor neighbouring code.
+     make. Edit the cited location, then **propagate the same fix**
+     wherever the same logic applies: if you're replacing a literal name
+     or symbol (env var, constant, path, identifier, command) with a
+     corrected one, grep the repo and apply the same correction to every
+     occurrence that shares the reviewer's intent. The reviewer anchors
+     a comment at one instance; the right fix is almost always consistent
+     across the codebase. Do not refactor neighbouring or unrelated code.
    - **Reply only** — the comment is ambiguous, asks a question, points
      at something already correct, or you disagree with the suggestion.
      Do not edit code. Write a short reply explaining your position and
@@ -59,9 +64,10 @@ Return a `AddressDecision`:
 
 ## Guidelines
 
-- Make the smallest change that addresses the comment.
-- Do not touch files unrelated to the thread.
+- Make the smallest **consistent** change: no surrounding refactors,
+  but every occurrence of the same antipattern the comment flags should
+  get the same correction. Anchored on one line ≠ scoped to one line.
 - Do not modify files in `.github/`, `pyproject.toml`, or other
-  config files unless the comment is explicitly about them.
+  config files unless the comment relates to them.
 - If a fix would require changes you're not confident about, prefer
   `reply_only` and ask a question instead of guessing.
