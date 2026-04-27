@@ -158,6 +158,27 @@ else
   fi
 fi
 
+echo "Anthropic API key:"
+echo "  Required for direct Anthropic access (rather than via OpenRouter)."
+
+_existing_anth=$(read_env ANTHROPIC_API_KEY)
+
+if [[ -n "$_existing_anth" ]]; then
+  echo "  Existing Anthropic API key found in .env."
+  prompt _ANTH_RECONFIG "Reconfigure? [y/N]" "n"
+  case "$_ANTH_RECONFIG" in
+    y|Y|yes|YES)
+      prompt ANTH_KEY "Anthropic API key"
+      set_env ANTHROPIC_API_KEY "$ANTH_KEY"
+      ;;
+  esac
+else
+  prompt ANTH_KEY "Anthropic API key [leave blank to skip]"
+  if [[ -n "$ANTH_KEY" ]]; then
+    upsert_env ANTHROPIC_API_KEY "$ANTH_KEY"
+  fi
+fi
+
 $DC pull
 $DC up -d
 
