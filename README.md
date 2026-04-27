@@ -11,5 +11,7 @@ For developers self-hosting or referencing this setup, the following GitHub Repo
 *   `LANGFUSE_SECRET_KEY`: Secret key for Langfuse tracing.
 *   `LANGFUSE_PUBLIC_KEY`: Public key for Langfuse tracing.
 *   `LANGFUSE_BASE_URL`: Base URL of the Langfuse server instance.
+*   `CAI_GITHUB_APP_PEM`: GitHub App private key for pushing changes as cai[bot].
+*   `CAI_APP_ENV`: GitHub App environment variables (e.g., `APP_ID`, `APP_SLUG`).
 
 Please see [docs/langfuse-server.md](docs/langfuse-server.md) for information on finding or generating the `LANGFUSE_*` credentials.
