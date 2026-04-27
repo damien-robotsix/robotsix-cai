@@ -30,9 +30,9 @@ def _get_client():
     return Langfuse(**kwargs)
 
 
-def _observations(client, trace_id: str, limit: int = 200):
-    result = client.api.observations.get_many(trace_id=trace_id, limit=limit)
-    return result.data if hasattr(result, "data") else list(result)
+def _observations(client, trace_id: str):
+    trace = client.api.trace.get(trace_id)
+    return trace.observations or []
 
 
 def cmd_list(args) -> None:
@@ -60,6 +60,20 @@ def cmd_list(args) -> None:
         print(f"{t.id:<36} {(t.name or ''):<16} {ts:<22} {cost:>9} {latency:>9}")
 
 
+def _sort_key(o):
+    epoch = datetime.min.replace(tzinfo=timezone.utc)
+    t = getattr(o, "start_time", None)
+    return t if t and t.tzinfo else epoch
+
+
+def _level_tag(obs) -> str:
+    level = getattr(obs, "level", None)
+    s = str(level) if level else ""
+    if s and s not in ("DEFAULT", "ObservationLevel.DEFAULT"):
+        return f" [{level}]"
+    return ""
+
+
 def cmd_show(args) -> None:
     client = _get_client()
     trace = client.api.trace.get(args.trace_id)
@@ -74,29 +88,52 @@ def cmd_show(args) -> None:
     if getattr(trace, "metadata", None):
         print(f"Metadata:  {trace.metadata}")
 
-    observations = _observations(client, trace.id)
+    observations = trace.observations or []
     if not observations:
         print("\nNo observations found.")
         return
 
-    epoch = datetime.min.replace(tzinfo=timezone.utc)
+    sorted_obs = sorted(observations, key=_sort_key)
 
-    def sort_key(o):
-        t = getattr(o, "start_time", None)
-        return t if t and t.tzinfo else epoch
+    if args.analyze:
+        from collections import Counter
+        tool_counts: Counter = Counter()
+        errors = []
+        for obs in sorted_obs:
+            parent = getattr(obs, "parent_observation_id", None)
+            if parent:
+                tool_counts[obs.name or "?"] += 1
+            tag = _level_tag(obs)
+            if tag:
+                errors.append(obs)
+
+        print(f"\nTool call counts (top 20)  — total observations: {len(observations)}")
+        for name, count in tool_counts.most_common(20):
+            print(f"  {count:>4}  {name}")
+
+        if errors:
+            print(f"\nErrors ({len(errors)}):")
+            for obs in errors:
+                print(f"  {obs.name or '?'}{_level_tag(obs)}")
+                msg = getattr(obs, "status_message", None)
+                if msg:
+                    print(f"    Message: {msg[:400]}")
+                out = getattr(obs, "output", None)
+                if out:
+                    print(f"    Output:  {str(out)[:400]}")
+        return
 
     print(f"\nObservations ({len(observations)}):")
-    for obs in sorted(observations, key=sort_key):
-        level = getattr(obs, "level", None)
-        level_tag = f" [{level}]" if level and str(level) not in ("DEFAULT", "ObservationLevel.DEFAULT") else ""
+    for obs in sorted_obs:
+        tag = _level_tag(obs)
         obs_cost = getattr(obs, "calculated_total_cost", None)
         obs_lat = getattr(obs, "latency", None)
         cost_str = f"  ${obs_cost:.4f}" if obs_cost else ""
         lat_str = f"  {obs_lat:.1f}s" if obs_lat else ""
         parent = getattr(obs, "parent_observation_id", None)
         indent = "    " if parent else "  "
-        print(f"{indent}{obs.name or getattr(obs, 'type', '?')}{level_tag}{cost_str}{lat_str}")
-        if level_tag:
+        print(f"{indent}{obs.name or getattr(obs, 'type', '?')}{tag}{cost_str}{lat_str}")
+        if tag:
             msg = getattr(obs, "status_message", None)
             if msg:
                 print(f"{indent}  Error: {msg}")
@@ -119,7 +156,7 @@ def cmd_failures(args) -> None:
 
     found_any = False
     for t in traces:
-        observations = _observations(client, t.id)
+        observations = _observations(client, t.id)  # noqa: uses corrected helper
         errors = [
             o for o in observations
             if str(getattr(o, "level", "")).upper() in ("ERROR", "OBSERVATIONLEVEL.ERROR")
@@ -159,6 +196,7 @@ def main() -> None:
     p_show = sub.add_parser("show", help="Show details for a specific trace")
     p_show.add_argument("trace_id")
     p_show.add_argument("--full", action="store_true", help="Include input/output for each observation")
+    p_show.add_argument("--analyze", action="store_true", help="Show tool-call counts and errors instead of full timeline")
     p_show.set_defaults(func=cmd_show)
 
     p_fail = sub.add_parser("failures", help="Show traces that contain errors")

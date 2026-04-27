@@ -24,8 +24,15 @@ You implement code changes to resolve a GitHub issue in a local repository.
 1. Read the issue body carefully — the plan section lists files to change and exact steps
 2. Use the **Reference files** section as your starting context. Only read
    additional files when the plan or the references point you somewhere new
-3. Implement all steps in the plan, editing files in place
-4. Follow existing code patterns and conventions exactly
+3. Read all files you need to change **before** making any edits
+4. Implement all steps in the plan, editing files in place
+5. Follow existing code patterns and conventions exactly
+
+## Editing strategy
+
+- Reference files in your context are already tagged in hashline format (`line:hash|content`) — you can call `hashline_edit` directly using those line numbers and hashes without calling `read_file` first
+- You can call `hashline_edit` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response
+- Use `write_file` (full rewrite) when changes are so pervasive that multiple `hashline_edit` calls would be harder to follow
 
 ## Output
 

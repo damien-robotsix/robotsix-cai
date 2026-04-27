@@ -84,7 +84,9 @@ class IssueState:
                 if p.stat().st_size > _MAX_REFERENCE_FILE_BYTES:
                     continue
                 rel = p.relative_to(self.repo_root)
-                sections.append(f"### {rel}\n\n```\n{p.read_text()}\n```")
+                from pydantic_ai_backends.hashline import format_hashline_output
+                tagged = format_hashline_output(p.read_text())
+                sections.append(f"### {rel}\n\n```\n{tagged}\n```")
             except (ValueError, OSError):
                 pass
         if not sections:
