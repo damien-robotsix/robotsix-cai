@@ -26,6 +26,7 @@ cai-git-credential = "cai.github.credential:main"
 cai-issue = "cai.github.issue_cli:main"
 cai-solve = "cai.workflows.solve:main"
 cai-address = "cai.workflows.address:main"
+cai-traces = "cai.log.traces_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cai"]
