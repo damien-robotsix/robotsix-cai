@@ -129,17 +129,53 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - GITHUB_TOKEN
     volumes:
       - cai_home:/home/cai
 
-volumes:
-  cai_home:
-    name: cai_home
 EOF
-
 echo "OpenRouter API key (for agent/programmatic model calls):"
-echo "  Get one at https://openrouter.ai/keys — lets cai use any provider (Anthropic, etc.)"
+echo "Anthropic API key (for agent/programmatic model calls):"
+echo "  Optionally, use Anthropic directly."
 
+_existing_anthropic=$(read_env ANTHROPIC_API_KEY)
+
+if [[ -n "$_existing_anthropic" ]]; then
+  echo "  Existing Anthropic API key found in .env."
+  prompt _ANTHROPIC_RECONFIG "Reconfigure? [y/N]" "n"
+  case "$_ANTHROPIC_RECONFIG" in
+    y|Y|yes|YES)
+      prompt ANTHROPIC_KEY "Anthropic API key"
+      set_env ANTHROPIC_API_KEY "$ANTHROPIC_KEY"
+      ;;
+  esac
+else
+  prompt ANTHROPIC_KEY "Anthropic API key [leave blank to skip]"
+  if [[ -n "$ANTHROPIC_KEY" ]]; then
+    upsert_env ANTHROPIC_API_KEY "$ANTHROPIC_KEY"
+  fi
+fi
+
+_existing_gh_token=$(read_env GITHUB_TOKEN)
+
+if [[ -n "$_existing_gh_token" ]]; then
+  echo "  Existing GitHub Personal Access Token found in .env."
+  prompt _GH_TOKEN_RECONFIG "Reconfigure? [y/N]" "n"
+  case "$_GH_TOKEN_RECONFIG" in
+    y|Y|yes|YES)
+      prompt GH_TOKEN "GitHub Personal Access Token"
+      set_env GITHUB_TOKEN "$GH_TOKEN"
+      ;;
+  esac
+else
+  prompt GH_TOKEN "GitHub Personal Access Token [leave blank to skip]"
+  if [[ -n "$GH_TOKEN" ]]; then
+    upsert_env GITHUB_TOKEN "$GH_TOKEN"
+  fi
+fi
+
+EOF
 _existing_or=$(read_env OPENROUTER_API_KEY)
 
 if [[ -n "$_existing_or" ]]; then
