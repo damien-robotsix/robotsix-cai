@@ -14,7 +14,7 @@ jobs:
 
       - name: Run cai-solve
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
           LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
@@ -23,7 +23,7 @@ jobs:
           docker run --rm \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
-            -e ANTHROPIC_API_KEY \
+            -e OPENROUTER_API_KEY \
             -e LANGFUSE_SECRET_KEY \
             -e LANGFUSE_PUBLIC_KEY \
             -e LANGFUSE_HOST \
