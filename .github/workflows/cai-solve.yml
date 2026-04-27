@@ -1,0 +1,32 @@
+name: cai-solve
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  solve:
+    if: github.event.label.name == 'cai:raised'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run cai-solve
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            -e ANTHROPIC_API_KEY \
+            -e LANGFUSE_SECRET_KEY \
+            -e LANGFUSE_PUBLIC_KEY \
+            -e LANGFUSE_HOST \
+            -e GITHUB_TOKEN \
+            docker.io/robotsix/cai:latest \
+            cai-solve ${{ github.event.issue.number }} --repo ${{ github.repository }}
