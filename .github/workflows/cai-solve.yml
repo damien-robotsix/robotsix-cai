@@ -1,0 +1,36 @@
+name: CAI Solve
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  solve:
+    if: github.event.label.name == 'cai:raised'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Stage cai config for container
+        env:
+          CAI_GITHUB_APP_PEM: ${{ secrets.CAI_GITHUB_APP_PEM }}
+          CAI_APP_ENV: ${{ secrets.CAI_APP_ENV }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/cai-config"
+          printf '%s\n' "$CAI_GITHUB_APP_PEM" > "${RUNNER_TEMP}/cai-config/github-app.pem"
+          printf '%s\n' "$CAI_APP_ENV" > "${RUNNER_TEMP}/cai-config/app.env"
+          chmod 600 "${RUNNER_TEMP}/cai-config/github-app.pem" "${RUNNER_TEMP}/cai-config/app.env"
+          sudo chown -R 1000:1000 "${RUNNER_TEMP}/cai-config"
+
+      - name: Run CAI Solve
+        run: |
+          docker run --rm \
+            -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
+            -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            -e LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}" \
+            -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
+            -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
+            docker.io/robotsix/cai:latest \
+            cai-solve ${{ github.repository }}#${{ github.event.issue.number }}
