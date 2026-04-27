@@ -19,6 +19,8 @@ jobs:
       - name: Run CAI Solve
         run: |
           docker run --rm \
+            --user cai \
+            -v ~/.config/cai:/home/cai/.config/cai:ro \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
             -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
