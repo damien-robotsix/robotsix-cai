@@ -13,6 +13,16 @@ jobs:
       issues: write
 
     steps:
+      - name: Verify authorized user
+        env:
+          APPROVED_AI_USERS: ${{ secrets.APPROVED_AI_USERS }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if ! echo "$APPROVED_AI_USERS" | tr ',' '\n' | tr ' ' '\n' | tr -d '\r' | grep -qFx "$ACTOR"; then
+            echo "Unauthorized user: $ACTOR"
+            exit 1
+          fi
+
       - name: Stage cai config for container
         env:
           CAI_GITHUB_APP_PEM: ${{ secrets.CAI_GITHUB_APP_PEM }}
