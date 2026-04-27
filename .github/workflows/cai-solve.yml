@@ -1,0 +1,21 @@
+name: cai-solve
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  solve:
+    if: github.event.label.name == 'cai:raised'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run cai-solve
+        uses: docker://docker.io/robotsix/cai:latest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: cai-solve ${{ github.repository }}#${{ github.event.issue.number }}
