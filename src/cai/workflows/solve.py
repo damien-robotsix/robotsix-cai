@@ -1,7 +1,7 @@
-"""``cai-solve`` CLI: pull a GitHub issue, refine it, and push the result back.
+"""``cai-solve`` CLI: pull a GitHub issue, refine it, implement the fix, and open a PR.
 
-The graph refines the issue title and body in the per-issue workspace,
-then ``push`` applies the refined files to the GitHub issue.
+The pipeline runs as a single graph: ExploreNode → RefineNode → ImplementNode → PRNode.
+Prints a JSON object with the refined issue metadata and the PR URL.
 """
 from __future__ import annotations
 
@@ -11,16 +11,16 @@ import sys
 
 from cai.github.bot import CaiBot
 from cai.github.repo import parse_issue_ref, prepare_workspace
-from cai.workflows.fsm import refine_files
+from cai.workflows.fsm import solve_issue
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="cai-solve",
         description=(
-            "Materialize a per-issue workspace under /tmp/cai-solve, run the "
-            "refine graph on it, and push the refined title and body back to "
-            "the GitHub issue. Prints the updated metadata as JSON."
+            "Materialize a per-issue workspace under /tmp/cai-solve, refine the "
+            "issue, implement the fix, push a branch, and open a pull request. "
+            "Prints the updated metadata and PR URL as JSON."
         ),
     )
     parser.add_argument(
@@ -36,9 +36,9 @@ def main() -> None:
 
     bot = CaiBot()
     workspace = prepare_workspace(bot, repo, number)
-    new_meta = refine_files(bot, workspace.issue_json, repo_root=workspace.repo_root)
+    new_meta, pr_url = solve_issue(bot, workspace)
 
-    json.dump(new_meta.model_dump(), sys.stdout, indent=2)
+    json.dump({"meta": new_meta.model_dump(), "pr_url": pr_url}, sys.stdout, indent=2)
     sys.stdout.write("\n")
 
 

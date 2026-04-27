@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 import sys
 from urllib.parse import urlparse
+
+from git import InvalidGitRepositoryError, Repo
+
+from cai.git import add_local, set_local, unset_all_local
 
 from .bot import CaiBot
 
@@ -13,9 +16,10 @@ _GH_SSH = re.compile(r"^git@github\.com:(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.gi
 
 
 def _detect_origin() -> str:
-    url = subprocess.check_output(
-        ["git", "remote", "get-url", "origin"], text=True
-    ).strip()
+    try:
+        url = Repo(".").remotes.origin.url
+    except InvalidGitRepositoryError as exc:
+        raise ValueError("not inside a git repository") from exc
     if m := _GH_SSH.match(url):
         return f"{m['owner']}/{m['repo']}"
     parsed = urlparse(url)
@@ -25,10 +29,6 @@ def _detect_origin() -> str:
     if path.count("/") != 1:
         raise ValueError(f"unexpected origin path {path!r}")
     return path
-
-
-def _git_local(*args: str) -> None:
-    subprocess.run(["git", "config", "--local", *args], check=True)
 
 
 def main() -> None:
@@ -56,20 +56,17 @@ def main() -> None:
         )
         sys.exit(1)
 
-    _git_local("user.name", "cai[bot]")
-    _git_local(
+    set_local("user.name", "cai[bot]")
+    set_local(
         "user.email",
         f"{bot.app_id}+cai[bot]@users.noreply.github.com",
     )
     # Reset any inherited helper; the empty-string entry then re-add is
     # git's documented way to shadow a global helper inside one repo.
-    subprocess.run(
-        ["git", "config", "--local", "--unset-all", "credential.https://github.com.helper"],
-        check=False,
-    )
-    _git_local("--add", "credential.https://github.com.helper", "")
-    _git_local("--add", "credential.https://github.com.helper", "!cai-git-credential")
-    _git_local("credential.https://github.com.useHttpPath", "true")
+    unset_all_local("credential.https://github.com.helper")
+    add_local("credential.https://github.com.helper", "")
+    add_local("credential.https://github.com.helper", "!cai-git-credential")
+    set_local("credential.https://github.com.useHttpPath", "true")
 
     print(
         f"Configured {full_name} as cai[bot] (installation {iid}).\n"

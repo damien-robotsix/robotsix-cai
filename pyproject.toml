@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Containerized Claude Code launcher with GitHub App identity"
 requires-python = ">=3.12"
 dependencies = [
+    "GitPython>=3.1",
     "PyGithub>=2.3",
     "anthropic>=0.40",
     "langfuse>=3",

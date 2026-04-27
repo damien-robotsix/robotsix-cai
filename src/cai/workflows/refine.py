@@ -5,13 +5,12 @@ from pathlib import Path
 
 from pydantic_ai.usage import UsageLimits
 from pydantic_deep import DeepAgentDeps, LocalBackend
-from pydantic_graph import BaseNode, End, GraphRunContext
+from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
 from cai.github.issues import IssueMeta, add_sub_issue, push
+from cai.workflows.implement import ImplementNode
 from cai.workflows.state import IssueState, RefineOutput
-
-_MAX_FILE_BYTES = 100_000
 
 AGENT_DEFINITION = AGENT_DIR / "refine.md"
 
@@ -32,31 +31,10 @@ def _refine_deps(body_path: Path) -> DeepAgentDeps:
     )
 
 
-def _load_related_files(paths: list[str], repo_root: Path) -> list[str]:
-    sections: list[str] = []
-    for path_str in paths:
-        p = Path(path_str)
-        if not p.is_absolute():
-            p = repo_root / p
-        try:
-            p = p.resolve()
-            if not p.is_file():
-                continue
-            if p.stat().st_size > _MAX_FILE_BYTES:
-                continue
-            rel = p.relative_to(repo_root)
-            sections.append(f"### {rel}\n\n```\n{p.read_text()}\n```")
-        except (ValueError, OSError):
-            pass
-    return sections
-
-
 class RefineNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> End[IssueMeta]:
+    async def run(self, ctx: GraphRunContext[IssueState]) -> ImplementNode:
         state = ctx.state
         assert state.findings is not None
-
-        file_sections = _load_related_files(state.findings.related_files, state.repo_root)
 
         issue_dir = state.body_path.parent
         prompt = (
@@ -68,8 +46,9 @@ class RefineNode(BaseNode[IssueState]):
             f"## Current body\n\n{state.body}\n\n"
             f"## Codebase findings (explore agent)\n\n{state.findings.summary}"
         )
-        if file_sections:
-            prompt += "\n\n## Related files\n\n" + "\n\n".join(file_sections)
+        reference_section = state.reference_files_section()
+        if reference_section:
+            prompt += "\n\n" + reference_section
 
         result = await refine_agent().run(
             prompt,
@@ -80,6 +59,7 @@ class RefineNode(BaseNode[IssueState]):
         new_meta = state.meta.model_copy(update={"title": out.title})
         state.new_meta = new_meta
         state.refine_output = out
+        state.reference_files = list(out.reference_files)
 
         json_path = state.body_path.with_suffix(".json")
         json_path.write_text(new_meta.model_dump_json(indent=2) + "\n")
@@ -97,4 +77,4 @@ class RefineNode(BaseNode[IssueState]):
             created = push(state.bot, sub_json)
             add_sub_issue(state.bot, new_meta.repo, new_meta.number, created.id)
 
-        return End(new_meta)
+        return ImplementNode()

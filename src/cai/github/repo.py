@@ -12,11 +12,11 @@ directory as-is so in-progress agent work is preserved.
 """
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+from cai.git import clone
 
 from .bot import CaiBot
 from .issues import pull
@@ -68,11 +68,10 @@ def prepare_workspace(bot: CaiBot, repo: str, number: int) -> IssueWorkspace:
     if not repo_root.exists():
         # GIT_TERMINAL_PROMPT=0 makes a missing credential helper fail
         # fast instead of hanging on an interactive password prompt.
-        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        subprocess.run(
-            ["git", "clone", f"https://github.com/{repo}.git", str(repo_root)],
-            check=True,
-            env=env,
+        clone(
+            f"https://github.com/{repo}.git",
+            repo_root,
+            env={"GIT_TERMINAL_PROMPT": "0"},
         )
 
     return IssueWorkspace(

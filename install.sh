@@ -204,6 +204,7 @@ case "$SETUP_BOT" in
     echo "      Pull requests:            Read & write"
     echo "      Issues:                   Read & write"
     echo "      Issue fields:             Read & write  (required for sub-issue linking)"
+    echo "      Workflows:                Read & write  (required to push changes under .github/workflows)"
     echo "    Organization permissions:"
     echo "      Members:                  Read"
     echo "      Projects:                 Read & write"

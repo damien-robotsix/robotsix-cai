@@ -77,4 +77,5 @@ class ExploreNode(BaseNode[IssueState]):
             usage_limits=UsageLimits(request_limit=50),
         )
         state.findings = result.output
+        state.reference_files = list(result.output.related_files)
         return RefineNode()

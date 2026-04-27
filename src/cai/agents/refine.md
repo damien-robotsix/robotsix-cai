@@ -14,7 +14,7 @@ agent can execute.
 
 ## What you receive
 
-The prompt has two sections, mirroring the on-disk pair the wrapper
+The prompt has these sections, mirroring the on-disk pair the wrapper
 manages (`<n>.json` and `<n>.md`):
 
 - **Metadata** — a JSON object with `repo`, `number`, `title`,
@@ -24,6 +24,9 @@ manages (`<n>.json` and `<n>.md`):
   - A pre-structured finding from another agent.
   - A previously refined body — refine again with whatever new context
     has been appended.
+- **Codebase findings** — explore agent's summary.
+- **Reference files** — full contents of the files the explore agent
+  flagged as relevant. You don't need to re-read them.
 
 ## Tools
 
@@ -36,6 +39,16 @@ You have **Write** and **Edit** on the body file path only.
 You do not output the body anywhere — your structured output carries
 only metadata changes. The wrapper reads the body file from disk after
 your run.
+
+## Reference files output
+
+Your structured output includes a `reference_files` list (repo-relative
+paths). It is the working set passed to the implement agent: those files
+are auto-injected into its prompt so it doesn't re-read them. Start from
+the explore agent's list, then **add** any file your refined plan now
+depends on (newly discovered call sites, configs, sibling tests, …) and
+**drop** ones that turned out to be irrelevant. Keep it tight — every
+file pays a token cost downstream.
 
 ## Decomposition
 
