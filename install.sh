@@ -137,6 +137,27 @@ volumes:
     name: cai_home
 EOF
 
+echo "Anthropic API key (for agent/programmatic model calls):"
+echo "  Get one at https://console.anthropic.com/settings/keys"
+
+_existing_anthropic=$(read_env ANTHROPIC_API_KEY)
+
+if [[ -n "$_existing_anthropic" ]]; then
+  echo "  Existing Anthropic API key found in .env."
+  prompt _ANTHROPIC_RECONFIG "Reconfigure? [y/N]" "n"
+  case "$_ANTHROPIC_RECONFIG" in
+    y|Y|yes|YES)
+      prompt ANTHROPIC_KEY "Anthropic API key"
+      set_env ANTHROPIC_API_KEY "$ANTHROPIC_KEY"
+      ;;
+  esac
+else
+  prompt ANTHROPIC_KEY "Anthropic API key [leave blank to skip]"
+  if [[ -n "$ANTHROPIC_KEY" ]]; then
+    upsert_env ANTHROPIC_API_KEY "$ANTHROPIC_KEY"
+  fi
+fi
+
 echo "OpenRouter API key (for agent/programmatic model calls):"
 echo "  Get one at https://openrouter.ai/keys — lets cai use any provider (Anthropic, etc.)"
 
