@@ -35,6 +35,8 @@ class PRNode(BaseNode[IssueState]):
         )
 
         pr_body = state.body_path.read_text()
+        if state.new_meta.number is not None:
+            pr_body += f"\n\nCloses #{state.new_meta.number}"
         pr_url = create_pull_request(
             state.bot,
             state.new_meta.repo,
