@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic_ai.usage import UsageLimits
-from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
 from cai.github.issues import IssueMeta, add_sub_issue, push
+from cai.workflows._deps import repo_deps
 from cai.workflows.implement import ImplementNode
 from cai.workflows.state import IssueState, RefineOutput
 
@@ -19,16 +18,6 @@ AGENT_DEFINITION = AGENT_DIR / "refine.md"
 def refine_agent():
     config, instructions = parse_agent_md(AGENT_DEFINITION)
     return build_deep_agent(config, instructions, output_type=RefineOutput)
-
-
-def _refine_deps(body_path: Path) -> DeepAgentDeps:
-    issue_dir = str(body_path.parent)
-    return DeepAgentDeps(
-        backend=LocalBackend(
-            root_dir=issue_dir,
-            allowed_directories=[issue_dir],
-        )
-    )
 
 
 class RefineNode(BaseNode[IssueState]):
@@ -52,8 +41,8 @@ class RefineNode(BaseNode[IssueState]):
 
         result = await refine_agent().run(
             prompt,
-            deps=_refine_deps(state.body_path),
-            usage_limits=UsageLimits(request_limit=10),
+            deps=repo_deps(state.repo_root, write_dirs=[state.body_path.parent]),
+            usage_limits=UsageLimits(request_limit=20),
         )
         out: RefineOutput = result.output
         new_meta = state.meta.model_copy(update={"title": out.title})

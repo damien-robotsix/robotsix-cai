@@ -4,6 +4,9 @@ description: Address one PR review thread — either fix the code, or push back 
 model: google/gemini-3.1-pro-preview
 tools:
   - filesystem
+  - subagents
+subagents:
+  - explore
 ---
 
 # Address Agent

@@ -20,7 +20,6 @@ from typing import Literal
 from git import Repo
 from pydantic import BaseModel, Field
 from pydantic_ai.usage import UsageLimits
-from pydantic_deep import DeepAgentDeps, LocalBackend
 
 from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
 from cai.git import commit, push_branch, stage_all
@@ -33,6 +32,7 @@ from cai.github.pr import (
 )
 from cai.github.repo import PRWorkspace
 from cai.log import langfuse_workflow
+from cai.workflows._deps import repo_deps
 
 AGENT_DEFINITION = AGENT_DIR / "address.md"
 
@@ -61,15 +61,6 @@ class ThreadResult:
 def _address_agent():
     config, instructions = parse_agent_md(AGENT_DEFINITION)
     return build_deep_agent(config, instructions, output_type=AddressDecision)
-
-
-def _deps(repo_root: Path) -> DeepAgentDeps:
-    return DeepAgentDeps(
-        backend=LocalBackend(
-            root_dir=str(repo_root),
-            allowed_directories=[str(repo_root)],
-        )
-    )
 
 
 def _format_thread_prompt(thread: ReviewThread) -> str:
@@ -103,7 +94,7 @@ async def _process_thread(
     prompt = _format_thread_prompt(thread)
     result = await _address_agent().run(
         prompt,
-        deps=_deps(repo_root),
+        deps=repo_deps(repo_root, write_dirs=[repo_root]),
         usage_limits=UsageLimits(request_limit=50),
     )
     decision: AddressDecision = result.output
