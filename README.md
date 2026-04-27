@@ -7,7 +7,7 @@ This repository provides an automated agent for solving GitHub issues using `cai
 The automated workflow relies on GitHub Actions to trigger the agent.
 For developers self-hosting or referencing this setup, the following GitHub Repository Secrets must be configured:
 
-*   `ANTHROPIC_API_KEY`: API key for accessing the Anthropic service.
+*   `OPENROUTER_API_KEY`: API key for accessing the OpenRouter service.
 *   `LANGFUSE_SECRET_KEY`: Secret key for Langfuse tracing.
 *   `LANGFUSE_PUBLIC_KEY`: Public key for Langfuse tracing.
 *   `LANGFUSE_BASE_URL`: Base URL of the Langfuse server instance.
