@@ -149,6 +149,13 @@ TOOL_FLAGS: dict[str, dict[str, Any]] = {
     "todo": {"include_todo": True},
     "subagents": {
         "include_subagents": True,
+    },
+    # Opt-in flag for pydantic_deep's built-in research + planner subagents.
+    # Keep separate from "subagents" because the research subagent has execute
+    # tools that trigger a DeferredToolRequests bug in pydantic_deep when
+    # interrupt_on is not set.  Only add this to agents that explicitly need
+    # open-ended research or plan-mode capability.
+    "subagents_builtin": {
         "include_builtin_subagents": True,
         "include_plan": True,
     },
