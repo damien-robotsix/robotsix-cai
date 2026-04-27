@@ -7,9 +7,21 @@ from typing import Mapping
 from git import Actor, Repo
 
 
-def clone(url: str, dest: Path, *, env: Mapping[str, str] | None = None) -> Repo:
-    """Clone ``url`` into ``dest`` and return the new ``Repo``."""
-    return Repo.clone_from(url, str(dest), env=dict(env) if env else None)
+def clone(
+    url: str,
+    dest: Path,
+    *,
+    branch: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Repo:
+    """Clone ``url`` into ``dest`` and return the new ``Repo``.
+
+    When ``branch`` is given, the clone checks out that ref directly.
+    """
+    kwargs: dict = {"env": dict(env)} if env else {}
+    if branch is not None:
+        kwargs["branch"] = branch
+    return Repo.clone_from(url, str(dest), **kwargs)
 
 
 def checkout_branch(repo_root: Path, branch_name: str) -> None:
