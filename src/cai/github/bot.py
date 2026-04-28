@@ -51,6 +51,13 @@ class CaiBot:
         app = self._integration.get_app()
         return {"name": app.name, "id": app.id, "slug": app.slug}
 
+    @property
+    def bot_login(self) -> str:
+        """GitHub login for this App's bot actor (``<slug>[bot]``)."""
+        if not hasattr(self, "_slug"):
+            self._slug = self._integration.get_app().slug
+        return f"{self._slug}[bot]"
+
     def installation_id(self, full_name: str) -> int:
         if full_name in self._install_map:
             return self._install_map[full_name]

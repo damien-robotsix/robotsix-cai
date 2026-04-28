@@ -136,15 +136,12 @@ def list_unresolved_threads(
     bot: CaiBot,
     repo: str,
     number: int,
-    *,
-    exclude_authors: tuple[str, ...] = ("cai[bot]",),
 ) -> list[ReviewThread]:
     """List unresolved review threads on PR ``number``.
 
-    A thread is included only when its head comment author is not in
-    ``exclude_authors``. Outdated threads (the diff that prompted the
-    comment no longer exists) are skipped — replying or resolving them
-    is rarely the right move and the agent has no anchor to fix.
+    Threads whose head comment was authored by any GitHub App bot (login ends
+    with ``[bot]``) are skipped — the agent should only address human review
+    comments. Outdated threads are also skipped.
     """
     owner, name = repo.split("/", 1)
     data = _graphql(
@@ -159,8 +156,8 @@ def list_unresolved_threads(
         if node["isResolved"] or node["isOutdated"]:
             continue
         head = (node["comments"]["nodes"] or [{}])[0]
-        head_author = (head.get("author") or {}).get("login")
-        if head_author in exclude_authors:
+        head_author = (head.get("author") or {}).get("login") or ""
+        if head_author.endswith("[bot]"):
             continue
         thread = _parse_thread_node(node)
         if thread is not None:

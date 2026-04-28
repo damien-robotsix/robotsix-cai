@@ -66,10 +66,10 @@ def main() -> None:
         ],
     )
 
-    set_local("user.name", "cai[bot]")
+    set_local("user.name", bot.bot_login)
     set_local(
         "user.email",
-        f"{bot.app_id}+cai[bot]@users.noreply.github.com",
+        f"{bot.app_id}+{bot.bot_login}@users.noreply.github.com",
     )
     # Reset any inherited helper; the empty-string entry then re-add is
     # git's documented way to shadow a global helper inside one repo.
@@ -79,9 +79,9 @@ def main() -> None:
     set_local("credential.https://github.com.useHttpPath", "true")
 
     print(
-        f"Configured {full_name} as cai[bot] (installation {iid}).\n"
-        f"  user.name  = cai[bot]\n"
-        f"  user.email = {bot.app_id}+cai[bot]@users.noreply.github.com"
+        f"Configured {full_name} as {bot.bot_login} (installation {iid}).\n"
+        f"  user.name  = {bot.bot_login}\n"
+        f"  user.email = {bot.app_id}+{bot.bot_login}@users.noreply.github.com"
     )
 
 
