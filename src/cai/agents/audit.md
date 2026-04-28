@@ -1,7 +1,7 @@
 ---
 name: audit
 description: Analyzes Langfuse traces to identify workflow inefficiency, expensive loops, and failure patterns, proposing concrete improvements.
-model: anthropic/claude-3.5-sonnet
+model: google/gemini-3.1-pro-preview
 tools:
   - traces_list
   - traces_show
