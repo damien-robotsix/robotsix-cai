@@ -25,7 +25,13 @@ AGENT_DEFINITION = resolve_agent_path("implement")
 def _implement_agent():
     config, instructions = parse_agent_md(AGENT_DEFINITION)
 <<<<<<< HEAD
+<<<<<<< HEAD
     agent = build_deep_agent(config, instructions, output_type=ImplementOutput)
+=======
+    agent = build_deep_agent(
+        config, instructions, output_type=ImplementOutput, edit_format="str_replace"
+    )
+>>>>>>> origin/main
 =======
     agent = build_deep_agent(
         config, instructions, output_type=ImplementOutput, edit_format="str_replace"
@@ -46,7 +52,11 @@ def _implement_agent():
             raise ModelRetry(
                 "One or more replies use action='fix' but the working tree "
 <<<<<<< HEAD
+<<<<<<< HEAD
                 "has no changes. Either invoke write_file or hashline_edit "
+=======
+                "has no changes. Either invoke write_file or edit_file "
+>>>>>>> origin/main
 =======
                 "has no changes. Either invoke write_file or edit_file "
 >>>>>>> origin/main
