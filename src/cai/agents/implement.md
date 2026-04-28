@@ -4,6 +4,8 @@ description: Implements code changes to resolve a GitHub issue in a local reposi
 model: google/gemini-3.1-pro-preview
 tools:
   - filesystem
+  - web_search
+  - web_fetch
 ---
 
 # Implementation Agent
@@ -49,3 +51,4 @@ Return:
 - Do not add features, comments, or abstractions beyond what the plan requires
 - Make the smallest change that fully implements the plan
 - Never modify files listed in **Scope guardrails**
+- Use your `web_search` and `web_fetch` tools to look up external API documentation or libraries when necessary to implement the required changes.

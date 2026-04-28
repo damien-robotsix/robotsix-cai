@@ -4,6 +4,7 @@ description: Analyzes Langfuse traces to identify workflow inefficiency, expensi
 model: anthropic/claude-3.5-sonnet
 tools:
   - traces_list
+  - traces_show
   - traces_failures
   - traces_issue_cost
   - subagents
