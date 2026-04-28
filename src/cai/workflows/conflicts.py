@@ -34,7 +34,11 @@ from cai.github.repo import (
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 from cai.log import langfuse_workflow
+=======
+from cai.log import langfuse_workflow, session_id_for_pr
+>>>>>>> origin/main
 =======
 from cai.log import langfuse_workflow, session_id_for_pr
 >>>>>>> origin/main
@@ -165,6 +169,10 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+        session_id=session_id_for_pr(workspace.number, workspace.head_branch),
+>>>>>>> origin/main
 =======
         session_id=session_id_for_pr(workspace.number, workspace.head_branch),
 >>>>>>> origin/main
