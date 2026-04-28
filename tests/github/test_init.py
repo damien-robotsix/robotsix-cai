@@ -36,7 +36,7 @@ def test_detect_origin_valid_https():
 @patch("cai.github.init.ensure_labels")
 @patch("cai.github.init.CaiBot")
 @patch("sys.argv", ["cai-app-init"])
-def test_main_ensure_labels_called(mock_caibot_class, mock_detect_origin, mock_ensure_labels, mock_add_local, mock_unset_all_local, mock_set_local):
+def test_main_ensure_labels_called(mock_caibot_class, mock_ensure_labels, mock_detect_origin, mock_add_local, mock_unset_all_local, mock_set_local):
     mock_bot = Mock()
     mock_bot.app_id = "123456"
     mock_bot.installation_id.return_value = 111111
