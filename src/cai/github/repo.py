@@ -1,15 +1,16 @@
-"""Materialize the per-issue / per-PR workspaces.
+"""Materialize the per-issue / per-PR workspaces for ``cai-solve``.
 
-``cai-solve`` workspace (per ``owner/repo#number``)::
+Issue workspace (per ``owner/repo#number``)::
 
     /tmp/cai-solve/<owner>/<name>/<number>/
     ├── <number>.json   # issue metadata
     ├── <number>.md     # issue body
     └── repo/           # local clone of <owner>/<name>
 
-``cai-address`` workspace (per pull request)::
+PR workspace (when ``cai-solve`` is invoked against a pull request)::
 
-    /tmp/cai-address/<owner>/<name>/<pr>/
+    /tmp/cai-solve-pr/<owner>/<name>/<pr>/
+    ├── <pr>.md         # PR body
     └── repo/           # clone with the PR head branch checked out
 
 A second invocation against the same issue or PR picks up the existing
@@ -28,7 +29,7 @@ from .issues import pull
 from .pr import get_pr_meta
 
 WORKSPACE_ROOT = Path("/tmp/cai-solve")
-PR_WORKSPACE_ROOT = Path("/tmp/cai-address")
+PR_WORKSPACE_ROOT = Path("/tmp/cai-solve-pr")
 
 _ISSUE_REF_RE = re.compile(r"^(?P<repo>[^/\s]+/[^/#\s]+)#(?P<number>\d+)$")
 
@@ -104,6 +105,7 @@ def pr_workspace(repo: str, number: int) -> Path:
 class PRWorkspace:
     root: Path
     repo_root: Path
+    body_path: Path
     repo: str
     number: int
     head_branch: str
@@ -124,6 +126,9 @@ def prepare_pr_workspace(bot: CaiBot, repo: str, number: int) -> PRWorkspace:
     root = pr_workspace(repo, number)
     root.mkdir(parents=True, exist_ok=True)
 
+    body_path = root / f"{number}.md"
+    body_path.write_text(body)
+
     repo_root = root / "repo"
     if not repo_root.exists():
         clone(
@@ -136,9 +141,20 @@ def prepare_pr_workspace(bot: CaiBot, repo: str, number: int) -> PRWorkspace:
     return PRWorkspace(
         root=root,
         repo_root=repo_root,
+        body_path=body_path,
         repo=repo,
         number=number,
         head_branch=head_branch,
         title=title,
         body=body,
     )
+
+
+def is_pull_request(bot: CaiBot, repo: str, number: int) -> bool:
+    """Return True when ``number`` references a pull request, not an issue.
+
+    GitHub stores PRs as a subtype of issues — the ``issues`` endpoint
+    returns both, and PRs carry a non-null ``pull_request`` link.
+    """
+    issue = bot.repo(repo).get_issue(number)
+    return issue.pull_request is not None

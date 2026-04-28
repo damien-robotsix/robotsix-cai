@@ -6,7 +6,7 @@ nav_order: 1
 
 # cai-solve
 
-Pulls a GitHub issue, refines it, implements the fix, runs checks, and opens a pull request.
+Drives a GitHub issue or pull request through the same graph. Issues are explored, refined, implemented, and pushed as a new PR. PRs enter at the implement step with their unresolved review threads in the prompt, and the bundled fix is pushed in place.
 
 ## Graph
 

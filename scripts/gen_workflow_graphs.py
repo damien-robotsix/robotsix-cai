@@ -15,7 +15,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from cai.workflows.address_loop import address_graph  # noqa: E402
 from cai.workflows.audit import audit_graph  # noqa: E402
 from cai.workflows.fsm import solve_graph  # noqa: E402
 
@@ -37,25 +36,17 @@ WORKFLOWS: list[WorkflowDoc] = [
         title="cai-solve",
         nav_order=1,
         blurb=(
-            "Pulls a GitHub issue, refines it, implements the fix, runs checks, "
-            "and opens a pull request."
+            "Drives a GitHub issue or pull request through the same graph. "
+            "Issues are explored, refined, implemented, and pushed as a new PR. "
+            "PRs enter at the implement step with their unresolved review "
+            "threads in the prompt, and the bundled fix is pushed in place."
         ),
         graph=solve_graph,
     ),
     WorkflowDoc(
-        slug="address",
-        title="cai-address",
-        nav_order=2,
-        blurb=(
-            "Walks each unresolved review thread on a pull request and either "
-            "commits a fix or replies with reasoning."
-        ),
-        graph=address_graph,
-    ),
-    WorkflowDoc(
         slug="audit",
         title="cai-audit",
-        nav_order=3,
+        nav_order=2,
         blurb=(
             "Runs the audit agent against recent Langfuse traces and files "
             "proposed improvements as GitHub issues."

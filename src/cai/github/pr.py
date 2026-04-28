@@ -1,4 +1,4 @@
-"""GitHub Pull Request helpers for cai-solve and cai-address.
+"""GitHub Pull Request helpers for cai-solve.
 
 REST is used where it works straightforwardly (creating PRs, replying to
 review comments). Review-thread state and resolution are GraphQL-only,
@@ -168,9 +168,10 @@ def list_unresolved_threads(
 def list_resolved_threads(bot: CaiBot, repo: str, number: int) -> list[ReviewThread]:
     """List resolved (non-outdated) review threads on PR ``number``.
 
-    Used as "prior corrections" context for the address agent: it shows
-    what reviewers previously asked for and how cai[bot] responded, so
-    the agent doesn't undo a prior fix when handling a new thread.
+    Used as "prior corrections" context for the implement agent in
+    PR-comment mode: it shows what reviewers previously asked for and
+    how cai[bot] responded, so the agent doesn't undo a prior fix when
+    handling a new thread.
     """
     owner, name = repo.split("/", 1)
     data = _graphql(

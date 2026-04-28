@@ -89,7 +89,7 @@ class LangfuseTraces:
         since: str | None = None,
         repo: str | None = None,
     ) -> list[dict]:
-        """Return total cost grouped by (repo, issue_number) across cai-solve and cai-address traces."""
+        """Return total cost grouped by (repo, issue_number) across cai-solve traces."""
         from collections import defaultdict
 
         kwargs: dict = {"limit": limit, "page": 1}
@@ -100,7 +100,7 @@ class LangfuseTraces:
 
         issue_costs: dict = defaultdict(lambda: {"cost": 0.0, "trace_ids": [], "workflows": []})
         for t in traces:
-            if getattr(t, "name", None) not in ("cai-solve", "cai-address"):
+            if getattr(t, "name", None) != "cai-solve":
                 continue
             meta = getattr(t, "metadata", None)
             if meta is None:
@@ -209,7 +209,7 @@ async def traces_list(
 
     Args:
         limit: Maximum number of traces to return (default 20).
-        workflow: Filter by workflow name, e.g. 'cai-solve' or 'cai-address'.
+        workflow: Filter by workflow name, e.g. 'cai-solve' or 'cai-audit'.
         since: ISO date string — only return traces after this date, e.g. '2026-01-01'.
     """
     traces = _TRACES.list_traces(limit=limit, workflow=workflow, since=since)
@@ -315,7 +315,7 @@ async def traces_issue_cost(
     since: str | None = None,
     repo: str | None = None,
 ) -> str:
-    """Show total LLM cost grouped by issue number across cai-solve and cai-address traces.
+    """Show total LLM cost grouped by issue number across cai-solve traces.
 
     Args:
         limit: Maximum number of traces to scan (default 100).
