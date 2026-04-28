@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from cai.github.bot import CaiBot
 from cai.github.issues import IssueMeta
+from cai.github.pr import ReviewThread
 
 _MAX_REFERENCE_FILE_BYTES = 100_000
 
@@ -46,6 +47,21 @@ class RefineOutput(BaseModel):
     )
 
 
+class ThreadReply(BaseModel):
+    """Per-thread reply produced when implementing review-comment fixes.
+
+    ``action`` is per-thread even though the resulting commit is bundled:
+    we resolve a thread on GitHub only when the agent intended a fix for
+    that specific thread.
+    """
+
+    thread_id: str = Field(description="GraphQL node id of the review thread.")
+    action: Literal["fix", "reply_only"] = Field(
+        description="Whether the agent edited code for this thread (fix) or only wants to reply (reply_only)."
+    )
+    reply: str = Field(description="Message to post as a reply on the thread.")
+
+
 class ImplementOutput(BaseModel):
     summary: str = Field(description="Concise description of code changes made.")
     commit_message: str = Field(description="Git commit message for the changes.")
@@ -55,6 +71,13 @@ class ImplementOutput(BaseModel):
             "Checks required for this MR. "
             "Include 'documentation' if docs/ or other documentation may need updating. "
             "Valid values: 'documentation'."
+        ),
+    )
+    replies: list[ThreadReply] = Field(
+        default_factory=list,
+        description=(
+            "Per-thread replies. Populate only when review-comment threads are "
+            "in the prompt — one entry per thread. Leave empty otherwise."
         ),
     )
 
@@ -106,6 +129,9 @@ class IssueState:
     branch_name: str | None = field(default=None)
     pr_url: str | None = field(default=None)
     reference_files: list[str] = field(default_factory=list)
+    review_threads: list[ReviewThread] = field(default_factory=list)
+    prior_corrections: list[ReviewThread] = field(default_factory=list)
+    pr_number: int | None = field(default=None)
 
     def reference_files_section(self) -> str:
         """Render ``reference_files`` as a markdown section ready to splice into a prompt.
