@@ -14,7 +14,12 @@ def test_audit_agent_config():
     tools = config.get("tools", [])
     assert "traces_list" in tools
     assert "traces_failures" in tools
+<<<<<<< HEAD
     assert "traces_issue_cost" in tools
+=======
+    assert "traces_session_cost" in tools
+    assert "traces_session" in tools
+>>>>>>> origin/main
     assert "subagents" in config
     
     # Assert description

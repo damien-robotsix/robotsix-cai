@@ -70,7 +70,12 @@ Return:
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 - Use your `web_search` and `web_fetch` tools to look up external API documentation or libraries when necessary to implement the required changes.
+=======
+- Do not modify files in `.github/`, `pyproject.toml`, or other config
+  files in response to a review thread unless the comment relates to them
+>>>>>>> origin/main
 =======
 - Do not modify files in `.github/`, `pyproject.toml`, or other config
   files in response to a review thread unless the comment relates to them

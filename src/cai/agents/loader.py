@@ -258,10 +258,11 @@ _TOOL_PRUNE: dict[str, dict[str, frozenset[str]]] = {
 TOOL_FACTORIES: dict[str, str] = {
     # name → "module:attr" import target
     "spike_run": "cai.agents.spike_tool:SPIKE_RUN_TOOL",
-    "traces_list": "cai.log.traces_cli:TRACES_LIST_TOOL",
-    "traces_show": "cai.log.traces_cli:TRACES_SHOW_TOOL",
-    "traces_failures": "cai.log.traces_cli:TRACES_FAILURES_TOOL",
-    "traces_issue_cost": "cai.log.traces_cli:TRACES_ISSUE_COST_TOOL",
+    "traces_list": "cai.log.traces:TRACES_LIST_TOOL",
+    "traces_show": "cai.log.traces:TRACES_SHOW_TOOL",
+    "traces_failures": "cai.log.traces:TRACES_FAILURES_TOOL",
+    "traces_session_cost": "cai.log.traces:TRACES_SESSION_COST_TOOL",
+    "traces_session": "cai.log.traces:TRACES_SESSION_TOOL",
 }
 
 _DEEP_FLAG_DEFAULTS: dict[str, bool] = {
@@ -401,6 +402,11 @@ def build_deep_agent(
     # those calls with "Tool not executed - a final result was already
     # processed", which lost the refined body in cai-solve.
     extra.setdefault("end_strategy", "exhaustive")
+
+    # str_replace beat hashline in production: hashline edits churned on
+    # multi-edit responses because each applied edit shifted line numbers
+    # and invalidated subsequent (line, hash) pairs (see commit c86189f).
+    extra.setdefault("edit_format", "str_replace")
 
     # Tool implementations sometimes raise on bad model inputs (invalid
     # glob, malformed regex). Without this capability such a single-call
