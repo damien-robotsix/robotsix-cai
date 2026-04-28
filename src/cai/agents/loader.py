@@ -23,7 +23,7 @@ import yaml
 from openai import AsyncOpenAI
 from pydantic_ai import Agent
 from pydantic_ai.capabilities.abstract import AbstractCapability
-from pydantic_ai.exceptions import ModelRetry
+from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -53,6 +53,25 @@ class ToolErrorAsRetry(AbstractCapability):
             f"Tool {call.tool_name!r} raised {type(error).__name__}: {error}. "
             f"Adjust the arguments and try again."
         )
+
+
+class ModelRequestErrorAsRetry(AbstractCapability):
+    """Turn ``UnexpectedModelBehavior`` into ``ModelRetry`` for transient API errors.
+
+    OpenRouter occasionally returns a malformed HTTP 200 (all-None fields in the
+    ChatCompletion schema) on preview models, especially on the final structured-
+    output call. Without this, one bad response aborts the entire agent run.
+    pydantic_ai's built-in request-level retry budget (``request_limit``) still
+    caps total retries, so this does not loop indefinitely.
+    """
+
+    async def on_model_request_error(self, ctx, *, request_context, error):
+        if isinstance(error, UnexpectedModelBehavior):
+            raise ModelRetry(
+                f"Model returned an unexpected response ({error}). Retrying..."
+            )
+        raise error
+
 
 # httpx defaults read/write/pool to None (infinite). Without these, a silently
 # dropped OpenRouter request will hang the agent indefinitely instead of
@@ -386,7 +405,7 @@ def build_deep_agent(
     # Tool implementations sometimes raise on bad model inputs (invalid
     # glob, malformed regex). Without this capability such a single-call
     # failure aborts the whole run.
-    extra["capabilities"] = [*(extra.get("capabilities") or []), ToolErrorAsRetry()]
+    extra["capabilities"] = [*(extra.get("capabilities") or []), ToolErrorAsRetry(), ModelRequestErrorAsRetry()]
 
     agent = create_deep_agent(
         build_model(config),
