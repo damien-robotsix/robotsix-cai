@@ -93,15 +93,20 @@ def langfuse_workflow(
         yield
         return
 
-    from langfuse import get_client
+    from contextlib import ExitStack
+
+    from langfuse import get_client, propagate_attributes
 
     client = get_client()
-    with client.start_as_current_observation(
-        name=name,
-        as_type="agent",
-        input=input,
-        metadata=metadata,
-    ):
+    with ExitStack() as stack:
+        stack.enter_context(
+            client.start_as_current_observation(
+                name=name,
+                as_type="agent",
+                input=input,
+                metadata=metadata,
+            )
+        )
         if session_id is not None:
-            client.update_current_trace(session_id=session_id)
+            stack.enter_context(propagate_attributes(session_id=session_id))
         yield
