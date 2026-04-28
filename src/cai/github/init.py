@@ -11,6 +11,7 @@ from git import InvalidGitRepositoryError, Repo
 from cai.git import add_local, set_local, unset_all_local
 
 from .bot import CaiBot
+from cai.github.labels import LabelSpec, ensure_labels
 
 _GH_SSH = re.compile(r"^git@github\.com:(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$")
 
@@ -55,6 +56,15 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+    ensure_labels(
+        bot,
+        full_name,
+        [
+            LabelSpec(name="cai:raised", color="0e8a16", description="Trigger cai to solve"),
+            LabelSpec(name="cai:audit", color="fbca04", description="For cai to review"),
+        ],
+    )
 
     set_local("user.name", "cai[bot]")
     set_local(
