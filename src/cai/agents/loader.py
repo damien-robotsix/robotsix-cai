@@ -239,6 +239,9 @@ _TOOL_PRUNE: dict[str, dict[str, frozenset[str]]] = {
 TOOL_FACTORIES: dict[str, str] = {
     # name → "module:attr" import target
     "spike_run": "cai.agents.spike_tool:SPIKE_RUN_TOOL",
+    "traces_list": "cai.log.traces_cli:TRACES_LIST_TOOL",
+    "traces_show": "cai.log.traces_cli:TRACES_SHOW_TOOL",
+    "traces_failures": "cai.log.traces_cli:TRACES_FAILURES_TOOL",
 }
 
 _DEEP_FLAG_DEFAULTS: dict[str, bool] = {
