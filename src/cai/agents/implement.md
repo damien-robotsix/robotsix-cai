@@ -43,10 +43,13 @@ prompt — both modes share this single agent.
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 - Reference files in your context are already tagged in hashline format (`line:hash|content`) — you can call `hashline_edit` directly using those line numbers and hashes without calling `read_file` first
 - You can call `hashline_edit` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response
 - Use `write_file` (full rewrite) when changes are so pervasive that multiple `hashline_edit` calls would be harder to follow
 =======
+=======
+>>>>>>> origin/main
 =======
 >>>>>>> origin/main
 =======
@@ -60,6 +63,9 @@ prompt — both modes share this single agent.
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> origin/main
+=======
 >>>>>>> origin/main
 =======
 >>>>>>> origin/main

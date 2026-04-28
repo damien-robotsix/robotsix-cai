@@ -411,6 +411,11 @@ def build_deep_agent(
     # processed", which lost the refined body in cai-solve.
     extra.setdefault("end_strategy", "exhaustive")
 
+    # str_replace beat hashline in production: hashline edits churned on
+    # multi-edit responses because each applied edit shifted line numbers
+    # and invalidated subsequent (line, hash) pairs (see commit c86189f).
+    extra.setdefault("edit_format", "str_replace")
+
     # Tool implementations sometimes raise on bad model inputs (invalid
     # glob, malformed regex). Without this capability such a single-call
     # failure aborts the whole run.

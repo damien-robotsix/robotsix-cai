@@ -88,16 +88,22 @@ class LangfuseTraces:
         limit: int = 100,
         since: str | None = None,
     ) -> list[dict]:
+<<<<<<< HEAD
 <<<<<<< HEAD:src/cai/log/traces_cli.py
         """Return total cost grouped by (repo, issue_number) across cai-solve traces."""
 =======
+=======
+>>>>>>> origin/main
         """Return total cost grouped by Langfuse ``session_id``.
 
         Sessions group an issue's full lifecycle — the cai-solve run, its PR's
         review-thread runs, and any later conflict-resolves — under a single
         id (see ``cai.log.observability.session_id_for_pr``).
         """
+<<<<<<< HEAD
 >>>>>>> origin/main:src/cai/log/traces.py
+=======
+>>>>>>> origin/main
         from collections import defaultdict
 
         kwargs: dict = {"limit": limit, "page": 1}
@@ -108,12 +114,17 @@ class LangfuseTraces:
 
         session_costs: dict = defaultdict(lambda: {"cost": 0.0, "trace_ids": [], "workflows": []})
         for t in traces:
+<<<<<<< HEAD
 <<<<<<< HEAD:src/cai/log/traces_cli.py
             if getattr(t, "name", None) != "cai-solve":
 =======
             session_id = getattr(t, "session_id", None)
             if not session_id:
 >>>>>>> origin/main:src/cai/log/traces.py
+=======
+            session_id = getattr(t, "session_id", None)
+            if not session_id:
+>>>>>>> origin/main
                 continue
             session_costs[session_id]["cost"] += getattr(t, "total_cost", None) or 0.0
             session_costs[session_id]["trace_ids"].append(t.id)
@@ -335,15 +346,21 @@ async def traces_session_cost(
     limit: int = 100,
     since: str | None = None,
 ) -> str:
+<<<<<<< HEAD
 <<<<<<< HEAD:src/cai/log/traces_cli.py
     """Show total LLM cost grouped by issue number across cai-solve traces.
 =======
+=======
+>>>>>>> origin/main
     """Show total LLM cost grouped by Langfuse session id.
 
     Sessions group an issue's full lifecycle — the cai-solve run, its PR's
     review-thread runs, and any later conflict-resolves — under one id
     (e.g. 'issue-1426', 'pr-1427').
+<<<<<<< HEAD
 >>>>>>> origin/main:src/cai/log/traces.py
+=======
+>>>>>>> origin/main
 
     Args:
         limit: Maximum number of traces to scan (default 100).

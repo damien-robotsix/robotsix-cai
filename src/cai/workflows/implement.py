@@ -28,6 +28,7 @@ def _implement_agent():
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     agent = build_deep_agent(config, instructions, output_type=ImplementOutput)
 =======
     agent = build_deep_agent(
@@ -49,6 +50,9 @@ def _implement_agent():
         config, instructions, output_type=ImplementOutput, edit_format="str_replace"
     )
 >>>>>>> origin/main
+=======
+    agent = build_deep_agent(config, instructions, output_type=ImplementOutput)
+>>>>>>> origin/main
 
     @agent.output_validator
     async def _fix_must_edit(ctx, output: ImplementOutput) -> ImplementOutput:
@@ -67,7 +71,11 @@ def _implement_agent():
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
                 "has no changes. Either invoke write_file or hashline_edit "
+=======
+                "has no changes. Either invoke write_file or edit_file "
+>>>>>>> origin/main
 =======
                 "has no changes. Either invoke write_file or edit_file "
 >>>>>>> origin/main
