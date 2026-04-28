@@ -69,4 +69,13 @@ USER root
 RUN pip install --no-cache-dir --root-user-action=ignore /app
 USER cai
 
+# Install the pre-commit git hook into /app/.git/hooks so commits made
+# inside the container regenerate docs/workflows/*.md diagrams. The
+# `git config` call is a per-repo safe-directory entry — pre-commit
+# refuses to touch a repo where the working tree is owned by a UID
+# different from the one running it, which can happen when /app is
+# bind-mounted from the host.
+RUN git config --global --add safe.directory /app \
+    && pre-commit install --install-hooks --config /app/.pre-commit-config.yaml
+
 CMD ["/app/entrypoint.sh"]
