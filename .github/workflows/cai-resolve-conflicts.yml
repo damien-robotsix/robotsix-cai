@@ -1,0 +1,90 @@
+name: CAI Resolve Conflicts
+
+# After every push to the default branch, scan open PRs that now conflict
+# with main, merge main into each (committing the conflict markers), and
+# hand the PR off to the implement agent to resolve.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: cai-resolve-conflicts
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      prs: ${{ steps.list.outputs.prs }}
+    steps:
+      - name: List PRs that conflict with main
+        id: list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # GitHub computes "mergeable" asynchronously after a push to the
+          # base branch. Poll a few times so freshly-invalidated PRs show
+          # up as CONFLICTING instead of UNKNOWN on the first call.
+          attempt=0
+          while : ; do
+            attempt=$((attempt + 1))
+            json=$(gh pr list \
+              --repo "$REPO" \
+              --base main \
+              --state open \
+              --json number,mergeable \
+              --limit 100)
+            unknown=$(echo "$json" | jq '[.[] | select(.mergeable == "UNKNOWN")] | length')
+            if [ "$unknown" -eq 0 ] || [ "$attempt" -ge 6 ]; then
+              break
+            fi
+            sleep 10
+          done
+          prs=$(echo "$json" | jq -c '[.[] | select(.mergeable == "CONFLICTING") | .number]')
+          echo "prs=$prs" >> "$GITHUB_OUTPUT"
+          echo "Found conflicting PRs: $prs"
+
+  resolve:
+    needs: discover
+    if: needs.discover.outputs.prs != '[]' && needs.discover.outputs.prs != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        pr: ${{ fromJSON(needs.discover.outputs.prs) }}
+    concurrency:
+      group: cai-resolve-conflicts-${{ matrix.pr }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Stage cai config for container
+        env:
+          CAI_GITHUB_APP_PEM: ${{ secrets.CAI_GITHUB_APP_PEM }}
+          CAI_APP_ENV: ${{ secrets.CAI_APP_ENV }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/cai-config"
+          printf '%s\n' "$CAI_GITHUB_APP_PEM" > "${RUNNER_TEMP}/cai-config/github-app.pem"
+          printf '%s\n' "$CAI_APP_ENV" > "${RUNNER_TEMP}/cai-config/app.env"
+          chmod 600 "${RUNNER_TEMP}/cai-config/github-app.pem" "${RUNNER_TEMP}/cai-config/app.env"
+          sudo chown -R 1000:1000 "${RUNNER_TEMP}/cai-config"
+
+      - name: Run CAI Resolve Conflicts (PR #${{ matrix.pr }})
+        run: |
+          docker run --rm \
+            -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
+            -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            -e LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}" \
+            -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
+            -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
+            docker.io/robotsix/cai:latest \
+            cai-resolve-conflicts ${{ github.repository }}#${{ matrix.pr }}

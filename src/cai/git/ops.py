@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Mapping
 
 from git import Actor, Repo
+from git.exc import GitCommandError
 
 
 def clone(
@@ -44,6 +45,54 @@ def commit(
     """Commit the staged index using ``author_name``/``author_email``."""
     actor = Actor(author_name, author_email)
     Repo(str(repo_root)).index.commit(message, author=actor, committer=actor)
+
+
+def fetch(
+    repo_root: Path,
+    remote: str = "origin",
+    *,
+    env: Mapping[str, str] | None = None,
+) -> None:
+    """Run ``git fetch <remote>``."""
+    repo = Repo(str(repo_root))
+    if env:
+        with repo.git.custom_environment(**env):
+            repo.git.fetch(remote)
+    else:
+        repo.git.fetch(remote)
+
+
+def merge_no_commit(
+    repo_root: Path,
+    ref: str,
+    *,
+    author_name: str,
+    author_email: str,
+) -> list[str]:
+    """Merge ``ref`` into the current branch with ``--no-ff --no-commit``.
+
+    Returns the list of conflicted paths (empty when the merge succeeds
+    cleanly, in which case the caller still needs to commit). When there
+    are conflicts the working tree is left with conflict markers staged
+    via ``git add -A`` by the caller; this helper does not commit.
+    """
+    repo = Repo(str(repo_root))
+    with repo.git.custom_environment(
+        GIT_AUTHOR_NAME=author_name,
+        GIT_AUTHOR_EMAIL=author_email,
+        GIT_COMMITTER_NAME=author_name,
+        GIT_COMMITTER_EMAIL=author_email,
+    ):
+        try:
+            repo.git.merge(ref, "--no-ff", "--no-commit")
+            return []
+        except GitCommandError:
+            # Conflicts are reported via ``git diff --name-only --diff-filter=U``;
+            # any other failure we re-raise.
+            unmerged = repo.git.diff("--name-only", "--diff-filter=U").splitlines()
+            if not unmerged:
+                raise
+            return [path.strip() for path in unmerged if path.strip()]
 
 
 def push_branch(

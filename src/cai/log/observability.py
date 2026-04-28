@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import re
 import sys
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -56,12 +57,31 @@ def setup_langfuse() -> bool:
     return True
 
 
+_CAI_BRANCH_RE = re.compile(r"^cai/solve-(\d+)$")
+
+
+def session_id_for_pr(pr_number: int, branch: str | None) -> str:
+    """Group a PR's traces under its originating issue when the branch is cai-owned.
+
+    cai-solve names branches ``cai/solve-<issue>``; reuse the issue id so the
+    issue run, the resulting PR's review-thread runs, and any later
+    conflict-resolves all share one Langfuse session. Human-created PRs fall
+    back to ``pr-<n>``.
+    """
+    if branch:
+        m = _CAI_BRANCH_RE.match(branch)
+        if m:
+            return f"issue-{m.group(1)}"
+    return f"pr-{pr_number}"
+
+
 @contextmanager
 def langfuse_workflow(
     name: str,
     *,
     input: Any = None,
     metadata: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> Generator[None, None, None]:
     """Wrap a block in a named Langfuse parent span (type=agent).
 
@@ -82,4 +102,6 @@ def langfuse_workflow(
         input=input,
         metadata=metadata,
     ):
+        if session_id is not None:
+            client.update_current_trace(session_id=session_id)
         yield

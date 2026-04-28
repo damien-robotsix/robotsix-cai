@@ -18,6 +18,7 @@ dependencies = [
     "pydantic-settings>=2",
     "pyyaml>=6",
     "pytest>=8",
+    "pre-commit>=3",
 ]
 
 [project.scripts]
@@ -26,7 +27,7 @@ cai-app-init = "cai.github.init:main"
 cai-git-credential = "cai.github.credential:main"
 cai-issue = "cai.github.issue_cli:main"
 cai-solve = "cai.workflows.solve:main"
-cai-address = "cai.workflows.address:main"
+cai-resolve-conflicts = "cai.workflows.conflicts:main"
 cai-audit = "cai.workflows.audit:main"
 
 [tool.hatch.build.targets.wheel]

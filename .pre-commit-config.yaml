@@ -1,0 +1,15 @@
+# Auto-installed by the Dockerfile (`pre-commit install`) so any commit
+# made inside the cai container regenerates the workflow diagrams.
+repos:
+  - repo: local
+    hooks:
+      - id: regen-workflow-graphs
+        name: Regenerate workflow graph diagrams
+        entry: python scripts/gen_workflow_graphs.py
+        language: system
+        pass_filenames: false
+        # Re-run when graph topology, the generator, or the rendered docs
+        # change. Hook exits non-zero if any docs/workflows/*.md was
+        # rewritten, which makes the commit fail; the user re-stages the
+        # regenerated files and commits again.
+        files: '^(src/cai/workflows/.*\.py|scripts/gen_workflow_graphs\.py|docs/workflows/.*\.md)$'

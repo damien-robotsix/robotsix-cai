@@ -1,15 +1,16 @@
-name: CAI Address
+name: CAI Solve (PR review)
 
 on:
   pull_request_review:
     types: [submitted]
 
 concurrency:
-  group: cai-address-${{ github.event.pull_request.number }}
+  group: cai-solve-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  address:
+  solve:
+    if: github.event.review.state == 'changes_requested'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,7 +42,7 @@ jobs:
           chmod 600 "${RUNNER_TEMP}/cai-config/github-app.pem" "${RUNNER_TEMP}/cai-config/app.env"
           sudo chown -R 1000:1000 "${RUNNER_TEMP}/cai-config"
 
-      - name: Run CAI Address
+      - name: Run CAI Solve (PR)
         run: |
           docker run --rm \
             -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
@@ -50,4 +51,4 @@ jobs:
             -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
             -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
             docker.io/robotsix/cai:latest \
-            cai-address ${{ github.repository }}#${{ github.event.pull_request.number }}
+            cai-solve ${{ github.repository }}#${{ github.event.pull_request.number }}

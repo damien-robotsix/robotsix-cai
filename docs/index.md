@@ -37,3 +37,4 @@ walkthrough is in [Langfuse server setup](./langfuse-server.md).
   `langfuse.your-domain` with Caddy + Let's Encrypt.
 - [GitHub App Setup](./github/setup.md) — instructions for setting up the cai GitHub App.
 - [Configuration](./github/configuration.md) — GitHub Actions and repository secrets configuration.
+- [Workflows](./workflows/) — auto-generated graph diagrams for `cai-solve` and `cai-audit`.

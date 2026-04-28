@@ -29,14 +29,17 @@ def test_detect_origin_valid_https():
     with patch("cai.github.init.Repo", return_value=mock_repo):
         assert _detect_origin() == "owner/repo"
 
-@patch("cai.github.init.set_local")
-@patch("cai.github.init.unset_all_local")
 @patch("cai.github.init.add_local")
-@patch("cai.github.init.ensure_labels")
+@patch("cai.github.init.unset_all_local")
+@patch("cai.github.init.set_local")
 @patch("cai.github.init._detect_origin", return_value="owner/repo")
 @patch("cai.github.init.CaiBot")
 @patch("sys.argv", ["cai-app-init"])
+<<<<<<< HEAD
 def test_main_ensure_labels_called(mock_caibot_class, mock_detect_origin, mock_ensure_labels, mock_add_local, mock_unset_all_local, mock_set_local):
+=======
+def test_main_ensure_labels_called(mock_caibot_class, mock_ensure_labels, mock_detect_origin, mock_set_local, mock_unset_all_local, mock_add_local):
+>>>>>>> origin/main
     mock_bot = Mock()
     mock_bot.app_id = "123456"
     mock_bot.installation_id.return_value = 111111

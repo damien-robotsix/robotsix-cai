@@ -56,7 +56,7 @@ def repo_deps(
 
     * ``write_dirs`` — every path under each given directory (pattern
       ``<d>/**``). Use for "this whole tree is fair game" cases like
-      address-loop where the agent rewrites repo source.
+      the implement agent rewriting repo source.
     * ``write_globs`` — explicit glob patterns. Use for "only these
       files" cases like refine, where the agent should only touch the
       issue body and sub-issue siblings, not the cloned repo or the
