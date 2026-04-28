@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from pydantic_ai.usage import UsageLimits
-from pydantic_graph import BaseNode, GraphRunContext
+from pydantic_graph import BaseNode, End, GraphRunContext
 
 from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
 from cai.github.issues import IssueMeta, add_sub_issue, push
@@ -21,7 +21,7 @@ def refine_agent():
 
 
 class RefineNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> ImplementNode:
+    async def run(self, ctx: GraphRunContext[IssueState]) -> ImplementNode | End[IssueMeta]:
         state = ctx.state
         assert state.findings is not None
 
@@ -66,7 +66,8 @@ class RefineNode(BaseNode[IssueState]):
 
         assert new_meta.number is not None
         for idx, sub_title in enumerate(out.sub_issues):
-            sub_meta = IssueMeta(repo=new_meta.repo, title=sub_title)
+            labels = ["cai:raised"] if idx == 0 else []
+            sub_meta = IssueMeta(repo=new_meta.repo, title=sub_title, labels=labels)
             sub_base = state.body_path.parent / f"sub_issue_{idx}"
             sub_json = sub_base.with_suffix(".json")
             sub_md = sub_base.with_suffix(".md")
@@ -75,5 +76,8 @@ class RefineNode(BaseNode[IssueState]):
                 sub_md.write_text("## Sub-task\n\nAutomatically generated sub-task from refinement.\n")
             created = push(state.bot, sub_json)
             add_sub_issue(state.bot, new_meta.repo, new_meta.number, created.id)
+
+        if out.sub_issues:
+            return End(new_meta)
 
         return ImplementNode()
