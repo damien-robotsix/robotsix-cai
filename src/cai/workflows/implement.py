@@ -20,9 +20,7 @@ AGENT_DEFINITION = AGENT_DIR / "implement.md"
 @lru_cache(maxsize=1)
 def _implement_agent():
     config, instructions = parse_agent_md(AGENT_DEFINITION)
-    agent = build_deep_agent(
-        config, instructions, output_type=ImplementOutput, edit_format="str_replace"
-    )
+    agent = build_deep_agent(config, instructions, output_type=ImplementOutput)
 
     @agent.output_validator
     async def _fix_must_edit(ctx, output: ImplementOutput) -> ImplementOutput:
