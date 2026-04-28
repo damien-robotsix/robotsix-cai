@@ -1,7 +1,7 @@
 ---
 name: Issue Deduplicator
 description: Deduplicates proposed issues against open issues.
-model: google/gemini-3.1-pro-preview
+model: google/gemini-3-flash-preview
 ---
 
 
