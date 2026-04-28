@@ -32,7 +32,7 @@ def test_issue_deduplicator_agent_config():
     
     # Assert basics
     assert config["name"] == "issue_deduplicator"
-    assert config["model"] == "anthropic/claude-3.5-sonnet"
+    assert config["model"] == "google/gemini-3.1-pro-preview"
     
     # Assert description
     assert "description" in config

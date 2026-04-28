@@ -1,7 +1,7 @@
 ---
 name: Issue Deduplicator
 description: Deduplicates proposed issues against open issues.
-model: anthropic/claude-3.5-sonnet
+model: google/gemini-3.1-pro-preview
 ---
 
 
