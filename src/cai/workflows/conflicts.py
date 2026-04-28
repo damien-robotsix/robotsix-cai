@@ -30,7 +30,11 @@ from cai.github.repo import (
     parse_pr_ref,
     prepare_pr_workspace,
 )
+<<<<<<< HEAD
 from cai.log import langfuse_workflow
+=======
+from cai.log import langfuse_workflow, session_id_for_pr
+>>>>>>> origin/main
 from cai.workflows.fsm import solve_graph
 from cai.workflows.implement import ImplementNode
 from cai.workflows.state import IssueState
@@ -145,6 +149,10 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
             "conflicted_files": conflicts,
         },
         metadata={"repo": workspace.repo, "pr_number": workspace.number},
+<<<<<<< HEAD
+=======
+        session_id=session_id_for_pr(workspace.number, workspace.head_branch),
+>>>>>>> origin/main
     ):
         solve_graph.run_sync(ImplementNode(), state=state)
     return {"mode": "resolved", "conflicted_files": conflicts}

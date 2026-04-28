@@ -6,7 +6,11 @@ from cai.github.bot import CaiBot
 from cai.github.issues import IssueMeta
 from cai.github.pr import list_resolved_threads, list_unresolved_threads
 from cai.github.repo import IssueWorkspace, PRWorkspace
+<<<<<<< HEAD
 from cai.log import langfuse_workflow
+=======
+from cai.log import langfuse_workflow, session_id_for_pr
+>>>>>>> origin/main
 from cai.workflows.docs import DocsNode
 from cai.workflows.explore import ExploreNode
 from cai.workflows.implement import ImplementNode
@@ -34,10 +38,12 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
         repo_root=workspace.repo_root.resolve(),
     )
     issue_ref = f"{meta.repo}#{meta.number}" if meta.number else meta.repo
+    session_id = f"issue-{meta.number}" if meta.number else None
     with langfuse_workflow(
         "cai-solve",
         input={"issue": issue_ref, "title": meta.title},
         metadata={"repo": meta.repo, "issue_number": meta.number},
+        session_id=session_id,
     ):
         solve_graph.run_sync(ExploreNode(), state=state)
     assert state.new_meta is not None
@@ -76,6 +82,10 @@ def solve_pr(bot: CaiBot, workspace: PRWorkspace) -> IssueMeta:
         "cai-solve",
         input={"pr": pr_ref, "title": workspace.title, "branch": workspace.head_branch},
         metadata={"repo": workspace.repo, "pr_number": workspace.number},
+<<<<<<< HEAD
+=======
+        session_id=session_id_for_pr(workspace.number, workspace.head_branch),
+>>>>>>> origin/main
     ):
         solve_graph.run_sync(ImplementNode(), state=state)
     return meta
