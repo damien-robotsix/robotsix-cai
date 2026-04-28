@@ -10,7 +10,6 @@ concurrency:
 
 jobs:
   address:
-    if: github.event_name == 'pull_request_review_comment' || (github.event_name == 'pull_request_review' && github.event.review.body != null && github.event.review.body != '')
     runs-on: ubuntu-latest
     permissions:
       contents: write
