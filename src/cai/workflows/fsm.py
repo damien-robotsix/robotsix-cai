@@ -13,7 +13,7 @@ from cai.workflows.refine import RefineNode
 from cai.workflows.state import IssueState
 
 solve_graph: Graph[IssueState, None, IssueMeta] = Graph(
-    nodes=[ExploreNode, RefineNode, ImplementNode, PRNode]
+    nodes=[ExploreNode, RefineNode, ImplementNode, DocsNode, PRNode]
 )
 
 
@@ -39,3 +39,4 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str]
     assert state.new_meta is not None
     assert state.pr_url is not None
     return state.new_meta, state.pr_url
+ state.new_meta, state.pr_url

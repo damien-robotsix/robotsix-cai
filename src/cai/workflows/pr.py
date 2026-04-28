@@ -16,9 +16,13 @@ class PRNode(BaseNode[IssueState]):
         assert state.branch_name is not None
 
         stage_all(state.repo_root)
+        commit_message = state.implement_output.commit_message
+        if state.docs_output and state.docs_output.commit_message:
+            commit_message += "\n\n" + state.docs_output.commit_message
+
         commit(
             state.repo_root,
-            state.implement_output.commit_message,
+            commit_message,
             author_name="cai-bot",
             author_email="cai-bot@users.noreply.github.com",
         )

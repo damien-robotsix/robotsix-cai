@@ -62,6 +62,7 @@ class IssueState:
     new_meta: IssueMeta | None = field(default=None)
     refine_output: RefineOutput | None = field(default=None)
     implement_output: ImplementOutput | None = field(default=None)
+    docs_output: DocsOutput | None = field(default=None)
     branch_name: str | None = field(default=None)
     pr_url: str | None = field(default=None)
     reference_files: list[str] = field(default_factory=list)
@@ -87,6 +88,12 @@ class IssueState:
                 from pydantic_ai_backends.hashline import format_hashline_output
                 tagged = format_hashline_output(p.read_text())
                 sections.append(f"### {rel}\n\n```\n{tagged}\n```")
+            except (ValueError, OSError):
+                pass
+        if not sections:
+            return ""
+        return "## Reference files\n\n" + "\n\n".join(sections)
+n{tagged}\n```")
             except (ValueError, OSError):
                 pass
         if not sections:
