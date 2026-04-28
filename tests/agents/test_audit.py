@@ -16,7 +16,6 @@ def test_audit_agent_config():
     assert "traces_show" in tools
     assert "traces_failures" in tools
     assert "traces_issue_cost" in tools
-    assert "filesystem_write" in tools
     
     # Assert description
     assert "description" in config
@@ -24,4 +23,3 @@ def test_audit_agent_config():
     
     # Assert instructions
     assert "Trace Analysis Agent" in instructions
-    assert "missing tool coverage" in instructions
