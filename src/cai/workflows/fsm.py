@@ -7,7 +7,11 @@ from cai.github.issues import IssueMeta
 from cai.github.pr import list_resolved_threads, list_unresolved_threads
 from cai.github.repo import IssueWorkspace, PRWorkspace
 <<<<<<< HEAD
+<<<<<<< HEAD
 from cai.log import langfuse_workflow
+=======
+from cai.log import langfuse_workflow, session_id_for_pr
+>>>>>>> origin/main
 =======
 from cai.log import langfuse_workflow, session_id_for_pr
 >>>>>>> origin/main
@@ -83,6 +87,10 @@ def solve_pr(bot: CaiBot, workspace: PRWorkspace) -> IssueMeta:
         input={"pr": pr_ref, "title": workspace.title, "branch": workspace.head_branch},
         metadata={"repo": workspace.repo, "pr_number": workspace.number},
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+        session_id=session_id_for_pr(workspace.number, workspace.head_branch),
+>>>>>>> origin/main
 =======
         session_id=session_id_for_pr(workspace.number, workspace.head_branch),
 >>>>>>> origin/main
