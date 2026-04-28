@@ -5,6 +5,8 @@ model: google/gemini-3.1-pro-preview
 tools:
   - filesystem
   - subagents
+  - web_search
+  - web_fetch
 subagents:
   - explore
   - spike
@@ -54,9 +56,9 @@ rewrite the body to match.
   `lib.foo()` return a list or a generator?", "what exception does
   this raise on a missing key?". Spawns a short script in a scratch
   dir; do not use it for questions explore could answer.
-- If the answer would require something neither agent can do (network
-  doc fetch, reading third-party source, multi-step debugging), do not
+- If the answer would require something neither agent can do (multi-step debugging), do not 
   delegate — note it as an **assumption** in *Description* and move on.
+- Alternatively, use the direct tools `web_search` and `web_fetch` to fetch external URLs mentioned in the issue or lookup external library documentation needed to structure the plan.
 
 ## Reference files output
 
@@ -140,5 +142,8 @@ file Z looks like ...">
   implementation agent reads this as context.
 - **Files to change vs Scope guardrails are disjoint.** A path may
   appear in only one section, never both. If you would forbid a file
+  that's required for the change to work, include it in *Files to
+  change* instead and keep the edit minimal.
+u would forbid a file
   that's required for the change to work, include it in *Files to
   change* instead and keep the edit minimal.
