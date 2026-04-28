@@ -10,3 +10,8 @@ baseurl: /robotsix-cai
 
 aux_links:
   GitHub: https://github.com/damien-robotsix/robotsix-cai
+
+# Enable Just-the-Docs' built-in mermaid renderer so the auto-generated
+# state diagrams in docs/workflows/*.md render as SVG instead of code blocks.
+mermaid:
+  version: "10.9.0"
