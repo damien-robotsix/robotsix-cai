@@ -4,6 +4,10 @@ on:
   issues:
     types: [labeled]
 
+concurrency:
+  group: cai-solve-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
   solve:
     if: github.event.label.name == 'cai:raised'
