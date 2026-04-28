@@ -61,17 +61,44 @@ _HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=10.0)
 _MAX_RETRIES = 3
 
 
+async def _capture_openrouter_cost(response: httpx.Response) -> None:
+    try:
+        await response.aread()
+        data = response.json()
+
+        usage = data.get("usage") or {}
+        cost = usage.get("cost")
+        if cost is None:
+            model_extra = usage.get("model_extra") or {}
+            cost = model_extra.get("cost")
+        if cost is None:
+            cost = data.get("cost")
+
+        if cost is not None:
+            from langfuse import get_client
+
+            get_client().update_current_generation(cost_details={"total": float(cost)})
+    except Exception:
+        pass
+
+
 @lru_cache(maxsize=None)
 def _provider() -> OpenAIProvider:
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
+
+    client = httpx.AsyncClient(
+        timeout=_HTTP_TIMEOUT,
+        event_hooks={"response": [_capture_openrouter_cost]},
+    )
+
     return OpenAIProvider(
         openai_client=AsyncOpenAI(
             api_key=key,
             base_url="https://openrouter.ai/api/v1",
-            timeout=_HTTP_TIMEOUT,
             max_retries=_MAX_RETRIES,
+            http_client=client,
         )
     )
 
