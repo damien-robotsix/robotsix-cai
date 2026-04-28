@@ -5,18 +5,12 @@ from functools import lru_cache
 from pydantic_ai.usage import UsageLimits
 from pydantic_graph import BaseNode, GraphRunContext
 
-from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
-from cai.log import setup_langfuse
-from cai.workflows._deps import repo_deps
-from cai.workflows.refine import RefineNode
-from cai.workflows.state import ExploreOutput, IssueState
-
-AGENT_DEFINITION = AGENT_DIR / "explore.md"
+from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
+AGENT_DEFINITION = resolve_agent_path("explore")
 
 
 @lru_cache(maxsize=1)
 def _explore_agent():
-    setup_langfuse()
     config, instructions = parse_agent_md(AGENT_DEFINITION)
     return build_deep_agent(config, instructions, output_type=ExploreOutput)
 

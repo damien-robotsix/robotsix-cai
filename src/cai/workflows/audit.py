@@ -6,10 +6,10 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from cai.agents.loader import AGENT_DIR, load_agent_from_md
 from cai.github.bot import CaiBot
 from cai.log.observability import langfuse_workflow, setup_langfuse
 
+from cai.agents.loader import load_agent_from_md, resolve_agent_path
 
 class ProposedIssue(BaseModel):
     title: str
@@ -35,7 +35,7 @@ def main() -> None:
     setup_langfuse()
     
     agent = load_agent_from_md(
-        AGENT_DIR / "audit.md",
+        resolve_agent_path("audit"),
         output_type=AuditOutput,
     )
     

@@ -31,3 +31,7 @@ cai-audit = "cai.workflows.audit:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cai"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+

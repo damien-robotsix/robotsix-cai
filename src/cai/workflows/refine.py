@@ -5,13 +5,9 @@ from functools import lru_cache
 from pydantic_ai.usage import UsageLimits
 from pydantic_graph import BaseNode, End, GraphRunContext
 
-from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
-from cai.github.issues import IssueMeta, add_sub_issue, push
-from cai.workflows._deps import repo_deps
-from cai.workflows.implement import ImplementNode
-from cai.workflows.state import IssueState, RefineOutput
+from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 
-AGENT_DEFINITION = AGENT_DIR / "refine.md"
+AGENT_DEFINITION = resolve_agent_path("refine")
 
 
 @lru_cache(maxsize=1)

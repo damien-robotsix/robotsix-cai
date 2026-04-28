@@ -22,21 +22,9 @@ from pydantic import BaseModel, Field
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.usage import UsageLimits
 
-from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
-from cai.git import commit, push_branch, stage_all
-from cai.github.bot import CaiBot
-from cai.github.pr import (
-    ReviewThread,
-    list_resolved_threads,
-    list_unresolved_threads,
-    reply_to_review_comment,
-    resolve_review_thread,
-)
-from cai.github.repo import PRWorkspace
-from cai.log import langfuse_workflow
-from cai.workflows._deps import repo_deps
+from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 
-AGENT_DEFINITION = AGENT_DIR / "address.md"
+AGENT_DEFINITION = resolve_agent_path("address")
 
 
 class AddressDecision(BaseModel):

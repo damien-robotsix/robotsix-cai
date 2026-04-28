@@ -7,11 +7,9 @@ from pydantic_ai.usage import UsageLimits
 from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, GraphRunContext
 
-from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
-from cai.workflows.pr import PRNode
-from cai.workflows.state import DocsOutput, IssueState
+from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 
-AGENT_DEFINITION = AGENT_DIR / "docs.md"
+AGENT_DEFINITION = resolve_agent_path("docs")
 
 
 @lru_cache(maxsize=1)
