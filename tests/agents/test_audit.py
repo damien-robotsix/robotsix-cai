@@ -23,4 +23,3 @@ def test_audit_agent_config():
     
     # Assert instructions
     assert "Trace Analysis Agent" in instructions
-    assert "Trace Analysis Agent" in instructions
