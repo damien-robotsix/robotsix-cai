@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -48,6 +49,23 @@ class RefineOutput(BaseModel):
 class ImplementOutput(BaseModel):
     summary: str = Field(description="Concise description of code changes made.")
     commit_message: str = Field(description="Git commit message for the changes.")
+    required_checks: list[Literal["documentation"]] = Field(
+        default_factory=list,
+        description=(
+            "Checks required for this MR. "
+            "Include 'documentation' if docs/ or other documentation may need updating. "
+            "Valid values: 'documentation'."
+        ),
+    )
+
+
+class DocsOutput(BaseModel):
+    summary: str = Field(
+        description="Concise description of documentation changes made (or why none were needed)."
+    )
+    commit_message: str = Field(
+        description="Git commit message for the docs changes, or empty string if nothing changed."
+    )
 
 
 @dataclass
@@ -88,12 +106,6 @@ class IssueState:
                 from pydantic_ai_backends.hashline import format_hashline_output
                 tagged = format_hashline_output(p.read_text())
                 sections.append(f"### {rel}\n\n```\n{tagged}\n```")
-            except (ValueError, OSError):
-                pass
-        if not sections:
-            return ""
-        return "## Reference files\n\n" + "\n\n".join(sections)
-n{tagged}\n```")
             except (ValueError, OSError):
                 pass
         if not sections:

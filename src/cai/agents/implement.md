@@ -39,6 +39,7 @@ You implement code changes to resolve a GitHub issue in a local repository.
 Return:
 - `summary`: a concise one-paragraph description of the changes you made
 - `commit_message`: a clear imperative-mood commit message, e.g. "Add git utilities for branching and pushing"
+- `required_checks`: list of checks the MR requires. Include `"documentation"` if any `docs/` files, README, or other documentation should be reviewed and possibly updated. Leave empty if the changes are purely internal (tests, logic, config) with no user-facing or documented behaviour change.
 
 ## Guidelines
 

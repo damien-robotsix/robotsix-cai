@@ -9,7 +9,6 @@ from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
 from cai.git import checkout_branch
-from cai.workflows.docs import DocsNode
 from cai.workflows.state import ImplementOutput, IssueState
 
 AGENT_DEFINITION = AGENT_DIR / "implement.md"
@@ -35,7 +34,9 @@ def _branch_name(number: int) -> str:
 
 
 class ImplementNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> DocsNode:
+    async def run(self, ctx: GraphRunContext[IssueState]) -> DocsNode | PRNode:
+        from cai.workflows.docs import DocsNode
+
         state = ctx.state
         assert state.new_meta is not None
         assert state.new_meta.number is not None
@@ -52,7 +53,8 @@ class ImplementNode(BaseNode[IssueState]):
             "Make all necessary changes to fully resolve the issue according to the plan.\n"
             "Return:\n"
             "- summary: a concise description of the changes you made\n"
-            "- commit_message: a clear commit message for these changes\n\n"
+            "- commit_message: a clear commit message for these changes\n"
+            "- required_checks: list of checks needed for this MR (e.g. ['documentation'])\n\n"
             f"## Issue metadata\n\n{meta_json}\n\n"
             f"## Issue body (implementation plan)\n\n{body}"
         )
@@ -65,5 +67,6 @@ class ImplementNode(BaseNode[IssueState]):
             usage_limits=UsageLimits(request_limit=100),
         )
         state.implement_output = result.output
+        if "documentation" in state.implement_output.required_checks:
+            return DocsNode()
         return PRNode()
-)
