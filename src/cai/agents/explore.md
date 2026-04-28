@@ -1,7 +1,7 @@
 ---
 name: explore
-description: Read-only repo explorer. Delegate questions about the codebase — "where is X defined?", "how does Y work?", "list all callers of Z" — and get back a concise findings summary with file:line citations.
-model: google/gemini-3.1-flash-lite-preview
+description: Read-only explorer of files tracked in this repository's working tree. Answers questions whose answer is literally present in the repo's source — "where is X defined?", "what does function Y do?", "list call sites of Z", "which files import module W?", "what does the config in path/to/file say?" — and returns a concise findings summary with file:line citations. Cannot read third-party / installed package source, cannot fetch URLs or docs, cannot execute code, run tests, or evaluate snippets, and cannot write or edit files. If the answer requires any of those, do not delegate — note it as an assumption instead.
+model: google/gemini-3-flash-preview
 tools:
   - filesystem_read
 ---

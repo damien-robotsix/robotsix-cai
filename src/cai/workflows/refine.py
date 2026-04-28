@@ -39,10 +39,20 @@ class RefineNode(BaseNode[IssueState]):
         if reference_section:
             prompt += "\n\n" + reference_section
 
+        # Refine writes the body file (and any sub_issue_*.md/.json
+        # siblings) — nothing else. Globbing top-level files in the
+        # issue dir excludes the cloned ``repo/`` and the spike scratch
+        # dir, both of which sit under the same parent.
         result = await refine_agent().run(
             prompt,
-            deps=repo_deps(state.repo_root, write_dirs=[state.body_path.parent]),
-            usage_limits=UsageLimits(request_limit=20),
+            deps=repo_deps(
+                state.repo_root,
+                write_globs=[
+                    f"{issue_dir}/*.md",
+                    f"{issue_dir}/*.json",
+                ],
+            ),
+            usage_limits=UsageLimits(request_limit=50),
         )
         out: RefineOutput = result.output
         new_meta = state.meta.model_copy(update={"title": out.title})

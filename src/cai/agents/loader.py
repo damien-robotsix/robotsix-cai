@@ -133,12 +133,21 @@ def build_model_settings(config: dict) -> dict[str, Any] | None:
     """Translate optional model knobs from frontmatter to a ``model_settings`` dict.
 
     Supported keys: ``max_tokens``, ``temperature``, ``frequency_penalty``,
-    ``presence_penalty``. All are optional; returns ``None`` when none are set.
+    ``presence_penalty``, ``reasoning``. All are optional; returns
+    ``None`` when none are set.
 
     ``frequency_penalty`` / ``presence_penalty`` are the primary defence against
     token-repetition loops (the "ataata"/[PAD] meltdown): they add a per-token
     cost proportional to how often the token has already appeared, making it
     mathematically harder for the model to cycle forever.
+
+    ``reasoning: false`` opts out of OpenRouter's extended-reasoning
+    pass-through for models like ``moonshotai/kimi-k2.6`` that emit a
+    long invisible reasoning stream by default. The stream bills as
+    output tokens but isn't surfaced as a visible message part, so it
+    silently eats the response budget and triggers
+    ``UnexpectedModelBehavior`` when ``finish_reason=length`` lands
+    before any tool call or text is emitted.
     """
     settings: dict[str, Any] = {}
 
@@ -162,6 +171,12 @@ def build_model_settings(config: dict) -> dict[str, Any] | None:
                     f"'{penalty_key}' must be a float in [-2, 2], got {value!r}"
                 )
             settings[penalty_key] = float(value)
+
+    reasoning = config.get("reasoning")
+    if reasoning is not None:
+        if not isinstance(reasoning, bool):
+            raise ValueError(f"'reasoning' must be a bool, got {reasoning!r}")
+        settings["extra_body"] = {"reasoning": {"enabled": reasoning}}
 
     return settings or None
 
@@ -216,9 +231,28 @@ _TOOL_PRUNE: dict[str, dict[str, frozenset[str]]] = {
     },
 }
 
+# Tool names that resolve to a code-registered tool rather than a
+# pydantic-deep ``include_*`` flag. They are looked up lazily so this
+# module stays import-light. Each factory returns a ``Tool`` (or an
+# object pydantic-ai accepts in ``tools=``) and is appended to the
+# agent's ``tools=`` kwarg in :func:`build_deep_agent`.
+TOOL_FACTORIES: dict[str, str] = {
+    # name → "module:attr" import target
+    "spike_run": "cai.agents.spike_tool:SPIKE_RUN_TOOL",
+}
+
 _DEEP_FLAG_DEFAULTS: dict[str, bool] = {
     flag: False for kwargs in TOOL_FLAGS.values() for flag in kwargs
 }
+
+
+def _import_factory(target: str) -> Any:
+    """Resolve a ``"module.path:attr"`` string from :data:`TOOL_FACTORIES`."""
+    module_path, _, attr = target.partition(":")
+    if not attr:
+        raise ValueError(f"factory target must be 'module:attr', got {target!r}")
+    from importlib import import_module
+    return getattr(import_module(module_path), attr)
 
 
 def build_deep_agent_kwargs(config: dict) -> dict[str, Any]:
@@ -234,10 +268,11 @@ def build_deep_agent_kwargs(config: dict) -> dict[str, Any]:
         raise ValueError(
             f"'tools' must be a list, got {type(requested).__name__}"
         )
-    unknown = [t for t in requested if t not in TOOL_FLAGS]
+    known = TOOL_FLAGS.keys() | TOOL_FACTORIES.keys()
+    unknown = [t for t in requested if t not in known]
     if unknown:
         raise ValueError(
-            f"unknown tool(s) {unknown!r} — must be one of {sorted(TOOL_FLAGS)}"
+            f"unknown tool(s) {unknown!r} — must be one of {sorted(known)}"
         )
     requested_set = set(requested)
     for conflict in _TOOL_CONFLICTS:
@@ -248,19 +283,29 @@ def build_deep_agent_kwargs(config: dict) -> dict[str, Any]:
             )
     flags = dict(_DEEP_FLAG_DEFAULTS)
     for name in requested:
-        flags.update(TOOL_FLAGS[name])
+        if name in TOOL_FLAGS:
+            flags.update(TOOL_FLAGS[name])
     return flags
 
 
 def _prune_toolsets(agent: Any, requested: list[str]) -> None:
-    """Apply per-key prune rules from ``_TOOL_PRUNE`` to the live agent."""
+    """Apply per-key prune rules from ``_TOOL_PRUNE`` to the live agent.
+
+    Rules for the same ``toolset_id`` are *unioned* across requested keys
+    before pruning — otherwise listing two narrow keys (e.g.
+    ``filesystem_read`` and ``execute``) would have each prune wipe the
+    other's tools, leaving the toolset empty.
+    """
+    keeps: dict[str, set[str]] = {}
     for key in requested:
         for toolset_id, keep in _TOOL_PRUNE.get(key, {}).items():
-            for ts in agent.toolsets:
-                if getattr(ts, "id", None) == toolset_id:
-                    for name in list(ts.tools):
-                        if name not in keep:
-                            del ts.tools[name]
+            keeps.setdefault(toolset_id, set()).update(keep)
+    for toolset_id, keep in keeps.items():
+        for ts in agent.toolsets:
+            if getattr(ts, "id", None) == toolset_id:
+                for name in list(ts.tools):
+                    if name not in keep:
+                        del ts.tools[name]
 
 
 def _resolve_subagents(config: dict) -> list[dict[str, Any]]:
@@ -320,6 +365,12 @@ def build_deep_agent(
     settings = build_model_settings(config)
     if settings is not None and "model_settings" not in extra:
         extra["model_settings"] = settings
+
+    factory_tools = [
+        _import_factory(TOOL_FACTORIES[t]) for t in requested if t in TOOL_FACTORIES
+    ]
+    if factory_tools:
+        extra["tools"] = [*(extra.get("tools") or []), *factory_tools]
 
     # 'exhaustive' so a model that emits a side-effect tool call (e.g.
     # write_file) in the same assistant turn as final_result still has the
