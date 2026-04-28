@@ -49,7 +49,7 @@ class RefineOutput(BaseModel):
 class ImplementOutput(BaseModel):
     summary: str = Field(description="Concise description of code changes made.")
     commit_message: str = Field(description="Git commit message for the changes.")
-    required_checks: list[Literal["documentation"]] = Field(
+    required_checks: list[Literal["documentation", "python"]] = Field(
         default_factory=list,
         description=(
             "Checks required for this MR. "
@@ -68,6 +68,15 @@ class DocsOutput(BaseModel):
     )
 
 
+class PythonReviewOutput(BaseModel):
+    summary: str = Field(
+        description="Bulleted list of issues found and fixed per file, or 'No issues found.' if nothing changed."
+    )
+    commit_message: str = Field(
+        description="Git commit message for the review fixes, or empty string if nothing changed."
+    )
+
+
 @dataclass
 class IssueState:
     bot: CaiBot
@@ -80,6 +89,7 @@ class IssueState:
     new_meta: IssueMeta | None = field(default=None)
     refine_output: RefineOutput | None = field(default=None)
     implement_output: ImplementOutput | None = field(default=None)
+    python_review_output: PythonReviewOutput | None = field(default=None)
     docs_output: DocsOutput | None = field(default=None)
     branch_name: str | None = field(default=None)
     pr_url: str | None = field(default=None)

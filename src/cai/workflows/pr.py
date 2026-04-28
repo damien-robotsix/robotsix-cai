@@ -17,6 +17,8 @@ class PRNode(BaseNode[IssueState]):
 
         stage_all(state.repo_root)
         commit_message = state.implement_output.commit_message
+        if state.python_review_output and state.python_review_output.commit_message:
+            commit_message += "\n\n" + state.python_review_output.commit_message
         if state.docs_output and state.docs_output.commit_message:
             commit_message += "\n\n" + state.docs_output.commit_message
 

@@ -34,8 +34,9 @@ def _branch_name(number: int) -> str:
 
 
 class ImplementNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> DocsNode | PRNode:
+    async def run(self, ctx: GraphRunContext[IssueState]) -> PythonReviewNode | DocsNode | PRNode:
         from cai.workflows.docs import DocsNode
+        from cai.workflows.python_review import PythonReviewNode
 
         state = ctx.state
         assert state.new_meta is not None
@@ -67,6 +68,9 @@ class ImplementNode(BaseNode[IssueState]):
             usage_limits=UsageLimits(request_limit=100),
         )
         state.implement_output = result.output
-        if "documentation" in state.implement_output.required_checks:
+        checks = state.implement_output.required_checks
+        if "python" in checks:
+            return PythonReviewNode()
+        if "documentation" in checks:
             return DocsNode()
         return PRNode()

@@ -10,11 +10,12 @@ from cai.workflows.docs import DocsNode
 from cai.workflows.explore import ExploreNode
 from cai.workflows.implement import ImplementNode
 from cai.workflows.pr import PRNode
+from cai.workflows.python_review import PythonReviewNode
 from cai.workflows.refine import RefineNode
 from cai.workflows.state import IssueState
 
 solve_graph: Graph[IssueState, None, IssueMeta] = Graph(
-    nodes=[ExploreNode, RefineNode, ImplementNode, DocsNode, PRNode]
+    nodes=[ExploreNode, RefineNode, ImplementNode, PythonReviewNode, DocsNode, PRNode]
 )
 
 
