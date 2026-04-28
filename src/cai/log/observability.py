@@ -16,6 +16,8 @@ import atexit
 import os
 import sys
 from collections.abc import Generator
+from collections.abc import Callable
+import functools
 from contextlib import contextmanager
 from typing import Any
 
@@ -48,6 +50,38 @@ def setup_langfuse() -> bool:
     if not client.auth_check():
         print("warning: Langfuse auth_check failed; tracing disabled", file=sys.stderr)
         return False
+
+    def wrap_run(original_run):
+        @functools.wraps(original_run)
+        async def run_wrapper(self, *args, **kwargs):
+            result = await original_run(self, *args, **kwargs)
+            try:
+                calculate_and_record_cost(self, result)
+            except Exception as e:
+                print(f"warning: calculate_and_record_cost failed: {e}", file=sys.stderr)
+            return result
+        return run_wrapper
+
+    def wrap_run_sync(original_run_sync):
+        @functools.wraps(original_run_sync)
+        def run_sync_wrapper(self, *args, **kwargs):
+            result = original_run_sync(self, *args, **kwargs)
+            try:
+                calculate_and_record_cost(self, result)
+            except Exception as e:
+                print(f"warning: calculate_and_record_cost failed: {e}", file=sys.stderr)
+            return result
+        return run_sync_wrapper
+
+    if not hasattr(Agent, "_is_wrapped_run"):
+        original_run = Agent.run
+        Agent.run = wrap_run(original_run)
+        Agent._is_wrapped_run = True
+
+    if not hasattr(Agent, "_is_wrapped_run_sync"):
+        original_run_sync = Agent.run_sync
+        Agent.run_sync = wrap_run_sync(original_run_sync)
+        Agent._is_wrapped_run_sync = True
 
     Agent.instrument_all()
     atexit.register(client.flush)
@@ -83,3 +117,42 @@ def langfuse_workflow(
         metadata=metadata,
     ):
         yield
+
+def calculate_and_record_cost(agent: Any, result: Any) -> None:
+    """Calculate the cost of the agent run and update the current Langfuse observation."""
+    from langfuse import get_client
+    try:
+        from genai_prices import prices
+        import pydantic_ai
+    except ImportError:
+        return
+
+    usage = getattr(result, "usage", lambda: None)() if callable(getattr(result, "usage", None)) else None
+    if not usage:
+        return
+
+    model_name = getattr(agent.model, 'model_name', None)
+    if not model_name:
+        return
+
+    try:
+        cost_data = prices.get_price(model_name)
+    except Exception:
+        cost_data = None
+
+    if not cost_data:
+        return
+
+    input_tokens = getattr(usage, 'request_tokens', 0) or 0
+    output_tokens = getattr(usage, 'response_tokens', 0) or 0
+    
+    input_price = cost_data.get('input_price', 0) or 0
+    output_price = cost_data.get('output_price', 0) or 0
+
+    total_cost = (input_tokens * input_price) + (output_tokens * output_price)
+
+    client = get_client()
+    try:
+        client.update_current_observation(calculated_total_cost=total_cost)
+    except Exception as e:
+        print(f"warning: failed to update Langfuse observation cost: {e}", file=sys.stderr)
