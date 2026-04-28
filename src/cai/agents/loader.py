@@ -121,6 +121,16 @@ def _provider() -> OpenAIProvider:
         )
     )
 
+def resolve_agent_path(name: str) -> Path:
+    """Find an agent's .md file anywhere under AGENT_DIR."""
+    matches = list(AGENT_DIR.rglob(f"{name}.md"))
+    if not matches:
+        raise FileNotFoundError(f"agent definition not found: {name}.md in {AGENT_DIR}")
+    if len(matches) > 1:
+        raise ValueError(f"ambiguous agent name, found multiple {name}.md: {matches}")
+    return matches[0]
+
+
 
 def parse_agent_md(path: str | Path) -> tuple[dict, str]:
     """Return ``(config_dict, system_prompt_text)`` from a frontmatter ``.md`` file."""
@@ -346,9 +356,7 @@ def _resolve_subagents(config: dict) -> list[dict[str, Any]]:
         )
     configs: list[dict[str, Any]] = []
     for name in names:
-        sub_path = AGENT_DIR / f"{name}.md"
-        if not sub_path.exists():
-            raise FileNotFoundError(f"subagent definition not found: {sub_path}")
+        sub_path = resolve_agent_path(name)
         sub_config, sub_instructions = parse_agent_md(sub_path)
         if "description" not in sub_config:
             raise ValueError(

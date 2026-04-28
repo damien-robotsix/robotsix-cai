@@ -1,9 +1,9 @@
 import pytest
-from cai.agents.loader import parse_agent_md, AGENT_DIR
+from cai.agents.loader import parse_agent_md, resolve_agent_path
 
 def test_audit_agent_config():
-    audit_file = AGENT_DIR / "audit.md"
-    assert audit_file.exists(), "audit.md must exist in AGENT_DIR"
+    audit_file = resolve_agent_path("audit")
+    assert audit_file.exists(), "audit.md must exist in AGENT_DIR (recursively)"
     config, instructions = parse_agent_md(audit_file)
     
     # Assert basics
