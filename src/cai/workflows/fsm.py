@@ -19,11 +19,10 @@ solve_graph: Graph[IssueState, None, IssueMeta] = Graph(
 )
 
 
-def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str]:
+def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str | None]:
     """Refine the issue, implement the fix, and open a pull request.
 
-    Returns the refined issue metadata and the PR URL.
-    """
+    Returns the refined issue metadata and the PR URL (or None if the graph ends early).
     meta = IssueMeta.model_validate_json(workspace.issue_json.read_text())
     state = IssueState(
         bot=bot,
@@ -39,5 +38,4 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str]
     ):
         solve_graph.run_sync(ExploreNode(), state=state)
     assert state.new_meta is not None
-    assert state.pr_url is not None
     return state.new_meta, state.pr_url
