@@ -83,6 +83,54 @@ class LangfuseTraces:
 
         return data
 
+    def cost_per_issue(
+        self,
+        limit: int = 100,
+        since: str | None = None,
+        repo: str | None = None,
+    ) -> list[dict]:
+        """Return total cost grouped by (repo, issue_number) across cai-solve and cai-address traces."""
+        from collections import defaultdict
+
+        kwargs: dict = {"limit": limit, "page": 1}
+        if since:
+            kwargs["from_timestamp"] = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
+        result = self.client.api.trace.list(**kwargs)
+        traces = result.data if hasattr(result, "data") else list(result)
+
+        issue_costs: dict = defaultdict(lambda: {"cost": 0.0, "trace_ids": [], "workflows": []})
+        for t in traces:
+            if getattr(t, "name", None) not in ("cai-solve", "cai-address"):
+                continue
+            meta = getattr(t, "metadata", None)
+            if meta is None:
+                full = self.client.api.trace.get(t.id)
+                meta = getattr(full, "metadata", None) or {}
+            issue_num = meta.get("issue_number") if meta else None
+            repo_name = meta.get("repo") if meta else None
+            if not issue_num or not repo_name:
+                continue
+            if repo and repo_name != repo:
+                continue
+            key = (repo_name, issue_num)
+            issue_costs[key]["cost"] += getattr(t, "total_cost", None) or 0.0
+            issue_costs[key]["trace_ids"].append(t.id)
+            issue_costs[key]["workflows"].append(t.name)
+
+        groups = [
+            {
+                "repo": repo_name,
+                "issue_number": issue_num,
+                "total_cost": data["cost"],
+                "trace_count": len(data["trace_ids"]),
+                "trace_ids": data["trace_ids"],
+                "workflows": data["workflows"],
+            }
+            for (repo_name, issue_num), data in issue_costs.items()
+        ]
+        groups.sort(key=lambda x: x["total_cost"], reverse=True)
+        return groups
+
     def list_failures(self, limit: int = 50, since: str | None = None) -> list[dict]:
         """Return traces that contain error-level observations."""
         kwargs: dict = {"limit": limit, "page": 1}
@@ -262,6 +310,35 @@ def _has_error_level_str(level: str) -> bool:
     return bool(level) and level not in ("DEFAULT", "ObservationLevel.DEFAULT")
 
 
+async def traces_issue_cost(
+    limit: int = 100,
+    since: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """Show total LLM cost grouped by issue number across cai-solve and cai-address traces.
+
+    Args:
+        limit: Maximum number of traces to scan (default 100).
+        since: ISO date string — only include traces after this date, e.g. '2026-01-01'.
+        repo: Filter by repo in 'owner/repo' format.
+    """
+    groups = _TRACES.cost_per_issue(limit=limit, since=since, repo=repo)
+    if not groups:
+        return "No issue traces found."
+    lines = [f"{'REPO/ISSUE':<42} {'COST':>10} {'TRACES':>7}  WORKFLOWS", "-" * 80]
+    total = 0.0
+    for g in groups:
+        label = f"{g['repo']}#{g['issue_number']}"
+        cost_str = f"${g['total_cost']:.4f}"
+        workflows = ", ".join(sorted(set(g["workflows"])))
+        lines.append(f"{label:<42} {cost_str:>10} {g['trace_count']:>7}  {workflows}")
+        total += g["total_cost"]
+    lines.append("-" * 80)
+    lines.append(f"{'TOTAL':<42} ${total:>9.4f}")
+    return "\n".join(lines)
+
+
 TRACES_LIST_TOOL = Tool(traces_list)
 TRACES_SHOW_TOOL = Tool(traces_show)
 TRACES_FAILURES_TOOL = Tool(traces_failures)
+TRACES_ISSUE_COST_TOOL = Tool(traces_issue_cost)
