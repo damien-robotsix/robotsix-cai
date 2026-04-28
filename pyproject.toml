@@ -27,6 +27,7 @@ cai-app-init = "cai.github.init:main"
 cai-git-credential = "cai.github.credential:main"
 cai-issue = "cai.github.issue_cli:main"
 cai-solve = "cai.workflows.solve:main"
+cai-resolve-conflicts = "cai.workflows.conflicts:main"
 cai-audit = "cai.workflows.audit:main"
 
 [tool.hatch.build.targets.wheel]

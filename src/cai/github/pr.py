@@ -56,10 +56,10 @@ def create_pull_request(
     return pr.html_url
 
 
-def get_pr_meta(bot: CaiBot, repo: str, number: int) -> tuple[str, str, str]:
-    """Return ``(title, body, head_branch)`` for pull request ``number``."""
+def get_pr_meta(bot: CaiBot, repo: str, number: int) -> tuple[str, str, str, str]:
+    """Return ``(title, body, head_branch, base_branch)`` for pull request ``number``."""
     pr = bot.repo(repo).get_pull(number)
-    return pr.title, pr.body or "", pr.head.ref
+    return pr.title, pr.body or "", pr.head.ref, pr.base.ref
 
 
 def _graphql(bot: CaiBot, repo: str, query: str, variables: dict) -> dict:

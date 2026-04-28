@@ -109,6 +109,7 @@ class PRWorkspace:
     repo: str
     number: int
     head_branch: str
+    base_branch: str
     title: str
     body: str
 
@@ -122,7 +123,7 @@ def prepare_pr_workspace(bot: CaiBot, repo: str, number: int) -> PRWorkspace:
     name persists, but the call would fail loudly anyway if the branch
     was deleted).
     """
-    title, body, head_branch = get_pr_meta(bot, repo, number)
+    title, body, head_branch, base_branch = get_pr_meta(bot, repo, number)
     root = pr_workspace(repo, number)
     root.mkdir(parents=True, exist_ok=True)
 
@@ -145,6 +146,7 @@ def prepare_pr_workspace(bot: CaiBot, repo: str, number: int) -> PRWorkspace:
         repo=repo,
         number=number,
         head_branch=head_branch,
+        base_branch=base_branch,
         title=title,
         body=body,
     )

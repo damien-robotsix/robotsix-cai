@@ -76,6 +76,12 @@ class PRNode(BaseNode[IssueState]):
             env={"GIT_TERMINAL_PROMPT": "0"},
         )
 
+        # PR mode without review threads (e.g. merge-conflict resolution):
+        # the branch already belongs to an existing PR — push and stop, do
+        # not open a duplicate PR.
+        if state.pr_number is not None:
+            return End(state.new_meta)
+
         pr_body = state.body_path.read_text()
         if state.new_meta.number is not None:
             pr_body += f"\n\nCloses #{state.new_meta.number}"
