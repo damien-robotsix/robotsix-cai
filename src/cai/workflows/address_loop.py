@@ -134,7 +134,7 @@ def _format_thread_prompt(
 
 def _render_resolved_thread(thread: ReviewThread) -> str:
     head = thread.comments[0]
-    bot_replies = [c for c in thread.comments[1:] if c.author.startswith("cai")]
+    bot_replies = [c for c in thread.comments[1:] if c.author == "cai[bot]"]
     summary = f"- `{thread.path}` — **{head.author}**: {head.body.strip()}"
     if bot_replies:
         last = bot_replies[-1]
