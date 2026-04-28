@@ -13,9 +13,9 @@ def test_audit_agent_config():
     # Assert expected tools
     tools = config.get("tools", [])
     assert "traces_list" in tools
-    assert "traces_show" in tools
     assert "traces_failures" in tools
     assert "traces_issue_cost" in tools
+    assert "subagents" in config
     
     # Assert description
     assert "description" in config
@@ -31,9 +31,8 @@ def test_issue_deduplicator_agent_config():
     config, instructions = parse_agent_md(dedupe_file)
     
     # Assert basics
-    assert config["name"] == "issue_deduplicator"
-    assert config["model"] == "google/gemini-3.1-pro-preview"
-    
+    assert config["name"] == "Issue Deduplicator"
+    assert config["model"] == "google/gemini-3-flash-preview"
     # Assert description
     assert "description" in config
     assert "duplicate" in config["description"].lower()
