@@ -3,8 +3,6 @@ name: CAI Address
 on:
   pull_request_review:
     types: [submitted]
-  pull_request_review_comment:
-    types: [created]
 
 concurrency:
   group: cai-address-${{ github.event.pull_request.number }}
