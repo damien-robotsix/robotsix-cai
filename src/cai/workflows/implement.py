@@ -9,7 +9,7 @@ from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
 from cai.git import checkout_branch
-from cai.workflows.pr import PRNode
+from cai.workflows.docs import DocsNode
 from cai.workflows.state import ImplementOutput, IssueState
 
 AGENT_DEFINITION = AGENT_DIR / "implement.md"
@@ -35,7 +35,7 @@ def _branch_name(number: int) -> str:
 
 
 class ImplementNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> PRNode:
+    async def run(self, ctx: GraphRunContext[IssueState]) -> DocsNode:
         state = ctx.state
         assert state.new_meta is not None
         assert state.new_meta.number is not None
@@ -66,3 +66,4 @@ class ImplementNode(BaseNode[IssueState]):
         )
         state.implement_output = result.output
         return PRNode()
+)
