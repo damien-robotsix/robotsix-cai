@@ -10,6 +10,7 @@ concurrency:
 
 jobs:
   address:
+    if: github.event.review.state == 'changes_requested'
     runs-on: ubuntu-latest
     permissions:
       contents: write
