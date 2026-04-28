@@ -13,9 +13,10 @@ from cai.workflows.pr import PRNode
 from cai.workflows.python_review import PythonReviewNode
 from cai.workflows.refine import RefineNode
 from cai.workflows.state import IssueState
+from cai.workflows.test_runner import TestNode, TestSanityNode
 
 solve_graph: Graph[IssueState, None, IssueMeta] = Graph(
-    nodes=[ExploreNode, RefineNode, ImplementNode, PythonReviewNode, DocsNode, PRNode]
+    nodes=[ExploreNode, RefineNode, ImplementNode, TestNode, PythonReviewNode, TestSanityNode, DocsNode, PRNode]
 )
 
 
@@ -23,6 +24,7 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
     """Refine the issue, implement the fix, and open a pull request.
 
     Returns the refined issue metadata and the PR URL (or None if the graph ends early).
+    """
     meta = IssueMeta.model_validate_json(workspace.issue_json.read_text())
     state = IssueState(
         bot=bot,

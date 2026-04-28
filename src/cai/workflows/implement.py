@@ -34,17 +34,17 @@ def _branch_name(number: int) -> str:
 
 
 class ImplementNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> PythonReviewNode | DocsNode | PRNode:
-        from cai.workflows.docs import DocsNode
-        from cai.workflows.python_review import PythonReviewNode
+    async def run(self, ctx: GraphRunContext[IssueState]) -> TestNode:
+        from cai.workflows.test_runner import TestNode
 
         state = ctx.state
         assert state.new_meta is not None
         assert state.new_meta.number is not None
 
-        branch = _branch_name(state.new_meta.number)
-        checkout_branch(state.repo_root, branch)
-        state.branch_name = branch
+        if state.branch_name is None:
+            branch = _branch_name(state.new_meta.number)
+            checkout_branch(state.repo_root, branch)
+            state.branch_name = branch
 
         body = state.body_path.read_text()
         meta_json = state.new_meta.model_dump_json(indent=2)
@@ -62,15 +62,17 @@ class ImplementNode(BaseNode[IssueState]):
         reference_section = state.reference_files_section()
         if reference_section:
             prompt += "\n\n" + reference_section
+        if state.test_failure_details:
+            prompt += (
+                "\n\n## Test failures to fix\n\n"
+                "The previous implementation attempt failed the test suite. "
+                "Fix the code so these tests pass:\n\n"
+                f"```\n{state.test_failure_details}\n```"
+            )
         result = await _implement_agent().run(
             prompt,
             deps=_deps(state.repo_root),
             usage_limits=UsageLimits(request_limit=100),
         )
         state.implement_output = result.output
-        checks = state.implement_output.required_checks
-        if "python" in checks:
-            return PythonReviewNode()
-        if "documentation" in checks:
-            return DocsNode()
-        return PRNode()
+        return TestNode()

@@ -59,6 +59,14 @@ class ImplementOutput(BaseModel):
     )
 
 
+class TestOutput(BaseModel):
+    summary: str = Field(description="Concise description of tests written or updated.")
+    commit_message: str = Field(
+        default="",
+        description="Git commit message for the test changes, or empty string if nothing changed.",
+    )
+
+
 class DocsOutput(BaseModel):
     summary: str = Field(
         description="Concise description of documentation changes made (or why none were needed)."
@@ -89,6 +97,10 @@ class IssueState:
     new_meta: IssueMeta | None = field(default=None)
     refine_output: RefineOutput | None = field(default=None)
     implement_output: ImplementOutput | None = field(default=None)
+    test_output: TestOutput | None = field(default=None)
+    tests_passed: bool | None = field(default=None)
+    test_failure_details: str = field(default="")
+    test_retry_count: int = field(default=0)
     python_review_output: PythonReviewOutput | None = field(default=None)
     docs_output: DocsOutput | None = field(default=None)
     branch_name: str | None = field(default=None)

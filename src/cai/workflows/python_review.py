@@ -29,9 +29,8 @@ def _deps(repo_root: Path) -> DeepAgentDeps:
 
 
 class PythonReviewNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> DocsNode | PRNode:
-        from cai.workflows.docs import DocsNode
-        from cai.workflows.pr import PRNode
+    async def run(self, ctx: GraphRunContext[IssueState]) -> TestSanityNode:
+        from cai.workflows.test_runner import TestSanityNode
 
         state = ctx.state
         assert state.new_meta is not None
@@ -54,7 +53,4 @@ class PythonReviewNode(BaseNode[IssueState]):
             usage_limits=UsageLimits(request_limit=50),
         )
         state.python_review_output = result.output
-
-        if "documentation" in state.implement_output.required_checks:
-            return DocsNode()
-        return PRNode()
+        return TestSanityNode()
