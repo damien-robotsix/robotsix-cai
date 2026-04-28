@@ -163,6 +163,7 @@ def main() -> None:
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     
     agent = load_agent_from_md(
         resolve_agent_path("audit"),
@@ -173,6 +174,10 @@ def main() -> None:
     repo_obj = bot.repo(args.repo)
     
     prompt = f"Please audit the recent workflow traces. Analyze them and draft improvements as proposed issues."
+=======
+
+    prompt = "Please audit the recent workflow traces. Analyze them and draft improvements as proposed issues."
+>>>>>>> origin/main
 =======
 
     prompt = "Please audit the recent workflow traces. Analyze them and draft improvements as proposed issues."

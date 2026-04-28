@@ -41,10 +41,13 @@ prompt — both modes share this single agent.
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 - Reference files in your context are already tagged in hashline format (`line:hash|content`) — you can call `hashline_edit` directly using those line numbers and hashes without calling `read_file` first
 - You can call `hashline_edit` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response
 - Use `write_file` (full rewrite) when changes are so pervasive that multiple `hashline_edit` calls would be harder to follow
 =======
+=======
+>>>>>>> origin/main
 =======
 >>>>>>> origin/main
 - Reference files in your context appear with `line:hash|content` tags — ignore the `line:hash|` prefix when constructing `old_string` for `edit_file`; copy the content portion verbatim, including indentation
@@ -52,6 +55,9 @@ prompt — both modes share this single agent.
 - You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response
 - Use `write_file` (full rewrite) when changes are so pervasive that multiple `edit_file` calls would be harder to follow
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> origin/main
+=======
 >>>>>>> origin/main
 =======
 >>>>>>> origin/main
