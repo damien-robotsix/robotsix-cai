@@ -20,7 +20,9 @@ AGENT_DEFINITION = AGENT_DIR / "implement.md"
 @lru_cache(maxsize=1)
 def _implement_agent():
     config, instructions = parse_agent_md(AGENT_DEFINITION)
-    agent = build_deep_agent(config, instructions, output_type=ImplementOutput)
+    agent = build_deep_agent(
+        config, instructions, output_type=ImplementOutput, edit_format="str_replace"
+    )
 
     @agent.output_validator
     async def _fix_must_edit(ctx, output: ImplementOutput) -> ImplementOutput:
@@ -35,7 +37,7 @@ def _implement_agent():
         ):
             raise ModelRetry(
                 "One or more replies use action='fix' but the working tree "
-                "has no changes. Either invoke write_file or hashline_edit "
+                "has no changes. Either invoke write_file or edit_file "
                 "to actually make the change, or switch those replies to "
                 "action='reply_only'."
             )
