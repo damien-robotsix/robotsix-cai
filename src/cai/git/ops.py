@@ -53,9 +53,19 @@ def push_branch(
     *,
     env: Mapping[str, str] | None = None,
 ) -> None:
-    """Push ``branch_name`` to ``remote_url`` using a full refspec."""
+    """Push ``branch_name`` to ``remote_url`` using a full refspec.
+
+    The push is **forced** (refspec prefixed with ``+``). cai-solve owns
+    the ``cai/solve-<n>`` namespace: when an earlier run's PR is closed,
+    its branch sticks around on the remote and a re-run's commit graph
+    diverges from it. A fast-forward push then fails on
+    ``non-fast-forward`` and the whole workflow aborts even though the
+    new work is fine. The orphaned branch isn't load-bearing — closed
+    PRs reference their commits by SHA, not by the moving ref — so
+    overwriting it is the right behaviour.
+    """
     repo = Repo(str(repo_root))
-    refspec = f"refs/heads/{branch_name}:refs/heads/{branch_name}"
+    refspec = f"+refs/heads/{branch_name}:refs/heads/{branch_name}"
     if env:
         with repo.git.custom_environment(**env):
             repo.git.push(remote_url, refspec)
