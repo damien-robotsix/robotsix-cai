@@ -23,3 +23,20 @@ def test_audit_agent_config():
     
     # Assert instructions
     assert "Trace Analysis Agent" in instructions
+
+
+def test_issue_deduplicator_agent_config():
+    dedupe_file = AGENT_DIR / "issue_deduplicator.md"
+    assert dedupe_file.exists(), "issue_deduplicator.md must exist in AGENT_DIR"
+    config, instructions = parse_agent_md(dedupe_file)
+    
+    # Assert basics
+    assert config["name"] == "issue_deduplicator"
+    assert config["model"] == "google/gemini-3.1-pro-preview"
+    
+    # Assert description
+    assert "description" in config
+    assert "duplicate" in config["description"].lower()
+    
+    # Assert instructions
+    assert "duplicate" in instructions.lower()
