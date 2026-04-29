@@ -1,7 +1,7 @@
 ---
 name: resolve_step
 description: Resolves the conflicts of a single rebase step using the picked commit's diff and PR context.
-model: google/gemini-3.1-pro-preview
+model: google/gemini-3-flash-preview
 tools:
   - filesystem
 ---

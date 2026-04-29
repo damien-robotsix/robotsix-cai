@@ -9,11 +9,12 @@ The flow is:
    plus the conflicted files to the ``resolve_step`` agent, then
    ``git rebase --continue``.
 4. Run a sanity test pass once the rebase finishes.
-5. On rebase or sanity failure, fall back to ``ImplementNode`` with a
-   conflict-resolution body so the broader implement agent can take it
-   home (the existing graceful-degradation path).
-6. Push ``--force`` so the PR's diff view shows head-vs-base only,
+5. Push ``--force`` so the PR's diff view shows head-vs-base only,
    without a noisy merge commit.
+
+If the rebase or sanity tests fail, the workflow raises immediately with
+a clear error so the failure is visible rather than silently falling back
+to a doomed implement loop.
 
 Prints a JSON summary on stdout.
 """
@@ -31,11 +32,9 @@ from pydantic_deep import DeepAgentDeps, LocalBackend
 
 from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
 from cai.git import (
-    commit,
     conflicted_paths,
     current_rebase_step,
     fetch,
-    merge_no_commit,
     push_branch,
     rebase_abort,
     rebase_continue,
@@ -44,7 +43,6 @@ from cai.git import (
     stage_all,
 )
 from cai.github.bot import CaiBot
-from cai.github.issues import IssueMeta
 from cai.github.repo import (
     PRWorkspace,
     is_pull_request,
@@ -52,13 +50,8 @@ from cai.github.repo import (
     prepare_pr_workspace,
 )
 from cai.log import langfuse_workflow, session_id_for_pr
-from cai.workflows.fsm import solve_graph
-from cai.workflows.implement import ImplementNode
-from cai.workflows.state import IssueState, ResolveStepOutput
+from cai.workflows.state import ResolveStepOutput
 from cai.workflows.test_runner import _run_tests
-
-_MERGE_AUTHOR_NAME = "cai-bot"
-_MERGE_AUTHOR_EMAIL = "cai-bot@users.noreply.github.com"
 
 RESOLVE_STEP_AGENT_DEFINITION = AGENT_DIR / "resolve_step.md"
 
@@ -194,96 +187,6 @@ def _push(bot: CaiBot, workspace: PRWorkspace) -> None:
     )
 
 
-def _conflict_body(base: str, head: str, conflicted: list[str]) -> str:
-    """Synthetic implementation-plan body for the implement-agent fallback."""
-    listing = "\n".join(f"- `{p}`" for p in conflicted)
-    return (
-        f"# Resolve merge conflicts: `{base}` into `{head}`\n\n"
-        f"`{base}` was merged into this branch and the following files were "
-        f"left with unresolved conflict markers (`<<<<<<<`, `=======`, "
-        f"`>>>>>>>`):\n\n"
-        f"{listing}\n\n"
-        "## Plan\n\n"
-        f"For each file above, edit it to remove every conflict marker and "
-        f"keep the correct combination of changes from both `{base}` and "
-        f"this branch. After resolving, the file must contain no "
-        f"`<<<<<<<`, `=======`, or `>>>>>>>` sequences and the project's "
-        f"tests must pass.\n\n"
-        "### Files to change\n\n"
-        f"{listing}\n"
-    )
-
-
-def _test_fix_body(
-    base: str, head: str, touched: list[str], failure: str
-) -> str:
-    """Body used when the rebase succeeded but sanity tests fail."""
-    listing = "\n".join(f"- `{p}`" for p in touched) if touched else "_(no per-step files recorded)_"
-    return (
-        f"# Fix tests after rebasing `{base}` into `{head}`\n\n"
-        f"The PR was rebased onto `{base}` and conflicts were resolved "
-        f"per-step. The sanity test pass that runs after the rebase failed "
-        f"— investigate and patch the code so the tests pass.\n\n"
-        f"## Files reconciled during the rebase\n\n{listing}\n\n"
-        "## Test failure output\n\n"
-        f"```\n{failure}\n```\n"
-    )
-
-
-def _fall_back_to_implement(
-    bot: CaiBot,
-    workspace: PRWorkspace,
-    body: str,
-) -> None:
-    """Run the standard solve_graph from ``ImplementNode`` against ``workspace``."""
-    workspace.body_path.write_text(body)
-    meta = IssueMeta(
-        repo=workspace.repo,
-        number=workspace.number,
-        title=workspace.title,
-    )
-    state = IssueState(
-        bot=bot,
-        meta=meta,
-        body_path=workspace.body_path.resolve(),
-        repo_root=workspace.repo_root.resolve(),
-        branch_name=workspace.head_branch,
-        pr_number=workspace.number,
-    )
-    state.new_meta = meta
-    solve_graph.run_sync(ImplementNode(), state=state)
-
-
-def _merge_for_fallback(workspace: PRWorkspace) -> list[str]:
-    """Merge ``origin/<base>`` and commit (markers and all) for fallback.
-
-    The fallback path uses the same scaffolding cai-resolve-conflicts had
-    before the rebase rewrite: stage everything, commit so the PR has a
-    stable HEAD, then let ImplementNode rewrite the working tree on top.
-    """
-    fetch(workspace.repo_root, env={"GIT_TERMINAL_PROMPT": "0"})
-    conflicts = merge_no_commit(
-        workspace.repo_root,
-        f"origin/{workspace.base_branch}",
-        author_name=_MERGE_AUTHOR_NAME,
-        author_email=_MERGE_AUTHOR_EMAIL,
-    )
-    stage_all(workspace.repo_root)
-    msg = (
-        f"merge: {workspace.base_branch} into {workspace.head_branch} "
-        "(conflicts pending resolution)"
-        if conflicts
-        else f"merge: {workspace.base_branch} into {workspace.head_branch}"
-    )
-    commit(
-        workspace.repo_root,
-        msg,
-        author_name=_MERGE_AUTHOR_NAME,
-        author_email=_MERGE_AUTHOR_EMAIL,
-    )
-    return conflicts
-
-
 def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
     """Rebase the PR onto its base and resolve conflicts step-by-step.
 
@@ -292,8 +195,11 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
     * ``"clean"`` — rebase finished with no agent involvement.
     * ``"rebased"`` — rebase finished, agent resolved one or more steps,
       sanity tests pass, branch force-pushed.
-    * ``"implement_fallback"`` — rebase or sanity step failed; the
-      branch state was patched up via ``ImplementNode`` instead.
+
+    Raises ``RuntimeError`` if the rebase loop fails (e.g. resolve_step
+    could not clear all markers) or if sanity tests fail after the rebase.
+    The caller sees a clear failure rather than a silent fallback to a
+    doomed implement loop.
     """
     pr_ref = f"{workspace.repo}#{workspace.number}"
     with langfuse_workflow(
@@ -309,44 +215,25 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
         ok, touched = _rebase_loop(workspace)
 
         if not ok:
-            # Make sure we're not stuck mid-rebase before falling back.
             if rebase_in_progress(workspace.repo_root):
                 rebase_abort(workspace.repo_root)
-            conflicted = _merge_for_fallback(workspace)
-            _push(bot, workspace)
-            if not conflicted:
-                # Merge happened to be clean even though the rebase failed.
-                return {"mode": "clean", "conflicted_files": []}
-            body = _conflict_body(
-                workspace.base_branch, workspace.head_branch, conflicted
+            raise RuntimeError(
+                f"Rebase of {pr_ref} onto {workspace.base_branch!r} failed. "
+                "The resolve_step agent could not clear all conflict markers. "
+                "Manual intervention required."
             )
-            _fall_back_to_implement(bot, workspace, body)
-            return {
-                "mode": "implement_fallback",
-                "reason": "rebase_failed",
-                "conflicted_files": conflicted,
-            }
 
         if not touched:
-            # No conflicts — base was already a strict ancestor or the
-            # rebase was a no-op. Push so the branch is up to date.
             _push(bot, workspace)
             return {"mode": "clean", "conflicted_files": []}
 
         passed, details = _run_tests(workspace.repo_root)
         if not passed:
-            body = _test_fix_body(
-                workspace.base_branch,
-                workspace.head_branch,
-                touched,
-                details,
+            raise RuntimeError(
+                f"Rebase of {pr_ref} onto {workspace.base_branch!r} succeeded "
+                "but the sanity test pass failed. Fix the tests before retrying.\n\n"
+                f"Test output:\n{details}"
             )
-            _fall_back_to_implement(bot, workspace, body)
-            return {
-                "mode": "implement_fallback",
-                "reason": "tests_failed",
-                "conflicted_files": touched,
-            }
 
         _push(bot, workspace)
         return {"mode": "rebased", "conflicted_files": touched}

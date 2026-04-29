@@ -107,6 +107,8 @@ def langfuse_workflow(
                 metadata=metadata,
             )
         )
+        attrs: dict = {"trace_name": name}
         if session_id is not None:
-            stack.enter_context(propagate_attributes(session_id=session_id))
+            attrs["session_id"] = session_id
+        stack.enter_context(propagate_attributes(**attrs))
         yield

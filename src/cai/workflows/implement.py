@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from functools import lru_cache
 from pathlib import Path
 
@@ -94,6 +95,17 @@ def _format_threads_section(
     return "\n\n".join(sections)
 
 
+def _conflicted_files(repo_root: Path) -> list[str]:
+    """Return tracked files that still contain git conflict markers."""
+    result = subprocess.run(
+        ["git", "grep", "-l", "--", "<<<<<<<"],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    return [p.strip() for p in result.stdout.splitlines() if p.strip()]
+
+
 class ImplementNode(BaseNode[IssueState]):
     async def run(self, ctx: GraphRunContext[IssueState]) -> TestNode:
         from cai.workflows.test_runner import TestNode
@@ -106,6 +118,14 @@ class ImplementNode(BaseNode[IssueState]):
             branch = _branch_name(state.new_meta.number)
             checkout_branch(state.repo_root, branch)
             state.branch_name = branch
+
+        conflicted = _conflicted_files(state.repo_root)
+        if conflicted:
+            files_list = "\n".join(f"  {f}" for f in conflicted)
+            raise RuntimeError(
+                f"Cannot implement: {len(conflicted)} file(s) still contain git conflict markers. "
+                f"Run cai-resolve-conflicts first.\n{files_list}"
+            )
 
         body = state.body_path.read_text()
         meta_json = state.new_meta.model_dump_json(indent=2)
