@@ -1,12 +1,14 @@
 name: CAI Resolve Conflicts
 
-# After every push to the default branch, scan open PRs that now conflict
-# with main, merge main into each (committing the conflict markers), and
-# hand the PR off to the implement agent to resolve.
+# Triggered after Docker publish succeeds so the resolve job always pulls
+# the image that corresponds to the commit that just landed on main.
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Publish Docker image"]
+    types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: cai-resolve-conflicts
