@@ -39,7 +39,8 @@ from openai import AsyncOpenAI
 from pydantic_ai import Agent
 from pydantic_ai.capabilities.abstract import AbstractCapability
 from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
-from pydantic_ai.models.openai import OpenAIModel, OpenAIResponsesModel
+from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 AGENT_DIR = Path(__file__).resolve().parent
@@ -136,11 +137,6 @@ def _provider() -> OpenRouterProvider:
         event_hooks={"response": [_capture_openrouter_cost]},
     )
 
-    # OpenRouterProvider (over plain OpenAIProvider) sets
-    # openai_chat_supports_web_search=True on its model profile, which
-    # pydantic_ai checks before allowing WebSearchTool through
-    # OpenAIChatModel — required for Google models since we keep them on
-    # Chat Completions so extra_body.tool_config gets forwarded.
     return OpenRouterProvider(
         openai_client=AsyncOpenAI(
             api_key=key,
@@ -149,6 +145,32 @@ def _provider() -> OpenRouterProvider:
             http_client=client,
         )
     )
+
+
+class _OpenRouterServerToolsModel(OpenRouterModel):
+    """``OpenRouterModel`` that prepends OpenRouter server-side tools (e.g.
+    ``{"type": "openrouter:web_search"}``) to the wire-level ``tools`` list.
+
+    pydantic-ai's ``WebSearchTool`` capability translates to a top-level
+    ``web_search_options`` field, which OpenRouter's Google provider rejects
+    with HTTP 404 under ``provider.require_parameters: True`` — Google does
+    not declare ``web_search_options`` as supported. The server-tool shape
+    routes through OpenRouter's own search infra instead, returns OpenAI-
+    format ``url_citation`` annotations, and survives ``require_parameters``.
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        *,
+        server_tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(model_name, **kwargs)
+        self._server_tools = list(server_tools or [])
+
+    def _get_tools(self, model_request_parameters: ModelRequestParameters) -> list[Any]:
+        return [*self._server_tools, *super()._get_tools(model_request_parameters)]
 
 
 def parse_agent_md(path: str | Path) -> tuple[dict, str]:
@@ -165,30 +187,29 @@ def parse_agent_md(path: str | Path) -> tuple[dict, str]:
     return config, parts[2].strip()
 
 
-def build_model(config: dict, *, use_responses_model: bool = False) -> OpenAIModel | OpenAIResponsesModel:
+def build_model(config: dict) -> OpenRouterModel:
     """Build a pydantic-ai model from the ``model`` frontmatter key.
 
     The value is the full OpenRouter model ID, e.g. ``anthropic/claude-sonnet-4-6``
     or ``google/gemini-flash-1.5``.
 
-    Pass ``use_responses_model=True`` when the agent uses ``WebSearchTool``;
-    ``OpenAIResponsesModel`` is required in that case.
-
-    Google models always use ``OpenAIModel`` (Chat Completions) even when
-    ``use_responses_model=True``: OpenRouter does not forward ``extra_body``
-    fields such as ``tool_config`` through the Responses API path, so the
-    ``include_server_side_tool_invocations`` workaround only works via
-    Chat Completions.  Web search still functions because OpenRouter sets
-    ``openai_chat_supports_web_search=True`` for all Google models.
+    All requests go through OpenRouter, so the returned model is always an
+    ``_OpenRouterServerToolsModel``. When ``web_search`` is in
+    ``config['tools']``, ``{"type": "openrouter:web_search"}`` is injected
+    into the wire-level tools list so OpenRouter performs search server-side
+    and returns ``url_citation`` annotations.
     """
     model_id = config.get("model")
     if not model_id:
         raise ValueError("frontmatter missing required 'model' field")
-    provider = _provider()
-    is_google = model_id.startswith("google/")
-    if use_responses_model and not is_google:
-        return OpenAIResponsesModel(model_id, provider=provider)
-    return OpenAIModel(model_id, provider=provider)
+    server_tools: list[dict[str, Any]] = []
+    if "web_search" in (config.get("tools") or []):
+        server_tools.append({"type": "openrouter:web_search"})
+    return _OpenRouterServerToolsModel(
+        model_id,
+        provider=_provider(),
+        server_tools=server_tools,
+    )
 
 
 def build_model_settings(config: dict) -> dict[str, Any] | None:
@@ -271,12 +292,12 @@ TOOL_FLAGS: dict[str, dict[str, Any]] = {
     "teams": {"include_teams": True},
     "improve": {"include_improve": True},
     "liteparse": {"include_liteparse": True},
-    # web_search keeps pydantic_deep's flag off; we register ``WebSearch(local=False)``
-    # ourselves in ``build_deep_agent``. Pydantic_deep's default ``WebSearch()``
-    # adds the DuckDuckGo local fallback, which loops on identical results and
-    # exhausts the tool's retry budget — surfacing as
-    # ``UnexpectedModelBehavior: Tool 'duckduckgo_search' exceeded max retries``
-    # and aborting the whole run.
+    # web_search keeps pydantic_deep's flag off; ``build_model`` injects
+    # ``{"type": "openrouter:web_search"}`` into the wire-level ``tools`` so
+    # OpenRouter handles search server-side. Pydantic_deep's default
+    # ``WebSearch()`` adds a DuckDuckGo local fallback that loops on identical
+    # results and aborts the run with ``UnexpectedModelBehavior: Tool
+    # 'duckduckgo_search' exceeded max retries``.
     "web_search": {"web_search": False},
     "web_fetch": {"web_fetch": True},
 }
@@ -488,13 +509,8 @@ def build_deep_agent(
     # failure aborts the whole run.
     extra["capabilities"] = [*(extra.get("capabilities") or []), ToolErrorAsRetry(), ModelRequestErrorAsRetry()]
 
-    if "web_search" in requested:
-        from pydantic_ai.capabilities import WebSearch
-
-        extra["capabilities"].append(WebSearch(local=False))
-
     agent = create_deep_agent(
-        build_model(config, use_responses_model="web_search" in config.get("tools", [])),
+        build_model(config),
         name=config["name"],
         instructions=instructions,
         output_type=output_type,
