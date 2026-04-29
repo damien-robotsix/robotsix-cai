@@ -13,6 +13,7 @@ dependencies = [
     "anthropic>=0.40",
     "langfuse>=3",
     "pydantic>=2",
+    "duckduckgo-search>=6",
     "pydantic-ai>=0.0.50",
     "pydantic-deep>=0.3",
     "pydantic-settings>=2",
