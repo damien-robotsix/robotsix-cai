@@ -56,6 +56,14 @@ def test_has_conflict_markers_detects_each_marker(tmp_path: Path):
     assert _has_conflict_markers(tmp_path, ["nope.py"]) is False
 
 
+def test_has_conflict_markers_no_false_positive_on_literal(tmp_path: Path):
+    # A source file that contains "=======" as a string literal (like conflicts.py
+    # itself does) must not be flagged as having conflict markers.
+    f = tmp_path / "code.py"
+    f.write_text('if any(m in text for m in ("<<<<<<<", "=======", ">>>>>>>")):  # literal\n')
+    assert _has_conflict_markers(tmp_path, ["code.py"]) is False
+
+
 @patch("cai.workflows.conflicts.langfuse_workflow")
 @patch("cai.workflows.conflicts.push_branch")
 @patch("cai.workflows.conflicts._rebase_loop")

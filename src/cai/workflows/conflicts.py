@@ -103,14 +103,18 @@ def _has_conflict_markers(repo_root: Path, paths: list[str]) -> bool:
 
     Reads file-by-file rather than running ``git diff --check`` so the
     check works whether or not the agent has staged its edits.
+
+    Uses line-level startswith checks (matching git's format) rather than
+    a substring search to avoid false positives when a file contains one
+    of these strings as a literal (e.g. this very module's source).
     """
     for rel in paths:
         full = repo_root / rel
         if not full.exists():
             continue
-        text = full.read_text(errors="ignore")
-        if any(m in text for m in ("<<<<<<<", "=======", ">>>>>>>")):
-            return True
+        for line in full.read_text(errors="ignore").splitlines():
+            if line.startswith("<<<<<<<") or line.startswith("=======") or line.startswith(">>>>>>>"):
+                return True
     return False
 
 
