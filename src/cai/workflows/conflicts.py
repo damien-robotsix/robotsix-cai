@@ -24,6 +24,7 @@ import argparse
 import asyncio
 import json
 import sys
+import traceback
 from functools import lru_cache
 from pathlib import Path
 
@@ -171,13 +172,26 @@ async def _rebase_loop_async(workspace: PRWorkspace) -> tuple[bool, list[str]]:
             workspace.repo_root, f"origin/{workspace.base_branch}"
         )
     except Exception:
+        print("[rebase-loop] rebase_onto failed:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         rebase_abort(workspace.repo_root)
         return False, touched
 
+    step_n = 0
     while not finished:
+        step_n += 1
         step = current_rebase_step(workspace.repo_root)
         conflicts = conflicted_paths(workspace.repo_root)
+        print(
+            f"[rebase-loop] step {step_n}: sha={step['sha'][:8] if step else None} "
+            f"conflicts={conflicts}",
+            file=sys.stderr,
+        )
         if step is None or not conflicts:
+            print(
+                f"[rebase-loop] step {step_n}: aborting — step={step is not None} conflicts={conflicts}",
+                file=sys.stderr,
+            )
             rebase_abort(workspace.repo_root)
             return False, touched
 
@@ -187,12 +201,18 @@ async def _rebase_loop_async(workspace: PRWorkspace) -> tuple[bool, list[str]]:
         try:
             await _run_resolve_step(workspace.repo_root, prompt)
         except Exception:
+            print(f"[rebase-loop] step {step_n}: resolve_step agent failed:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             rebase_abort(workspace.repo_root)
             return False, touched
 
         _strip_orphaned_markers(workspace.repo_root, conflicts)
 
         if _has_conflict_markers(workspace.repo_root, conflicts):
+            print(
+                f"[rebase-loop] step {step_n}: markers remain after agent in {conflicts}",
+                file=sys.stderr,
+            )
             rebase_abort(workspace.repo_root)
             return False, touched
 
@@ -202,7 +222,10 @@ async def _rebase_loop_async(workspace: PRWorkspace) -> tuple[bool, list[str]]:
         stage_all(workspace.repo_root)
         try:
             finished = rebase_continue(workspace.repo_root)
+            print(f"[rebase-loop] step {step_n}: rebase_continue → finished={finished}", file=sys.stderr)
         except Exception:
+            print(f"[rebase-loop] step {step_n}: rebase_continue raised:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             rebase_abort(workspace.repo_root)
             return False, touched
 
