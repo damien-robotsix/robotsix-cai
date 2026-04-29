@@ -40,7 +40,7 @@ from pydantic_ai import Agent
 from pydantic_ai.capabilities.abstract import AbstractCapability
 from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
 from pydantic_ai.models.openai import OpenAIModel, OpenAIResponsesModel
-from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 AGENT_DIR = Path(__file__).resolve().parent
 
@@ -126,7 +126,7 @@ async def _capture_openrouter_cost(response: httpx.Response) -> None:
 
 
 @lru_cache(maxsize=None)
-def _provider() -> OpenAIProvider:
+def _provider() -> OpenRouterProvider:
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
@@ -136,7 +136,12 @@ def _provider() -> OpenAIProvider:
         event_hooks={"response": [_capture_openrouter_cost]},
     )
 
-    return OpenAIProvider(
+    # OpenRouterProvider (over plain OpenAIProvider) sets
+    # openai_chat_supports_web_search=True on its model profile, which
+    # pydantic_ai checks before allowing WebSearchTool through
+    # OpenAIChatModel — required for Google models since we keep them on
+    # Chat Completions so extra_body.tool_config gets forwarded.
+    return OpenRouterProvider(
         openai_client=AsyncOpenAI(
             api_key=key,
             base_url="https://openrouter.ai/api/v1",
