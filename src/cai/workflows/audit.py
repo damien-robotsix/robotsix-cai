@@ -1,17 +1,17 @@
-"""``cai-audit`` CLI: ask the audit agent to mine recent traces and file issues.
+"""``cai-audit`` CLI: ask the audit agent to mine signals and file issues.
 
 The pipeline runs as a graph: RunAuditNode → CreateIssuesNode. RunAuditNode
 short-circuits to End when the agent proposes nothing. CreateIssuesNode
 runs the issue-deduplicator agent per proposed item to decide whether to
 create a new issue, append a comment to an existing one, or discard.
 
-Two audit modes are supported:
-  --mode cost    Audit the most costly session of the last 10 issue-solving runs.
-  --mode errors  Audit the 10 most recent traces that contain error-level observations.
+Three audit modes are supported:
+  --mode cost         Audit the most costly session of the last 10 issue-solving runs.
+  --mode errors       Audit the 10 most recent traces that contain error-level observations.
+  --mode duplication  Audit copy-paste findings from jscpd against a fresh clone of the repo.
 
-In both modes all trace context is pre-fetched into the prompt so the audit
-agent can delegate straight to trace_analyst without spending tokens on
-listing tools.
+In every mode all signal context is pre-fetched into the prompt so the agent
+can spend its tokens on judgement rather than tool plumbing.
 """
 from __future__ import annotations
 
@@ -19,18 +19,24 @@ import argparse
 import asyncio
 import json
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import typing
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import BaseModel, model_validator
+from pydantic_ai_backends.backends.local import LocalBackend
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 
 from pydantic_deep import create_default_deps
 
 from cai.agents.loader import build_deep_agent, load_agent_from_md, parse_agent_md, resolve_agent_path
+from cai.git import clone as git_clone
 from cai.github.bot import CaiBot
 from cai.log.observability import langfuse_workflow, setup_langfuse
 from cai.log.traces import _TRACES
@@ -84,12 +90,14 @@ class AuditState:
     bot: CaiBot
     repo: str
     prompt: str
+    agent_name: str = "audit"
+    workspace: Path | None = None  # filesystem root the agent is allowed to read
     output: AuditOutput | None = field(default=None)
 
 
-@lru_cache(maxsize=1)
-def _audit_agent():
-    config, instructions = parse_agent_md(resolve_agent_path("audit"))
+@lru_cache(maxsize=2)
+def _audit_agent(agent_name: str = "audit"):
+    config, instructions = parse_agent_md(resolve_agent_path(agent_name))
     return build_deep_agent(config, instructions, output_type=AuditOutput)
 
 
@@ -101,12 +109,16 @@ def _dedupe_agent():
 
 
 class RunAuditNode(BaseNode[AuditState, None, AuditOutput]):
-    """Run the audit agent against pre-fetched trace context."""
+    """Run the audit agent against pre-fetched signal context."""
 
     async def run(
         self, ctx: GraphRunContext[AuditState]
     ) -> "CreateIssuesNode | End[AuditOutput]":
-        result = await _audit_agent().run(ctx.state.prompt, deps=create_default_deps())
+        if ctx.state.workspace is not None:
+            deps = create_default_deps(backend=LocalBackend(root_dir=ctx.state.workspace))
+        else:
+            deps = create_default_deps()
+        result = await _audit_agent(ctx.state.agent_name).run(ctx.state.prompt, deps=deps)
         output: AuditOutput = result.output
         ctx.state.output = output
         if not output.issues:
@@ -283,10 +295,138 @@ def _build_errors_prompt(unknown: list[str]) -> str:
     return prompt
 
 
+# ---------------------------------------------------------------------------
+# Duplication mode — clone the target repo, run jscpd, format clones for the
+# duplication_auditor agent.
+# ---------------------------------------------------------------------------
+
+# Per-language jscpd thresholds. YAML workflows are short and noisy at the
+# Python default, so we drop the bar; markdown is bumped because docs naturally
+# repeat phrasing.
+_JSCPD_LANGUAGES: tuple[tuple[str, int], ...] = (
+    ("python", 50),
+    ("yaml", 20),
+)
+
+
+def _clone_repo_for_audit(bot: CaiBot, repo: str, dest: Path) -> None:
+    """Clone ``repo`` into ``dest`` using the bot's installation token."""
+    token = bot.token_for(repo)
+    url = f"https://x-access-token:{token}@github.com/{repo}.git"
+    git_clone(url, dest)
+
+
+def _jscpd_argv() -> list[str]:
+    """Resolve how to invoke jscpd. Prefer the global binary; fall back to npx."""
+    binary = shutil.which("jscpd")
+    if binary:
+        return [binary]
+    return ["npx", "--yes", "jscpd@4"]
+
+
+def _run_jscpd(
+    workspace: Path, language: str, min_tokens: int, *, output_dir: Path
+) -> list[dict]:
+    """Run jscpd on ``workspace`` for one language and return its clone records."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        *_jscpd_argv(),
+        "--reporters", "json",
+        "--output", str(output_dir),
+        "--silent",
+        "--min-tokens", str(min_tokens),
+        "--format", language,
+        str(workspace),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    # jscpd exits 0 on success and may exit non-zero only when --threshold is
+    # exceeded; we always pass threshold 0 implicitly via .jscpd.json so any
+    # non-zero exit is a real failure worth surfacing.
+    if result.returncode != 0:
+        print(
+            f"Warning: jscpd ({language}) exited {result.returncode}: "
+            f"{result.stderr.strip()[:500]}",
+            file=sys.stderr,
+        )
+        return []
+    report = output_dir / "jscpd-report.json"
+    if not report.exists():
+        return []
+    try:
+        data = json.loads(report.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"Warning: could not parse jscpd report ({language}): {exc}", file=sys.stderr)
+        return []
+    return list(data.get("duplicates") or [])
+
+
+def _format_clone(workspace: Path, clone: dict) -> str:
+    """Render a single jscpd clone record as a prompt block."""
+    def _rel(path: str) -> str:
+        try:
+            return str(Path(path).resolve().relative_to(workspace))
+        except ValueError:
+            return path
+
+    first = clone.get("firstFile") or {}
+    second = clone.get("secondFile") or {}
+    fragment = (clone.get("fragment") or "").rstrip()
+    if len(fragment) > 1500:
+        fragment = fragment[:1500] + "\n... [truncated]"
+    return (
+        f"- format: {clone.get('format', '?')}  "
+        f"lines: {clone.get('lines', '?')}  tokens: {clone.get('tokens', '?')}\n"
+        f"  A: {_rel(first.get('name', '?'))} "
+        f"L{first.get('start', '?')}-L{first.get('end', '?')}\n"
+        f"  B: {_rel(second.get('name', '?'))} "
+        f"L{second.get('start', '?')}-L{second.get('end', '?')}\n"
+        f"  fragment:\n```\n{fragment}\n```"
+    )
+
+
+def _build_duplication_prompt(
+    bot: CaiBot, repo: str, workspace: Path, unknown: list[str]
+) -> str:
+    """Clone ``repo`` into ``workspace`` and build a prompt of jscpd findings."""
+    print(f"Cloning {repo} into {workspace} for duplication audit...", file=sys.stderr)
+    _clone_repo_for_audit(bot, repo, workspace)
+
+    all_clones: list[dict] = []
+    for language, min_tokens in _JSCPD_LANGUAGES:
+        report_dir = workspace.parent / f"jscpd-{language}"
+        clones = _run_jscpd(workspace, language, min_tokens, output_dir=report_dir)
+        print(
+            f"jscpd ({language}, min-tokens={min_tokens}): {len(clones)} clones",
+            file=sys.stderr,
+        )
+        all_clones.extend(clones)
+
+    if not all_clones:
+        print("No duplication clones found by jscpd.", file=sys.stderr)
+        sys.exit(0)
+
+    blocks = [_format_clone(workspace, c) for c in all_clones]
+    prompt = (
+        f"Audit the following copy-paste findings from jscpd against {repo}. "
+        f"The repository is checked out at the agent's filesystem root — open "
+        f"any cited file with `filesystem_read` to inspect surrounding context "
+        f"before deciding whether to propose a refactor.\n\n"
+        f"Found {len(all_clones)} clone groups:\n\n"
+        + "\n\n".join(blocks)
+        + "\n\nReturn an AuditOutput. Be conservative — only propose issues for "
+        "duplications that are worth refactoring (real shared logic, not "
+        "boilerplate or coincidental similarity). For multi-location clones, "
+        "file ONE issue covering the whole set."
+    )
+    if unknown:
+        prompt += f"\n\nAdditional context: {' '.join(unknown)}"
+    return prompt
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="cai-audit",
-        description="Run the audit agent to analyze Langfuse traces and open GitHub issues.",
+        description="Run the audit agent against traces or code, and open GitHub issues.",
     )
     parser.add_argument(
         "--repo",
@@ -295,36 +435,57 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["cost", "errors"],
+        choices=["cost", "errors", "duplication"],
         default="cost",
         help=(
             "Audit mode: 'cost' analyses the most expensive of the last 10 "
             "issue-solving sessions; 'errors' analyses the 10 most recent "
-            "traces that contain error-level observations."
+            "traces that contain error-level observations; 'duplication' "
+            "clones the repo and audits jscpd copy-paste findings."
         ),
     )
     args, unknown = parser.parse_known_args()
 
     setup_langfuse()
 
-    prompt = (
-        _build_cost_prompt(unknown)
-        if args.mode == "cost"
-        else _build_errors_prompt(unknown)
-    )
-    state = AuditState(bot=CaiBot(), repo=args.repo, prompt=prompt)
+    bot = CaiBot()
+    workspace: Path | None = None
+    workspace_root: Path | None = None
+    agent_name = "audit"
 
-    session_id = f"audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    try:
+        if args.mode == "cost":
+            prompt = _build_cost_prompt(unknown)
+        elif args.mode == "errors":
+            prompt = _build_errors_prompt(unknown)
+        else:
+            workspace_root = Path(tempfile.mkdtemp(prefix="cai-audit-dup-"))
+            workspace = workspace_root / "repo"
+            agent_name = "duplication_auditor"
+            prompt = _build_duplication_prompt(bot, args.repo, workspace, unknown)
 
-    async def _run() -> None:
-        with langfuse_workflow(
-            "cai-audit",
-            metadata={"repo": args.repo, "mode": args.mode},
-            session_id=session_id,
-        ):
-            await audit_graph.run(RunAuditNode(), state=state)
+        state = AuditState(
+            bot=bot,
+            repo=args.repo,
+            prompt=prompt,
+            agent_name=agent_name,
+            workspace=workspace,
+        )
 
-    asyncio.run(_run())
+        session_id = f"audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+
+        async def _run() -> None:
+            with langfuse_workflow(
+                "cai-audit",
+                metadata={"repo": args.repo, "mode": args.mode},
+                session_id=session_id,
+            ):
+                await audit_graph.run(RunAuditNode(), state=state)
+
+        asyncio.run(_run())
+    finally:
+        if workspace_root is not None:
+            shutil.rmtree(workspace_root, ignore_errors=True)
 
 
 if __name__ == "__main__":

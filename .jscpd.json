@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/kucherenko/jscpd/master/schema/jscpd.json",
+  "reporters": ["json"],
+  "absolute": true,
+  "gitignore": true,
+  "ignore": [
+    "**/node_modules/**",
+    "**/__pycache__/**",
+    "**/.venv/**",
+    "**/dist/**",
+    "**/build/**"
+  ]
+}

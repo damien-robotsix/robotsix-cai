@@ -1,0 +1,75 @@
+name: CAI Audit Duplication
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Target GitHub repository (owner/repo)"
+        required: true
+        default: damien-robotsix/robotsix-cai
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+    steps:
+      - name: Checkout (for commit count)
+        if: github.event_name == 'push'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to run
+        id: gate
+        run: |
+          event="${{ github.event_name }}"
+          if [ "$event" != "push" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Decision: $event — run"
+            exit 0
+          fi
+          count=$(git rev-list --count HEAD)
+          echo "Total commits on main: $count"
+          if [ "$count" -gt 0 ] && [ $((count % 30)) -eq 0 ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Decision: push (count=$count) — run"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Decision: push (count=$count, not a multiple of 30) — skip"
+          fi
+
+  audit:
+    needs: check
+    if: needs.check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Stage cai config for container
+        env:
+          CAI_GITHUB_APP_PEM: ${{ secrets.CAI_GITHUB_APP_PEM }}
+          CAI_APP_ENV: ${{ secrets.CAI_APP_ENV }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/cai-config"
+          printf '%s\n' "$CAI_GITHUB_APP_PEM" > "${RUNNER_TEMP}/cai-config/github-app.pem"
+          printf '%s\n' "$CAI_APP_ENV" > "${RUNNER_TEMP}/cai-config/app.env"
+          chmod 600 "${RUNNER_TEMP}/cai-config/github-app.pem" "${RUNNER_TEMP}/cai-config/app.env"
+          sudo chown -R 1000:1000 "${RUNNER_TEMP}/cai-config"
+
+      - name: Run CAI Audit (duplication)
+        env:
+          TARGET_REPO: ${{ github.event.inputs.repo || github.repository }}
+        run: |
+          docker run --rm \
+            -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
+            -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            -e LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}" \
+            -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
+            -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
+            docker.io/robotsix/cai:latest \
+            cai-audit --repo "$TARGET_REPO" --mode duplication

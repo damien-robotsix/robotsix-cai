@@ -28,9 +28,10 @@ RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries \
     && apt-get update \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g "@anthropic-ai/claude-code@latest" \
+    && npm install -g "@anthropic-ai/claude-code@latest" "jscpd@4" \
     && claude --version \
-    && gh --version
+    && gh --version \
+    && jscpd --version
 
 # Non-root user. claude-code refuses --dangerously-skip-permissions as
 # root. UID 1000 matches the typical first-host-user UID so named
