@@ -42,6 +42,8 @@ def setup_langfuse() -> bool:
     if not (os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")):
         return False
 
+    os.environ.setdefault("LANGFUSE_TIMEOUT", "300")
+
     from langfuse import get_client
     from pydantic_ai import Agent
 
