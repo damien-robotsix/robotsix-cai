@@ -24,7 +24,7 @@ from openai import AsyncOpenAI
 from pydantic_ai import Agent
 from pydantic_ai.capabilities.abstract import AbstractCapability
 from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIModel, OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 AGENT_DIR = Path(__file__).resolve().parent
@@ -136,16 +136,22 @@ def parse_agent_md(path: str | Path) -> tuple[dict, str]:
     return config, parts[2].strip()
 
 
-def build_model(config: dict) -> OpenAIModel:
+def build_model(config: dict, *, use_responses_model: bool = False) -> OpenAIModel | OpenAIResponsesModel:
     """Build a pydantic-ai model from the ``model`` frontmatter key.
 
     The value is the full OpenRouter model ID, e.g. ``anthropic/claude-sonnet-4-6``
     or ``google/gemini-flash-1.5``.
+
+    Pass ``use_responses_model=True`` when the agent uses ``WebSearchTool``;
+    ``OpenAIResponsesModel`` is required in that case.
     """
     model_id = config.get("model")
     if not model_id:
         raise ValueError("frontmatter missing required 'model' field")
-    return OpenAIModel(model_id, provider=_provider())
+    provider = _provider()
+    if use_responses_model:
+        return OpenAIResponsesModel(model_id, provider=provider)
+    return OpenAIModel(model_id, provider=provider)
 
 
 def build_model_settings(config: dict) -> dict[str, Any] | None:
@@ -415,7 +421,7 @@ def build_deep_agent(
     extra["capabilities"] = [*(extra.get("capabilities") or []), ToolErrorAsRetry(), ModelRequestErrorAsRetry()]
 
     agent = create_deep_agent(
-        build_model(config),
+        build_model(config, use_responses_model="web_search" in config.get("tools", [])),
         name=config["name"],
         instructions=instructions,
         output_type=output_type,
