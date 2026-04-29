@@ -9,6 +9,7 @@ from cai.github.repo import PRWorkspace
 from cai.workflows.conflicts import (
     _has_conflict_markers,
     _step_prompt,
+    _strip_orphaned_markers,
     solve_conflicts,
 )
 
@@ -46,9 +47,9 @@ def test_step_prompt_lists_files_and_diff():
     assert "PR description here." in out
 
 
-def test_has_conflict_markers_detects_each_marker(tmp_path: Path):
+def test_has_conflict_markers_detects_real_blocks(tmp_path: Path):
     f = tmp_path / "x.py"
-    f.write_text("ok\n=======\nstuff\n")
+    f.write_text("<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> sha\n")
     assert _has_conflict_markers(tmp_path, ["x.py"]) is True
     f.write_text("clean\n")
     assert _has_conflict_markers(tmp_path, ["x.py"]) is False
@@ -57,11 +58,33 @@ def test_has_conflict_markers_detects_each_marker(tmp_path: Path):
 
 
 def test_has_conflict_markers_no_false_positive_on_literal(tmp_path: Path):
-    # A source file that contains "=======" as a string literal (like conflicts.py
-    # itself does) must not be flagged as having conflict markers.
+    # A source file that contains "=======" as a string literal must not be flagged.
     f = tmp_path / "code.py"
     f.write_text('if any(m in text for m in ("<<<<<<<", "=======", ">>>>>>>")):  # literal\n')
     assert _has_conflict_markers(tmp_path, ["code.py"]) is False
+
+
+def test_has_conflict_markers_no_false_positive_on_orphaned_lines(tmp_path: Path):
+    # Orphaned ======= / >>>>>>> lines (from nested conflicts that were committed)
+    # are not valid conflict blocks and must not be flagged.
+    f = tmp_path / "x.py"
+    f.write_text("ok\n=======\n>>>>>>> origin/main\nclean\n")
+    assert _has_conflict_markers(tmp_path, ["x.py"]) is False
+
+
+def test_strip_orphaned_markers_removes_dangling_lines(tmp_path: Path):
+    f = tmp_path / "x.py"
+    f.write_text("good\n=======\n>>>>>>> origin/main\ncode\n")
+    _strip_orphaned_markers(tmp_path, ["x.py"])
+    assert f.read_text() == "good\ncode\n"
+
+
+def test_strip_orphaned_markers_leaves_clean_files_alone(tmp_path: Path):
+    f = tmp_path / "x.py"
+    content = "just normal code\n"
+    f.write_text(content)
+    _strip_orphaned_markers(tmp_path, ["x.py"])
+    assert f.read_text() == content
 
 
 @patch("cai.workflows.conflicts.langfuse_workflow")

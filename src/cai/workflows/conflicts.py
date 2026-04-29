@@ -99,23 +99,46 @@ def _step_prompt(
 
 
 def _has_conflict_markers(repo_root: Path, paths: list[str]) -> bool:
-    """Return True if any listed file still contains marker lines.
+    """Return True if any listed file still contains unresolved conflict blocks.
 
-    Reads file-by-file rather than running ``git diff --check`` so the
-    check works whether or not the agent has staged its edits.
+    Uses the same parser as conflict_list (<<<<<<< / ======= / >>>>>>> triples)
+    so orphaned marker lines from nested conflicts — left over when a previous
+    failed rebase was committed — don't cause false positives.
+    """
+    from cai.agents.conflict_tools import _parse_conflicts
+    for rel in paths:
+        full = repo_root / rel
+        if not full.exists():
+            continue
+        lines = full.read_text(errors="ignore").splitlines(keepends=True)
+        if _parse_conflicts(lines):
+            return True
+    return False
 
-    Uses line-level startswith checks (matching git's format) rather than
-    a substring search to avoid false positives when a file contains one
-    of these strings as a literal (e.g. this very module's source).
+
+def _strip_orphaned_markers(repo_root: Path, paths: list[str]) -> None:
+    """Remove marker lines that sit outside any conflict block.
+
+    When a previous failed rebase was committed, the branch can contain
+    nested conflict markers.  After the agent resolves all proper blocks,
+    orphaned ``=======`` / ``>>>>>>>`` lines that were outside those blocks
+    remain.  Strip them so the committed content is clean.
     """
     for rel in paths:
         full = repo_root / rel
         if not full.exists():
             continue
-        for line in full.read_text(errors="ignore").splitlines():
-            if line.startswith("<<<<<<<") or line.startswith("=======") or line.startswith(">>>>>>>"):
-                return True
-    return False
+        lines = full.read_text(errors="ignore").splitlines(keepends=True)
+        clean = [
+            l for l in lines
+            if not (
+                l.startswith("<<<<<<<")
+                or l.startswith("=======")
+                or l.startswith(">>>>>>>")
+            )
+        ]
+        if len(clean) != len(lines):
+            full.write_text("".join(clean))
 
 
 async def _run_resolve_step(repo_root: Path, prompt: str) -> None:
@@ -160,6 +183,8 @@ def _rebase_loop(workspace: PRWorkspace) -> tuple[bool, list[str]]:
         except Exception:
             rebase_abort(workspace.repo_root)
             return False, touched
+
+        _strip_orphaned_markers(workspace.repo_root, conflicts)
 
         if _has_conflict_markers(workspace.repo_root, conflicts):
             rebase_abort(workspace.repo_root)
