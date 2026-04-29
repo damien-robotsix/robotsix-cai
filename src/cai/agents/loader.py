@@ -264,6 +264,8 @@ _TOOL_PRUNE: dict[str, dict[str, frozenset[str]]] = {
 TOOL_FACTORIES: dict[str, str] = {
     # name → "module:attr" import target
     "spike_run": "cai.agents.spike_tool:SPIKE_RUN_TOOL",
+    "move_file": "cai.agents.fs_ops:MOVE_FILE_TOOL",
+    "delete_file": "cai.agents.fs_ops:DELETE_FILE_TOOL",
     "traces_list": "cai.log.traces:TRACES_LIST_TOOL",
     "traces_show": "cai.log.traces:TRACES_SHOW_TOOL",
     "traces_failures": "cai.log.traces:TRACES_FAILURES_TOOL",

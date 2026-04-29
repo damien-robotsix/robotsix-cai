@@ -4,6 +4,8 @@ description: Implements code changes to resolve a GitHub issue or address PR rev
 model: google/gemini-3.1-pro-preview
 tools:
   - filesystem
+  - move_file
+  - delete_file
   - web_search
   - web_fetch
 ---
