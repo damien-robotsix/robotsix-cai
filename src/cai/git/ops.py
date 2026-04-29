@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 from git import Actor, Repo
 from git.exc import GitCommandError
@@ -93,6 +93,84 @@ def merge_no_commit(
             if not unmerged:
                 raise
             return [path.strip() for path in unmerged if path.strip()]
+
+
+def rebase_onto(repo_root: Path, ref: str) -> bool:
+    """Run ``git rebase <ref>``. Return ``True`` when the rebase finished
+    cleanly with no conflicts, ``False`` when it stopped at a conflict.
+
+    Any other failure (bad ref, dirty tree, etc.) is re-raised. The caller
+    drives the conflict loop via :func:`current_rebase_step`,
+    :func:`conflicted_paths`, and :func:`rebase_continue`.
+    """
+    repo = Repo(str(repo_root))
+    try:
+        repo.git.rebase(ref)
+        return True
+    except GitCommandError:
+        if rebase_in_progress(repo_root):
+            return False
+        raise
+
+
+def rebase_continue(repo_root: Path) -> bool:
+    """Run ``git rebase --continue`` keeping the original commit message.
+
+    ``GIT_EDITOR=true`` short-circuits the editor invocation git would
+    otherwise pop up to confirm the message; ``--no-edit`` alone is not
+    accepted by older git versions.
+    """
+    repo = Repo(str(repo_root))
+    try:
+        with repo.git.custom_environment(GIT_EDITOR="true"):
+            repo.git.rebase("--continue")
+        return True
+    except GitCommandError:
+        if rebase_in_progress(repo_root):
+            return False
+        raise
+
+
+def rebase_abort(repo_root: Path) -> None:
+    """Run ``git rebase --abort`` if a rebase is in progress; no-op otherwise."""
+    if not rebase_in_progress(repo_root):
+        return
+    Repo(str(repo_root)).git.rebase("--abort")
+
+
+def rebase_in_progress(repo_root: Path) -> bool:
+    """Return True when git is mid-rebase (either rebase-merge or rebase-apply)."""
+    git_dir = Path(repo_root) / ".git"
+    return (git_dir / "rebase-merge").is_dir() or (git_dir / "rebase-apply").is_dir()
+
+
+def conflicted_paths(repo_root: Path) -> list[str]:
+    """Return paths with unmerged entries in the index."""
+    repo = Repo(str(repo_root))
+    out = repo.git.diff("--name-only", "--diff-filter=U").splitlines()
+    return [p.strip() for p in out if p.strip()]
+
+
+def current_rebase_step(repo_root: Path) -> dict[str, Any] | None:
+    """Return ``{sha, subject, message, diff}`` for the commit being replayed.
+
+    Returns ``None`` when no rebase is in progress. The diff is the patch
+    the rebase is trying to apply (i.e. ``git show <sha>``); reading it
+    tells the agent what change the PR author originally intended at this
+    step, which is the only way to disambiguate intent from the markers.
+    """
+    if not rebase_in_progress(repo_root):
+        return None
+    repo = Repo(str(repo_root))
+    sha = repo.git.rev_parse("REBASE_HEAD")
+    commit = repo.commit(sha)
+    diff = repo.git.show(sha)
+    return {
+        "sha": sha,
+        "subject": commit.summary,
+        "message": commit.message,
+        "diff": diff,
+    }
 
 
 def push_branch(

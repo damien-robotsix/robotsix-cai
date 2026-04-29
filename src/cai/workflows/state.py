@@ -82,6 +82,12 @@ class ImplementOutput(BaseModel):
     )
 
 
+class ResolveStepOutput(BaseModel):
+    summary: str = Field(
+        description="One or two sentences describing how the conflicts were reconciled."
+    )
+
+
 class TestOutput(BaseModel):
     summary: str = Field(description="Concise description of tests written or updated.")
     commit_message: str = Field(
