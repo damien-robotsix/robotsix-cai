@@ -96,14 +96,19 @@ def _format_threads_section(
 
 
 def _conflicted_files(repo_root: Path) -> list[str]:
-    """Return tracked files that still contain git conflict markers."""
+    """Return files that are in an unresolved merge-conflict state in the git index."""
     result = subprocess.run(
-        ["git", "grep", "-l", "--", "<<<<<<<"],
+        ["git", "ls-files", "--unmerged"],
         capture_output=True,
         text=True,
         cwd=repo_root,
     )
-    return [p.strip() for p in result.stdout.splitlines() if p.strip()]
+    # Each line: "<mode> <hash> <stage>\t<path>"
+    files: set[str] = set()
+    for line in result.stdout.splitlines():
+        if "\t" in line:
+            files.add(line.split("\t", 1)[1].strip())
+    return sorted(files)
 
 
 class ImplementNode(BaseNode[IssueState]):
