@@ -131,6 +131,22 @@ def rebase_continue(repo_root: Path) -> bool:
         raise
 
 
+def rebase_skip(repo_root: Path) -> bool:
+    """Run ``git rebase --skip`` to discard the current empty commit.
+
+    Returns True when the rebase finished, False when it stopped at another
+    conflict.  Raises on any unexpected git error.
+    """
+    repo = Repo(str(repo_root))
+    try:
+        repo.git.rebase("--skip")
+        return True
+    except GitCommandError:
+        if rebase_in_progress(repo_root):
+            return False
+        raise
+
+
 def rebase_abort(repo_root: Path) -> None:
     """Run ``git rebase --abort`` if a rebase is in progress; no-op otherwise."""
     if not rebase_in_progress(repo_root):

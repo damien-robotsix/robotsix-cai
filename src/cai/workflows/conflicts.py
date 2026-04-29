@@ -41,6 +41,7 @@ from cai.git import (
     rebase_continue,
     rebase_in_progress,
     rebase_onto,
+    rebase_skip,
     stage_all,
 )
 from cai.github.bot import CaiBot
@@ -228,6 +229,23 @@ async def _rebase_loop_async(workspace: PRWorkspace) -> tuple[bool, list[str]]:
             traceback.print_exc(file=sys.stderr)
             rebase_abort(workspace.repo_root)
             return False, touched
+
+        # rebase_continue returned False but no conflicted paths means the
+        # commit became empty after resolution (its change was already in
+        # main).  Skip the empty commit so the rebase can advance.
+        if not finished and not conflicted_paths(workspace.repo_root):
+            print(
+                f"[rebase-loop] step {step_n}: empty commit after resolution, skipping",
+                file=sys.stderr,
+            )
+            try:
+                finished = rebase_skip(workspace.repo_root)
+                print(f"[rebase-loop] step {step_n}: rebase_skip → finished={finished}", file=sys.stderr)
+            except Exception:
+                print(f"[rebase-loop] step {step_n}: rebase_skip raised:", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
+                rebase_abort(workspace.repo_root)
+                return False, touched
 
     return True, touched
 
