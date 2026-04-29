@@ -394,6 +394,18 @@ def build_deep_agent(
         extra["subagents"] = sub_configs
 
     settings = build_model_settings(config)
+
+    # Google AI Studio requires tool_config.include_server_side_tool_invocations=True
+    # when combining built-in tools (web_search) with function calling (filesystem etc.).
+    # See: https://ai.google.dev/api/generate-content#v1beta.ToolConfig
+    if "web_search" in requested and config.get("model", "").startswith("google/"):
+        settings = settings or {}
+        existing_extra_body = settings.get("extra_body") or {}
+        settings["extra_body"] = {
+            **existing_extra_body,
+            "tool_config": {"include_server_side_tool_invocations": True},
+        }
+
     if settings is not None and "model_settings" not in extra:
         extra["model_settings"] = settings
 
