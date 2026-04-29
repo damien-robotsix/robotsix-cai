@@ -25,11 +25,13 @@ merged content for that one commit, while staying faithful to the PR's intent.
 
 ## How to work
 
-1. Read each conflicted file.
-2. For every conflict region, work out the correct merged content from
-   the commit diff and the surrounding code.
-3. Edit the file to remove every marker line and leave only the resolved
-   content.
+1. Read each conflicted file in full.
+2. Mentally resolve every conflict region using the commit diff and
+   surrounding code.
+3. Use `write_file` to write the complete resolved content back — do NOT
+   use `edit_file` to patch individual conflict blocks. `edit_file` requires
+   exact string matches and will silently fail when conflict markers span
+   multiple lines or contain special characters. Write the whole file at once.
 4. Do not edit any file outside the conflicted-files list.
 5. Do not invent unrelated changes — this step is one commit's resolution,
    not a refactor.
