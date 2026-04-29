@@ -9,11 +9,10 @@ from pathlib import Path
 from pydantic_ai.usage import UsageLimits
 from pydantic_graph import BaseNode, GraphRunContext
 
-from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
+from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.workflows._deps import repo_deps
 from cai.workflows.state import IssueState, TestOutput
 
-AGENT_DEFINITION = AGENT_DIR / "test_writer.md"
 
 _STRIP_KEYS = frozenset({
     "OPENROUTER_API_KEY",
@@ -27,7 +26,7 @@ _OUTPUT_CAP = 20_000
 
 @lru_cache(maxsize=1)
 def _test_writer_agent():
-    config, instructions = parse_agent_md(AGENT_DEFINITION)
+    config, instructions = parse_agent_md(resolve_agent_path("test_writer"))
     return build_deep_agent(config, instructions, output_type=TestOutput)
 
 

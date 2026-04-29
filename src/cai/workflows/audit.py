@@ -28,7 +28,7 @@ from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 
 from pydantic_deep import create_default_deps
 
-from cai.agents.loader import AGENT_DIR, build_deep_agent, load_agent_from_md, parse_agent_md
+from cai.agents.loader import build_deep_agent, load_agent_from_md, parse_agent_md, resolve_agent_path
 from cai.github.bot import CaiBot
 from cai.log.observability import langfuse_workflow, setup_langfuse
 from cai.log.traces import _TRACES
@@ -67,14 +67,14 @@ class AuditState:
 
 @lru_cache(maxsize=1)
 def _audit_agent():
-    config, instructions = parse_agent_md(AGENT_DIR / "audit.md")
+    config, instructions = parse_agent_md(resolve_agent_path("audit"))
     return build_deep_agent(config, instructions, output_type=AuditOutput)
 
 
 @lru_cache(maxsize=1)
 def _dedupe_agent():
     return load_agent_from_md(
-        AGENT_DIR / "issue_deduplicator.md", output_type=DedupeOutput
+        resolve_agent_path("issue_deduplicator"), output_type=DedupeOutput
     )
 
 
