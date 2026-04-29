@@ -72,4 +72,5 @@ Return:
 - Do not modify files in `.github/`, `pyproject.toml`, or other config
   files in response to a review thread unless the comment relates to them
 - Use your web tools (`web_search` / `web_fetch`) when you need to look up external API documentation or understand third-party libraries required to implement the requested changes.
+- Do not run repository-wide global searches (like \`grep\` or \`glob\`) post-refactor to verify changes. Assume your targeted edits worked.
 
