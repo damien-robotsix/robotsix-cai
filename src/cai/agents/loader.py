@@ -144,12 +144,20 @@ def build_model(config: dict, *, use_responses_model: bool = False) -> OpenAIMod
 
     Pass ``use_responses_model=True`` when the agent uses ``WebSearchTool``;
     ``OpenAIResponsesModel`` is required in that case.
+
+    Google models always use ``OpenAIModel`` (Chat Completions) even when
+    ``use_responses_model=True``: OpenRouter does not forward ``extra_body``
+    fields such as ``tool_config`` through the Responses API path, so the
+    ``include_server_side_tool_invocations`` workaround only works via
+    Chat Completions.  Web search still functions because OpenRouter sets
+    ``openai_chat_supports_web_search=True`` for all Google models.
     """
     model_id = config.get("model")
     if not model_id:
         raise ValueError("frontmatter missing required 'model' field")
     provider = _provider()
-    if use_responses_model:
+    is_google = model_id.startswith("google/")
+    if use_responses_model and not is_google:
         return OpenAIResponsesModel(model_id, provider=provider)
     return OpenAIModel(model_id, provider=provider)
 
