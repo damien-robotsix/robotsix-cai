@@ -4,6 +4,8 @@ description: Implements code changes to resolve a GitHub issue or address PR rev
 model: google/gemini-3.1-pro-preview
 tools:
   - filesystem
+  - web_search
+  - web_fetch
 ---
 
 # Implementation Agent
@@ -67,3 +69,5 @@ Return:
 - Never modify files listed in **Scope guardrails**
 - Do not modify files in `.github/`, `pyproject.toml`, or other config
   files in response to a review thread unless the comment relates to them
+- Use your web tools (`web_search` / `web_fetch`) when you need to look up external API documentation or understand third-party libraries required to implement the requested changes.
+

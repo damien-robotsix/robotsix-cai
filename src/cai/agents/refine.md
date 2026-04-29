@@ -5,6 +5,8 @@ model: google/gemini-3.1-pro-preview
 tools:
   - filesystem
   - subagents
+  - web_search
+  - web_fetch
 subagents:
   - explore
   - spike
@@ -54,9 +56,13 @@ rewrite the body to match.
   `lib.foo()` return a list or a generator?", "what exception does
   this raise on a missing key?". Spawns a short script in a scratch
   dir; do not use it for questions explore could answer.
-- If the answer would require something neither agent can do (network
-  doc fetch, reading third-party source, multi-step debugging), do not
-  delegate — note it as an **assumption** in *Description* and move on.
+- You have direct access to **web_search** and **web_fetch** tools to fetch
+  external URLs mentioned in issues or search third-party documentation needed
+  to write a concrete plan — these should be used directly rather than
+  delegating.
+- If the answer would require something neither agent can do (multi-step
+  debugging), do not delegate — note it as an **assumption** in *Description*
+  and move on.
 
 ## Reference files output
 
