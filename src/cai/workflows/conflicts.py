@@ -149,7 +149,7 @@ async def _run_resolve_step(repo_root: Path, prompt: str) -> None:
     )
 
 
-def _rebase_loop(workspace: PRWorkspace) -> tuple[bool, list[str]]:
+async def _rebase_loop_async(workspace: PRWorkspace) -> tuple[bool, list[str]]:
     """Drive ``git rebase`` to completion via the resolve_step agent.
 
     Returns ``(ok, touched_files)`` where ``ok`` is True when the rebase
@@ -157,6 +157,12 @@ def _rebase_loop(workspace: PRWorkspace) -> tuple[bool, list[str]]:
     ``touched_files`` is the union of files the agent had to resolve.
     On any failure (agent gives up, markers remain, unexpected git
     error) the rebase is aborted and ``ok`` is False.
+
+    Runs in a single event loop so repeated agent calls within the same
+    rebase session share one asyncio context.  (Calling ``asyncio.run()``
+    once per rebase step creates a new event loop each time, which can
+    disrupt background tasks started by pydantic-ai or its OTel integration
+    and cause silent failures on the second or later step.)
     """
     fetch(workspace.repo_root, env={"GIT_TERMINAL_PROMPT": "0"})
     touched: list[str] = []
@@ -179,7 +185,7 @@ def _rebase_loop(workspace: PRWorkspace) -> tuple[bool, list[str]]:
             workspace.title, workspace.body, step, conflicts
         )
         try:
-            asyncio.run(_run_resolve_step(workspace.repo_root, prompt))
+            await _run_resolve_step(workspace.repo_root, prompt)
         except Exception:
             rebase_abort(workspace.repo_root)
             return False, touched
@@ -201,6 +207,11 @@ def _rebase_loop(workspace: PRWorkspace) -> tuple[bool, list[str]]:
             return False, touched
 
     return True, touched
+
+
+def _rebase_loop(workspace: PRWorkspace) -> tuple[bool, list[str]]:
+    """Sync entry point — runs the async rebase loop in a single event loop."""
+    return asyncio.run(_rebase_loop_async(workspace))
 
 
 def _push(bot: CaiBot, workspace: PRWorkspace) -> None:
