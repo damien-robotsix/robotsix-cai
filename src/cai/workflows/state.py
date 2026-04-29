@@ -1,10 +1,31 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+def _inline_refs(schema: dict) -> dict:
+    """Resolve $ref pointers inline so Google AI function-calling can parse the schema."""
+    defs = schema.get("$defs", {})
+    if not defs:
+        return schema
+
+    def resolve(obj: object) -> object:
+        if isinstance(obj, dict):
+            if "$ref" in obj:
+                ref_name = obj["$ref"].split("/")[-1]
+                return resolve(copy.deepcopy(defs.get(ref_name, obj)))
+            return {k: resolve(v) for k, v in obj.items() if k != "$defs"}
+        if isinstance(obj, list):
+            return [resolve(item) for item in obj]
+        return obj
+
+    return resolve(copy.deepcopy(schema))  # type: ignore[return-value]
+
 
 from cai.github.bot import CaiBot
 from cai.github.issues import IssueMeta
@@ -80,6 +101,10 @@ class ImplementOutput(BaseModel):
             "in the prompt — one entry per thread. Leave empty otherwise."
         ),
     )
+
+    @classmethod
+    def model_json_schema(cls, **kwargs: object) -> dict:
+        return _inline_refs(super().model_json_schema(**kwargs))
 
 
 class ResolveStepOutput(BaseModel):

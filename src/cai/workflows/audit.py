@@ -32,6 +32,7 @@ from cai.agents.loader import build_deep_agent, load_agent_from_md, parse_agent_
 from cai.github.bot import CaiBot
 from cai.log.observability import langfuse_workflow, setup_langfuse
 from cai.log.traces import _TRACES
+from cai.workflows.state import _inline_refs
 
 
 class ProposedIssue(BaseModel):
@@ -44,26 +45,6 @@ class DedupeOutput(BaseModel):
     action: typing.Literal["new", "discard", "append"]
     target_issue_number: int | None
     reason: str
-
-
-def _inline_refs(schema: dict) -> dict:
-    """Resolve $ref pointers inline so Google AI function-calling can parse the schema."""
-    import copy
-    defs = schema.get("$defs", {})
-    if not defs:
-        return schema
-
-    def resolve(obj: object) -> object:
-        if isinstance(obj, dict):
-            if "$ref" in obj:
-                ref_name = obj["$ref"].split("/")[-1]
-                return resolve(copy.deepcopy(defs.get(ref_name, obj)))
-            return {k: resolve(v) for k, v in obj.items() if k != "$defs"}
-        if isinstance(obj, list):
-            return [resolve(item) for item in obj]
-        return obj
-
-    return resolve(copy.deepcopy(schema))  # type: ignore[return-value]
 
 
 class AuditOutput(BaseModel):

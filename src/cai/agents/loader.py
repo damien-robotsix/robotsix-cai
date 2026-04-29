@@ -429,6 +429,15 @@ def build_deep_agent(
 
     settings = build_model_settings(config)
 
+    # Tell OpenRouter to only route to providers that support every parameter we
+    # send (structured-output schema, tool_config, reasoning, etc.). Without this
+    # a provider that silently ignores unknown parameters can receive the request,
+    # produce a response that doesn't match the schema, and trigger output-
+    # validation retries.
+    settings = settings or {}
+    existing_extra_body = settings.get("extra_body") or {}
+    settings["extra_body"] = {"provider": {"require_parameters": True}, **existing_extra_body}
+
     # Google AI Studio requires tool_config.include_server_side_tool_invocations=True
     # whenever built-in tools (web search, grounding, thinking on pro models, etc.)
     # are combined with function calling. Set it unconditionally for all Google models
@@ -510,7 +519,8 @@ def load_agent_from_md(
     }
     if deps_type is not None:
         kwargs["deps_type"] = deps_type
-    settings = build_model_settings(config)
-    if settings is not None:
-        kwargs["model_settings"] = settings
+    settings = build_model_settings(config) or {}
+    existing_extra_body = settings.get("extra_body") or {}
+    settings["extra_body"] = {"provider": {"require_parameters": True}, **existing_extra_body}
+    kwargs["model_settings"] = settings
     return Agent(build_model(config), **kwargs)
