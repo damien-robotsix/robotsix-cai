@@ -266,7 +266,13 @@ TOOL_FLAGS: dict[str, dict[str, Any]] = {
     "teams": {"include_teams": True},
     "improve": {"include_improve": True},
     "liteparse": {"include_liteparse": True},
-    "web_search": {"web_search": True},
+    # web_search keeps pydantic_deep's flag off; we register ``WebSearch(local=False)``
+    # ourselves in ``build_deep_agent``. Pydantic_deep's default ``WebSearch()``
+    # adds the DuckDuckGo local fallback, which loops on identical results and
+    # exhausts the tool's retry budget — surfacing as
+    # ``UnexpectedModelBehavior: Tool 'duckduckgo_search' exceeded max retries``
+    # and aborting the whole run.
+    "web_search": {"web_search": False},
     "web_fetch": {"web_fetch": True},
 }
 
@@ -476,6 +482,11 @@ def build_deep_agent(
     # glob, malformed regex). Without this capability such a single-call
     # failure aborts the whole run.
     extra["capabilities"] = [*(extra.get("capabilities") or []), ToolErrorAsRetry(), ModelRequestErrorAsRetry()]
+
+    if "web_search" in requested:
+        from pydantic_ai.capabilities import WebSearch
+
+        extra["capabilities"].append(WebSearch(local=False))
 
     agent = create_deep_agent(
         build_model(config, use_responses_model="web_search" in config.get("tools", [])),
