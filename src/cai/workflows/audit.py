@@ -292,9 +292,13 @@ def main() -> None:
     )
     state = AuditState(bot=CaiBot(), repo=args.repo, prompt=prompt)
 
+    session_id = f"audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+
     async def _run() -> None:
         with langfuse_workflow(
-            "cai-audit", metadata={"repo": args.repo, "mode": args.mode}
+            "cai-audit",
+            metadata={"repo": args.repo, "mode": args.mode},
+            session_id=session_id,
         ):
             await audit_graph.run(RunAuditNode(), state=state)
 
