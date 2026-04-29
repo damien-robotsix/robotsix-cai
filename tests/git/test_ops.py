@@ -23,6 +23,9 @@ from cai.git import (
 
 def _init(repo_root: Path) -> Repo:
     repo = Repo.init(str(repo_root), initial_branch="main")
+    with repo.config_writer() as cw:
+        cw.set_value("user", "name", "Test User")
+        cw.set_value("user", "email", "test@example.com")
     actor = Actor("seed", "seed@example.com")
     (repo_root / "a.txt").write_text("base\n")
     repo.index.add(["a.txt"])
