@@ -1,8 +1,8 @@
 import pytest
-from cai.agents.loader import parse_agent_md, AGENT_DIR
+from cai.agents.loader import parse_agent_md, resolve_agent_path
 
 def test_implement_agent_config():
-    implement_file = AGENT_DIR / "implement.md"
+    implement_file = resolve_agent_path("implement")
     assert implement_file.exists(), "implement.md must exist in AGENT_DIR"
     config, instructions = parse_agent_md(implement_file)
     

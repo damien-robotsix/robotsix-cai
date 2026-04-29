@@ -13,6 +13,21 @@ followed by the markdown that becomes the agent's system prompt::
 """
 from __future__ import annotations
 
+__all__ = [
+    "AGENT_DIR",
+    "ModelRequestErrorAsRetry",
+    "TOOL_FACTORIES",
+    "TOOL_FLAGS",
+    "ToolErrorAsRetry",
+    "build_deep_agent",
+    "build_deep_agent_kwargs",
+    "build_model",
+    "build_model_settings",
+    "load_agent_from_md",
+    "parse_agent_md",
+    "resolve_agent_path",
+]
+
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -30,6 +45,15 @@ from pydantic_ai.providers.openai import OpenAIProvider
 AGENT_DIR = Path(__file__).resolve().parent
 
 
+def resolve_agent_path(name: str) -> Path:
+    matches = list(AGENT_DIR.rglob(f"{name}.md"))
+    if not matches:
+        raise FileNotFoundError(f"agent definition not found: {name}")
+    if len(matches) > 1:
+        raise ValueError(f"ambiguous agent name: {name}")
+    return matches[0]
+
+
 class ToolErrorAsRetry(AbstractCapability):
     """Turn uncaught tool exceptions into ``ModelRetry`` so the agent can recover.
 
@@ -45,8 +69,8 @@ class ToolErrorAsRetry(AbstractCapability):
     """
 
     async def on_tool_execute_error(
-        self, ctx, *, call, tool_def, args, error
-    ):
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
+    ) -> None:
         if isinstance(error, ModelRetry):
             raise error
         raise ModelRetry(
@@ -65,7 +89,7 @@ class ModelRequestErrorAsRetry(AbstractCapability):
     caps total retries, so this does not loop indefinitely.
     """
 
-    async def on_model_request_error(self, ctx, *, request_context, error):
+    async def on_model_request_error(self, ctx: Any, *, request_context: Any, error: Exception) -> None:
         if isinstance(error, UnexpectedModelBehavior):
             raise ModelRetry(
                 f"Model returned an unexpected response ({error}). Retrying..."
@@ -366,9 +390,7 @@ def _resolve_subagents(config: dict) -> list[dict[str, Any]]:
         )
     configs: list[dict[str, Any]] = []
     for name in names:
-        sub_path = AGENT_DIR / f"{name}.md"
-        if not sub_path.exists():
-            raise FileNotFoundError(f"subagent definition not found: {sub_path}")
+        sub_path = resolve_agent_path(name)
         sub_config, sub_instructions = parse_agent_md(sub_path)
         if "description" not in sub_config:
             raise ValueError(

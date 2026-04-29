@@ -1,8 +1,8 @@
 import pytest
-from cai.agents.loader import parse_agent_md, AGENT_DIR
+from cai.agents.loader import parse_agent_md, resolve_agent_path
 
 def test_refine_agent_config():
-    refine_file = AGENT_DIR / "refine.md"
+    refine_file = resolve_agent_path("refine")
     assert refine_file.exists(), "refine.md must exist in AGENT_DIR"
     config, instructions = parse_agent_md(refine_file)
     

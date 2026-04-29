@@ -31,7 +31,7 @@ from pathlib import Path
 from pydantic_ai.usage import UsageLimits
 from pydantic_deep import DeepAgentDeps, LocalBackend
 
-from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
+from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.git import (
     conflicted_paths,
     current_rebase_step,
@@ -55,12 +55,10 @@ from cai.log import langfuse_workflow, session_id_for_pr
 from cai.workflows.state import ResolveStepOutput
 from cai.workflows.test_runner import _run_tests
 
-RESOLVE_STEP_AGENT_DEFINITION = AGENT_DIR / "resolve_step.md"
-
 
 @lru_cache(maxsize=1)
 def _resolve_step_agent():
-    config, instructions = parse_agent_md(RESOLVE_STEP_AGENT_DEFINITION)
+    config, instructions = parse_agent_md(resolve_agent_path("resolve_step"))
     return build_deep_agent(config, instructions, output_type=ResolveStepOutput)
 
 

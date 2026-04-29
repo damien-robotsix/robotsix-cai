@@ -10,17 +10,15 @@ from pydantic_ai.usage import UsageLimits
 from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, GraphRunContext
 
-from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
+from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.git import checkout_branch
 from cai.github.pr import ReviewThread
 from cai.workflows.state import ImplementOutput, IssueState
 
-AGENT_DEFINITION = AGENT_DIR / "implement.md"
-
 
 @lru_cache(maxsize=1)
 def _implement_agent():
-    config, instructions = parse_agent_md(AGENT_DEFINITION)
+    config, instructions = parse_agent_md(resolve_agent_path("implement"))
     agent = build_deep_agent(config, instructions, output_type=ImplementOutput)
 
     @agent.output_validator

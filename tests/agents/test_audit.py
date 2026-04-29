@@ -1,8 +1,8 @@
 import pytest
-from cai.agents.loader import parse_agent_md, AGENT_DIR
+from cai.agents.loader import parse_agent_md, resolve_agent_path
 
 def test_audit_agent_config():
-    audit_file = AGENT_DIR / "audit.md"
+    audit_file = resolve_agent_path("audit")
     assert audit_file.exists(), "audit.md must exist in AGENT_DIR"
     config, instructions = parse_agent_md(audit_file)
     
@@ -25,7 +25,7 @@ def test_audit_agent_config():
 
 
 def test_issue_deduplicator_agent_config():
-    dedupe_file = AGENT_DIR / "issue_deduplicator.md"
+    dedupe_file = resolve_agent_path("issue_deduplicator")
     assert dedupe_file.exists(), "issue_deduplicator.md must exist in AGENT_DIR"
     config, instructions = parse_agent_md(dedupe_file)
     

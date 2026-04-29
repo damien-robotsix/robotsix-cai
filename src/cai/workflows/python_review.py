@@ -7,15 +7,13 @@ from pydantic_ai.usage import UsageLimits
 from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, GraphRunContext
 
-from cai.agents.loader import AGENT_DIR, build_deep_agent, parse_agent_md
+from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.workflows.state import IssueState, PythonReviewOutput
-
-AGENT_DEFINITION = AGENT_DIR / "python_review.md"
 
 
 @lru_cache(maxsize=1)
 def _python_review_agent():
-    config, instructions = parse_agent_md(AGENT_DEFINITION)
+    config, instructions = parse_agent_md(resolve_agent_path("python_review"))
     return build_deep_agent(config, instructions, output_type=PythonReviewOutput)
 
 
