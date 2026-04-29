@@ -8,20 +8,18 @@ def test_audit_agent_config():
     
     # Assert basics
     assert config["name"] == "audit"
-    assert config["model"] == "anthropic/claude-3.5-sonnet"
+    assert config["model"] == "google/gemini-3.1-pro-preview"
     
     # Assert expected tools
     tools = config.get("tools", [])
-    assert "traces_list" in tools
-    assert "traces_failures" in tools
-    assert "traces_session_cost" in tools
-    assert "traces_session" in tools
-    assert "subagents" in config
-    
+    assert "subagents" in tools
+    subagents = config.get("subagents", [])
+    assert "trace_analyst" in subagents
+
     # Assert description
     assert "description" in config
-    assert "Analyzes Langfuse traces" in config["description"]
-    
+    assert "Langfuse" in config["description"]
+
     # Assert instructions
     assert "Trace Analysis Agent" in instructions
 

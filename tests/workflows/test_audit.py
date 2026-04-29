@@ -1,5 +1,5 @@
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -30,12 +30,6 @@ def mock_setup_langfuse():
 
 
 @pytest.fixture
-def mock_load_agent_from_md():
-    with patch("cai.workflows.audit.load_agent_from_md") as mock:
-        yield mock
-
-
-@pytest.fixture
 def mock_cai_bot():
     with patch("cai.workflows.audit.CaiBot") as mock:
         bot_instance = MagicMock()
@@ -49,13 +43,24 @@ def mock_langfuse_workflow():
         yield mock
 
 
-def _make_agent_dispatch(audit_agent_mock, dedupe_agent_mock):
-    def side_effect(path, output_type):
-        if "audit.md" in str(path):
-            return audit_agent_mock
-        return dedupe_agent_mock
+@pytest.fixture
+def mock_build_prompt():
+    with patch("cai.workflows.audit._build_cost_prompt", return_value="mocked audit prompt") as mock:
+        yield mock
 
-    return side_effect
+
+@pytest.fixture
+def mock_audit_agent():
+    agent_mock = MagicMock()
+    with patch("cai.workflows.audit._audit_agent", return_value=agent_mock):
+        yield agent_mock
+
+
+@pytest.fixture
+def mock_dedupe_agent():
+    agent_mock = MagicMock()
+    with patch("cai.workflows.audit._dedupe_agent", return_value=agent_mock):
+        yield agent_mock
 
 
 def test_audit_output_model():
@@ -81,39 +86,31 @@ def test_dedupe_output_model():
 @patch("sys.argv", ["cai-audit", "--repo", "owner/repo"])
 def test_main_creates_issues(
     mock_setup_langfuse,
-    mock_load_agent_from_md,
+    mock_build_prompt,
     mock_cai_bot,
     mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
 ):
-    audit_agent_mock = MagicMock()
-    dedupe_agent_mock = MagicMock()
-    mock_load_agent_from_md.side_effect = _make_agent_dispatch(
-        audit_agent_mock, dedupe_agent_mock
-    )
-
-    audit_result = MagicMock()
-    audit_result.data = AuditOutput(
-        issues=[
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(
+        output=AuditOutput(issues=[
             ProposedIssue(title="Issue 1", body="Body 1"),
             ProposedIssue(title="Issue 2", body="Body 2"),
-        ]
-    )
-    audit_agent_mock.run_sync.return_value = audit_result
-
-    dedupe_agent_mock.run_sync.side_effect = [
-        MagicMock(data=DedupeOutput(action="new", target_issue_number=None, reason="Brand new")),
-        MagicMock(data=DedupeOutput(action="discard", target_issue_number=None, reason="Duplicate")),
-    ]
+        ])
+    ))
+    mock_dedupe_agent.run = AsyncMock(side_effect=[
+        MagicMock(output=DedupeOutput(action="new", target_issue_number=None, reason="Brand new")),
+        MagicMock(output=DedupeOutput(action="discard", target_issue_number=None, reason="Duplicate")),
+    ])
 
     repo_mock = mock_cai_bot.repo.return_value
     repo_mock.get_issues.return_value = []
-    created_mock = MagicMock(html_url="https://github.com/owner/repo/issues/1")
-    repo_mock.create_issue.return_value = created_mock
+    repo_mock.create_issue.return_value = MagicMock(html_url="https://github.com/owner/repo/issues/1")
 
     main()
 
     mock_setup_langfuse.assert_called_once()
-    assert mock_load_agent_from_md.call_count == 2
+    mock_build_prompt.assert_called_once()
     mock_cai_bot.repo.assert_called_once_with("owner/repo")
     repo_mock.create_issue.assert_called_once_with(
         title="Issue 1", body="Body 1", labels=["cai:audit"]
@@ -123,22 +120,18 @@ def test_main_creates_issues(
 @patch("sys.argv", ["cai-audit", "--repo", "owner/repo"])
 def test_main_append_issue(
     mock_setup_langfuse,
-    mock_load_agent_from_md,
+    mock_build_prompt,
     mock_cai_bot,
     mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
 ):
-    audit_agent_mock = MagicMock()
-    dedupe_agent_mock = MagicMock()
-    mock_load_agent_from_md.side_effect = _make_agent_dispatch(
-        audit_agent_mock, dedupe_agent_mock
-    )
-
-    audit_agent_mock.run_sync.return_value = MagicMock(
-        data=AuditOutput(issues=[ProposedIssue(title="Issue 1", body="Body 1")])
-    )
-    dedupe_agent_mock.run_sync.return_value = MagicMock(
-        data=DedupeOutput(action="append", target_issue_number=123, reason="Related")
-    )
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(
+        output=AuditOutput(issues=[ProposedIssue(title="Issue 1", body="Body 1")])
+    ))
+    mock_dedupe_agent.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="append", target_issue_number=123, reason="Related")
+    ))
 
     repo_mock = mock_cai_bot.repo.return_value
     existing_issue = MagicMock()
@@ -158,28 +151,22 @@ def test_main_append_issue(
 @patch("sys.argv", ["cai-audit", "--repo", "owner/repo"])
 def test_main_append_issue_fallback(
     mock_setup_langfuse,
-    mock_load_agent_from_md,
+    mock_build_prompt,
     mock_cai_bot,
     mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
 ):
-    audit_agent_mock = MagicMock()
-    dedupe_agent_mock = MagicMock()
-    mock_load_agent_from_md.side_effect = _make_agent_dispatch(
-        audit_agent_mock, dedupe_agent_mock
-    )
-
-    audit_agent_mock.run_sync.return_value = MagicMock(
-        data=AuditOutput(issues=[ProposedIssue(title="Issue 1", body="Body 1")])
-    )
-    dedupe_agent_mock.run_sync.return_value = MagicMock(
-        data=DedupeOutput(action="append", target_issue_number=None, reason="Related")
-    )
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(
+        output=AuditOutput(issues=[ProposedIssue(title="Issue 1", body="Body 1")])
+    ))
+    mock_dedupe_agent.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="append", target_issue_number=None, reason="Related")
+    ))
 
     repo_mock = mock_cai_bot.repo.return_value
     repo_mock.get_issues.return_value = []
-    repo_mock.create_issue.return_value = MagicMock(
-        html_url="https://github.com/owner/repo/issues/1"
-    )
+    repo_mock.create_issue.return_value = MagicMock(html_url="https://github.com/owner/repo/issues/1")
 
     main()
 
@@ -191,44 +178,35 @@ def test_main_append_issue_fallback(
 @patch("sys.argv", ["cai-audit", "--repo", "owner/repo"])
 def test_main_no_issues(
     mock_setup_langfuse,
-    mock_load_agent_from_md,
+    mock_build_prompt,
     mock_cai_bot,
     mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
 ):
-    audit_agent_mock = MagicMock()
-    dedupe_agent_mock = MagicMock()
-    mock_load_agent_from_md.side_effect = _make_agent_dispatch(
-        audit_agent_mock, dedupe_agent_mock
-    )
-
-    audit_agent_mock.run_sync.return_value = MagicMock(data=AuditOutput(issues=[]))
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(output=AuditOutput(issues=[])))
 
     repo_mock = mock_cai_bot.repo.return_value
 
     main()
 
-    audit_agent_mock.run_sync.assert_called_once()
-    dedupe_agent_mock.run_sync.assert_not_called()
+    mock_audit_agent.run.assert_called_once()
+    mock_dedupe_agent.run.assert_not_called()
     repo_mock.create_issue.assert_not_called()
 
 
 @patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "extra", "context"])
 def test_main_with_unknown_args(
     mock_setup_langfuse,
-    mock_load_agent_from_md,
+    mock_build_prompt,
     mock_cai_bot,
     mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
 ):
-    audit_agent_mock = MagicMock()
-    dedupe_agent_mock = MagicMock()
-    mock_load_agent_from_md.side_effect = _make_agent_dispatch(
-        audit_agent_mock, dedupe_agent_mock
-    )
-
-    audit_agent_mock.run_sync.return_value = MagicMock(data=AuditOutput(issues=[]))
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(output=AuditOutput(issues=[])))
 
     main()
 
-    audit_agent_mock.run_sync.assert_called_once()
-    prompt = audit_agent_mock.run_sync.call_args[0][0]
-    assert "extra context" in prompt
+    mock_audit_agent.run.assert_called_once()
+    mock_build_prompt.assert_called_once_with(["extra", "context"])
