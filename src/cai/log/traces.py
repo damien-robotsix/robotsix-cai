@@ -1,6 +1,7 @@
 """Langfuse traces client and agent tools for querying cai workflow traces."""
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -144,6 +145,61 @@ class LangfuseTraces:
             for t in traces
         ]
 
+    def list_solve_sessions(self, limit: int = 10) -> list[dict]:
+        """Return the last N distinct issue-solving sessions, newest first.
+
+        Fetches recent cai-solve traces, groups them by session_id (keeping only
+        ``issue-*`` sessions), and returns up to ``limit`` sessions with their
+        trace IDs so the caller can drill in with ``list_session_traces``.
+        """
+        from collections import OrderedDict
+
+        # Over-fetch to have enough unique sessions after deduplication.
+        result = self.client.api.trace.list(limit=limit * 10, page=1, name="cai-solve")
+        traces = result.data if hasattr(result, "data") else list(result)
+
+        seen: OrderedDict = OrderedDict()
+        for t in traces:
+            sid = getattr(t, "session_id", None)
+            if not sid or not sid.startswith("issue-"):
+                continue
+            if sid not in seen:
+                seen[sid] = {
+                    "session_id": sid,
+                    "timestamp": t.timestamp.isoformat() if getattr(t, "timestamp", None) else None,
+                    "trace_ids": [],
+                    "cost": 0.0,
+                }
+            seen[sid]["trace_ids"].append(t.id)
+            seen[sid]["cost"] += getattr(t, "total_cost", None) or 0.0
+            if limit and len(seen) >= limit:
+                break
+
+        return list(seen.values())
+
+    def most_costly_solve_session(self, n: int = 10) -> dict | None:
+        """Return the costliest session among the last N issue-solving sessions.
+
+        Uses ``cost_per_session`` to find all ``issue-*`` sessions, sorts them
+        by issue number (descending) to get the N most recent, then returns the
+        one with the highest total cost.
+        """
+        all_groups = [
+            g for g in self.cost_per_session(limit=100)
+            if g["session_id"].startswith("issue-")
+        ]
+        if not all_groups:
+            return None
+
+        def _issue_number(g: dict) -> int:
+            try:
+                return int(g["session_id"].split("-", 1)[1])
+            except (IndexError, ValueError):
+                return 0
+
+        recent = sorted(all_groups, key=_issue_number, reverse=True)[:n]
+        return max(recent, key=lambda g: g["total_cost"])
+
     def list_failures(self, limit: int = 50, since: str | None = None) -> list[dict]:
         """Return traces that contain error-level observations."""
         kwargs: dict = {"limit": limit, "page": 1}
@@ -225,7 +281,7 @@ async def traces_list(
         workflow: Filter by workflow name, e.g. 'cai-solve' or 'cai-audit'.
         since: ISO date string — only return traces after this date, e.g. '2026-01-01'.
     """
-    traces = _TRACES.list_traces(limit=limit, workflow=workflow, since=since)
+    traces = await asyncio.to_thread(_TRACES.list_traces, limit, workflow, since)
     if not traces:
         return "No traces found."
     lines = [f"{'ID':<36} {'NAME':<16} {'TIMESTAMP':<22} {'COST':>9} {'LATENCY':>9}", "-" * 96]
@@ -249,7 +305,10 @@ async def traces_show(
         full: Include raw input/output for each observation.
         analyze: Show tool-call counts and error summary instead of full timeline.
     """
-    data = _TRACES.show_trace(trace_id, full=full, analyze=analyze)
+    try:
+        data = await asyncio.to_thread(_TRACES.show_trace, trace_id, full, analyze)
+    except Exception as exc:
+        return f"Could not fetch trace {trace_id}: {exc}"
     lines = [
         f"Trace:     {data['id']}",
         f"Name:      {data['name']}",
@@ -294,16 +353,20 @@ async def traces_show(
 
 
 async def traces_failures(
-    limit: int = 50,
+    limit: int = 20,
     since: str | None = None,
 ) -> str:
     """Find Langfuse traces that contain error-level observations.
 
     Args:
-        limit: Maximum number of traces to scan (default 50).
+        limit: Maximum number of traces to scan (default 20). Each trace requires
+            a separate API call, so keep this low to avoid timeouts.
         since: ISO date string — only scan traces after this date, e.g. '2026-01-01'.
     """
-    failures = _TRACES.list_failures(limit=limit, since=since)
+    try:
+        failures = await asyncio.to_thread(_TRACES.list_failures, limit, since)
+    except Exception as exc:
+        return f"Could not fetch failures: {exc}"
     if not failures:
         return "No failed traces found in the scanned set."
     lines = []
@@ -337,7 +400,7 @@ async def traces_session_cost(
         limit: Maximum number of traces to scan (default 100).
         since: ISO date string — only include traces after this date, e.g. '2026-01-01'.
     """
-    groups = _TRACES.cost_per_session(limit=limit, since=since)
+    groups = await asyncio.to_thread(_TRACES.cost_per_session, limit, since)
     if not groups:
         return "No sessioned traces found."
     lines = [f"{'SESSION':<24} {'COST':>10} {'TRACES':>7}  WORKFLOWS", "-" * 80]
@@ -362,7 +425,7 @@ async def traces_session(
         session_id: The session id to inspect, e.g. 'issue-1426' or 'pr-1427'.
         limit: Maximum number of traces to return (default 100).
     """
-    traces = _TRACES.list_session_traces(session_id=session_id, limit=limit)
+    traces = await asyncio.to_thread(_TRACES.list_session_traces, session_id, limit)
     if not traces:
         return f"No traces found for session {session_id!r}."
     lines = [
@@ -382,8 +445,30 @@ async def traces_session(
     return "\n".join(lines)
 
 
+async def traces_solve_sessions(limit: int = 10) -> str:
+    """List the last N distinct issue-solving sessions (cai-solve runs).
+
+    Returns one row per session with its session_id, timestamp of the most
+    recent cai-solve trace, and all trace IDs belonging to it.  Use
+    ``traces_session`` to expand a session into its full trace list.
+
+    Args:
+        limit: Number of distinct issue sessions to return (default 10).
+    """
+    sessions = await asyncio.to_thread(_TRACES.list_solve_sessions, limit)
+    if not sessions:
+        return "No issue-solving sessions found."
+    lines = [f"{'SESSION':<24} {'TIMESTAMP':<22} TRACE IDS", "-" * 100]
+    for s in sessions:
+        ts = (s["timestamp"] or "?")[:19]
+        ids = ", ".join(s["trace_ids"])
+        lines.append(f"{s['session_id']:<24} {ts:<22} {ids}")
+    return "\n".join(lines)
+
+
 TRACES_LIST_TOOL = Tool(traces_list)
 TRACES_SHOW_TOOL = Tool(traces_show)
 TRACES_FAILURES_TOOL = Tool(traces_failures)
 TRACES_SESSION_COST_TOOL = Tool(traces_session_cost)
 TRACES_SESSION_TOOL = Tool(traces_session)
+TRACES_SOLVE_SESSIONS_TOOL = Tool(traces_solve_sessions)

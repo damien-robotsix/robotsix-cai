@@ -263,6 +263,7 @@ TOOL_FACTORIES: dict[str, str] = {
     "traces_failures": "cai.log.traces:TRACES_FAILURES_TOOL",
     "traces_session_cost": "cai.log.traces:TRACES_SESSION_COST_TOOL",
     "traces_session": "cai.log.traces:TRACES_SESSION_TOOL",
+    "traces_solve_sessions": "cai.log.traces:TRACES_SOLVE_SESSIONS_TOOL",
 }
 
 _DEEP_FLAG_DEFAULTS: dict[str, bool] = {
@@ -439,11 +440,16 @@ def load_agent_from_md(
     and callables.
     """
     config, instructions = parse_agent_md(path)
+    factory_tools = [
+        _import_factory(TOOL_FACTORIES[t])
+        for t in config.get("tools", [])
+        if t in TOOL_FACTORIES
+    ]
     kwargs: dict = {
         "system_prompt": instructions,
         "name": config["name"],
         "output_type": output_type,
-        "tools": tools or [],
+        "tools": [*(tools or []), *factory_tools],
         # See build_deep_agent: 'exhaustive' so side-effect tool calls
         # bundled in the final-result turn still execute.
         "end_strategy": "exhaustive",
