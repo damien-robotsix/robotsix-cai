@@ -398,9 +398,11 @@ def build_deep_agent(
     settings = build_model_settings(config)
 
     # Google AI Studio requires tool_config.include_server_side_tool_invocations=True
-    # when combining built-in tools (web_search) with function calling (filesystem etc.).
+    # whenever built-in tools (web search, grounding, thinking on pro models, etc.)
+    # are combined with function calling. Set it unconditionally for all Google models
+    # since the flag is harmless when no built-in tools are active.
     # See: https://ai.google.dev/api/generate-content#v1beta.ToolConfig
-    if "web_search" in requested and config.get("model", "").startswith("google/"):
+    if config.get("model", "").startswith("google/"):
         settings = settings or {}
         existing_extra_body = settings.get("extra_body") or {}
         settings["extra_body"] = {
