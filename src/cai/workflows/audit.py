@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import re
 import sys
 import typing
 from dataclasses import dataclass, field
@@ -58,7 +60,22 @@ class AuditOutput(BaseModel):
     @classmethod
     def _drop_nulls(cls, v: object) -> object:
         if isinstance(v, dict) and "issues" in v:
-            v = {**v, "issues": [i for i in (v["issues"] or []) if i is not None]}
+            parsed = []
+            for item in v.get("issues") or []:
+                if item is None:
+                    continue
+                if isinstance(item, str):
+                    # Gemini sometimes wraps each issue as a markdown-fenced JSON string
+                    # instead of returning a proper object. Strip the fence and parse.
+                    text = item.strip()
+                    text = re.sub(r"^```[^\n]*\n?", "", text)
+                    text = re.sub(r"\n?```$", "", text)
+                    try:
+                        item = json.loads(text.strip())
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                parsed.append(item)
+            v = {**v, "issues": parsed}
         return v
 
 
