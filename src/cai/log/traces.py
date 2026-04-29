@@ -27,6 +27,7 @@ class LangfuseTraces:
             }
             if base_url := os.environ.get("LANGFUSE_BASE_URL"):
                 kwargs["host"] = base_url
+            kwargs["timeout"] = 300
             self._client = Langfuse(**kwargs)
         return self._client
 
