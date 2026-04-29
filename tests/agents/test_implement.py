@@ -1,0 +1,22 @@
+import pytest
+from cai.agents.loader import parse_agent_md, AGENT_DIR
+
+def test_implement_agent_config():
+    implement_file = AGENT_DIR / "implement.md"
+    assert implement_file.exists(), "implement.md must exist in AGENT_DIR"
+    config, instructions = parse_agent_md(implement_file)
+    
+    # Assert basics
+    assert config["name"] == "implement"
+    assert config["model"] == "google/gemini-3.1-pro-preview"
+    
+    # Assert expected tools
+    tools = config.get("tools", [])
+    assert "filesystem" in tools
+    assert "web_search" in tools
+    assert "web_fetch" in tools
+    
+    # Assert instructions
+    assert "web_search" in instructions
+    assert "web_fetch" in instructions
+    assert "API documentation" in instructions
