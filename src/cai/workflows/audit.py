@@ -40,10 +40,10 @@ from cai.git import clone as git_clone
 from cai.github.bot import CaiBot
 from cai.log.observability import langfuse_workflow, setup_langfuse
 from cai.log.traces import _TRACES
-from cai.workflows.state import _inline_refs
+from cai.workflows.state import WithConfidence, _inline_refs
 
 
-class ProposedIssue(BaseModel):
+class ProposedIssue(WithConfidence):
     title: str
     body: str
     last_detected_at: str | None = None  # ISO timestamp of the most recent relevant trace

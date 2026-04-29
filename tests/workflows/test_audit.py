@@ -64,11 +64,28 @@ def mock_dedupe_agent():
 
 
 def test_audit_output_model():
-    issue = ProposedIssue(title="Test Issue", body="Test Body")
+    issue = ProposedIssue(title="Test Issue", body="Test Body", confidence=8)
     output = AuditOutput(issues=[issue])
     assert len(output.issues) == 1
     assert output.issues[0].title == "Test Issue"
     assert output.issues[0].body == "Test Body"
+    assert output.issues[0].confidence == 8
+
+
+def test_proposed_issue_confidence_required():
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        ProposedIssue(title="Test Issue", body="Test Body")
+
+
+def test_proposed_issue_confidence_bounds():
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        ProposedIssue(title="t", body="b", confidence=0)
+    with pytest.raises(pydantic.ValidationError):
+        ProposedIssue(title="t", body="b", confidence=11)
 
 
 def test_dedupe_output_model():
@@ -94,8 +111,8 @@ def test_main_creates_issues(
 ):
     mock_audit_agent.run = AsyncMock(return_value=MagicMock(
         output=AuditOutput(issues=[
-            ProposedIssue(title="Issue 1", body="Body 1"),
-            ProposedIssue(title="Issue 2", body="Body 2"),
+            ProposedIssue(title="Issue 1", body="Body 1", confidence=9),
+            ProposedIssue(title="Issue 2", body="Body 2", confidence=6),
         ])
     ))
     mock_dedupe_agent.run = AsyncMock(side_effect=[
@@ -127,7 +144,7 @@ def test_main_append_issue(
     mock_dedupe_agent,
 ):
     mock_audit_agent.run = AsyncMock(return_value=MagicMock(
-        output=AuditOutput(issues=[ProposedIssue(title="Issue 1", body="Body 1")])
+        output=AuditOutput(issues=[ProposedIssue(title="Issue 1", body="Body 1", confidence=9)])
     ))
     mock_dedupe_agent.run = AsyncMock(return_value=MagicMock(
         output=DedupeOutput(action="append", target_issue_number=123, reason="Related")
@@ -158,7 +175,7 @@ def test_main_append_issue_fallback(
     mock_dedupe_agent,
 ):
     mock_audit_agent.run = AsyncMock(return_value=MagicMock(
-        output=AuditOutput(issues=[ProposedIssue(title="Issue 1", body="Body 1")])
+        output=AuditOutput(issues=[ProposedIssue(title="Issue 1", body="Body 1", confidence=9)])
     ))
     mock_dedupe_agent.run = AsyncMock(return_value=MagicMock(
         output=DedupeOutput(action="append", target_issue_number=None, reason="Related")

@@ -34,6 +34,39 @@ from cai.github.pr import ReviewThread
 _MAX_REFERENCE_FILE_BYTES = 100_000
 
 
+class WithConfidence(BaseModel):
+    """Mixin for workflow outputs that expose a self-reported confidence score.
+
+    Workflows use ``confidence`` to gate automatic progression to downstream
+    steps (e.g. auto-dispatching audit issues to the solve workflow only at
+    >= 9/10). Each agent's instructions specialize the rubric for its own
+    domain — keep the field description below as a generic anchor so the
+    agent doesn't cluster every output at 7-8.
+    """
+
+    confidence: int = Field(
+        ge=1,
+        le=10,
+        description=(
+            "Self-reported confidence (1-10) that this output is correct, complete, "
+            "and ready for an automated downstream step to act on without human review. "
+            "Anchor the score to evidence, not vibe. Generic rubric:\n"
+            "  10 — Verified end-to-end against ground truth (test passed, code read, "
+            "trace inspected). Stake the next automated step on it.\n"
+            "  9  — Strong, multi-source evidence; root cause identified and the next "
+            "step's preconditions clearly hold.\n"
+            "  7-8 — Plausible and well-reasoned, but unverified — needs a human to "
+            "confirm before acting.\n"
+            "  5-6 — Tentative hypothesis based on a symptom, with the root cause not "
+            "yet confirmed.\n"
+            "  1-4 — Speculative; missing context, contradictory signals, or guess "
+            "from indirect indicators only.\n"
+            "Do not default to 7 or 8. The agent's instructions specialize this rubric "
+            "for the specific kind of output."
+        ),
+    )
+
+
 class ExploreOutput(BaseModel):
     summary: str = Field(
         description="Concise description of codebase findings relevant to the issue."
