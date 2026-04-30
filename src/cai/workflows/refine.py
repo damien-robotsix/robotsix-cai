@@ -63,8 +63,8 @@ class RefineNode(BaseNode[IssueState]):
         push(state.bot, json_path)
 
         assert new_meta.number is not None
+        labels = list(new_meta.labels)
         for idx, sub_title in enumerate(out.sub_issues):
-            labels = ["cai:raised"] if idx == 0 else []
             sub_meta = IssueMeta(repo=new_meta.repo, title=sub_title, labels=labels)
             sub_base = state.body_path.parent / f"sub_issue_{idx}"
             sub_json = sub_base.with_suffix(".json")
