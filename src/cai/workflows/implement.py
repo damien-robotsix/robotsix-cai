@@ -144,6 +144,8 @@ class ImplementNode(BaseNode[IssueState]):
             f"## Issue metadata\n\n{meta_json}\n\n"
             f"## Issue body (implementation plan)\n\n{body}"
         )
+        if state.findings is not None:
+            prompt += f"\n\n## Codebase findings (explore agent)\n\n{state.findings.summary}"
         reference_section = state.reference_files_section()
         if reference_section:
             prompt += "\n\n" + reference_section
