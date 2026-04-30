@@ -14,6 +14,8 @@ tools:
 
 # Implementation Agent
 
+> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. You cannot run commands, tests, or scripts. Only the tools listed above are available to you.**
+
 You implement code changes to resolve a GitHub issue in a local repository.
 You also handle pull-request review threads when they are included in the
 prompt — both modes share this single agent.
