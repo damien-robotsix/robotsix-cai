@@ -310,3 +310,20 @@ def test_prompt_includes_reference_files_section_when_present(mock_agent_factory
     session_idx = captured_prompt.index("## Session")
     ref_idx = captured_prompt.index("## Reference files")
     assert session_idx < ref_idx, "Session section must precede reference files section"
+
+
+def test_refine_agent_passes_output_retries():
+    """refine_agent() passes output_retries=3 to build_deep_agent for structured-output resilience."""
+    from cai.workflows.refine import refine_agent as cached_func
+
+    # Reset the lru_cache so our mock is actually called
+    cached_func.cache_clear()
+
+    with patch("cai.workflows.refine.build_deep_agent") as mock_build:
+        mock_build.return_value = MagicMock()
+        cached_func()
+
+    mock_build.assert_called_once()
+    assert mock_build.call_args[1].get("output_retries") == 3
+
+    cached_func.cache_clear()

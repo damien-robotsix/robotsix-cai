@@ -20,6 +20,8 @@ def test_refine_agent_config():
     assert "traces_failures" in tools
     assert "traces_session" in tools
     assert "traces_solve_sessions" in tools
+    assert "context_manager" in tools
+    assert "history_archive" in tools
     
     # Assert subagents
     subagents = config.get("subagents", [])
@@ -37,3 +39,9 @@ def test_refine_agent_config():
     # Assert verification template updates
     assert "grep for Y" not in instructions
     assert "check that modified file Z looks like" in instructions
+
+    # Assert context management instructions
+    assert "## Context management" in instructions
+    assert "Write intermediate research findings" in instructions
+    assert "context_manager" in instructions
+    assert "history_archive" in instructions

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 from pydantic_ai.usage import UsageLimits
 from pydantic_graph import BaseNode, End, GraphRunContext
@@ -13,9 +14,9 @@ from cai.workflows.state import IssueState, RefineOutput
 
 
 @lru_cache(maxsize=1)
-def refine_agent():
+def refine_agent() -> Any:
     config, instructions = parse_agent_md(resolve_agent_path("refine"))
-    return build_deep_agent(config, instructions, output_type=RefineOutput)
+    return build_deep_agent(config, instructions, output_type=RefineOutput, output_retries=3)
 
 
 class RefineNode(BaseNode[IssueState]):
