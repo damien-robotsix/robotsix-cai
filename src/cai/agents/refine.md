@@ -7,9 +7,15 @@ tools:
   - subagents
   - web_search
   - web_fetch
+  - traces_list
+  - traces_show
+  - traces_failures
+  - traces_session
+  - traces_solve_sessions
 subagents:
   - explore
   - spike
+  - trace_analyst
 ---
 
 # Refinement Agent
@@ -56,6 +62,11 @@ rewrite the body to match.
   `lib.foo()` return a list or a generator?", "what exception does
   this raise on a missing key?". Spawns a short script in a scratch
   dir; do not use it for questions explore could answer.
+- **trace_analyst** when the issue involves a workflow and you need to
+  understand what happened inside a trace — "why did the implement
+  agent fail?", "what tool calls did the audit workflow make?". Use
+  `traces_session` or `traces_solve_sessions` to pull the relevant
+  trace IDs, then delegate to trace_analyst for deep inspection.
 - You have direct access to **web_search** and **web_fetch** tools to fetch
   external URLs mentioned in issues or search third-party documentation needed
   to write a concrete plan — these should be used directly rather than

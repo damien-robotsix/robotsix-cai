@@ -24,6 +24,7 @@ class RefineNode(BaseNode[IssueState]):
         assert state.findings is not None
 
         issue_dir = state.body_path.parent
+        session_id = f"issue-{state.meta.number}"
         prompt = (
             f"Refine this GitHub issue.\n\n"
             f"The body file is at {state.body_path} — use Write or Edit to rewrite it in place.\n"
@@ -31,7 +32,11 @@ class RefineNode(BaseNode[IssueState]):
             f"{issue_dir}/sub_issue_0.md, {issue_dir}/sub_issue_1.md, …\n\n"
             f"## Metadata\n\n{state.meta_json}\n\n"
             f"## Current body\n\n{state.body}\n\n"
-            f"## Codebase findings (explore agent)\n\n{state.findings.summary}"
+            f"## Codebase findings (explore agent)\n\n{state.findings.summary}\n\n"
+            f"## Session\n\n"
+            f"The Langfuse session ID for this issue is `{session_id}`. "
+            f"When the issue concerns a CAI workflow, use `traces_session` or "
+            f"`traces_solve_sessions` to pull relevant trace data."
         )
         reference_section = state.reference_files_section()
         if reference_section:
