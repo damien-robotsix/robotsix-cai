@@ -8,7 +8,7 @@ def test_refine_agent_config():
     
     # Assert basics
     assert config["name"] == "refine"
-    assert config["model"] == "google/gemini-3.1-pro-preview"
+    assert config["model"] == "anthropic/claude-sonnet-4-6"
     
     # Assert expected tools
     tools = config.get("tools", [])
