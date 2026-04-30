@@ -47,6 +47,7 @@ prompt — both modes share this single agent.
 
 - Reference files in your context appear with `line:hash|content` tags — ignore the `line:hash|` prefix when constructing `old_string` for `edit_file`; copy the content portion verbatim, including indentation
 - You do not need to `read_file` for files already shown in the Reference files section — their content is already in your context
+- **Paginate large files:** When you *do* need to `read_file` a file not already in context, use `offset` and `limit` for files >200 lines. First scan with `limit=100`, then read targeted sections.
 - You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response
 - Use `write_file` (full rewrite) when changes are so pervasive that multiple `edit_file` calls would be harder to follow
 - For mass file reorganizations (renames, package moves, bulk deletions), use `batch_move`/`batch_delete` instead of looping the single-file tools, and verify the result with one `ls` or `glob` after the batch — not one read per file

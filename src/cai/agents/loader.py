@@ -254,13 +254,21 @@ def parse_agent_md(path: str | Path) -> tuple[dict, str]:
     text = Path(path).read_text()
     if not text.startswith("---"):
         raise ValueError(f"{path}: missing YAML frontmatter")
-    parts = text.split("---", 2)
-    if len(parts) != 3:
-        raise ValueError(f"{path}: malformed frontmatter (expected two '---' delimiters)")
-    config = yaml.safe_load(parts[1]) or {}
+    # Find the closing '---' delimiter — it must be on a line by itself.
+    lines = text.splitlines()
+    close_idx = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            close_idx = i
+            break
+    if close_idx is None:
+        raise ValueError(f"{path}: malformed frontmatter (expected closing '---' delimiter)")
+    frontmatter = "\n".join(lines[1:close_idx])
+    body = "\n".join(lines[close_idx + 1:])
+    config = yaml.safe_load(frontmatter) or {}
     if "name" not in config:
         raise ValueError(f"{path}: frontmatter missing required 'name' field")
-    return config, parts[2].strip()
+    return config, body.strip()
 
 
 def build_model(config: dict) -> OpenRouterModel:

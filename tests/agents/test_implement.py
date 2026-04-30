@@ -22,5 +22,5 @@ def test_implement_agent_config():
     assert "API documentation" in instructions
     
     # Assert specific rules
-    assert "Do not run repository-wide global searches (like \`grep\` or \`glob\`)" in instructions
+    assert r"Do not run repository-wide global searches (like \`grep\` or \`glob\`)" in instructions
     assert "post-refactor to verify changes" in instructions
