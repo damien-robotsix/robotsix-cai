@@ -22,6 +22,7 @@ from cai.log.observability import session_id_for_pr
 from cai.workflows.audit import audit_graph
 from cai.workflows.conflicts import conflicts_graph
 from cai.workflows.fsm import solve_graph
+from cai.workflows.sourcing import sourcing_graph
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,11 @@ def _audit_session_id() -> str:
     return f"audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
 
+def _sourcing_session_id() -> str:
+    """Return a timestamp-based session id matching the pattern in ``sourcing.py``."""
+    return f"sourcing-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+
+
 WORKFLOWS: list[WorkflowSpec] = [
     WorkflowSpec(
         slug="solve",
@@ -84,6 +90,20 @@ WORKFLOWS: list[WorkflowSpec] = [
         cli_entry="cai.workflows.audit:main",
         session_id=_audit_session_id,
         github_trigger=GitHubTrigger(kind="workflow_dispatch"),
+    ),
+    WorkflowSpec(
+        slug="sourcing",
+        title="cai-sourcing",
+        nav_order=4,
+        blurb=(
+            "Monthly scan of the open-source ecosystem for transferable "
+            "tools, libraries, and frameworks. Surfaces findings as "
+            "triageable GitHub issues."
+        ),
+        graph=sourcing_graph,
+        cli_entry="cai.workflows.sourcing:main",
+        session_id=_sourcing_session_id,
+        github_trigger=GitHubTrigger(kind="schedule"),
     ),
     WorkflowSpec(
         slug="conflicts",

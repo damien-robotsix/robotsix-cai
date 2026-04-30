@@ -56,6 +56,7 @@ def test_registry_covers_user_facing_cli_scripts():
     expected = {
         "solve": "cai-solve",
         "audit": "cai-audit",
+        "sourcing": "cai-sourcing",
         "conflicts": "cai-resolve-conflicts",
     }
     registered = {spec.slug for spec in WORKFLOWS}
