@@ -45,16 +45,7 @@ class LangfuseTraces:
             kwargs["from_timestamp"] = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
         result = self.client.api.trace.list(**kwargs)
         traces = result.data if hasattr(result, "data") else list(result)
-        return [
-            {
-                "id": t.id,
-                "name": t.name or "",
-                "timestamp": t.timestamp.isoformat() if getattr(t, "timestamp", None) else None,
-                "cost": getattr(t, "total_cost", None),
-                "latency": getattr(t, "latency", None),
-            }
-            for t in traces
-        ]
+        return [_format_trace(t) for t in traces]
 
     def show_trace(self, trace_id: str, full: bool = False, analyze: bool = False) -> dict:
         """Return details of a single trace with its observations."""
@@ -135,16 +126,7 @@ class LangfuseTraces:
             traces,
             key=lambda t: getattr(t, "timestamp", None) or epoch,
         )
-        return [
-            {
-                "id": t.id,
-                "name": t.name or "",
-                "timestamp": t.timestamp.isoformat() if getattr(t, "timestamp", None) else None,
-                "cost": getattr(t, "total_cost", None),
-                "latency": getattr(t, "latency", None),
-            }
-            for t in traces
-        ]
+        return [_format_trace(t) for t in traces]
 
     def list_solve_sessions(self, limit: int = 10) -> list[dict]:
         """Return the last N distinct issue-solving sessions, newest first.
@@ -227,6 +209,16 @@ class LangfuseTraces:
 
 
 # --- helpers -----------------------------------------------------------------
+
+def _format_trace(t):
+    return {
+        "id": t.id,
+        "name": t.name or "",
+        "timestamp": t.timestamp.isoformat() if getattr(t, "timestamp", None) else None,
+        "cost": getattr(t, "total_cost", None),
+        "latency": getattr(t, "latency", None),
+    }
+
 
 def _sort_key(obs):
     epoch = datetime.min.replace(tzinfo=timezone.utc)
