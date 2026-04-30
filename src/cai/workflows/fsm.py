@@ -11,6 +11,7 @@ from cai.log import langfuse_workflow, session_id_for_pr
 from cai.workflows.docs import DocsNode
 from cai.workflows.explore import ExploreNode
 from cai.workflows.implement import ImplementNode
+from cai.workflows.merge_eval import MergeEvaluationNode
 from cai.workflows.pr import PRNode
 from cai.workflows.python_review import PythonReviewNode
 from cai.workflows.refine import RefineNode
@@ -18,7 +19,7 @@ from cai.workflows.state import IssueState
 from cai.workflows.test_runner import TestNode, TestSanityNode
 
 solve_graph: Graph[IssueState, None, IssueMeta] = Graph(
-    nodes=[ExploreNode, RefineNode, ImplementNode, TestNode, PythonReviewNode, TestSanityNode, DocsNode, PRNode]
+    nodes=[ExploreNode, RefineNode, ImplementNode, TestNode, PythonReviewNode, TestSanityNode, DocsNode, PRNode, MergeEvaluationNode]
 )
 
 

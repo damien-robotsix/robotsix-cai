@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic_graph import End
 
 from cai.github.issues import IssueMeta
+from cai.workflows.merge_eval import MergeEvaluationNode
 from cai.workflows.pr import PRNode
 from cai.workflows.state import ImplementOutput, IssueState
 
@@ -52,7 +52,7 @@ def test_pr_node_existing_pr_skips_create(
 
     result = _run(PRNode(), state)
 
-    assert isinstance(result, End)
+    assert isinstance(result, MergeEvaluationNode)
     mock_push.assert_called_once()
     mock_create.assert_not_called()
 
@@ -68,7 +68,7 @@ def test_pr_node_issue_mode_creates_pr(
     # Issue mode: no pr_number, no threads → opens a new PR.
     result = _run(PRNode(), state)
 
-    assert isinstance(result, End)
+    assert isinstance(result, MergeEvaluationNode)
     mock_push.assert_called_once()
     mock_create.assert_called_once()
     assert state.pr_url == "https://pr/1"

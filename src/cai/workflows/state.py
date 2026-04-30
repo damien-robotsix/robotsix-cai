@@ -172,6 +172,21 @@ class PythonReviewOutput(BaseModel):
     )
 
 
+class MergeEvaluationOutput(BaseModel):
+    auto_merge: bool = Field(
+        description=(
+            "True only when the PR clearly meets the auto-merge eligibility rules. "
+            "Default False when in doubt — a wrong 'yes' lands an unreviewed bad change, "
+            "a wrong 'no' costs a human thirty seconds."
+        )
+    )
+    reason: str = Field(
+        description=(
+            "One or two sentences naming the specific signal that drove the decision."
+        )
+    )
+
+
 @dataclass
 class IssueState:
     bot: CaiBot
@@ -190,6 +205,8 @@ class IssueState:
     test_retry_count: int = field(default=0)
     python_review_output: PythonReviewOutput | None = field(default=None)
     docs_output: DocsOutput | None = field(default=None)
+    merge_evaluation: MergeEvaluationOutput | None = field(default=None)
+    auto_merge_enabled: bool = field(default=False)
     branch_name: str | None = field(default=None)
     pr_url: str | None = field(default=None)
     reference_files: list[str] = field(default_factory=list)

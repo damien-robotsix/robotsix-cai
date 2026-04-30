@@ -30,5 +30,6 @@ stateDiagram-v2
   TestSanityNode --> PRNode
   TestSanityNode --> ImplementNode
   DocsNode --> PRNode
-  PRNode --> [*]
+  PRNode --> MergeEvaluationNode
+  MergeEvaluationNode --> [*]
 ```

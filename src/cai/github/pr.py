@@ -223,3 +223,86 @@ def resolve_review_thread(bot: CaiBot, repo: str, thread_id: str) -> None:
     """Mark thread ``thread_id`` as resolved."""
     owner, name = repo.split("/", 1)
     _graphql(bot, _RESOLVE_THREAD_MUTATION, {"threadId": thread_id, "owner": owner, "name": name})
+
+
+def get_pr_diff(bot: CaiBot, repo: str, number: int) -> str:
+    """Return the unified diff of PR ``number`` against its base branch."""
+    token = bot.token_for(repo)
+    url = f"https://api.github.com/repos/{repo}/pulls/{number}"
+    resp = requests.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3.diff",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.text
+
+
+_PR_NODE_ID_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      reviewRequests(first: 1) { totalCount }
+    }
+  }
+}
+"""
+
+
+def get_pr_node_id_and_review_requests(
+    bot: CaiBot, repo: str, number: int
+) -> tuple[str, int]:
+    """Return ``(node_id, review_request_count)`` for PR ``number``.
+
+    The node id is needed for the ``enablePullRequestAutoMerge`` mutation;
+    the review-request count lets the caller skip auto-merge when a human
+    has been pinged for review.
+    """
+    owner, name = repo.split("/", 1)
+    data = _graphql(
+        bot, _PR_NODE_ID_QUERY, {"owner": owner, "name": name, "number": number}
+    )
+    pr = data["repository"]["pullRequest"]
+    return pr["id"], pr["reviewRequests"]["totalCount"]
+
+
+_ENABLE_AUTO_MERGE_MUTATION = """
+mutation($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+  enablePullRequestAutoMerge(input: {pullRequestId: $pullRequestId, mergeMethod: $mergeMethod}) {
+    pullRequest { id autoMergeRequest { enabledAt mergeMethod } }
+  }
+}
+"""
+
+
+def enable_auto_merge(
+    bot: CaiBot,
+    repo: str,
+    number: int,
+    *,
+    merge_method: str = "MERGE",
+) -> None:
+    """Enable GitHub auto-merge on PR ``number`` with the given merge method.
+
+    ``merge_method`` is one of ``MERGE``, ``SQUASH``, ``REBASE``. The mutation
+    fails when the repository does not allow auto-merge or the requested
+    method, or when required checks are already passing — the caller can let
+    that bubble up since a failure is informational, not fatal.
+    """
+    pr_node_id, _ = get_pr_node_id_and_review_requests(bot, repo, number)
+    owner, name = repo.split("/", 1)
+    _graphql(
+        bot,
+        _ENABLE_AUTO_MERGE_MUTATION,
+        {
+            "pullRequestId": pr_node_id,
+            "mergeMethod": merge_method,
+            "owner": owner,
+            "name": name,
+        },
+    )

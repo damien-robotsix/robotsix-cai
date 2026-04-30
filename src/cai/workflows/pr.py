@@ -3,15 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from git import Repo
-from pydantic_graph import BaseNode, End, GraphRunContext
+from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.git import commit, push_branch, stage_all
-from cai.github.issues import IssueMeta
 from cai.github.pr import (
     create_pull_request,
     reply_to_review_comment,
     resolve_review_thread,
 )
+from cai.workflows.merge_eval import MergeEvaluationNode
 from cai.workflows.state import IssueState
 
 
@@ -34,7 +34,7 @@ def _bundled_commit_message(state: IssueState) -> str:
 
 
 class PRNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> End[IssueMeta]:
+    async def run(self, ctx: GraphRunContext[IssueState]) -> MergeEvaluationNode:
         state = ctx.state
         assert state.new_meta is not None
         assert state.implement_output is not None
@@ -67,7 +67,7 @@ class PRNode(BaseNode[IssueState]):
                     env={"GIT_TERMINAL_PROMPT": "0"},
                 )
             _post_replies_and_resolve(state, committed)
-            return End(state.new_meta)
+            return MergeEvaluationNode()
 
         push_branch(
             state.repo_root,
@@ -80,7 +80,7 @@ class PRNode(BaseNode[IssueState]):
         # the branch already belongs to an existing PR — push and stop, do
         # not open a duplicate PR.
         if state.pr_number is not None:
-            return End(state.new_meta)
+            return MergeEvaluationNode()
 
         pr_body = state.body_path.read_text()
         if state.new_meta.number is not None:
@@ -94,7 +94,7 @@ class PRNode(BaseNode[IssueState]):
         )
         state.pr_url = pr_url
         state.pr_number = pr_number
-        return End(state.new_meta)
+        return MergeEvaluationNode()
 
 
 def _post_replies_and_resolve(state: IssueState, committed: bool) -> None:
