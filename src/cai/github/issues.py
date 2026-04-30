@@ -107,13 +107,15 @@ def push(bot: CaiBot, json_path: Path) -> Issue:
     milestone = _resolve_milestone(repo_obj, meta.milestone)
     state_reason = meta.state_reason if meta.state_reason else NotSet
 
-    if "cai:raised" in meta.labels or "cai:audit" in meta.labels:
+    if any(label.startswith("cai:") for label in meta.labels):
         ensure_labels(
             bot,
             meta.repo,
             [
                 LabelSpec(name="cai:raised", color="0e8a16", description="Trigger cai to solve"),
                 LabelSpec(name="cai:audit", color="fbca04", description="For cai to review"),
+                LabelSpec(name="cai:pr-ready", color="0e8a16", description="CAI solve completed; PR opened"),
+                LabelSpec(name="cai:failed", color="b60205", description="CAI solve did not complete"),
             ],
         )
 
