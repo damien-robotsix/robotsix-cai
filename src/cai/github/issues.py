@@ -86,7 +86,18 @@ def pull(bot: CaiBot, repo: str, number: int, directory: Path) -> tuple[Path, Pa
     directory.mkdir(parents=True, exist_ok=True)
     json_path, md_path = _meta_paths(directory, number)
     _write_meta(json_path, meta)
-    md_path.write_text(issue.body or "")
+    body = issue.body or ""
+    comments = list(issue.get_comments())
+    if comments:
+        parts = [body, "", "## Issue Comments", ""]
+        for i, comment in enumerate(comments):
+            if i > 0:
+                parts.append("")
+            parts.append(
+                f"**@{comment.user.login}** ({comment.created_at.strftime('%Y-%m-%d %H:%M')}):\n{comment.body}"
+            )
+        body = "\n".join(parts)
+    md_path.write_text(body)
     return json_path, md_path
 
 
