@@ -276,7 +276,7 @@ def test_memory_audit_spec_fields():
     spec = by_slug("memory-audit")
     assert spec.slug == "memory-audit"
     assert spec.title == "cai-memory-audit"
-    assert spec.nav_order == 4
+    assert spec.nav_order == 5
     assert spec.cli_entry == "cai.workflows.memory_audit:main"
     assert callable(spec.session_id)
 

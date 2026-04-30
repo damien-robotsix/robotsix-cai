@@ -137,7 +137,7 @@ WORKFLOWS: list[WorkflowSpec] = [
     WorkflowSpec(
         slug="memory-audit",
         title="cai-memory-audit",
-        nav_order=4,
+        nav_order=5,
         blurb=(
             "Scans `.cai/memory/` entries, verifies their claims against "
             "the current codebase, and marks stale or superseded entries "
