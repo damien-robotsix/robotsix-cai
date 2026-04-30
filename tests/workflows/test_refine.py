@@ -48,8 +48,8 @@ def _run(node, state):
 @patch("cai.workflows.refine.add_sub_issue")
 @patch("cai.workflows.refine.push")
 @patch("cai.workflows.refine.refine_agent")
-def test_sub_issues_inherit_parent_labels(mock_agent_factory, mock_push, mock_add_sub_issue, state, tmp_path):
-    """Each sub-issue IssueMeta should receive the parent's labels."""
+def test_only_first_sub_issue_gets_cai_raised(mock_agent_factory, mock_push, mock_add_sub_issue, state, tmp_path):
+    """Only the first sub-issue inherits ``cai:raised``; followups have it stripped."""
     # Set up the agent mock to return two sub-issues
     agent_instance = MagicMock()
     mock_agent_factory.return_value = agent_instance
@@ -92,14 +92,14 @@ def test_sub_issues_inherit_parent_labels(mock_agent_factory, mock_push, mock_ad
     meta_1 = IssueMeta.model_validate_json(sub_json_1.read_text())
 
     assert meta_0.labels == ["cai:raised"]
-    assert meta_1.labels == ["cai:raised"]
+    assert meta_1.labels == []
 
 
 @patch("cai.workflows.refine.add_sub_issue")
 @patch("cai.workflows.refine.push")
 @patch("cai.workflows.refine.refine_agent")
-def test_sub_issues_inherit_all_parent_labels(mock_agent_factory, mock_push, mock_add_sub_issue, tmp_path):
-    """Sub-issues inherit multiple labels from the parent."""
+def test_followup_sub_issues_drop_cai_raised_but_keep_other_labels(mock_agent_factory, mock_push, mock_add_sub_issue, tmp_path):
+    """First sub-issue keeps all parent labels; followups keep everything except ``cai:raised``."""
     body = tmp_path / "42.md"
     body.write_text("## Issue body\n")
     meta = IssueMeta(
@@ -149,10 +149,11 @@ def test_sub_issues_inherit_all_parent_labels(mock_agent_factory, mock_push, moc
 
     assert isinstance(result, End)
 
-    for i in range(3):
-        sub_json = tmp_path / f"sub_issue_{i}.json"
-        sub_meta = IssueMeta.model_validate_json(sub_json.read_text())
-        assert sub_meta.labels == ["cai:raised", "bug", "priority:high"]
+    sub_meta_0 = IssueMeta.model_validate_json((tmp_path / "sub_issue_0.json").read_text())
+    assert sub_meta_0.labels == ["cai:raised", "bug", "priority:high"]
+    for i in (1, 2):
+        sub_meta = IssueMeta.model_validate_json((tmp_path / f"sub_issue_{i}.json").read_text())
+        assert sub_meta.labels == ["bug", "priority:high"]
 
 
 @patch("cai.workflows.refine.add_sub_issue")
