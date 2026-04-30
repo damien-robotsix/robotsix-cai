@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock
 
-from cai.github.labels import LabelSpec, ensure_labels
+from cai.github.labels import CAI_LABEL_SPECS, LabelSpec, ensure_labels
 
 
 class TestLabelSpec:
@@ -107,3 +107,69 @@ class TestEnsureLabels:
 
         assert result == {"cai:raised": "exists"}
         mock_repo.create_label.assert_not_called()
+
+
+class TestCAILabelSpecs:
+    """Tests for the shared CAI_LABEL_SPECS constant."""
+
+    # Expected values for each label, in declared order
+    EXPECTED = [
+        ("cai:raised", "0e8a16", "Trigger cai to solve"),
+        ("cai:audit", "fbca04", "For cai to review"),
+        ("cai:pr-ready", "0e8a16", "CAI solve completed; PR opened"),
+        ("cai:failed", "b60205", "CAI solve did not complete"),
+        ("cai:human-review", "1d76db", "Awaiting human review/merge — CAI is done"),
+    ]
+
+    def test_is_list_of_five(self):
+        assert isinstance(CAI_LABEL_SPECS, list)
+        assert len(CAI_LABEL_SPECS) == 5
+
+    def test_all_items_are_label_specs(self):
+        for spec in CAI_LABEL_SPECS:
+            assert isinstance(spec, LabelSpec)
+
+    @pytest.mark.parametrize("index", range(5))
+    def test_each_spec_has_correct_fields(self, index):
+        spec = CAI_LABEL_SPECS[index]
+        expected_name, expected_color, expected_desc = self.EXPECTED[index]
+        assert spec.name == expected_name
+        assert spec.color == expected_color
+        assert spec.description == expected_desc
+
+    def test_no_duplicate_names(self):
+        names = [spec.name for spec in CAI_LABEL_SPECS]
+        assert len(names) == len(set(names))
+
+    def test_all_names_have_cai_prefix(self):
+        for spec in CAI_LABEL_SPECS:
+            assert spec.name.startswith("cai:"), f"{spec.name} should start with 'cai:'"
+
+    def test_all_colors_are_six_char_hex(self):
+        import re
+        hex_color = re.compile(r"^[0-9a-fA-F]{6}$")
+        for spec in CAI_LABEL_SPECS:
+            assert hex_color.match(spec.color), f"{spec.color} is not 6-char hex"
+
+    def test_all_descriptions_are_non_empty(self):
+        for spec in CAI_LABEL_SPECS:
+            assert spec.description, f"{spec.name} should have a non-empty description"
+
+    def test_re_exported_from_cai_github(self):
+        """CAI_LABEL_SPECS imported from cai.github is the same object."""
+        from cai.github import CAI_LABEL_SPECS as re_exported
+        assert re_exported is CAI_LABEL_SPECS
+
+    def test_passed_to_ensure_labels_creates_all(self):
+        """The constant integrates with ensure_labels: all five labels are created."""
+        mock_bot = Mock()
+        mock_repo = Mock()
+        mock_bot.repo.return_value = mock_repo
+        mock_repo.get_labels.return_value = []
+
+        result = ensure_labels(mock_bot, "owner/repo", CAI_LABEL_SPECS)
+
+        assert result == {spec.name: "created" for spec in CAI_LABEL_SPECS}
+        assert mock_repo.create_label.call_count == 5
+        for spec in CAI_LABEL_SPECS:
+            mock_repo.create_label.assert_any_call(spec.name, spec.color, spec.description)

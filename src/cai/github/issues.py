@@ -18,7 +18,7 @@ from github.Repository import Repository
 from pydantic import BaseModel, Field
 
 from .bot import CaiBot
-from cai.github.labels import LabelSpec, ensure_labels
+from cai.github.labels import CAI_LABEL_SPECS, ensure_labels
 
 
 class IssueMeta(BaseModel):
@@ -119,17 +119,7 @@ def push(bot: CaiBot, json_path: Path) -> Issue:
     state_reason = meta.state_reason if meta.state_reason else NotSet
 
     if any(label.startswith("cai:") for label in meta.labels):
-        ensure_labels(
-            bot,
-            meta.repo,
-            [
-                LabelSpec(name="cai:raised", color="0e8a16", description="Trigger cai to solve"),
-                LabelSpec(name="cai:audit", color="fbca04", description="For cai to review"),
-                LabelSpec(name="cai:pr-ready", color="0e8a16", description="CAI solve completed; PR opened"),
-                LabelSpec(name="cai:failed", color="b60205", description="CAI solve did not complete"),
-                LabelSpec(name="cai:human-review", color="1d76db", description="Awaiting human review/merge — CAI is done"),
-            ],
-        )
+        ensure_labels(bot, meta.repo, CAI_LABEL_SPECS)
 
     if meta.number is None:
         kwargs: dict = {"title": meta.title, "body": body}
