@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -327,3 +328,250 @@ def test_refine_agent_passes_output_retries():
     assert mock_build.call_args[1].get("output_retries") == 3
 
     cached_func.cache_clear()
+
+
+def test_solve_issue_skips_failed_label_when_sub_issues_exist(tmp_path):
+    """When RefineNode returns sub-issues and no PR, cai:failed is NOT applied to the parent."""
+    from cai.workflows.fsm import solve_issue
+
+    # Create workspace files
+    workspace_dir = tmp_path / "ws"
+    workspace_dir.mkdir()
+    issue_json = workspace_dir / "42.json"
+    issue_md = workspace_dir / "42.md"
+    issue_json.write_text(json.dumps({
+        "repo": "owner/repo", "number": 42, "title": "Test",
+        "labels": ["cai:raised"]
+    }))
+    issue_md.write_text("## body\n")
+
+    workspace = MagicMock()
+    workspace.issue_json = issue_json
+    workspace.issue_md = issue_md
+    workspace.repo_root = tmp_path
+
+    bot = MagicMock()
+    bot.token_for.return_value = "tok"
+
+    # Mock the GitHub issue that solve_issue fetches
+    mock_gh_issue = MagicMock()
+    mock_label = MagicMock()
+    mock_label.name = "cai:raised"
+    mock_gh_issue.labels = [mock_label]
+    bot.repo.return_value.get_issue.return_value = mock_gh_issue
+
+    with patch("cai.workflows.fsm.ensure_labels"):
+        with patch("cai.workflows.fsm.langfuse_workflow"):
+            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
+                def run_sync_side_effect(*args, **kwargs):
+                    state = kwargs.get("state")
+                    state.new_meta = state.meta.model_copy()
+                    state.refine_output = RefineOutput(
+                        title="Refined", reference_files=[], sub_issues=["Task A"]
+                    )
+                    state.pr_url = None
+
+                mock_graph.run_sync.side_effect = run_sync_side_effect
+
+                solve_issue(bot, workspace)
+
+    # Verify the issue was edited without cai:failed
+    mock_gh_issue.edit.assert_called_once()
+    labels_arg = mock_gh_issue.edit.call_args[1]["labels"]
+    assert "cai:failed" not in labels_arg
+    assert "cai:pr-ready" not in labels_arg
+    assert "cai:raised" not in labels_arg  # cai:raised should have been stripped
+
+
+def test_solve_issue_skips_pr_ready_label_when_sub_issues_exist(tmp_path):
+    """When RefineNode returns sub-issues and a PR was opened, cai:pr-ready is NOT applied."""
+    from cai.workflows.fsm import solve_issue
+
+    workspace_dir = tmp_path / "ws"
+    workspace_dir.mkdir()
+    issue_json = workspace_dir / "42.json"
+    issue_md = workspace_dir / "42.md"
+    issue_json.write_text(json.dumps({
+        "repo": "owner/repo", "number": 42, "title": "Test",
+        "labels": ["cai:raised"]
+    }))
+    issue_md.write_text("## body\n")
+
+    workspace = MagicMock()
+    workspace.issue_json = issue_json
+    workspace.issue_md = issue_md
+    workspace.repo_root = tmp_path
+
+    bot = MagicMock()
+    bot.token_for.return_value = "tok"
+
+    mock_gh_issue = MagicMock()
+    mock_label = MagicMock()
+    mock_label.name = "cai:raised"
+    mock_gh_issue.labels = [mock_label]
+    bot.repo.return_value.get_issue.return_value = mock_gh_issue
+
+    with patch("cai.workflows.fsm.ensure_labels"):
+        with patch("cai.workflows.fsm.langfuse_workflow"):
+            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
+                def run_sync_side_effect(*args, **kwargs):
+                    state = kwargs.get("state")
+                    state.new_meta = state.meta.model_copy()
+                    state.refine_output = RefineOutput(
+                        title="Refined", reference_files=[], sub_issues=["Task A"]
+                    )
+                    state.pr_url = "https://github.com/owner/repo/pull/99"
+
+                mock_graph.run_sync.side_effect = run_sync_side_effect
+
+                solve_issue(bot, workspace)
+
+    mock_gh_issue.edit.assert_called_once()
+    labels_arg = mock_gh_issue.edit.call_args[1]["labels"]
+    assert "cai:pr-ready" not in labels_arg
+    assert "cai:failed" not in labels_arg
+    assert "cai:raised" not in labels_arg
+
+
+def test_solve_issue_applies_failed_label_when_no_sub_issues_and_no_pr(tmp_path):
+    """When RefineNode returns no sub-issues and no PR was opened, cai:failed IS applied."""
+    from cai.workflows.fsm import solve_issue
+
+    workspace_dir = tmp_path / "ws"
+    workspace_dir.mkdir()
+    issue_json = workspace_dir / "42.json"
+    issue_md = workspace_dir / "42.md"
+    issue_json.write_text(json.dumps({
+        "repo": "owner/repo", "number": 42, "title": "Test",
+        "labels": ["cai:raised"]
+    }))
+    issue_md.write_text("## body\n")
+
+    workspace = MagicMock()
+    workspace.issue_json = issue_json
+    workspace.issue_md = issue_md
+    workspace.repo_root = tmp_path
+
+    bot = MagicMock()
+    bot.token_for.return_value = "tok"
+
+    mock_gh_issue = MagicMock()
+    mock_label = MagicMock()
+    mock_label.name = "cai:raised"
+    mock_gh_issue.labels = [mock_label]
+    bot.repo.return_value.get_issue.return_value = mock_gh_issue
+
+    with patch("cai.workflows.fsm.ensure_labels"):
+        with patch("cai.workflows.fsm.langfuse_workflow"):
+            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
+                def run_sync_side_effect(*args, **kwargs):
+                    state = kwargs.get("state")
+                    state.new_meta = state.meta.model_copy()
+                    state.refine_output = RefineOutput(
+                        title="Refined", reference_files=[], sub_issues=[]
+                    )
+                    state.pr_url = None
+
+                mock_graph.run_sync.side_effect = run_sync_side_effect
+
+                solve_issue(bot, workspace)
+
+    mock_gh_issue.edit.assert_called_once()
+    labels_arg = mock_gh_issue.edit.call_args[1]["labels"]
+    assert "cai:failed" in labels_arg
+    assert "cai:pr-ready" not in labels_arg
+
+
+def test_solve_issue_applies_pr_ready_label_when_no_sub_issues_and_pr_opened(tmp_path):
+    """When RefineNode returns no sub-issues and a PR was opened, cai:pr-ready IS applied."""
+    from cai.workflows.fsm import solve_issue
+
+    workspace_dir = tmp_path / "ws"
+    workspace_dir.mkdir()
+    issue_json = workspace_dir / "42.json"
+    issue_md = workspace_dir / "42.md"
+    issue_json.write_text(json.dumps({
+        "repo": "owner/repo", "number": 42, "title": "Test",
+        "labels": ["cai:raised"]
+    }))
+    issue_md.write_text("## body\n")
+
+    workspace = MagicMock()
+    workspace.issue_json = issue_json
+    workspace.issue_md = issue_md
+    workspace.repo_root = tmp_path
+
+    bot = MagicMock()
+    bot.token_for.return_value = "tok"
+
+    mock_gh_issue = MagicMock()
+    mock_label = MagicMock()
+    mock_label.name = "cai:raised"
+    mock_gh_issue.labels = [mock_label]
+    bot.repo.return_value.get_issue.return_value = mock_gh_issue
+
+    with patch("cai.workflows.fsm.ensure_labels"):
+        with patch("cai.workflows.fsm.langfuse_workflow"):
+            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
+                def run_sync_side_effect(*args, **kwargs):
+                    state = kwargs.get("state")
+                    state.new_meta = state.meta.model_copy()
+                    state.refine_output = RefineOutput(
+                        title="Refined", reference_files=[], sub_issues=[]
+                    )
+                    state.pr_url = "https://github.com/owner/repo/pull/99"
+
+                mock_graph.run_sync.side_effect = run_sync_side_effect
+
+                solve_issue(bot, workspace)
+
+    mock_gh_issue.edit.assert_called_once()
+    labels_arg = mock_gh_issue.edit.call_args[1]["labels"]
+    assert "cai:pr-ready" in labels_arg
+    assert "cai:failed" not in labels_arg
+
+
+def test_solve_issue_applies_failed_label_when_refine_output_is_none(tmp_path):
+    """When state.refine_output is None, outcome labels are still applied normally."""
+    from cai.workflows.fsm import solve_issue
+
+    workspace_dir = tmp_path / "ws"
+    workspace_dir.mkdir()
+    issue_json = workspace_dir / "42.json"
+    issue_md = workspace_dir / "42.md"
+    issue_json.write_text(json.dumps({
+        "repo": "owner/repo", "number": 42, "title": "Test",
+        "labels": ["cai:raised"]
+    }))
+    issue_md.write_text("## body\n")
+
+    workspace = MagicMock()
+    workspace.issue_json = issue_json
+    workspace.issue_md = issue_md
+    workspace.repo_root = tmp_path
+
+    bot = MagicMock()
+    bot.token_for.return_value = "tok"
+
+    mock_gh_issue = MagicMock()
+    mock_label = MagicMock()
+    mock_label.name = "cai:raised"
+    mock_gh_issue.labels = [mock_label]
+    bot.repo.return_value.get_issue.return_value = mock_gh_issue
+
+    with patch("cai.workflows.fsm.ensure_labels"):
+        with patch("cai.workflows.fsm.langfuse_workflow"):
+            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
+                def run_sync_side_effect(*args, **kwargs):
+                    state = kwargs.get("state")
+                    state.new_meta = state.meta.model_copy()
+                    state.refine_output = None
+                    state.pr_url = None
+
+                mock_graph.run_sync.side_effect = run_sync_side_effect
+
+                solve_issue(bot, workspace)
+
+    mock_gh_issue.edit.assert_called_once()
+    labels_arg = mock_gh_issue.edit.call_args[1]["labels"]
+    assert "cai:failed" in labels_arg
