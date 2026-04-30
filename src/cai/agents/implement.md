@@ -48,6 +48,7 @@ prompt — both modes share this single agent.
 ## Editing strategy
 
 - Reference files in your context appear with `line:hash|content` tags — ignore the `line:hash|` prefix when constructing `old_string` for `edit_file`; copy the content portion verbatim, including indentation
+- **Disambiguate `old_string`:** Include at least one uniquely-identifying surrounding line — e.g. the preceding `slug="audit"` or `title="..."` — so the pattern cannot match the wrong location. Files like `registry.py` have repeated blocks (e.g. multiple `WorkflowSpec` entries ending with identical `),`); without extra context `old_string` hits the first match, not the intended one
 - You do not need to `read_file` for files already shown in the Reference files section — their content is already in your context
 - **Paginate large files:** When you *do* need to `read_file` a file not already in context, use `offset` and `limit` for files >200 lines. First scan with `limit=100`, then read targeted sections.
 - You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response

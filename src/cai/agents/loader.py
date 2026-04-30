@@ -15,6 +15,7 @@ from __future__ import annotations
 
 __all__ = [
     "AGENT_DIR",
+    "EditFileGuardrailAsRetry",
     "GrepGuardrailAsRetry",
     "ModelRequestErrorAsRetry",
     "TOOL_FACTORIES",
@@ -145,6 +146,37 @@ class GrepGuardrailAsRetry(AbstractCapability):
                 "Stop searching globally and trust your local edits."
             )
         return result
+
+
+class EditFileGuardrailAsRetry(AbstractCapability):
+    """Break the model out of a repeated ``edit_file`` "same result" loop.
+
+    When ``old_string`` matches multiple locations in the file,
+    ``str_replace`` replaces the **first** match — which may be the
+    wrong one. Subsequent retries find the edit already applied
+    (in the wrong place) or the file unchanged at the intended spot,
+    producing the error "``edit_file`` returned the same result 3
+    times in a row." This capability catches that ``ModelRetry`` and
+    enriches the message with a hint to include more surrounding
+    context so the model can disambiguate the target location.
+    """
+
+    async def on_tool_execute_error(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
+    ) -> None:
+        if not isinstance(error, ModelRetry):
+            return
+        if call.tool_name != "edit_file":
+            raise error
+        message = str(error)
+        if "same result" not in message:
+            raise error
+        raise ModelRetry(
+            f"{message} The old_string may match multiple locations in "
+            f"the file. Include more surrounding context — at minimum one "
+            f"unique line above or below (e.g., a slug, title, or function "
+            f"name) — to disambiguate the target location."
+        )
 
 
 class ModelRequestErrorAsRetry(AbstractCapability):
@@ -589,6 +621,7 @@ def build_deep_agent(
     # failure aborts the whole run.
     extra["capabilities"] = [
         *(extra.get("capabilities") or []),
+        EditFileGuardrailAsRetry(),
         ToolErrorAsRetry(),
         ModelRequestErrorAsRetry(),
         GrepGuardrailAsRetry(),
