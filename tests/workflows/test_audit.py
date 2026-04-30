@@ -56,6 +56,12 @@ def mock_build_prompt():
 
 
 @pytest.fixture
+def mock_build_architecture_prompt():
+    with patch("cai.workflows.audit._build_architecture_prompt", return_value="mocked architecture prompt") as mock:
+        yield mock
+
+
+@pytest.fixture
 def mock_audit_agent():
     agent_mock = MagicMock()
     with patch("cai.workflows.audit._audit_agent", return_value=agent_mock):
