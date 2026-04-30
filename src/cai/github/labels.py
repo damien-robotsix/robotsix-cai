@@ -38,6 +38,15 @@ def ensure_labels(
     return result
 
 
+CAI_LABEL_SPECS: list[LabelSpec] = [
+    LabelSpec(name="cai:raised", color="0e8a16", description="Trigger cai to solve"),
+    LabelSpec(name="cai:audit", color="fbca04", description="For cai to review"),
+    LabelSpec(name="cai:pr-ready", color="0e8a16", description="CAI solve completed; PR opened"),
+    LabelSpec(name="cai:failed", color="b60205", description="CAI solve did not complete"),
+    LabelSpec(name="cai:human-review", color="1d76db", description="Awaiting human review/merge — CAI is done"),
+]
+
+
 def set_label(bot: CaiBot, repo: str, number: int, label: str, present: bool) -> None:
     """Idempotently add or remove ``label`` from issue/PR ``number``.
 
