@@ -14,6 +14,7 @@ findings summary. You are **read-only**.
 ## How to work
 
 - **Prioritize Speed:** Pick the cheapest tool that answers the question (`glob` for filenames, `grep` for content, `read_file` for context).
+- **Paginate large files:** For files >200 lines, use `offset` and `limit`. First scan with `limit=100` to understand structure, then read targeted sections.
 - **Parallelize:** Run independent searches in parallel.
 - **Relative Only:** Always use relative glob patterns.
 - **Early Exit:** Stop as soon as you have enough to answer. Do not exhaustively enumerate the codebase.

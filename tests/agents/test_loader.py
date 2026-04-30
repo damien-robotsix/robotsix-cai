@@ -5,7 +5,11 @@ import pytest
 from pathlib import Path
 from pydantic_ai.exceptions import ModelRetry
 
-from cai.agents.loader import GrepGuardrailAsRetry, resolve_agent_path
+from cai.agents.loader import (
+    GrepGuardrailAsRetry,
+    parse_agent_md,
+    resolve_agent_path,
+)
 
 def test_resolve_agent_path_finds_file(monkeypatch, tmp_path):
     monkeypatch.setattr("cai.agents.loader.AGENT_DIR", tmp_path)
@@ -132,3 +136,124 @@ def test_grep_guardrail_wired_into_build_deep_agent_capabilities(monkeypatch):
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
     assert "GrepGuardrailAsRetry" in cap_types
+
+
+# ---------------------------------------------------------------------------
+# parse_agent_md
+# ---------------------------------------------------------------------------
+
+
+def test_parse_agent_md_valid(monkeypatch, tmp_path):
+    monkeypatch.setattr("cai.agents.loader.AGENT_DIR", tmp_path)
+    md_path = tmp_path / "test_agent.md"
+    md_path.write_text(
+        "---\n"
+        "name: test-agent\n"
+        "model: anthropic/claude-sonnet-4-6\n"
+        "---\n"
+        "## System prompt body\n\n"
+        "This is the system prompt.\n"
+        "It spans multiple lines.\n"
+    )
+    config, system_prompt = parse_agent_md(str(md_path))
+    assert config["name"] == "test-agent"
+    assert config["model"] == "anthropic/claude-sonnet-4-6"
+    assert "## System prompt body" in system_prompt
+    assert "This is the system prompt." in system_prompt
+
+
+def test_parse_agent_md_missing_frontmatter(monkeypatch, tmp_path):
+    monkeypatch.setattr("cai.agents.loader.AGENT_DIR", tmp_path)
+    md_path = tmp_path / "no_frontmatter.md"
+    md_path.write_text("No frontmatter here.\nJust some text.\n")
+    with pytest.raises(ValueError, match="missing YAML frontmatter"):
+        parse_agent_md(str(md_path))
+
+
+def test_parse_agent_md_malformed_frontmatter(monkeypatch, tmp_path):
+    monkeypatch.setattr("cai.agents.loader.AGENT_DIR", tmp_path)
+    md_path = tmp_path / "malformed.md"
+    md_path.write_text("---\nname: test-agent\n# no closing ---\n")
+    with pytest.raises(ValueError, match="malformed frontmatter"):
+        parse_agent_md(str(md_path))
+
+
+def test_parse_agent_md_missing_name_field(monkeypatch, tmp_path):
+    monkeypatch.setattr("cai.agents.loader.AGENT_DIR", tmp_path)
+    md_path = tmp_path / "no_name.md"
+    md_path.write_text(
+        "---\n"
+        "model: anthropic/claude-sonnet-4-6\n"
+        "---\n"
+        "System prompt without a name field.\n"
+    )
+    with pytest.raises(ValueError, match="missing required 'name' field"):
+        parse_agent_md(str(md_path))
+
+
+def test_parse_agent_md_empty_frontmatter(monkeypatch, tmp_path):
+    monkeypatch.setattr("cai.agents.loader.AGENT_DIR", tmp_path)
+    md_path = tmp_path / "empty_frontmatter.md"
+    md_path.write_text("---\n---\nSystem prompt with empty frontmatter.\n")
+    with pytest.raises(ValueError, match="missing required 'name' field"):
+        parse_agent_md(str(md_path))
+
+
+def test_parse_agent_md_dash_dash_dash_in_comment_not_closing_delimiter(monkeypatch, tmp_path):
+    """--- inside a YAML comment must not be treated as the closing delimiter."""
+    monkeypatch.setattr("cai.agents.loader.AGENT_DIR", tmp_path)
+    md_path = tmp_path / "comment_dashes.md"
+    md_path.write_text(
+        "---\n"
+        'name: test-agent\n'
+        'model: anthropic/claude-sonnet-4-6\n'
+        "# a comment with --- inside it\n"
+        "---\n"
+        "## Body after closing delimiter.\n"
+    )
+    config, system_prompt = parse_agent_md(str(md_path))
+    assert config["name"] == "test-agent"
+    assert "## Body after closing delimiter." in system_prompt
+
+
+def test_parse_agent_md_dash_dash_dash_in_body_not_confused(monkeypatch, tmp_path):
+    """--- in body text (not a standalone line) must remain part of the body."""
+    monkeypatch.setattr("cai.agents.loader.AGENT_DIR", tmp_path)
+    md_path = tmp_path / "body_dashes.md"
+    md_path.write_text(
+        "---\n"
+        'name: test-agent\n'
+        'model: anthropic/claude-sonnet-4-6\n'
+        "---\n"
+        "Here is a --- separator in the body text.\n"
+        "It should not break parsing.\n"
+    )
+    config, system_prompt = parse_agent_md(str(md_path))
+    assert config["name"] == "test-agent"
+    assert "--- separator in the body text" in system_prompt
+    assert system_prompt.startswith("Here is a --- separator")
+
+
+# ---------------------------------------------------------------------------
+# Pagination guidance in agent system prompts
+# ---------------------------------------------------------------------------
+
+PAGINATION_TEXT = "Paginate large files"
+
+
+@pytest.mark.parametrize(
+    "agent_name",
+    [
+        "explore",
+        "implement",
+        "refine",
+    ],
+)
+def test_agent_prompt_includes_pagination_guidance(agent_name):
+    """Ensure each agent's system prompt contains read_file pagination guidance."""
+    path = resolve_agent_path(agent_name)
+    _, system_prompt = parse_agent_md(path)
+    assert PAGINATION_TEXT in system_prompt, (
+        f"Agent '{agent_name}' system prompt missing pagination guidance.\n"
+        f"Expected text: '{PAGINATION_TEXT}'"
+    )
