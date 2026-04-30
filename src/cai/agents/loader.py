@@ -17,6 +17,7 @@ __all__ = [
     "AGENT_DIR",
     "EditFileGuardrailAsRetry",
     "GrepGuardrailAsRetry",
+    "HistoryCompactorCapability",
     "ModelRequestErrorAsRetry",
     "TOOL_FACTORIES",
     "TOOL_FLAGS",
@@ -30,6 +31,7 @@ __all__ = [
     "resolve_agent_path",
 ]
 
+import dataclasses
 import json
 import os
 import re
@@ -40,10 +42,11 @@ from typing import Any
 import httpx
 import yaml
 from openai import AsyncOpenAI
-from pydantic_ai import Agent, NativeOutput, PromptedOutput, TextOutput, ToolOutput
+from pydantic_ai import Agent, NativeOutput, PromptedOutput, RunContext, TextOutput, ToolOutput
 from pydantic_ai.capabilities.abstract import AbstractCapability
 from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
-from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, ToolReturnPart
+from pydantic_ai.models import ModelRequestContext, ModelRequestParameters
 from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
@@ -247,6 +250,175 @@ class ModelRequestErrorAsRetry(AbstractCapability):
                 f"({type(error).__name__}: {error}). Retrying..."
             )
         raise error
+
+
+class HistoryCompactorCapability(AbstractCapability):
+    """Replace stale tool outputs in message history before each model request,
+    and short-circuit duplicate ``read_file`` calls at execute time.
+
+    Repeated ``read_file`` on large files and ``ls`` / ``glob`` / ``grep``
+    produce stale outputs that stay in the message history and are re-sent
+    to the model every turn, causing quadratic cost growth.  Identical
+    sequential ``read_file`` calls without intervening edits waste both
+    latency and tokens.
+
+    This capability:
+
+    * Compacts older redundant tool outputs into short summary strings
+      in :meth:`before_model_request`, before they reach the model.
+    * Short-circuits duplicate ``read_file`` calls in
+      :meth:`wrap_tool_execute` when no filesystem edits have occurred
+      since the prior identical call.
+    """
+
+    _COMPACTABLE_TOOLS = frozenset({"read_file", "ls", "glob", "grep"})
+    _FILE_MODIFYING_TOOLS = frozenset({
+        "write_file", "edit_file", "move_file", "delete_file",
+        "batch_move", "batch_delete",
+    })
+
+    # ------------------------------------------------------------------
+    # before_model_request — compact superseded tool outputs
+    # ------------------------------------------------------------------
+
+    async def before_model_request(
+        self, ctx: RunContext, request_context: ModelRequestContext,
+    ) -> ModelRequestContext:
+        messages: list = list(request_context.messages)
+
+        # First pass: collect ToolCallPart args dicts keyed by tool_call_id.
+        call_args: dict[str, dict] = {}
+        for msg in messages:
+            if isinstance(msg, ModelResponse):
+                for part in msg.parts:
+                    if isinstance(part, ToolCallPart):
+                        call_args[part.tool_call_id] = part.args_as_dict()
+
+        # Second pass: find the index of the latest ToolReturnPart for each
+        # compaction key.  Display/pagination args (offset, limit) are ignored
+        # so that successive pagination reads on the same file are compacted.
+        latest: dict[tuple, int] = {}  # key → message index
+        for i, msg in enumerate(messages):
+            if not isinstance(msg, ModelRequest):
+                continue
+            for part in msg.parts:
+                if not isinstance(part, ToolReturnPart):
+                    continue
+                if part.tool_name not in self._COMPACTABLE_TOOLS:
+                    continue
+                k = self._compaction_key(part, call_args)
+                if k is not None:
+                    latest[k] = i
+
+        # Third pass: rebuild messages, replacing content on superseded returns.
+        for i, msg in enumerate(messages):
+            if not isinstance(msg, ModelRequest):
+                continue
+            new_parts: list | None = None
+            for j, part in enumerate(msg.parts):
+                if not isinstance(part, ToolReturnPart):
+                    continue
+                if part.tool_name not in self._COMPACTABLE_TOOLS:
+                    continue
+                k = self._compaction_key(part, call_args)
+                if k is None:
+                    continue
+                latest_idx = latest.get(k)
+                if latest_idx is not None and i < latest_idx:
+                    if new_parts is None:
+                        new_parts = list(msg.parts)
+                    target_desc = self._target_desc(part.tool_name, k)
+                    new_parts[j] = dataclasses.replace(
+                        part,
+                        content=(
+                            f"[Content omitted — superseded by a newer call "
+                            f"to `{part.tool_name}` on {target_desc}]"
+                        ),
+                    )
+            if new_parts is not None:
+                messages[i] = dataclasses.replace(msg, parts=new_parts)
+
+        return dataclasses.replace(request_context, messages=messages)
+
+    @staticmethod
+    def _compaction_key(
+        return_part: ToolReturnPart, call_args: dict[str, dict],
+    ) -> tuple | None:
+        """Build a stable key for compaction from a tool return and its call args."""
+        tid = return_part.tool_call_id
+        args = call_args.get(tid, {})
+        tool_name = return_part.tool_name
+        if tool_name in ("read_file", "ls"):
+            return (tool_name, args.get("path"))
+        elif tool_name == "glob":
+            return (tool_name, args.get("pattern"), args.get("path"))
+        elif tool_name == "grep":
+            return (
+                tool_name,
+                args.get("pattern"),
+                args.get("path"),
+                args.get("glob_pattern"),
+            )
+        return None
+
+    @staticmethod
+    def _target_desc(tool_name: str, key: tuple) -> str:
+        """Human-readable target description for the omission placeholder."""
+        if tool_name in ("read_file", "ls"):
+            return str(key[1])
+        if tool_name == "glob":
+            return f"pattern={key[1]!r}, path={key[2]!r}"
+        if tool_name == "grep":
+            return f"pattern={key[1]!r}, path={key[2]!r}, glob_pattern={key[3]!r}"
+        return ""
+
+    # ------------------------------------------------------------------
+    # wrap_tool_execute — short-circuit duplicate read_file
+    # ------------------------------------------------------------------
+
+    async def wrap_tool_execute(
+        self, ctx: RunContext, *, call: ToolCallPart, tool_def: Any, args: Any, handler: Any,
+    ) -> Any:
+        if call.tool_name != "read_file":
+            return await handler(args)
+
+        current_args = call.args_as_dict()
+
+        # Scan ctx.messages backward for a prior identical read_file call.
+        prior_msg_idx: int | None = None
+        for i in range(len(ctx.messages) - 1, -1, -1):
+            msg = ctx.messages[i]
+            if not isinstance(msg, ModelResponse):
+                continue
+            for part in msg.parts:
+                if not isinstance(part, ToolCallPart):
+                    continue
+                if part.tool_name != "read_file":
+                    continue
+                if part.args_as_dict() == current_args:
+                    prior_msg_idx = i
+                    break
+            if prior_msg_idx is not None:
+                break
+
+        if prior_msg_idx is None:
+            return await handler(args)
+
+        # Scan forward from that prior call for any file-modifying tool calls.
+        for i in range(prior_msg_idx + 1, len(ctx.messages)):
+            msg = ctx.messages[i]
+            if not isinstance(msg, ModelResponse):
+                continue
+            for part in msg.parts:
+                if not isinstance(part, ToolCallPart):
+                    continue
+                if part.tool_name in self._FILE_MODIFYING_TOOLS:
+                    return await handler(args)
+
+        return (
+            "[Warning: identical read_file requested without intervening file "
+            "edits. Review your previous messages instead of re-reading.]"
+        )
 
 
 # httpx defaults read/write/pool to None (infinite). Without these, a silently
@@ -668,6 +840,7 @@ def build_deep_agent(
         ToolErrorAsRetry(),
         ModelRequestErrorAsRetry(),
         GrepGuardrailAsRetry(),
+        HistoryCompactorCapability(),
     ]
 
     agent = create_deep_agent(
