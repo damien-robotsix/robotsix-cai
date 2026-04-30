@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [cost, errors, architecture]
+        mode: [cost, errors, architecture, security]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

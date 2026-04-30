@@ -11,6 +11,7 @@ from cai.workflows.audit import (
     ProposedIssue,
     _audit_agent,
     _build_architecture_prompt,
+    _build_security_prompt,
     _dedupe_agent,
     _labels_for_confidence,
     main,
@@ -392,6 +393,76 @@ def test_build_architecture_prompt_no_python_files():
     assert "No directories with __init__.py found" in prompt
 
 
+# ---------------------------------------------------------------------------
+# _build_security_prompt tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_security_prompt_basic():
+    """Verify _build_security_prompt produces a prompt containing the repo name
+    and vulnerability scanning instructions."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_security_prompt(
+                MagicMock(), "owner/repo", workspace, []
+            )
+
+    assert prompt
+    assert "Security audit of owner/repo" in prompt
+    assert "filesystem_read" in prompt
+    assert "explore" in prompt
+    assert "hardcoded credentials" in prompt.lower()
+    assert "unsafe subprocess" in prompt.lower()
+    assert "path traversal" in prompt.lower()
+    assert "injection" in prompt.lower()
+    assert "eval" in prompt.lower()
+    assert "deserialization" in prompt.lower()
+    assert "TLS" in prompt or "certificate verification" in prompt.lower()
+    assert "cryptography" in prompt.lower()
+    assert "AuditOutput" in prompt
+    assert "conservative" in prompt.lower()
+    # No "Additional context" when unknown is empty
+    assert "Additional context" not in prompt
+
+
+def test_build_security_prompt_unknown_args():
+    """Unknown CLI args are forwarded as 'Additional context' in the security prompt."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_security_prompt(
+                MagicMock(), "owner/repo", workspace,
+                ["--extra-flag", "some-value"],
+            )
+
+    assert "Additional context: --extra-flag some-value" in prompt
+
+
+def test_build_security_prompt_no_unknown_args():
+    """An empty unknown list must not inject an 'Additional context' line."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_security_prompt(
+                MagicMock(), "owner/repo", workspace, []
+            )
+
+    assert "Additional context" not in prompt
+
+
 @patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "architecture"])
 def test_main_architecture_mode(
     mock_setup_langfuse,
@@ -418,6 +489,37 @@ def test_main_architecture_mode(
     mock_arch_prompt.assert_called_once()
     # Verify the agent factory was called with architecture_auditor name
     patched_agent.assert_called_once_with("architecture_auditor")
+    mock_audit_agent.run.assert_called_once()
+    call_args = mock_audit_agent.run.call_args
+    assert call_args[0][0] == canned_prompt
+
+
+@patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "security"])
+def test_main_security_mode(
+    mock_setup_langfuse,
+    mock_build_prompt,
+    mock_cai_bot,
+    mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
+):
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(output=AuditOutput(issues=[])))
+
+    canned_prompt = "security prompt"
+    with patch(
+        "cai.workflows.audit._build_security_prompt",
+        return_value=canned_prompt,
+    ) as mock_sec_prompt:
+        # Also capture the call to _audit_agent to verify agent_name
+        with patch(
+            "cai.workflows.audit._audit_agent",
+            return_value=mock_audit_agent,
+        ) as patched_agent:
+            main()
+
+    mock_sec_prompt.assert_called_once()
+    # Verify the agent factory was called with security_auditor name
+    patched_agent.assert_called_once_with("security_auditor")
     mock_audit_agent.run.assert_called_once()
     call_args = mock_audit_agent.run.call_args
     assert call_args[0][0] == canned_prompt

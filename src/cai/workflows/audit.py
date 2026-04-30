@@ -5,10 +5,12 @@ short-circuits to End when the agent proposes nothing. CreateIssuesNode
 runs the issue-deduplicator agent per proposed item to decide whether to
 create a new issue, append a comment to an existing one, or discard.
 
-Three audit modes are supported:
+Five audit modes are supported:
   --mode cost         Audit the most costly session of the last 10 issue-solving runs.
   --mode errors       Audit the 10 most recent traces that contain error-level observations.
   --mode duplication  Audit copy-paste findings from jscpd against a fresh clone of the repo.
+  --mode architecture Audit structural health of the repository.
+  --mode security     Audit the repository for common security vulnerabilities.
 
 In every mode all signal context is pre-fetched into the prompt so the agent
 can spend its tokens on judgement rather than tool plumbing.
@@ -43,7 +45,7 @@ from cai.log.observability import langfuse_workflow, setup_langfuse
 from cai.log.traces import _TRACES
 from cai.workflows.state import WithConfidence, _inline_refs
 
-# Per the auditor rubrics (src/cai/agents/{audit,architecture_auditor,duplication_auditor}.md),
+# Per the auditor rubrics (src/cai/agents/{audit,architecture_auditor,duplication_auditor,security_auditor}.md),
 # 9-10 is the band where the agent claims a fix is safe to dispatch without human review.
 # Below that, we tag the issue for human triage instead of auto-routing it to cai-solve.
 _AUTO_RAISE_CONFIDENCE_THRESHOLD = 9
@@ -106,7 +108,7 @@ class AuditState:
     output: AuditOutput | None = field(default=None)
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=4)
 def _audit_agent(agent_name: str = "audit"):
     config, instructions = parse_agent_md(resolve_agent_path(agent_name))
     return build_deep_agent(config, instructions, output_type=AuditOutput)
@@ -436,6 +438,43 @@ def _build_duplication_prompt(
 
 
 # ---------------------------------------------------------------------------
+# Security mode — clone the target repo and let the security_auditor agent
+# inspect it for common vulnerability patterns.
+# ---------------------------------------------------------------------------
+
+
+def _build_security_prompt(
+    bot: CaiBot, repo: str, workspace: Path, unknown: list[str]
+) -> str:
+    """Clone ``repo`` into ``workspace`` and build a prompt for the security auditor."""
+    print(f"Cloning {repo} into {workspace} for security audit...", file=sys.stderr)
+    _clone_repo_for_audit(bot, repo, workspace)
+
+    prompt = (
+        f"Security audit of {repo}. The repository is checked out at the "
+        f"agent's filesystem root.\n\n"
+        f"Use `filesystem_read` to inspect files for vulnerability patterns. "
+        f"Delegate broad searches (e.g. 'find all subprocess calls', "
+        f"'list every file with eval/exec', 'search for hardcoded tokens') "
+        f"to the `explore` subagent.\n\n"
+        f"Scan for: hardcoded credentials and secrets, unsafe subprocess "
+        f"execution (shell=True, os.system, os.popen), path traversal, "
+        f"command/SQL injection, use of eval/exec/compile, insecure "
+        f"deserialization (pickle, yaml.load with unsafe loader), insecure "
+        f"tempfile usage (mktemp), missing TLS certificate verification, "
+        f"overly permissive file permissions, dependency vulnerabilities, "
+        f"and insecure cryptography.\n\n"
+        f"Return an AuditOutput. Be conservative — only propose issues for "
+        f"real, exploitable vulnerabilities where a concrete code change "
+        f"would eliminate the risk. Skip test-only code, false positives, "
+        f"and patterns already well-defended by framework defaults."
+    )
+    if unknown:
+        prompt += f"\n\nAdditional context: {' '.join(unknown)}"
+    return prompt
+
+
+# ---------------------------------------------------------------------------
 # Architecture mode — clone the target repo, walk the directory tree, and
 # collect structural signals for the architecture_auditor agent.
 # ---------------------------------------------------------------------------
@@ -547,14 +586,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["cost", "errors", "duplication", "architecture"],
+        choices=["cost", "errors", "duplication", "architecture", "security"],
         default="cost",
         help=(
             "Audit mode: 'cost' analyses the most expensive of the last 10 "
             "issue-solving sessions; 'errors' analyses the 10 most recent "
             "traces that contain error-level observations; 'duplication' "
             "clones the repo and audits jscpd copy-paste findings; "
-            "'architecture' clones the repo and audits structural health."
+            "'architecture' clones the repo and audits structural health; "
+            "'security' clones the repo and audits security vulnerabilities."
         ),
     )
     args, unknown = parser.parse_known_args()
@@ -576,6 +616,11 @@ def main() -> None:
             workspace = workspace_root / "repo"
             agent_name = "architecture_auditor"
             prompt = _build_architecture_prompt(bot, args.repo, workspace, unknown)
+        elif args.mode == "security":
+            workspace_root = Path(tempfile.mkdtemp(prefix="cai-audit-sec-"))
+            workspace = workspace_root / "repo"
+            agent_name = "security_auditor"
+            prompt = _build_security_prompt(bot, args.repo, workspace, unknown)
         else:
             workspace_root = Path(tempfile.mkdtemp(prefix="cai-audit-dup-"))
             workspace = workspace_root / "repo"
