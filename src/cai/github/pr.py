@@ -62,7 +62,8 @@ def get_pr_meta(bot: CaiBot, repo: str, number: int) -> tuple[str, str, str, str
     return pr.title, pr.body or "", pr.head.ref, pr.base.ref
 
 
-def _graphql(bot: CaiBot, repo: str, query: str, variables: dict) -> dict:
+def _graphql(bot: CaiBot, query: str, variables: dict) -> dict:
+    repo = f"{variables['owner']}/{variables['name']}"
     token = bot.token_for(repo)
     resp = requests.post(
         _GRAPHQL_URL,
@@ -132,6 +133,12 @@ def _parse_thread_node(node: dict) -> ReviewThread | None:
     )
 
 
+def _get_review_threads_nodes(bot: CaiBot, repo: str, number: int) -> list[dict]:
+    owner, name = repo.split("/", 1)
+    data = _graphql(bot, _LIST_THREADS_QUERY, {"owner": owner, "name": name, "number": number})
+    return data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+
+
 def list_unresolved_threads(
     bot: CaiBot,
     repo: str,
@@ -143,14 +150,7 @@ def list_unresolved_threads(
     with ``[bot]``) are skipped — the agent should only address human review
     comments. Outdated threads are also skipped.
     """
-    owner, name = repo.split("/", 1)
-    data = _graphql(
-        bot,
-        repo,
-        _LIST_THREADS_QUERY,
-        {"owner": owner, "name": name, "number": number},
-    )
-    nodes = data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    nodes = _get_review_threads_nodes(bot, repo, number)
     threads: list[ReviewThread] = []
     for node in nodes:
         if node["isResolved"] or node["isOutdated"]:
@@ -173,14 +173,7 @@ def list_resolved_threads(bot: CaiBot, repo: str, number: int) -> list[ReviewThr
     how cai[bot] responded, so the agent doesn't undo a prior fix when
     handling a new thread.
     """
-    owner, name = repo.split("/", 1)
-    data = _graphql(
-        bot,
-        repo,
-        _LIST_THREADS_QUERY,
-        {"owner": owner, "name": name, "number": number},
-    )
-    nodes = data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    nodes = _get_review_threads_nodes(bot, repo, number)
     threads: list[ReviewThread] = []
     for node in nodes:
         if not node["isResolved"] or node["isOutdated"]:
@@ -228,4 +221,5 @@ mutation($threadId: ID!) {
 
 def resolve_review_thread(bot: CaiBot, repo: str, thread_id: str) -> None:
     """Mark thread ``thread_id`` as resolved."""
-    _graphql(bot, repo, _RESOLVE_THREAD_MUTATION, {"threadId": thread_id})
+    owner, name = repo.split("/", 1)
+    _graphql(bot, _RESOLVE_THREAD_MUTATION, {"threadId": thread_id, "owner": owner, "name": name})
