@@ -29,6 +29,7 @@ __all__ = [
     "resolve_agent_path",
 ]
 
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -147,19 +148,28 @@ class GrepGuardrailAsRetry(AbstractCapability):
 
 
 class ModelRequestErrorAsRetry(AbstractCapability):
-    """Turn ``UnexpectedModelBehavior`` into ``ModelRetry`` for transient API errors.
+    """Turn transient model-call errors into ``ModelRetry`` so the run survives.
 
     OpenRouter occasionally returns a malformed HTTP 200 (all-None fields in the
-    ChatCompletion schema) on preview models, especially on the final structured-
-    output call. Without this, one bad response aborts the entire agent run.
-    pydantic_ai's built-in request-level retry budget (``request_limit``) still
-    caps total retries, so this does not loop indefinitely.
+    ChatCompletion schema -> ``UnexpectedModelBehavior``; non-JSON or truncated
+    body -> ``JSONDecodeError`` / ``httpx.RemoteProtocolError``), especially on
+    DeepSeek V4 routing. The OpenAI SDK's ``max_retries`` only covers transport
+    errors and 5xx — body-parse failures land here untouched, and without this
+    one bad response aborts the entire agent run. pydantic_ai's built-in
+    ``request_limit`` still caps total retries, so this does not loop forever.
     """
 
+    _RETRYABLE = (
+        UnexpectedModelBehavior,
+        json.JSONDecodeError,
+        httpx.RemoteProtocolError,
+    )
+
     async def on_model_request_error(self, ctx: Any, *, request_context: Any, error: Exception) -> None:
-        if isinstance(error, UnexpectedModelBehavior):
+        if isinstance(error, self._RETRYABLE):
             raise ModelRetry(
-                f"Model returned an unexpected response ({error}). Retrying..."
+                f"Model returned a malformed response "
+                f"({type(error).__name__}: {error}). Retrying..."
             )
         raise error
 
