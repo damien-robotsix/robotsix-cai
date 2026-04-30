@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [cost, errors]
+        mode: [cost, errors, architecture]
     steps:
       - name: Stage cai config for container
         env:

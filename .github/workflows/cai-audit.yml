@@ -11,6 +11,7 @@ on:
         options:
           - cost
           - errors
+          - architecture
       repo:
         description: "Target GitHub repository for issues (owner/repo)"
         required: true
