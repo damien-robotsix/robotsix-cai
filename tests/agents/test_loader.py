@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic_ai.exceptions import ModelRetry
 
 from cai.agents.loader import (
+    EditFileGuardrailAsRetry,
     GrepGuardrailAsRetry,
     parse_agent_md,
     resolve_agent_path,
@@ -60,8 +61,131 @@ def _grep_call(name="grep"):
     return SimpleNamespace(tool_name=name)
 
 
+def _edit_call(name="edit_file"):
+    return SimpleNamespace(tool_name=name)
+
+
 def _run(coro):
     return asyncio.run(coro)
+
+
+# ---------------------------------------------------------------------------
+# EditFileGuardrailAsRetry
+# ---------------------------------------------------------------------------
+
+
+def test_edit_file_guardrail_passes_through_non_model_retry():
+    """Non-ModelRetry errors are not consumed by this guardrail."""
+    cap = EditFileGuardrailAsRetry()
+    # Returns None -> error passes to next capability handler
+    result = _run(cap.on_tool_execute_error(
+        None,
+        call=_edit_call(),
+        tool_def=None,
+        args={},
+        error=ValueError("something went wrong"),
+    ))
+    assert result is None
+
+
+def test_edit_file_guardrail_re_raises_non_edit_file():
+    """ModelRetry from a non-edit_file tool is re-raised unchanged."""
+    cap = EditFileGuardrailAsRetry()
+    original = ModelRetry("tool crashed")
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.on_tool_execute_error(
+            None,
+            call=_edit_call("read_file"),
+            tool_def=None,
+            args={},
+            error=original,
+        ))
+    assert exc.value is original
+    assert str(exc.value) == "tool crashed"
+
+
+def test_edit_file_guardrail_re_raises_without_same_result():
+    """ModelRetry from edit_file without 'same result' passes through unchanged."""
+    cap = EditFileGuardrailAsRetry()
+    original = ModelRetry("old_string not found")
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.on_tool_execute_error(
+            None,
+            call=_edit_call(),
+            tool_def=None,
+            args={},
+            error=original,
+        ))
+    assert exc.value is original
+    assert str(exc.value) == "old_string not found"
+
+
+def test_edit_file_guardrail_enriches_same_result_message():
+    """ModelRetry with 'same result' gets a disambiguation hint appended."""
+    cap = EditFileGuardrailAsRetry()
+    original = ModelRetry(
+        "edit_file returned the same result 3 times in a row."
+    )
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.on_tool_execute_error(
+            None,
+            call=_edit_call(),
+            tool_def=None,
+            args={},
+            error=original,
+        ))
+    msg = str(exc.value)
+    assert "edit_file returned the same result 3 times in a row." in msg
+    assert "old_string may match multiple locations" in msg
+    assert "unique line above or below" in msg
+
+
+def test_edit_file_guardrail_enriches_same_result_partial():
+    """The 'same result' substring match works on any variant phrasing."""
+    cap = EditFileGuardrailAsRetry()
+    original = ModelRetry(
+        "The tool edit_file produced the same result after several attempts."
+    )
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.on_tool_execute_error(
+            None,
+            call=_edit_call(),
+            tool_def=None,
+            args={},
+            error=original,
+        ))
+    msg = str(exc.value)
+    assert "same result" in msg
+    assert "old_string may match multiple locations" in msg
+
+
+def test_edit_file_guardrail_wired_into_build_deep_agent_capabilities(monkeypatch):
+    """EditFileGuardrailAsRetry is registered before ToolErrorAsRetry."""
+    import cai.agents.loader as loader
+
+    captured: dict = {}
+
+    def fake_create_deep_agent(model, **kwargs):
+        captured["capabilities"] = kwargs.get("capabilities")
+        return object()
+
+    monkeypatch.setattr(
+        "pydantic_deep.create_deep_agent", fake_create_deep_agent
+    )
+    monkeypatch.setattr(loader, "build_model", lambda config: object())
+    monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
+
+    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    loader.build_deep_agent(config, "instructions")
+
+    cap_types = [type(c).__name__ for c in captured["capabilities"]]
+    assert "EditFileGuardrailAsRetry" in cap_types
+    # Must appear before ToolErrorAsRetry so it sees ModelRetry first
+    edit_idx = cap_types.index("EditFileGuardrailAsRetry")
+    tool_err_idx = cap_types.index("ToolErrorAsRetry")
+    assert edit_idx < tool_err_idx, (
+        "EditFileGuardrailAsRetry must be before ToolErrorAsRetry"
+    )
 
 
 def test_grep_guardrail_passes_through_non_grep_tool():
