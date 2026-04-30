@@ -59,8 +59,9 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
         )
         issue = bot.repo(meta.repo).get_issue(meta.number)
         labels = [lbl.name for lbl in issue.labels if lbl.name != "cai:raised"]
-        outcome = "cai:pr-ready" if state.pr_url else "cai:failed"
-        labels.append(outcome)
+        if not (state.refine_output and state.refine_output.sub_issues):
+            outcome = "cai:pr-ready" if state.pr_url else "cai:failed"
+            labels.append(outcome)
         issue.edit(labels=labels)
         state.new_meta.labels = labels
     if state.pr_number is not None:
