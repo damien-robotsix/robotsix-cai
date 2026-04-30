@@ -16,10 +16,10 @@ class LangfuseTraces:
         self._client: Any = None
 
     @property
-    def client(self):
+    def client(self) -> Any:
         if self._client is None:
             if not (os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")):
-                raise EnvironmentError("LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY must be set")
+                raise OSError("LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY must be set")
             from langfuse import Langfuse
             kwargs: dict = {
                 "public_key": os.environ["LANGFUSE_PUBLIC_KEY"],
@@ -38,11 +38,9 @@ class LangfuseTraces:
         since: str | None = None,
     ) -> list[dict]:
         """Return recent traces as dicts with id, name, timestamp, cost, latency."""
-        kwargs: dict = {"limit": limit, "page": 1}
+        kwargs = _build_list_kwargs(limit, since)
         if workflow:
             kwargs["name"] = workflow
-        if since:
-            kwargs["from_timestamp"] = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
         result = self.client.api.trace.list(**kwargs)
         traces = result.data if hasattr(result, "data") else list(result)
         return [_format_trace(t) for t in traces]
@@ -89,9 +87,7 @@ class LangfuseTraces:
         """
         from collections import defaultdict
 
-        kwargs: dict = {"limit": limit, "page": 1}
-        if since:
-            kwargs["from_timestamp"] = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
+        kwargs = _build_list_kwargs(limit, since)
         result = self.client.api.trace.list(**kwargs)
         traces = result.data if hasattr(result, "data") else list(result)
 
@@ -185,9 +181,7 @@ class LangfuseTraces:
 
     def list_failures(self, limit: int = 50, since: str | None = None) -> list[dict]:
         """Return traces that contain error-level observations."""
-        kwargs: dict = {"limit": limit, "page": 1}
-        if since:
-            kwargs["from_timestamp"] = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
+        kwargs = _build_list_kwargs(limit, since)
         result = self.client.api.trace.list(**kwargs)
         traces = result.data if hasattr(result, "data") else list(result)
 
@@ -209,6 +203,14 @@ class LangfuseTraces:
 
 
 # --- helpers -----------------------------------------------------------------
+
+def _build_list_kwargs(limit: int, since: str | None = None) -> dict:
+    """Build kwargs dict for ``client.api.trace.list`` calls."""
+    kwargs: dict = {"limit": limit, "page": 1}
+    if since:
+        kwargs["from_timestamp"] = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
+    return kwargs
+
 
 def _format_trace(t):
     return {
