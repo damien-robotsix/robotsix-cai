@@ -123,8 +123,7 @@ missing, and why it matters>
 3. ...
 
 ### Verification
-<how to confirm each step worked: "run X", "grep for Y", "check that
-file Z looks like ...">
+<how to confirm each step worked: "run X", "check that modified file Z looks like ...">
 
 ### Scope guardrails
 <what NOT to touch; what is out of scope for this change>

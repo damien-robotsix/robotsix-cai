@@ -25,3 +25,7 @@ def test_refine_agent_config():
     # Assert instructions
     assert "web_search" in instructions
     assert "web_fetch" in instructions
+    
+    # Assert verification template updates
+    assert "grep for Y" not in instructions
+    assert "check that modified file Z looks like" in instructions
