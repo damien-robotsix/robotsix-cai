@@ -18,6 +18,7 @@ from cai.git import (
     rebase_continue,
     rebase_in_progress,
     rebase_onto,
+    rev_parse,
     stage_all,
 )
 
@@ -172,3 +173,15 @@ def test_current_rebase_step_returns_none_outside_rebase(tmp_path):
     repo_root = tmp_path / "repo"
     _init(repo_root)
     assert current_rebase_step(repo_root) is None
+
+
+def test_rev_parse_resolves_refs(tmp_path):
+    repo_root = tmp_path / "repo"
+    repo = _init(repo_root)
+    seed_sha = repo.head.commit.hexsha
+    _commit_on_branch(repo, "feature", "b.txt", "feature\n", "add b")
+    feature_sha = repo.head.commit.hexsha
+
+    assert rev_parse(repo_root, "HEAD") == feature_sha
+    assert rev_parse(repo_root, "main") == seed_sha
+    assert rev_parse(repo_root, "feature") == feature_sha

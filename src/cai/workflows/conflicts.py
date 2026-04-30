@@ -10,6 +10,10 @@ The flow is implemented as a ``pydantic_graph.Graph``:
   (skipped when the rebase needed no agent involvement).
 * ``PushNode`` — force-pushes the head branch so the PR's diff view shows
   head-vs-base only, without a noisy merge commit.
+* ``ObsoleteNode`` — taken when the rebase consumes every commit (because
+  each one's change was already on base).  The PR is closed with a comment
+  and labelled ``cai:obsolete``; the branch is **not** force-pushed,
+  preserving the original commits behind the closed PR.
 
 If the rebase or sanity tests fail, the workflow raises immediately with
 a clear error so the failure is visible rather than silently falling back
@@ -43,10 +47,11 @@ from cai.git import (
     rebase_in_progress,
     rebase_onto,
     rebase_skip,
+    rev_parse,
     stage_all,
 )
 from cai.github.bot import CaiBot
-from cai.github.labels import set_label
+from cai.github.labels import LabelSpec, ensure_labels, set_label
 from cai.github.repo import (
     PRWorkspace,
     is_pull_request,
@@ -287,7 +292,7 @@ class RebaseLoopNode(BaseNode[ConflictsState, None, dict]):
 
     async def run(
         self, ctx: GraphRunContext[ConflictsState]
-    ) -> "SanityTestNode | PushNode":
+    ) -> "SanityTestNode | PushNode | ObsoleteNode":
         ws = ctx.state.workspace
         # _rebase_loop is sync because it owns its own asyncio.run() to keep
         # all resolve_step agent calls in one event loop. Bridge across the
@@ -301,6 +306,15 @@ class RebaseLoopNode(BaseNode[ConflictsState, None, dict]):
                 "The resolve_step agent could not clear all conflict markers. "
                 "Manual intervention required."
             )
+        # Every commit was empty after rebase: all PR changes are already on
+        # base.  Force-pushing now would point the head branch at base's tip
+        # and GitHub would auto-close the PR with an empty diff, throwing away
+        # the original commits.  Route to ObsoleteNode instead.
+        head_sha = rev_parse(ws.repo_root, "HEAD")
+        base_sha = rev_parse(ws.repo_root, f"origin/{ws.base_branch}")
+        if head_sha == base_sha:
+            ctx.state.mode = "obsolete"
+            return ObsoleteNode()
         ctx.state.touched = touched
         if not touched:
             ctx.state.mode = "clean"
@@ -334,8 +348,42 @@ class PushNode(BaseNode[ConflictsState, None, dict]):
         )
 
 
+class ObsoleteNode(BaseNode[ConflictsState, None, dict]):
+    """Close the PR cleanly when its changes are already on base.
+
+    No force-push: that would reset the head branch to base's tip and GitHub
+    would auto-close the PR with an empty diff.  Instead, post a comment
+    explaining the state, label ``cai:obsolete``, and close the PR while
+    keeping the original commits referenced by the closed PR's history.
+    """
+
+    async def run(self, ctx: GraphRunContext[ConflictsState]) -> End[dict]:
+        bot = ctx.state.bot
+        ws = ctx.state.workspace
+        ensure_labels(
+            bot,
+            ws.repo,
+            [
+                LabelSpec(
+                    name="cai:obsolete",
+                    color="cccccc",
+                    description="PR changes already landed on base; nothing to merge",
+                ),
+            ],
+        )
+        issue = bot.repo(ws.repo).get_issue(ws.number)
+        issue.create_comment(
+            f"Closing as obsolete: every commit on `{ws.head_branch}` is "
+            f"already present on `{ws.base_branch}` after rebase, so this "
+            "PR has nothing left to merge."
+        )
+        set_label(bot, ws.repo, ws.number, "cai:obsolete", present=True)
+        issue.edit(state="closed")
+        return End({"mode": "obsolete", "conflicted_files": []})
+
+
 conflicts_graph: Graph[ConflictsState, None, dict] = Graph(
-    nodes=[RebaseLoopNode, SanityTestNode, PushNode]
+    nodes=[RebaseLoopNode, SanityTestNode, PushNode, ObsoleteNode]
 )
 
 
@@ -347,6 +395,8 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
     * ``"clean"`` — rebase finished with no agent involvement.
     * ``"rebased"`` — rebase finished, agent resolved one or more steps,
       sanity tests pass, branch force-pushed.
+    * ``"obsolete"`` — every commit was already on base after rebase; PR
+      closed with a comment, branch left untouched.
 
     Raises ``RuntimeError`` if the rebase loop fails (e.g. resolve_step
     could not clear all markers) or if sanity tests fail after the rebase.
@@ -367,7 +417,10 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
             session_id=session_id_for_pr(workspace.number, workspace.head_branch),
         ):
             result = await conflicts_graph.run(RebaseLoopNode(), state=state)
-        set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=True)
+        if result.output.get("mode") != "obsolete":
+            set_label(
+                bot, workspace.repo, workspace.number, "cai:human-review", present=True
+            )
         return result.output
 
     return asyncio.run(_drive())

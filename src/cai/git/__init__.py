@@ -18,6 +18,7 @@ from .ops import (
     rebase_in_progress,
     rebase_onto,
     rebase_skip,
+    rev_parse,
     stage_all,
 )
 
@@ -36,6 +37,7 @@ __all__ = [
     "rebase_in_progress",
     "rebase_onto",
     "rebase_skip",
+    "rev_parse",
     "set_local",
     "stage_all",
     "unset_all_local",

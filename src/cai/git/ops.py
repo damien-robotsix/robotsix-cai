@@ -154,6 +154,11 @@ def rebase_abort(repo_root: Path) -> None:
     Repo(str(repo_root)).git.rebase("--abort")
 
 
+def rev_parse(repo_root: Path, ref: str) -> str:
+    """Return the SHA that ``ref`` resolves to in ``repo_root``."""
+    return Repo(str(repo_root)).git.rev_parse(ref)
+
+
 def rebase_in_progress(repo_root: Path) -> bool:
     """Return True when git is mid-rebase (either rebase-merge or rebase-apply)."""
     git_dir = Path(repo_root) / ".git"

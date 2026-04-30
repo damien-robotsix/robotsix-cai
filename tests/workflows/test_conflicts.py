@@ -87,13 +87,15 @@ def test_strip_orphaned_markers_leaves_clean_files_alone(tmp_path: Path):
     assert f.read_text() == content
 
 
+@patch("cai.workflows.conflicts.rev_parse")
 @patch("cai.workflows.conflicts.langfuse_workflow")
 @patch("cai.workflows.conflicts.push_branch")
 @patch("cai.workflows.conflicts._rebase_loop")
 def test_solve_conflicts_clean_rebase_skips_tests_and_implement(
-    mock_loop, mock_push, mock_langfuse, workspace
+    mock_loop, mock_push, mock_langfuse, mock_rev_parse, workspace
 ):
     mock_loop.return_value = (True, [])  # rebase no-op (no conflicts touched)
+    mock_rev_parse.side_effect = lambda root, ref: "head" if ref == "HEAD" else "base"
     bot = MagicMock()
     bot.token_for.return_value = "tok"
 
@@ -103,15 +105,17 @@ def test_solve_conflicts_clean_rebase_skips_tests_and_implement(
     mock_push.assert_called_once()
 
 
+@patch("cai.workflows.conflicts.rev_parse")
 @patch("cai.workflows.conflicts.langfuse_workflow")
 @patch("cai.workflows.conflicts._run_tests")
 @patch("cai.workflows.conflicts.push_branch")
 @patch("cai.workflows.conflicts._rebase_loop")
 def test_solve_conflicts_resolved_pushes_when_tests_pass(
-    mock_loop, mock_push, mock_run_tests, mock_langfuse, workspace
+    mock_loop, mock_push, mock_run_tests, mock_langfuse, mock_rev_parse, workspace
 ):
     mock_loop.return_value = (True, ["src/a.py"])
     mock_run_tests.return_value = (True, "")
+    mock_rev_parse.side_effect = lambda root, ref: "head" if ref == "HEAD" else "base"
     bot = MagicMock()
     bot.token_for.return_value = "tok"
 
@@ -122,15 +126,17 @@ def test_solve_conflicts_resolved_pushes_when_tests_pass(
     mock_push.assert_called_once()
 
 
+@patch("cai.workflows.conflicts.rev_parse")
 @patch("cai.workflows.conflicts.langfuse_workflow")
 @patch("cai.workflows.conflicts._run_tests")
 @patch("cai.workflows.conflicts.push_branch")
 @patch("cai.workflows.conflicts._rebase_loop")
 def test_solve_conflicts_raises_when_tests_fail(
-    mock_loop, mock_push, mock_run_tests, mock_langfuse, workspace
+    mock_loop, mock_push, mock_run_tests, mock_langfuse, mock_rev_parse, workspace
 ):
     mock_loop.return_value = (True, ["src/a.py"])
     mock_run_tests.return_value = (False, "FAILED tests/test_a.py::test_x")
+    mock_rev_parse.side_effect = lambda root, ref: "head" if ref == "HEAD" else "base"
     bot = MagicMock()
     bot.token_for.return_value = "tok"
 
@@ -138,6 +144,45 @@ def test_solve_conflicts_raises_when_tests_fail(
         solve_conflicts(bot, workspace)
 
     mock_push.assert_not_called()
+
+
+@patch("cai.workflows.conflicts.ensure_labels")
+@patch("cai.workflows.conflicts.rev_parse")
+@patch("cai.workflows.conflicts.langfuse_workflow")
+@patch("cai.workflows.conflicts.push_branch")
+@patch("cai.workflows.conflicts._rebase_loop")
+def test_solve_conflicts_obsolete_when_head_equals_base(
+    mock_loop,
+    mock_push,
+    mock_langfuse,
+    mock_rev_parse,
+    mock_ensure_labels,
+    workspace,
+):
+    # Rebase consumed every commit (each was already on base).  The graph
+    # must close the PR with a comment and skip the destructive force-push.
+    mock_loop.return_value = (True, [])
+    mock_rev_parse.return_value = "same-sha"
+    bot = MagicMock()
+    bot.token_for.return_value = "tok"
+
+    result = solve_conflicts(bot, workspace)
+
+    assert result == {"mode": "obsolete", "conflicted_files": []}
+    mock_push.assert_not_called()
+
+    issue = bot.repo.return_value.get_issue.return_value
+    issue.create_comment.assert_called_once()
+    comment_body = issue.create_comment.call_args.args[0]
+    assert "obsolete" in comment_body.lower()
+    assert workspace.head_branch in comment_body
+    assert workspace.base_branch in comment_body
+    issue.edit.assert_called_once_with(state="closed")
+
+    # cai:obsolete is added; cai:human-review is NOT added back to a closed PR.
+    add_calls = issue.add_to_labels.call_args_list
+    assert any(c.args == ("cai:obsolete",) for c in add_calls)
+    assert not any(c.args == ("cai:human-review",) for c in add_calls)
 
 
 @patch("cai.workflows.conflicts.langfuse_workflow")

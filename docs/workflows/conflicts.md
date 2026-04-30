@@ -19,6 +19,8 @@ title: conflicts_graph
 stateDiagram-v2
   RebaseLoopNode --> SanityTestNode
   RebaseLoopNode --> PushNode
+  RebaseLoopNode --> ObsoleteNode
   SanityTestNode --> PushNode
   PushNode --> [*]
+  ObsoleteNode --> [*]
 ```
