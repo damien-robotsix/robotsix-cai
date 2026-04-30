@@ -1,7 +1,7 @@
 ---
 name: refine
 description: Rewrite a human-filed GitHub issue into a structured, actionable plan.
-model: anthropic/claude-sonnet-4-6
+model: deepseek/deepseek-v4-pro
 tools:
   - filesystem
   - subagents

@@ -1,7 +1,7 @@
 ---
 name: test_writer
 description: Writes and updates pytest unit tests for features implemented in a local repository. Tests must never call LLM APIs or require external services.
-model: google/gemini-3.1-pro-preview
+model: deepseek/deepseek-v4-pro
 tools:
   - filesystem
 ---

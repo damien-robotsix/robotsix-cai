@@ -1,7 +1,7 @@
 ---
 name: implement
 description: Implements code changes to resolve a GitHub issue or address PR review threads in a local repository.
-model: anthropic/claude-sonnet-4-6
+model: deepseek/deepseek-v4-pro
 tools:
   - filesystem
   - move_file

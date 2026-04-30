@@ -8,7 +8,7 @@ def test_audit_agent_config():
     
     # Assert basics
     assert config["name"] == "audit"
-    assert config["model"] == "google/gemini-3.1-pro-preview"
+    assert config["model"] == "deepseek/deepseek-v4-pro"
     
     # Assert expected tools
     tools = config.get("tools", [])
@@ -31,7 +31,7 @@ def test_issue_deduplicator_agent_config():
     
     # Assert basics
     assert config["name"] == "Issue Deduplicator"
-    assert config["model"] == "anthropic/claude-haiku-4-5"
+    assert config["model"] == "deepseek/deepseek-v4-flash"
     # Assert description
     assert "description" in config
     assert "duplicate" in config["description"].lower()

@@ -1,7 +1,7 @@
 ---
 name: audit
 description: Analyzes pre-fetched Langfuse trace context to identify workflow inefficiencies, failure patterns, and cost drivers, then proposes concrete improvements.
-model: google/gemini-3.1-pro-preview
+model: deepseek/deepseek-v4-pro
 tools:
   - subagents
 subagents:

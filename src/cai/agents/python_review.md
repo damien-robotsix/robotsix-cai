@@ -1,7 +1,7 @@
 ---
 name: python_review
 description: Reviews changed Python files for quality, correctness, and Pythonic standards. Fixes issues in place and commits the result.
-model: google/gemini-3.1-pro-preview
+model: deepseek/deepseek-v4-pro
 tools:
   - filesystem
 ---

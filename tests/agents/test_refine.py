@@ -8,7 +8,7 @@ def test_refine_agent_config():
     
     # Assert basics
     assert config["name"] == "refine"
-    assert config["model"] == "anthropic/claude-sonnet-4-6"
+    assert config["model"] == "deepseek/deepseek-v4-pro"
     
     # Assert expected tools
     tools = config.get("tools", [])

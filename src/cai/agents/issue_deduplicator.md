@@ -1,7 +1,7 @@
 ---
 name: Issue Deduplicator
 description: Deduplicates proposed issues against open issues.
-model: anthropic/claude-haiku-4-5
+model: deepseek/deepseek-v4-flash
 ---
 
 

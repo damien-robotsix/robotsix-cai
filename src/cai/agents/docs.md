@@ -1,7 +1,7 @@
 ---
 name: docs
 description: Reviews implementation changes and updates documentation in the docs/ folder.
-model: google/gemini-3.1-pro-preview
+model: deepseek/deepseek-v4-pro
 tools:
   - filesystem
 ---

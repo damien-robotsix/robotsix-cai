@@ -1,7 +1,7 @@
 ---
 name: duplication_auditor
 description: Reviews jscpd copy-paste findings and proposes GitHub issues for duplications worth refactoring.
-model: google/gemini-3.1-pro-preview
+model: deepseek/deepseek-v4-pro
 tools:
   - filesystem_read
 ---
