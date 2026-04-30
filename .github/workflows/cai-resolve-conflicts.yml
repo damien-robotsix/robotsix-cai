@@ -70,6 +70,9 @@ jobs:
       cancel-in-progress: true
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Stage cai config for container
         uses: ./.github/actions/setup-cai
         with:
