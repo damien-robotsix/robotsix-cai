@@ -13,6 +13,7 @@ from git import Actor, Repo
 from cai.git import (
     conflicted_paths,
     current_rebase_step,
+    index_matches_head,
     merge_no_commit,
     rebase_abort,
     rebase_continue,
@@ -185,3 +186,27 @@ def test_rev_parse_resolves_refs(tmp_path):
     assert rev_parse(repo_root, "HEAD") == feature_sha
     assert rev_parse(repo_root, "main") == seed_sha
     assert rev_parse(repo_root, "feature") == feature_sha
+
+
+def test_index_matches_head(tmp_path):
+    """``index_matches_head`` is True iff the staged tree equals HEAD."""
+    repo_root = tmp_path / "repo"
+    repo = _init(repo_root)
+
+    # Fresh repo: index matches HEAD.
+    assert index_matches_head(repo_root) is True
+
+    # Untracked file: still matches (not staged).
+    (repo_root / "u.txt").write_text("u\n")
+    assert index_matches_head(repo_root) is True
+
+    # Staged change: no longer matches.
+    repo.index.add(["u.txt"])
+    assert index_matches_head(repo_root) is False
+
+    # Modify-and-stage on a tracked file also flips the result.
+    repo.index.commit("add u")
+    assert index_matches_head(repo_root) is True
+    (repo_root / "u.txt").write_text("u2\n")
+    repo.git.add("u.txt")
+    assert index_matches_head(repo_root) is False

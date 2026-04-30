@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from cai.github.repo import PRWorkspace
 from cai.workflows.conflicts import (
     _has_conflict_markers,
+    _rebase_loop_async,
     _step_prompt,
     _strip_orphaned_markers,
     solve_conflicts,
@@ -215,3 +217,97 @@ def test_solve_conflicts_aborts_rebase_before_raising(
         solve_conflicts(bot, workspace)
 
     mock_abort.assert_called_once_with(workspace.repo_root)
+
+
+@patch("cai.workflows.conflicts._run_resolve_step", new_callable=AsyncMock)
+@patch("cai.workflows.conflicts.rebase_skip")
+@patch("cai.workflows.conflicts.index_matches_head")
+@patch("cai.workflows.conflicts.rebase_continue")
+@patch("cai.workflows.conflicts.stage_all")
+@patch("cai.workflows.conflicts._has_conflict_markers")
+@patch("cai.workflows.conflicts._strip_orphaned_markers")
+@patch("cai.workflows.conflicts.conflicted_paths")
+@patch("cai.workflows.conflicts.current_rebase_step")
+@patch("cai.workflows.conflicts.rebase_onto")
+@patch("cai.workflows.conflicts.rebase_abort")
+@patch("cai.workflows.conflicts.fetch")
+def test_rebase_loop_aborts_on_hook_failure(
+    mock_fetch,
+    mock_abort,
+    mock_onto,
+    mock_step,
+    mock_conflicts,
+    mock_strip,
+    mock_has_markers,
+    mock_stage,
+    mock_continue,
+    mock_index_matches,
+    mock_skip,
+    mock_resolve,
+    workspace,
+):
+    """rebase_continue paused with staged changes ⇒ abort, not silent skip.
+
+    Regression for the obsolete-misclassification bug where a pre-commit
+    hook failure (or any non-empty pause) was treated as ``--skip``-able
+    and silently dropped the commit.
+    """
+    mock_onto.return_value = False
+    mock_step.return_value = {"sha": "abcd1234", "subject": "x", "diff": ""}
+    # First call: at the conflict pause; second call: post-stage_all check
+    # in the new branch (must be empty so we reach index_matches_head).
+    mock_conflicts.side_effect = [["a.txt"], []]
+    mock_has_markers.return_value = False
+    mock_continue.return_value = False
+    mock_index_matches.return_value = False  # ← non-empty staged tree
+
+    ok, touched = asyncio.run(_rebase_loop_async(workspace))
+
+    assert ok is False
+    assert touched == ["a.txt"]
+    mock_skip.assert_not_called()
+    mock_abort.assert_called_once_with(workspace.repo_root)
+
+
+@patch("cai.workflows.conflicts._run_resolve_step", new_callable=AsyncMock)
+@patch("cai.workflows.conflicts.rebase_skip")
+@patch("cai.workflows.conflicts.index_matches_head")
+@patch("cai.workflows.conflicts.rebase_continue")
+@patch("cai.workflows.conflicts.stage_all")
+@patch("cai.workflows.conflicts._has_conflict_markers")
+@patch("cai.workflows.conflicts._strip_orphaned_markers")
+@patch("cai.workflows.conflicts.conflicted_paths")
+@patch("cai.workflows.conflicts.current_rebase_step")
+@patch("cai.workflows.conflicts.rebase_onto")
+@patch("cai.workflows.conflicts.rebase_abort")
+@patch("cai.workflows.conflicts.fetch")
+def test_rebase_loop_skips_genuinely_empty_commit(
+    mock_fetch,
+    mock_abort,
+    mock_onto,
+    mock_step,
+    mock_conflicts,
+    mock_strip,
+    mock_has_markers,
+    mock_stage,
+    mock_continue,
+    mock_index_matches,
+    mock_skip,
+    mock_resolve,
+    workspace,
+):
+    """When the cherry-pick is genuinely empty, ``--skip`` advances cleanly."""
+    mock_onto.return_value = False
+    mock_step.return_value = {"sha": "abcd1234", "subject": "x", "diff": ""}
+    mock_conflicts.side_effect = [["a.txt"], []]
+    mock_has_markers.return_value = False
+    mock_continue.return_value = False
+    mock_index_matches.return_value = True  # ← empty staged tree
+    mock_skip.return_value = True
+
+    ok, touched = asyncio.run(_rebase_loop_async(workspace))
+
+    assert ok is True
+    assert touched == ["a.txt"]
+    mock_skip.assert_called_once_with(workspace.repo_root)
+    mock_abort.assert_not_called()

@@ -35,6 +35,22 @@ def stage_all(repo_root: Path) -> None:
     Repo(str(repo_root)).git.add("-A")
 
 
+def index_matches_head(repo_root: Path) -> bool:
+    """Return True when the staged index is identical to ``HEAD``.
+
+    Used by the rebase loop to distinguish a genuinely empty cherry-pick
+    (every staged change is already on the new parent) from other
+    commit-time failures (pre-commit hooks, signing) that leave the
+    rebase paused with a non-empty staged tree.
+    """
+    repo = Repo(str(repo_root))
+    try:
+        repo.git.diff("--cached", "--quiet", "HEAD")
+        return True
+    except GitCommandError:
+        return False
+
+
 def commit(
     repo_root: Path,
     message: str,
@@ -119,14 +135,27 @@ def rebase_continue(repo_root: Path) -> bool:
     ``GIT_EDITOR=true`` short-circuits the editor invocation git would
     otherwise pop up to confirm the message; ``--no-edit`` alone is not
     accepted by older git versions.
+
+    On ``GitCommandError`` git's stderr is forwarded to the caller's
+    ``sys.stderr`` so the actual reason (empty cherry-pick, pre-commit
+    hook, signing failure, …) shows up in the workflow logs instead of
+    being silently swallowed.
     """
+    import sys
+
     repo = Repo(str(repo_root))
     try:
         with repo.git.custom_environment(GIT_EDITOR="true"):
             repo.git.rebase("--continue")
         return True
-    except GitCommandError:
+    except GitCommandError as exc:
         if rebase_in_progress(repo_root):
+            stderr = (exc.stderr or "").strip()
+            if stderr:
+                print(
+                    f"[rebase_continue] git stderr:\n{stderr}",
+                    file=sys.stderr,
+                )
             return False
         raise
 

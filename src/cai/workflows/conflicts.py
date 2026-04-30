@@ -41,6 +41,7 @@ from cai.git import (
     conflicted_paths,
     current_rebase_step,
     fetch,
+    index_matches_head,
     push_branch,
     rebase_abort,
     rebase_continue,
@@ -235,10 +236,23 @@ async def _rebase_loop_async(workspace: PRWorkspace) -> tuple[bool, list[str]]:
             rebase_abort(workspace.repo_root)
             return False, touched
 
-        # rebase_continue returned False but no conflicted paths means the
-        # commit became empty after resolution (its change was already in
-        # main).  Skip the empty commit so the rebase can advance.
+        # rebase_continue returned False — distinguish "cherry-pick is now
+        # empty" (every staged change was already on the new parent) from
+        # other commit-time failures (pre-commit hook, signing, …) that
+        # also leave the rebase paused but with a non-empty staged tree.
+        # Only ``--skip`` in the genuinely-empty case; otherwise abort and
+        # surface the failure rather than silently dropping the commit.
         if not finished and not conflicted_paths(workspace.repo_root):
+            if not index_matches_head(workspace.repo_root):
+                print(
+                    f"[rebase-loop] step {step_n}: rebase paused with staged "
+                    "changes but no merge conflicts — likely a commit hook or "
+                    "signing failure, not an empty cherry-pick. Aborting "
+                    "instead of skipping the commit.",
+                    file=sys.stderr,
+                )
+                rebase_abort(workspace.repo_root)
+                return False, touched
             print(
                 f"[rebase-loop] step {step_n}: empty commit after resolution, skipping",
                 file=sys.stderr,
