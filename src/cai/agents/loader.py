@@ -418,6 +418,7 @@ TOOL_FACTORIES: dict[str, str] = {
     "batch_delete": "cai.agents.fs_ops:BATCH_DELETE_TOOL",
     "conflict_list": "cai.agents.conflict_tools:CONFLICT_LIST_TOOL",
     "conflict_resolve": "cai.agents.conflict_tools:CONFLICT_RESOLVE_TOOL",
+    "raise_issue": "cai.agents.issue_tool:RAISE_ISSUE_TOOL",
     "traces_list": "cai.log.traces:TRACES_LIST_TOOL",
     "traces_show": "cai.log.traces:TRACES_SHOW_TOOL",
     "traces_failures": "cai.log.traces:TRACES_FAILURES_TOOL",
