@@ -1,7 +1,7 @@
 ---
 name: implement
 description: Implements code changes to resolve a GitHub issue or address PR review threads in a local repository.
-model: google/gemini-3.1-pro-preview
+model: anthropic/claude-sonnet-4-6
 tools:
   - filesystem
   - move_file

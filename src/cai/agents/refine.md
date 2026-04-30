@@ -1,7 +1,7 @@
 ---
 name: refine
 description: Rewrite a human-filed GitHub issue into a structured, actionable plan.
-model: google/gemini-3.1-pro-preview
+model: anthropic/claude-sonnet-4-6
 tools:
   - filesystem
   - subagents
