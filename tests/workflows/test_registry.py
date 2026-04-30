@@ -18,6 +18,7 @@ from cai.workflows.registry import (
     GitHubTrigger,
     WorkflowSpec,
     _audit_session_id,
+    _memory_audit_session_id,
     _solve_session_id,
     by_slug,
 )
@@ -58,6 +59,7 @@ def test_registry_covers_user_facing_cli_scripts():
         "audit": "cai-audit",
         "sourcing": "cai-sourcing",
         "conflicts": "cai-resolve-conflicts",
+        "memory-audit": "cai-memory-audit",
     }
     registered = {spec.slug for spec in WORKFLOWS}
     assert registered == set(expected), (
@@ -259,3 +261,29 @@ def test_conflicts_spec_trigger():
     spec = by_slug("conflicts")
     assert spec.github_trigger.kind == "workflow_run"
     assert spec.github_trigger.workflows == ["Publish Docker image"]
+
+
+def test_memory_audit_spec_trigger():
+    """The memory-audit workflow triggers on ``workflow_dispatch``."""
+    spec = by_slug("memory-audit")
+    assert spec.github_trigger.kind == "workflow_dispatch"
+    assert spec.github_trigger.label is None
+    assert spec.github_trigger.workflows is None
+
+
+def test_memory_audit_spec_fields():
+    """The memory-audit workflow spec has the expected slug, title, nav_order, and cli_entry."""
+    spec = by_slug("memory-audit")
+    assert spec.slug == "memory-audit"
+    assert spec.title == "cai-memory-audit"
+    assert spec.nav_order == 4
+    assert spec.cli_entry == "cai.workflows.memory_audit:main"
+    assert callable(spec.session_id)
+
+
+def test_memory_audit_session_id_format():
+    """Returns a string matching ``memory-audit-YYYYMMDD-HHMMSS``."""
+    import re
+
+    sid = _memory_audit_session_id()
+    assert re.match(r"^memory-audit-\d{8}-\d{6}$", sid), f"unexpected format: {sid!r}"
