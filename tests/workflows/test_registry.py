@@ -1,7 +1,7 @@
 """Tests for ``cai.workflows.registry``.
 
 Covers the invariants that downstream tooling (the docs generator, and
-later the CI YAML / session-id generators added by #1468) relies on.
+the CI YAML / session-id generators added by #1468) relies on.
 """
 from __future__ import annotations
 
@@ -16,9 +16,11 @@ from pydantic_graph import Graph
 from cai.workflows.registry import (
     WORKFLOWS,
     GitHubTrigger,
+    GitHubTriggerEvent,
     WorkflowSpec,
     _audit_session_id,
     _solve_session_id,
+    _sourcing_session_id,
     by_slug,
 )
 
@@ -58,6 +60,9 @@ def test_registry_covers_user_facing_cli_scripts():
         "audit": "cai-audit",
         "sourcing": "cai-sourcing",
         "conflicts": "cai-resolve-conflicts",
+        "solve-pr": "cai-solve",
+        "audit-duplication": "cai-audit",
+        "audit-errors": "cai-audit",
     }
     registered = {spec.slug for spec in WORKFLOWS}
     assert registered == set(expected), (
@@ -119,45 +124,149 @@ def test_each_spec_has_github_trigger():
         )
 
 
+# ── New field assertions ────────────────────────────────────────────────
+
+
+def test_each_spec_has_docker_command():
+    """Every spec must have a non-empty docker_command string."""
+    for spec in WORKFLOWS:
+        assert isinstance(spec.docker_command, str), (
+            f"{spec.slug}: docker_command is not a string"
+        )
+        assert spec.docker_command.strip(), (
+            f"{spec.slug}: docker_command is empty"
+        )
+
+
+def test_each_spec_has_permissions():
+    """Every spec must have a non-empty permissions dict."""
+    for spec in WORKFLOWS:
+        assert isinstance(spec.permissions, dict), (
+            f"{spec.slug}: permissions is not a dict"
+        )
+        assert len(spec.permissions) > 0, (
+            f"{spec.slug}: permissions dict is empty"
+        )
+        for key, value in spec.permissions.items():
+            assert isinstance(key, str), f"{spec.slug}: permission key {key!r} is not str"
+            assert isinstance(value, str), f"{spec.slug}: permission value {value!r} is not str"
+
+
+def test_each_spec_authorized_user_variant_is_valid():
+    """Every spec's authorized_user_variant must be one of the three valid values."""
+    valid = {"standard", "skip_bots", "none"}
+    for spec in WORKFLOWS:
+        assert spec.authorized_user_variant in valid, (
+            f"{spec.slug}: authorized_user_variant "
+            f"{spec.authorized_user_variant!r} not in {valid!r}"
+        )
+
+
+def test_each_spec_github_trigger_on_list_is_non_empty():
+    """Every spec's github_trigger.on list must have at least one event."""
+    for spec in WORKFLOWS:
+        assert len(spec.github_trigger.on) > 0, (
+            f"{spec.slug}: github_trigger.on list is empty"
+        )
+
+
+# ── GitHubTriggerEvent dataclass ────────────────────────────────────────
+
+
+def test_github_trigger_event_minimal_construction():
+    """GitHubTriggerEvent can be constructed with just ``event``."""
+    e = GitHubTriggerEvent(event="issues")
+    assert e.event == "issues"
+    assert e.types is None
+    assert e.branches is None
+    assert e.workflows is None
+    assert e.cron is None
+    assert e.inputs is None
+
+
+def test_github_trigger_event_full_construction():
+    """GitHubTriggerEvent accepts all optional fields."""
+    e = GitHubTriggerEvent(
+        event="workflow_run",
+        types=["completed"],
+        branches=["main"],
+        workflows=["Publish Docker image"],
+        cron=None,
+        inputs=None,
+    )
+    assert e.event == "workflow_run"
+    assert e.types == ["completed"]
+    assert e.branches == ["main"]
+    assert e.workflows == ["Publish Docker image"]
+
+
+def test_github_trigger_event_is_frozen():
+    """GitHubTriggerEvent is immutable."""
+    e = GitHubTriggerEvent(event="issues")
+    with pytest.raises(FrozenInstanceError):
+        e.event = "other"  # type: ignore[misc]
+
+
+def test_github_trigger_event_equality():
+    """GitHubTriggerEvent instances are compared by value."""
+    a = GitHubTriggerEvent(event="issues", types=["labeled"])
+    b = GitHubTriggerEvent(event="issues", types=["labeled"])
+    c = GitHubTriggerEvent(event="issues", types=["opened"])
+    assert a == b
+    assert a != c
+
+
 # ── GitHubTrigger dataclass ────────────────────────────────────────────
 
 
 def test_github_trigger_minimal_construction():
-    """GitHubTrigger can be constructed with just ``kind``."""
-    t = GitHubTrigger(kind="issue_label")
-    assert t.kind == "issue_label"
-    assert t.label is None
-    assert t.workflows is None
+    """GitHubTrigger can be constructed with just ``on``."""
+    t = GitHubTrigger(on=[GitHubTriggerEvent(event="issues")])
+    assert len(t.on) == 1
+    assert t.on[0].event == "issues"
+    assert t.job_if is None
 
 
 def test_github_trigger_full_construction():
-    """GitHubTrigger accepts all optional fields."""
-    t = GitHubTrigger(kind="workflow_run", label="cai:raised", workflows=["ci.yml"])
-    assert t.kind == "workflow_run"
-    assert t.label == "cai:raised"
-    assert t.workflows == ["ci.yml"]
+    """GitHubTrigger accepts the optional ``job_if`` field."""
+    t = GitHubTrigger(
+        on=[GitHubTriggerEvent(event="issues", types=["labeled"])],
+        job_if="github.event.label.name == 'cai:raised'",
+    )
+    assert len(t.on) == 1
+    assert t.job_if == "github.event.label.name == 'cai:raised'"
 
 
-def test_github_trigger_explicit_none_fields():
-    """GitHubTrigger accepts explicit ``None`` for optional fields."""
-    t = GitHubTrigger(kind="workflow_dispatch", label=None, workflows=None)
-    assert t.kind == "workflow_dispatch"
-    assert t.label is None
-    assert t.workflows is None
+def test_github_trigger_explicit_none_job_if():
+    """GitHubTrigger accepts explicit ``None`` for job_if."""
+    t = GitHubTrigger(
+        on=[GitHubTriggerEvent(event="workflow_dispatch")],
+        job_if=None,
+    )
+    assert t.job_if is None
 
 
 def test_github_trigger_is_frozen():
     """GitHubTrigger is immutable."""
-    t = GitHubTrigger(kind="workflow_dispatch")
+    t = GitHubTrigger(on=[GitHubTriggerEvent(event="workflow_dispatch")])
     with pytest.raises(FrozenInstanceError):
-        t.kind = "other"  # type: ignore[misc]
+        t.on = []  # type: ignore[misc]
 
 
 def test_github_trigger_equality():
     """GitHubTrigger instances are compared by value."""
-    a = GitHubTrigger(kind="issue_label", label="cai:raised")
-    b = GitHubTrigger(kind="issue_label", label="cai:raised")
-    c = GitHubTrigger(kind="issue_label", label="other")
+    a = GitHubTrigger(
+        on=[GitHubTriggerEvent(event="issues", types=["labeled"])],
+        job_if="github.event.label.name == 'cai:raised'",
+    )
+    b = GitHubTrigger(
+        on=[GitHubTriggerEvent(event="issues", types=["labeled"])],
+        job_if="github.event.label.name == 'cai:raised'",
+    )
+    c = GitHubTrigger(
+        on=[GitHubTriggerEvent(event="issues", types=["labeled"])],
+        job_if="other",
+    )
     assert a == b
     assert a != c
 
@@ -173,8 +282,8 @@ def test_workflow_spec_is_frozen():
 
 
 def test_workflow_spec_construction():
-    """WorkflowSpec can be constructed directly with all seven fields."""
-    trigger = GitHubTrigger(kind="workflow_dispatch")
+    """WorkflowSpec can be constructed directly with all required fields."""
+    trigger = GitHubTrigger(on=[GitHubTriggerEvent(event="workflow_dispatch")])
 
     def _dummy_session() -> str:
         return "sess-1"
@@ -188,6 +297,8 @@ def test_workflow_spec_construction():
         cli_entry="cai.workflows.solve:main",
         session_id=_dummy_session,
         github_trigger=trigger,
+        docker_command="cai-test",
+        permissions={"contents": "read"},
     )
     assert spec.slug == "test-wf"
     assert spec.title == "Test Workflow"
@@ -198,6 +309,10 @@ def test_workflow_spec_construction():
     assert callable(spec.session_id)
     assert spec.session_id() == "sess-1"
     assert spec.github_trigger is trigger
+    assert spec.docker_command == "cai-test"
+    assert spec.permissions == {"contents": "read"}
+    assert spec.concurrency_group is None
+    assert spec.authorized_user_variant == "standard"
 
 
 # ── _solve_session_id helper ───────────────────────────────────────────
@@ -238,24 +353,114 @@ def test_audit_session_id_format():
     assert re.match(r"^audit-\d{8}-\d{6}$", sid), f"unexpected format: {sid!r}"
 
 
+# ── _sourcing_session_id helper ─────────────────────────────────────────
+
+
+def test_sourcing_session_id_format():
+    """Returns a string matching ``sourcing-YYYYMMDD-HHMMSS``."""
+    import re
+
+    sid = _sourcing_session_id()
+    assert re.match(r"^sourcing-\d{8}-\d{6}$", sid), f"unexpected format: {sid!r}"
+
+
 # ── Specific workflow field assertions ─────────────────────────────────
 
 
 def test_solve_spec_trigger():
-    """The solve workflow triggers on ``issue_label`` ``cai:raised``."""
+    """The solve workflow triggers on ``issues`` ``labeled`` with a job_if."""
     spec = by_slug("solve")
-    assert spec.github_trigger.kind == "issue_label"
-    assert spec.github_trigger.label == "cai:raised"
+    assert len(spec.github_trigger.on) == 1
+    assert spec.github_trigger.on[0].event == "issues"
+    assert spec.github_trigger.on[0].types == ["labeled"]
+    assert spec.github_trigger.job_if == "github.event.label.name == 'cai:raised'"
 
 
 def test_audit_spec_trigger():
-    """The audit workflow triggers on ``workflow_dispatch``."""
+    """The audit workflow triggers on ``workflow_dispatch`` with inputs."""
     spec = by_slug("audit")
-    assert spec.github_trigger.kind == "workflow_dispatch"
+    assert len(spec.github_trigger.on) == 1
+    assert spec.github_trigger.on[0].event == "workflow_dispatch"
+    assert spec.github_trigger.on[0].inputs is not None
+    assert "mode" in spec.github_trigger.on[0].inputs
 
 
 def test_conflicts_spec_trigger():
-    """The conflicts workflow triggers on ``workflow_run`` with a dependency list."""
+    """The conflicts workflow triggers on ``workflow_run`` and ``workflow_dispatch``."""
     spec = by_slug("conflicts")
-    assert spec.github_trigger.kind == "workflow_run"
-    assert spec.github_trigger.workflows == ["Publish Docker image"]
+    events = {e.event for e in spec.github_trigger.on}
+    assert events == {"workflow_run", "workflow_dispatch"}
+    run_evt = next(e for e in spec.github_trigger.on if e.event == "workflow_run")
+    assert run_evt.workflows == ["Publish Docker image"]
+    assert run_evt.types == ["completed"]
+    assert run_evt.branches == ["main"]
+
+
+def test_solve_spec_fields():
+    """The solve workflow has the expected docker_command, permissions, etc."""
+    spec = by_slug("solve")
+    assert spec.docker_command == "cai-solve ${{ github.repository }}#${{ github.event.issue.number }}"
+    assert spec.permissions == {"contents": "write", "issues": "write"}
+    assert spec.concurrency_group == "cai-solve-${{ github.event.issue.number }}"
+    assert spec.authorized_user_variant == "standard"
+
+
+def test_audit_spec_fields():
+    """The audit workflow has the expected docker_command, permissions, etc."""
+    spec = by_slug("audit")
+    assert "cai-audit --repo" in spec.docker_command
+    assert spec.permissions == {"contents": "read"}
+    assert spec.concurrency_group is None
+    assert spec.authorized_user_variant == "none"
+
+
+def test_sourcing_spec_trigger():
+    """The sourcing workflow triggers on ``schedule`` and ``workflow_dispatch``."""
+    spec = by_slug("sourcing")
+    events = {e.event for e in spec.github_trigger.on}
+    assert events == {"schedule", "workflow_dispatch"}
+    schedule_evt = next(e for e in spec.github_trigger.on if e.event == "schedule")
+    assert schedule_evt.cron == "0 8 1 * *"
+
+
+def test_solve_pr_spec_trigger():
+    """The solve-pr workflow triggers on ``pull_request_review`` ``submitted``."""
+    spec = by_slug("solve-pr")
+    assert len(spec.github_trigger.on) == 1
+    assert spec.github_trigger.on[0].event == "pull_request_review"
+    assert spec.github_trigger.on[0].types == ["submitted"]
+    assert spec.github_trigger.job_if == "github.event.review.state == 'changes_requested'"
+
+
+def test_solve_pr_spec_fields():
+    """The solve-pr workflow has skip_bots auth and PR-oriented fields."""
+    spec = by_slug("solve-pr")
+    assert spec.docker_command == "cai-solve ${{ github.repository }}#${{ github.event.pull_request.number }}"
+    assert spec.permissions == {"contents": "write", "pull-requests": "write"}
+    assert spec.authorized_user_variant == "skip_bots"
+
+
+def test_audit_duplication_spec_trigger():
+    """The audit-duplication workflow triggers on ``workflow_dispatch`` and ``push``."""
+    spec = by_slug("audit-duplication")
+    events = {e.event for e in spec.github_trigger.on}
+    assert events == {"workflow_dispatch", "push"}
+    push_evt = next(e for e in spec.github_trigger.on if e.event == "push")
+    assert push_evt.branches == ["main"]
+
+
+def test_audit_errors_spec_trigger():
+    """The audit-errors workflow triggers on ``issues`` ``labeled`` with a job_if."""
+    spec = by_slug("audit-errors")
+    assert len(spec.github_trigger.on) == 1
+    assert spec.github_trigger.on[0].event == "issues"
+    assert spec.github_trigger.on[0].types == ["labeled"]
+    assert "cai:failed" in spec.github_trigger.job_if
+
+
+def test_audit_errors_spec_fields():
+    """The audit-errors workflow uses errors mode and no auth check."""
+    spec = by_slug("audit-errors")
+    assert '--mode errors' in spec.docker_command
+    assert spec.permissions == {"contents": "read"}
+    assert spec.authorized_user_variant == "none"

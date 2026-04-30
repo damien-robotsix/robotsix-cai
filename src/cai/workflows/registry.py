@@ -2,9 +2,8 @@
 
 Each user-facing ``cai-*`` CLI is implemented as a ``pydantic_graph.Graph``.
 This module collects the metadata downstream tooling needs (docs page
-slug, nav order, mermaid graph) so the docs generator and any future code
-generator (CI YAML, session-id strategy, …) all read from one place
-instead of duplicating it.
+slug, nav order, mermaid graph, CI YAML generator) so the docs generator
+and the CI YAML generator all read from one place instead of duplicating it.
 
 Every field on every entry is populated so that downstream tooling
 (docs, CI YAML, session-id generation, GitHub event routing) has a
@@ -26,10 +25,28 @@ from cai.workflows.sourcing import sourcing_graph
 
 
 @dataclass(frozen=True)
-class GitHubTrigger:
-    kind: str
-    label: str | None = None
+class GitHubTriggerEvent:
+    """A single trigger event within a workflow's ``on:`` block."""
+
+    event: str
+    types: list[str] | None = None
+    branches: list[str] | None = None
     workflows: list[str] | None = None
+    cron: str | None = None
+    inputs: dict[str, dict[str, object]] | None = None
+
+
+@dataclass(frozen=True)
+class GitHubTrigger:
+    """The complete trigger configuration for a workflow.
+
+    ``on`` lists every trigger event. ``job_if`` is the job-level
+    conditional (e.g. ``github.event.label.name == 'cai:raised'``)
+    applied to the primary job for simple-shape workflows.
+    """
+
+    on: list[GitHubTriggerEvent]
+    job_if: str | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +59,10 @@ class WorkflowSpec:
     cli_entry: str
     session_id: Callable[..., str]
     github_trigger: GitHubTrigger
+    docker_command: str
+    permissions: dict[str, str]
+    concurrency_group: str | None = None
+    authorized_user_variant: str = "standard"
 
 
 def _solve_session_id(number: int, branch: str | None = None) -> str:
@@ -65,7 +86,7 @@ def _sourcing_session_id() -> str:
 WORKFLOWS: list[WorkflowSpec] = [
     WorkflowSpec(
         slug="solve",
-        title="cai-solve",
+        title="CAI Solve",
         nav_order=1,
         blurb=(
             "Drives a GitHub issue or pull request through the same graph. "
@@ -76,11 +97,18 @@ WORKFLOWS: list[WorkflowSpec] = [
         graph=solve_graph,
         cli_entry="cai.workflows.solve:main",
         session_id=_solve_session_id,
-        github_trigger=GitHubTrigger(kind="issue_label", label="cai:raised"),
+        github_trigger=GitHubTrigger(
+            on=[GitHubTriggerEvent(event="issues", types=["labeled"])],
+            job_if="github.event.label.name == 'cai:raised'",
+        ),
+        docker_command="cai-solve ${{ github.repository }}#${{ github.event.issue.number }}",
+        permissions={"contents": "write", "issues": "write"},
+        concurrency_group="cai-solve-${{ github.event.issue.number }}",
+        authorized_user_variant="standard",
     ),
     WorkflowSpec(
         slug="audit",
-        title="cai-audit",
+        title="CAI Audit",
         nav_order=2,
         blurb=(
             "Runs an audit agent against Langfuse traces or a cloned repository, "
@@ -97,11 +125,34 @@ WORKFLOWS: list[WorkflowSpec] = [
         graph=audit_graph,
         cli_entry="cai.workflows.audit:main",
         session_id=_audit_session_id,
-        github_trigger=GitHubTrigger(kind="workflow_dispatch"),
+        github_trigger=GitHubTrigger(
+            on=[
+                GitHubTriggerEvent(
+                    event="workflow_dispatch",
+                    inputs={
+                        "mode": {
+                            "description": "Audit mode",
+                            "required": True,
+                            "default": "cost",
+                            "type": "choice",
+                            "options": ["cost", "errors", "architecture"],
+                        },
+                        "repo": {
+                            "description": "Target GitHub repository for issues (owner/repo)",
+                            "required": True,
+                            "default": "damien-robotsix/robotsix-cai",
+                        },
+                    },
+                ),
+            ],
+        ),
+        docker_command='cai-audit --repo "${{ github.event.inputs.repo }}" --mode "${{ github.event.inputs.mode }}"',
+        permissions={"contents": "read"},
+        authorized_user_variant="none",
     ),
     WorkflowSpec(
         slug="sourcing",
-        title="cai-sourcing",
+        title="CAI Sourcing",
         nav_order=4,
         blurb=(
             "Monthly scan of the open-source ecosystem for transferable "
@@ -111,11 +162,28 @@ WORKFLOWS: list[WorkflowSpec] = [
         graph=sourcing_graph,
         cli_entry="cai.workflows.sourcing:main",
         session_id=_sourcing_session_id,
-        github_trigger=GitHubTrigger(kind="schedule"),
+        github_trigger=GitHubTrigger(
+            on=[
+                GitHubTriggerEvent(event="schedule", cron="0 8 1 * *"),
+                GitHubTriggerEvent(
+                    event="workflow_dispatch",
+                    inputs={
+                        "repo": {
+                            "description": "Target GitHub repository for issues (owner/repo)",
+                            "required": True,
+                            "default": "damien-robotsix/robotsix-cai",
+                        },
+                    },
+                ),
+            ],
+        ),
+        docker_command="cai-sourcing --repo \"${{ github.event.inputs.repo || 'damien-robotsix/robotsix-cai' }}\"",
+        permissions={"contents": "read"},
+        authorized_user_variant="none",
     ),
     WorkflowSpec(
         slug="conflicts",
-        title="cai-resolve-conflicts",
+        title="CAI Resolve Conflicts",
         nav_order=3,
         blurb=(
             "Rebases a pull request onto its base branch, asking the "
@@ -126,7 +194,91 @@ WORKFLOWS: list[WorkflowSpec] = [
         graph=conflicts_graph,
         cli_entry="cai.workflows.conflicts:main",
         session_id=session_id_for_pr,
-        github_trigger=GitHubTrigger(kind="workflow_run", workflows=["Publish Docker image"]),
+        github_trigger=GitHubTrigger(
+            on=[
+                GitHubTriggerEvent(
+                    event="workflow_run",
+                    workflows=["Publish Docker image"],
+                    types=["completed"],
+                    branches=["main"],
+                ),
+                GitHubTriggerEvent(event="workflow_dispatch"),
+            ],
+        ),
+        docker_command="cai-resolve-conflicts ${{ github.repository }}#${{ matrix.pr }}",
+        permissions={"contents": "write", "pull-requests": "write"},
+        concurrency_group="cai-resolve-conflicts",
+        authorized_user_variant="none",
+    ),
+    WorkflowSpec(
+        slug="audit-errors",
+        title="CAI Audit Errors",
+        nav_order=5,
+        blurb=(
+            "Triggered when an issue is labeled ``cai:failed``. "
+            "Audits the most recent error traces and files findings "
+            "as GitHub issues."
+        ),
+        graph=audit_graph,
+        cli_entry="cai.workflows.audit:main",
+        session_id=_audit_session_id,
+        github_trigger=GitHubTrigger(
+            on=[GitHubTriggerEvent(event="issues", types=["labeled"])],
+            job_if="github.event.label.name == 'cai:failed' && !contains(github.event.issue.labels.*.name, 'cai:audit')",
+        ),
+        docker_command='cai-audit --repo "${{ github.repository }}" --mode errors',
+        permissions={"contents": "read"},
+        authorized_user_variant="none",
+    ),
+    WorkflowSpec(
+        slug="solve-pr",
+        title="CAI Solve (PR review)",
+        nav_order=6,
+        blurb=(
+            "Responds to 'changes requested' pull request reviews by "
+            "implementing the requested fixes and pushing them in place."
+        ),
+        graph=solve_graph,
+        cli_entry="cai.workflows.solve:main",
+        session_id=_solve_session_id,
+        github_trigger=GitHubTrigger(
+            on=[GitHubTriggerEvent(event="pull_request_review", types=["submitted"])],
+            job_if="github.event.review.state == 'changes_requested'",
+        ),
+        docker_command="cai-solve ${{ github.repository }}#${{ github.event.pull_request.number }}",
+        permissions={"contents": "write", "pull-requests": "write"},
+        concurrency_group="cai-solve-pr-${{ github.event.pull_request.number }}",
+        authorized_user_variant="skip_bots",
+    ),
+    WorkflowSpec(
+        slug="audit-duplication",
+        title="CAI Audit Duplication",
+        nav_order=7,
+        blurb=(
+            "Runs a duplication audit via jscpd on every 30th commit "
+            "to main, or on manual dispatch. Files findings as GitHub issues."
+        ),
+        graph=audit_graph,
+        cli_entry="cai.workflows.audit:main",
+        session_id=_audit_session_id,
+        github_trigger=GitHubTrigger(
+            on=[
+                GitHubTriggerEvent(
+                    event="workflow_dispatch",
+                    inputs={
+                        "repo": {
+                            "description": "Target GitHub repository (owner/repo)",
+                            "required": True,
+                            "default": "damien-robotsix/robotsix-cai",
+                        },
+                    },
+                ),
+                GitHubTriggerEvent(event="push", branches=["main"]),
+            ],
+        ),
+        docker_command='cai-audit --repo "$TARGET_REPO" --mode duplication',
+        permissions={"contents": "read"},
+        authorized_user_variant="none",
     ),
 ]
 
