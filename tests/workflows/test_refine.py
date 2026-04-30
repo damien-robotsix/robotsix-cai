@@ -213,3 +213,100 @@ def test_sub_issues_inherit_no_labels_when_parent_has_none(mock_agent_factory, m
     sub_json = tmp_path / "sub_issue_0.json"
     sub_meta = IssueMeta.model_validate_json(sub_json.read_text())
     assert sub_meta.labels == []
+
+
+@patch("cai.workflows.refine.add_sub_issue")
+@patch("cai.workflows.refine.push")
+@patch("cai.workflows.refine.refine_agent")
+def test_prompt_includes_session_id(mock_agent_factory, mock_push, mock_add_sub_issue, state):
+    """The prompt passed to the refine agent includes the session ID for trace inspection."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        result = MagicMock()
+        result.output = RefineOutput(
+            title="Refined title",
+            reference_files=[],
+            sub_issues=[],
+        )
+        return result
+
+    agent_instance.run = mock_run
+
+    def push_side_effect(bot, json_path):
+        issue = MagicMock()
+        issue.id = 4001
+        issue.number = 40
+        meta_local = IssueMeta.model_validate_json(Path(json_path).read_text())
+        meta_local.number = 40
+        Path(json_path).write_text(meta_local.model_dump_json(indent=2) + "\n")
+        return issue
+
+    mock_push.side_effect = push_side_effect
+
+    _run(RefineNode(), state)
+
+    assert captured_prompt is not None
+    assert "issue-42" in captured_prompt
+    assert "## Session" in captured_prompt
+    assert "traces_session" in captured_prompt
+    assert "traces_solve_sessions" in captured_prompt
+    # Reference files section should be absent when there are no reference files
+    assert "## Reference files" not in captured_prompt
+
+
+@patch("cai.workflows.refine.add_sub_issue")
+@patch("cai.workflows.refine.push")
+@patch("cai.workflows.refine.refine_agent")
+def test_prompt_includes_reference_files_section_when_present(mock_agent_factory, mock_push, mock_add_sub_issue, state, tmp_path):
+    """When reference files exist, the prompt includes a reference files section after the session section."""
+    # Create a real reference file on disk
+    ref_file = tmp_path / "src" / "example.py"
+    ref_file.parent.mkdir(parents=True, exist_ok=True)
+    ref_file.write_text("def foo():\n    return 42\n")
+    state.reference_files = ["src/example.py"]
+
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        result = MagicMock()
+        result.output = RefineOutput(
+            title="Refined title",
+            reference_files=[],
+            sub_issues=[],
+        )
+        return result
+
+    agent_instance.run = mock_run
+
+    def push_side_effect(bot, json_path):
+        issue = MagicMock()
+        issue.id = 5001
+        issue.number = 50
+        meta_local = IssueMeta.model_validate_json(Path(json_path).read_text())
+        meta_local.number = 50
+        Path(json_path).write_text(meta_local.model_dump_json(indent=2) + "\n")
+        return issue
+
+    mock_push.side_effect = push_side_effect
+
+    _run(RefineNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Session" in captured_prompt
+    assert "issue-42" in captured_prompt
+    assert "## Reference files" in captured_prompt
+    # Session section must appear before reference files section
+    session_idx = captured_prompt.index("## Session")
+    ref_idx = captured_prompt.index("## Reference files")
+    assert session_idx < ref_idx, "Session section must precede reference files section"

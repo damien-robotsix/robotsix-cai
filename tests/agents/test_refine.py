@@ -1,4 +1,3 @@
-import pytest
 from cai.agents.loader import parse_agent_md, resolve_agent_path
 
 def test_refine_agent_config():
@@ -16,15 +15,24 @@ def test_refine_agent_config():
     assert "subagents" in tools
     assert "web_search" in tools
     assert "web_fetch" in tools
+    assert "traces_list" in tools
+    assert "traces_show" in tools
+    assert "traces_failures" in tools
+    assert "traces_session" in tools
+    assert "traces_solve_sessions" in tools
     
     # Assert subagents
     subagents = config.get("subagents", [])
     assert "explore" in subagents
     assert "spike" in subagents
+    assert "trace_analyst" in subagents
     
-    # Assert instructions
+    # Assert instructions reference trace tools and subagent
     assert "web_search" in instructions
     assert "web_fetch" in instructions
+    assert "trace_analyst" in instructions
+    assert "traces_session" in instructions
+    assert "traces_solve_sessions" in instructions
     
     # Assert verification template updates
     assert "grep for Y" not in instructions
