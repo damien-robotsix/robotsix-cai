@@ -12,6 +12,7 @@ from cai.workflows.audit import (
     _audit_agent,
     _build_architecture_prompt,
     _build_errors_prompt,
+    _build_security_prompt,
     _dedupe_agent,
     _labels_for_confidence,
     main,
@@ -66,6 +67,15 @@ def mock_dedupe_agent():
     agent_mock = MagicMock()
     with patch("cai.workflows.audit._dedupe_agent", return_value=agent_mock):
         yield agent_mock
+
+
+def test_audit_agent_cache_fits_all_modes():
+    """The _audit_agent LRU cache (maxsize=4) must hold all four agent
+    names without eviction: audit, architecture_auditor, duplication_auditor,
+    security_auditor."""
+    # We can't actually build agents (needs OPENROUTER_API_KEY), but we can
+    # verify the cache info reports maxsize=4.
+    assert _audit_agent.cache_info().maxsize == 4
 
 
 def test_audit_output_model():
@@ -424,6 +434,37 @@ def test_main_architecture_mode(
     assert call_args[0][0] == canned_prompt
 
 
+@patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "security"])
+def test_main_security_mode(
+    mock_setup_langfuse,
+    mock_build_prompt,
+    mock_cai_bot,
+    mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
+):
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(output=AuditOutput(issues=[])))
+
+    canned_prompt = "security prompt"
+    with patch(
+        "cai.workflows.audit._build_security_prompt",
+        return_value=canned_prompt,
+    ) as mock_sec_prompt:
+        # Also capture the call to _audit_agent to verify agent_name
+        with patch(
+            "cai.workflows.audit._audit_agent",
+            return_value=mock_audit_agent,
+        ) as patched_agent:
+            main()
+
+    mock_sec_prompt.assert_called_once()
+    # Verify the agent factory was called with security_auditor name
+    patched_agent.assert_called_once_with("security_auditor")
+    mock_audit_agent.run.assert_called_once()
+    call_args = mock_audit_agent.run.call_args
+    assert call_args[0][0] == canned_prompt
+
+
 @patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "bogus"])
 def test_main_architecture_invalid_mode_rejected(
     mock_setup_langfuse,
@@ -435,6 +476,79 @@ def test_main_architecture_invalid_mode_rejected(
 ):
     with pytest.raises(SystemExit):
         main()
+
+
+# ── _build_security_prompt ──────────────────────────────────────────────
+
+
+def test_build_security_prompt():
+    """Verify _build_security_prompt produces a non-empty prompt with
+    security-scanning instructions."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+        # Create some files (content doesn't matter — the prompt is static)
+        (workspace / "main.py").write_text("import os\nos.system('ls')\n")
+        (workspace / "config.yaml").write_text("api_key: sk-abc123\n")
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_security_prompt(
+                MagicMock(), "owner/repo", workspace, []
+            )
+
+    assert prompt
+    assert "owner/repo" in prompt
+    assert "Security audit" in prompt
+    assert "filesystem_read" in prompt
+    assert "explore" in prompt
+    assert "shell=True" in prompt
+    assert "hardcoded credentials" in prompt.lower() or "hardcoded" in prompt.lower()
+    assert "eval" in prompt
+    assert "exec" in prompt
+    assert "pickle" in prompt
+    assert "yaml.load" in prompt
+    assert "TLS" in prompt
+    assert "AuditOutput" in prompt
+    assert "conservative" in prompt.lower()
+    # No "Additional context" when unknown is empty
+    assert "Additional context" not in prompt
+
+
+def test_build_security_prompt_unknown_args():
+    """Unknown CLI args are forwarded as 'Additional context' in the security prompt."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+        (workspace / "mod.py").write_text("x = 1\n")
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_security_prompt(
+                MagicMock(), "owner/repo", workspace,
+                ["--focus", "injection"],
+            )
+
+    assert "Additional context: --focus injection" in prompt
+
+
+def test_build_security_prompt_clones_repo():
+    """_build_security_prompt must clone the target repo into the workspace."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit"
+        ) as mock_clone:
+            _build_security_prompt(MagicMock(), "owner/repo", workspace, [])
+
+    mock_clone.assert_called_once()
+    # First positional arg should be the bot, second the repo, third the workspace
+    assert mock_clone.call_args[0][1] == "owner/repo"
+    assert mock_clone.call_args[0][2] == workspace
 
 
 # ── _build_errors_prompt ────────────────────────────────────────────────
