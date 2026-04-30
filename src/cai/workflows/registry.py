@@ -13,13 +13,23 @@ of the per-workflow boilerplate.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from pydantic_graph import Graph
 
+from cai.log.observability import session_id_for_pr
 from cai.workflows.audit import audit_graph
 from cai.workflows.conflicts import conflicts_graph
 from cai.workflows.fsm import solve_graph
+
+
+@dataclass(frozen=True)
+class GitHubTrigger:
+    kind: str
+    label: str | None = None
+    workflows: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -29,6 +39,22 @@ class WorkflowSpec:
     nav_order: int
     blurb: str
     graph: Graph
+    cli_entry: str
+    session_id: Callable[..., str]
+    github_trigger: GitHubTrigger
+
+
+def _solve_session_id(number: int, branch: str | None = None) -> str:
+    """Return ``issue-{number}`` for issue runs; delegate to
+    ``session_id_for_pr`` when a branch is supplied (PR path)."""
+    if branch is None:
+        return f"issue-{number}"
+    return session_id_for_pr(number, branch)
+
+
+def _audit_session_id() -> str:
+    """Return a timestamp-based session id matching the pattern in ``audit.py``."""
+    return f"audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
 
 WORKFLOWS: list[WorkflowSpec] = [
@@ -43,6 +69,9 @@ WORKFLOWS: list[WorkflowSpec] = [
             "threads in the prompt, and the bundled fix is pushed in place."
         ),
         graph=solve_graph,
+        cli_entry="cai.workflows.solve:main",
+        session_id=_solve_session_id,
+        github_trigger=GitHubTrigger(kind="issue_label", label="cai:raised"),
     ),
     WorkflowSpec(
         slug="audit",
@@ -53,6 +82,9 @@ WORKFLOWS: list[WorkflowSpec] = [
             "proposed improvements as GitHub issues."
         ),
         graph=audit_graph,
+        cli_entry="cai.workflows.audit:main",
+        session_id=_audit_session_id,
+        github_trigger=GitHubTrigger(kind="workflow_dispatch"),
     ),
     WorkflowSpec(
         slug="conflicts",
@@ -65,6 +97,9 @@ WORKFLOWS: list[WorkflowSpec] = [
             "force-pushing the rewritten head."
         ),
         graph=conflicts_graph,
+        cli_entry="cai.workflows.conflicts:main",
+        session_id=session_id_for_pr,
+        github_trigger=GitHubTrigger(kind="workflow_run", workflows=["Publish Docker image"]),
     ),
 ]
 
