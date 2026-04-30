@@ -47,13 +47,13 @@ def create_pull_request(
     body: str,
     head: str,
     base: str | None = None,
-) -> str:
-    """Open a pull request. Returns the HTML URL of the new PR."""
+) -> tuple[str, int]:
+    """Open a pull request. Returns ``(html_url, number)`` of the new PR."""
     repo_obj = bot.repo(repo)
     if base is None:
         base = repo_obj.default_branch
     pr = repo_obj.create_pull(title=title, body=body, head=head, base=base)
-    return pr.html_url
+    return pr.html_url, pr.number
 
 
 def get_pr_meta(bot: CaiBot, repo: str, number: int) -> tuple[str, str, str, str]:

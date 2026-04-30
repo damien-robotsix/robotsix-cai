@@ -4,7 +4,7 @@ from pydantic_graph import Graph
 
 from cai.github.bot import CaiBot
 from cai.github.issues import IssueMeta
-from cai.github.labels import LabelSpec, ensure_labels
+from cai.github.labels import LabelSpec, ensure_labels, set_label
 from cai.github.pr import list_resolved_threads, list_unresolved_threads
 from cai.github.repo import IssueWorkspace, PRWorkspace
 from cai.log import langfuse_workflow, session_id_for_pr
@@ -53,6 +53,7 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
                 LabelSpec(name="cai:audit", color="fbca04", description="For cai to review"),
                 LabelSpec(name="cai:pr-ready", color="0e8a16", description="CAI solve completed; PR opened"),
                 LabelSpec(name="cai:failed", color="b60205", description="CAI solve did not complete"),
+                LabelSpec(name="cai:human-review", color="1d76db", description="Awaiting human review/merge — CAI is done"),
             ],
         )
         issue = bot.repo(meta.repo).get_issue(meta.number)
@@ -61,6 +62,8 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
         labels.append(outcome)
         issue.edit(labels=labels)
         state.new_meta.labels = labels
+    if state.pr_number is not None:
+        set_label(bot, meta.repo, state.pr_number, "cai:human-review", present=True)
     return state.new_meta, state.pr_url
 
 
@@ -78,6 +81,7 @@ def solve_pr(bot: CaiBot, workspace: PRWorkspace) -> IssueMeta:
         number=workspace.number,
         title=workspace.title,
     )
+    set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=False)
     threads = list_unresolved_threads(bot, workspace.repo, workspace.number)
     prior = list_resolved_threads(bot, workspace.repo, workspace.number)
     state = IssueState(
@@ -99,4 +103,5 @@ def solve_pr(bot: CaiBot, workspace: PRWorkspace) -> IssueMeta:
         session_id=session_id_for_pr(workspace.number, workspace.head_branch),
     ):
         solve_graph.run_sync(ImplementNode(), state=state)
+    set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=True)
     return meta

@@ -46,6 +46,7 @@ from cai.git import (
     stage_all,
 )
 from cai.github.bot import CaiBot
+from cai.github.labels import set_label
 from cai.github.repo import (
     PRWorkspace,
     is_pull_request,
@@ -351,6 +352,7 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
     could not clear all markers) or if sanity tests fail after the rebase.
     """
     pr_ref = f"{workspace.repo}#{workspace.number}"
+    set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=False)
     state = ConflictsState(bot=bot, workspace=workspace)
 
     async def _drive() -> dict:
@@ -365,6 +367,7 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
             session_id=session_id_for_pr(workspace.number, workspace.head_branch),
         ):
             result = await conflicts_graph.run(RebaseLoopNode(), state=state)
+        set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=True)
         return result.output
 
     return asyncio.run(_drive())

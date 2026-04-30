@@ -57,7 +57,7 @@ def test_pr_node_existing_pr_skips_create(
     mock_create.assert_not_called()
 
 
-@patch("cai.workflows.pr.create_pull_request", return_value="https://pr/1")
+@patch("cai.workflows.pr.create_pull_request", return_value=("https://pr/1", 1))
 @patch("cai.workflows.pr.push_branch")
 @patch("cai.workflows.pr._has_staged_changes", return_value=True)
 @patch("cai.workflows.pr.commit")
@@ -72,3 +72,4 @@ def test_pr_node_issue_mode_creates_pr(
     mock_push.assert_called_once()
     mock_create.assert_called_once()
     assert state.pr_url == "https://pr/1"
+    assert state.pr_number == 1

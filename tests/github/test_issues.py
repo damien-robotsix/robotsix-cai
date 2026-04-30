@@ -33,11 +33,12 @@ def test_push_ensure_labels_called_for_cai_raised(mock_caibot_class, mock_ensure
     assert args[0] == mock_bot
     assert args[1] == "owner/repo"
     labels_passed = args[2]
-    assert len(labels_passed) == 4
+    assert len(labels_passed) == 5
     assert labels_passed[0].name == "cai:raised"
     assert labels_passed[1].name == "cai:audit"
     assert labels_passed[2].name == "cai:pr-ready"
     assert labels_passed[3].name == "cai:failed"
+    assert labels_passed[4].name == "cai:human-review"
 
 @patch("cai.github.issues._resolve_milestone")
 @patch("cai.github.issues.ensure_labels")
@@ -69,11 +70,12 @@ def test_push_ensure_labels_called_for_cai_audit(mock_caibot_class, mock_ensure_
     assert args[0] == mock_bot
     assert args[1] == "owner/repo"
     labels_passed = args[2]
-    assert len(labels_passed) == 4
+    assert len(labels_passed) == 5
     assert labels_passed[0].name == "cai:raised"
     assert labels_passed[1].name == "cai:audit"
     assert labels_passed[2].name == "cai:pr-ready"
     assert labels_passed[3].name == "cai:failed"
+    assert labels_passed[4].name == "cai:human-review"
 
 @patch("cai.github.issues._resolve_milestone")
 @patch("cai.github.issues.ensure_labels")
@@ -102,11 +104,12 @@ def test_push_ensure_labels_called_for_cai_pr_ready(mock_caibot_class, mock_ensu
     assert args[0] == mock_bot
     assert args[1] == "owner/repo"
     labels_passed = args[2]
-    assert len(labels_passed) == 4
+    assert len(labels_passed) == 5
     assert labels_passed[0].name == "cai:raised"
     assert labels_passed[1].name == "cai:audit"
     assert labels_passed[2].name == "cai:pr-ready"
     assert labels_passed[3].name == "cai:failed"
+    assert labels_passed[4].name == "cai:human-review"
 
 
 @patch("cai.github.issues._resolve_milestone")
@@ -136,11 +139,12 @@ def test_push_ensure_labels_called_for_cai_failed(mock_caibot_class, mock_ensure
     assert args[0] == mock_bot
     assert args[1] == "owner/repo"
     labels_passed = args[2]
-    assert len(labels_passed) == 4
+    assert len(labels_passed) == 5
     assert labels_passed[0].name == "cai:raised"
     assert labels_passed[1].name == "cai:audit"
     assert labels_passed[2].name == "cai:pr-ready"
     assert labels_passed[3].name == "cai:failed"
+    assert labels_passed[4].name == "cai:human-review"
 
 
 @patch("cai.github.issues._resolve_milestone")
