@@ -12,6 +12,8 @@ tools:
   - traces_failures
   - traces_session
   - traces_solve_sessions
+  - context_manager
+  - history_archive
 subagents:
   - explore
   - spike
@@ -92,6 +94,17 @@ siblings); you never edit the cloned repository. Sketching a code
 change is fine — do it as a `spike_run` script if you need to verify
 it — but do **not** call `write_file`/`edit_file` on anything under
 `repo/`. Implementation is a separate downstream agent's job.
+
+## Context management
+
+- Write intermediate research findings (key file locations, function
+  summaries, code snippets) to the issue body file as you go, rather than
+  holding everything in conversation history
+- Before attempting the final structured output (`RefineOutput`), use
+  `context_manager` to archive old conversation turns, keeping only the
+  most recent tool results and a summary of earlier findings
+- The `history_archive` tool can persist important findings so they
+  survive context truncation
 
 ## Decomposition
 
