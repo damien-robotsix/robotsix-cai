@@ -147,3 +147,8 @@ missing, and why it matters>
   appear in only one section, never both. If you would forbid a file
   that's required for the change to work, include it in *Files to
   change* instead and keep the edit minimal.
+- **Group structural file operations.** When the plan involves
+  multiple renames, moves, or deletions, write a single batched step
+  ("batch-move files A, B, C to …" / "batch-delete X, Y, Z") instead
+  of one step per file. The implement agent has `batch_move` and
+  `batch_delete` tools and per-file steps inflate latency for no gain.

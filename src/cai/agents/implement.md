@@ -6,6 +6,8 @@ tools:
   - filesystem
   - move_file
   - delete_file
+  - batch_move
+  - batch_delete
   - web_search
   - web_fetch
 ---
@@ -47,6 +49,7 @@ prompt — both modes share this single agent.
 - You do not need to `read_file` for files already shown in the Reference files section — their content is already in your context
 - You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response
 - Use `write_file` (full rewrite) when changes are so pervasive that multiple `edit_file` calls would be harder to follow
+- For mass file reorganizations (renames, package moves, bulk deletions), use `batch_move`/`batch_delete` instead of looping the single-file tools, and verify the result with one `ls` or `glob` after the batch — not one read per file
 - When fixing a review thread, **propagate the same fix** wherever the
   same logic applies — anchored on one line ≠ scoped to one line.
 
