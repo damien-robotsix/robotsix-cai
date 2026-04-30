@@ -15,6 +15,7 @@ from __future__ import annotations
 
 __all__ = [
     "AGENT_DIR",
+    "GrepGuardrailAsRetry",
     "ModelRequestErrorAsRetry",
     "TOOL_FACTORIES",
     "TOOL_FLAGS",
@@ -78,6 +79,58 @@ class ToolErrorAsRetry(AbstractCapability):
             f"Tool {call.tool_name!r} raised {type(error).__name__}: {error}. "
             f"Adjust the arguments and try again."
         )
+
+
+class GrepGuardrailAsRetry(AbstractCapability):
+    """Break the model out of a repeated zero-result ``grep`` loop.
+
+    Models sometimes spiral on minor regex variations that all return
+    zero matches, burning context without progress. After
+    ``_THRESHOLD`` consecutive empty grep results, raise ``ModelRetry``
+    so the agent gets a recovery prompt telling it to stop searching
+    globally. Any non-empty grep result resets the counter, so a single
+    productive search clears the streak.
+
+    State lives on the instance, but ``for_run`` returns a fresh
+    instance per run so concurrent runs of the same agent don't share
+    the counter.
+    """
+
+    _THRESHOLD = 3
+    _NO_MATCH_PREFIX = "No matches for"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._empty_grep_count = 0
+
+    async def for_run(self, ctx: Any) -> "GrepGuardrailAsRetry":
+        return GrepGuardrailAsRetry()
+
+    async def after_tool_execute(
+        self,
+        ctx: Any,
+        *,
+        call: Any,
+        tool_def: Any,
+        args: Any,
+        result: Any,
+    ) -> Any:
+        if call.tool_name != "grep":
+            return result
+        text = result if isinstance(result, str) else ""
+        stripped = text.strip()
+        is_empty = not stripped or stripped.startswith(self._NO_MATCH_PREFIX)
+        if not is_empty:
+            self._empty_grep_count = 0
+            return result
+        self._empty_grep_count += 1
+        if self._empty_grep_count >= self._THRESHOLD:
+            self._empty_grep_count = 0
+            raise ModelRetry(
+                "Repeated zero-result grep queries detected. "
+                "Stop searching globally and trust your local edits."
+            )
+        return result
 
 
 class ModelRequestErrorAsRetry(AbstractCapability):
@@ -509,7 +562,12 @@ def build_deep_agent(
     # Tool implementations sometimes raise on bad model inputs (invalid
     # glob, malformed regex). Without this capability such a single-call
     # failure aborts the whole run.
-    extra["capabilities"] = [*(extra.get("capabilities") or []), ToolErrorAsRetry(), ModelRequestErrorAsRetry()]
+    extra["capabilities"] = [
+        *(extra.get("capabilities") or []),
+        ToolErrorAsRetry(),
+        ModelRequestErrorAsRetry(),
+        GrepGuardrailAsRetry(),
+    ]
 
     agent = create_deep_agent(
         build_model(config),
