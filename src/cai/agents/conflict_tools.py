@@ -75,23 +75,34 @@ def _resolve_path(ctx: RunContext, rel: str) -> Path | None:
     return full
 
 
+def _load_file_conflicts(ctx: RunContext, path: str) -> tuple[str | None, Path | None, list[str] | None, list[dict] | None]:
+    """Resolve path, read file, and parse conflict blocks.
+
+    Returns (error, full_path, lines, blocks). On success, error is None
+    and the other three are populated. On failure, error is a user-facing
+    message string and the rest are None.
+    """
+    full = _resolve_path(ctx, path)
+    if full is None:
+        return f"Permission denied: {path!r} escapes repository root", None, None, None
+    if not full.exists():
+        return f"File not found: {path!r}", None, None, None
+    lines = full.read_text(errors="ignore").splitlines(keepends=True)
+    blocks = _parse_conflicts(lines)
+    if not blocks:
+        return f"No conflict markers in {path!r}", None, None, None
+    return None, full, lines, blocks
+
+
 async def conflict_list(ctx: RunContext, path: str) -> str:
     """List all conflict blocks in a file with their index and both sides.
 
     Args:
         path: File path relative to the repository root.
     """
-    full = _resolve_path(ctx, path)
-    if full is None:
-        return f"Permission denied: {path!r} escapes repository root"
-    if not full.exists():
-        return f"File not found: {path!r}"
-
-    lines = full.read_text(errors="ignore").splitlines(keepends=True)
-    blocks = _parse_conflicts(lines)
-
-    if not blocks:
-        return f"No conflict markers in {path!r}"
+    err, full, lines, blocks = _load_file_conflicts(ctx, path)
+    if err:
+        return err
 
     out: list[str] = [f"{len(blocks)} conflict(s) in {path!r}"]
     for b in blocks:
@@ -125,17 +136,9 @@ async def conflict_resolve(
         resolution: "ours" to keep HEAD, "theirs" to take the incoming side,
             or any other string to use as the literal replacement content.
     """
-    full = _resolve_path(ctx, path)
-    if full is None:
-        return f"Permission denied: {path!r} escapes repository root"
-    if not full.exists():
-        return f"File not found: {path!r}"
-
-    lines = full.read_text(errors="ignore").splitlines(keepends=True)
-    blocks = _parse_conflicts(lines)
-
-    if not blocks:
-        return f"No conflict markers in {path!r}"
+    err, full, lines, blocks = _load_file_conflicts(ctx, path)
+    if err:
+        return err
     if index < 0 or index >= len(blocks):
         return f"Index {index} out of range — {len(blocks)} conflict(s) found (0…{len(blocks) - 1})"
 

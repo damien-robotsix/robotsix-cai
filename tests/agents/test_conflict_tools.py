@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cai.agents.conflict_tools import _parse_conflicts, conflict_list, conflict_resolve
+from cai.agents.conflict_tools import _load_file_conflicts, _parse_conflicts, conflict_list, conflict_resolve
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +64,49 @@ def test_parse_multiple_blocks():
 def test_parse_no_conflicts():
     lines = "clean file\n".splitlines(keepends=True)
     assert _parse_conflicts(lines) == []
+
+
+# ---------------------------------------------------------------------------
+# _load_file_conflicts
+# ---------------------------------------------------------------------------
+
+
+def test_load_file_conflicts_success(tmp_path):
+    (tmp_path / "a.py").write_text(SIMPLE)
+    ctx = _make_ctx(tmp_path)
+    err, full, lines, blocks = _load_file_conflicts(ctx, "a.py")
+    assert err is None
+    assert full == (tmp_path / "a.py").resolve()
+    assert isinstance(lines, list)
+    assert len(blocks) == 1
+
+
+def test_load_file_conflicts_escape(tmp_path):
+    ctx = _make_ctx(tmp_path)
+    err, full, lines, blocks = _load_file_conflicts(ctx, "../outside.py")
+    assert "Permission denied" in err
+    assert full is None
+    assert lines is None
+    assert blocks is None
+
+
+def test_load_file_conflicts_missing(tmp_path):
+    ctx = _make_ctx(tmp_path)
+    err, full, lines, blocks = _load_file_conflicts(ctx, "nope.py")
+    assert "not found" in err.lower()
+    assert full is None
+    assert lines is None
+    assert blocks is None
+
+
+def test_load_file_conflicts_no_markers(tmp_path):
+    (tmp_path / "clean.py").write_text("x = 1\n")
+    ctx = _make_ctx(tmp_path)
+    err, full, lines, blocks = _load_file_conflicts(ctx, "clean.py")
+    assert "No conflict" in err
+    assert full is None
+    assert lines is None
+    assert blocks is None
 
 
 # ---------------------------------------------------------------------------
