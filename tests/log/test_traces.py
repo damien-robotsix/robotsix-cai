@@ -1,10 +1,10 @@
-"""Tests for the _format_trace helper in cai.log.traces."""
+"""Tests for helper functions in cai.log.traces."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from cai.log.traces import _format_trace
+from cai.log.traces import _build_list_kwargs, _format_trace
 
 
 class TestFormatTrace:
@@ -126,6 +126,38 @@ class TestFakeTrace:
         t = _FakeTrace(id="t1", name="wf", total_cost=1.23)
         assert hasattr(t, "total_cost")
         assert t.total_cost == 1.23
+
+
+class TestBuildListKwargs:
+    """Tests for _build_list_kwargs(limit, since) — the shared kwargs builder."""
+
+    def test_basic_without_since(self):
+        """Returns dict with limit and page=1 when since is None."""
+        result = _build_list_kwargs(20)
+        assert result == {"limit": 20, "page": 1}
+
+    def test_with_since(self):
+        """Sets a UTC-aware from_timestamp when since is an ISO string."""
+        result = _build_list_kwargs(50, since="2025-06-01T12:00:00")
+        assert result["limit"] == 50
+        assert result["page"] == 1
+        ts = result["from_timestamp"]
+        assert ts == datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    def test_since_none_explicit(self):
+        """When since is explicitly None no from_timestamp key is added."""
+        result = _build_list_kwargs(10, since=None)
+        assert "from_timestamp" not in result
+        assert result == {"limit": 10, "page": 1}
+
+    def test_returned_dict_is_mutable(self):
+        """Callers can safely add extra keys to the returned dict."""
+        result = _build_list_kwargs(5, since="2025-01-01")
+        result["name"] = "cai-solve"
+        assert result["name"] == "cai-solve"
+        assert result["limit"] == 5
+        assert result["page"] == 1
+        assert "from_timestamp" in result
 
 
 class _FakeTrace:
