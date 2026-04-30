@@ -51,15 +51,10 @@ jobs:
       contents: read
     steps:
       - name: Stage cai config for container
-        env:
-          CAI_GITHUB_APP_PEM: ${{ secrets.CAI_GITHUB_APP_PEM }}
-          CAI_APP_ENV: ${{ secrets.CAI_APP_ENV }}
-        run: |
-          mkdir -p "${RUNNER_TEMP}/cai-config"
-          printf '%s\n' "$CAI_GITHUB_APP_PEM" > "${RUNNER_TEMP}/cai-config/github-app.pem"
-          printf '%s\n' "$CAI_APP_ENV" > "${RUNNER_TEMP}/cai-config/app.env"
-          chmod 600 "${RUNNER_TEMP}/cai-config/github-app.pem" "${RUNNER_TEMP}/cai-config/app.env"
-          sudo chown -R 1000:1000 "${RUNNER_TEMP}/cai-config"
+        uses: ./.github/actions/setup-cai
+        with:
+          cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
+          cai_app_env: ${{ secrets.CAI_APP_ENV }}
 
       - name: Run CAI Audit (duplication)
         env:
