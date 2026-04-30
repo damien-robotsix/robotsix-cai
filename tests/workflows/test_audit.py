@@ -11,6 +11,7 @@ from cai.workflows.audit import (
     ProposedIssue,
     _audit_agent,
     _build_architecture_prompt,
+    _build_errors_prompt,
     _dedupe_agent,
     _labels_for_confidence,
     main,
@@ -434,3 +435,198 @@ def test_main_architecture_invalid_mode_rejected(
 ):
     with pytest.raises(SystemExit):
         main()
+
+
+# ── _build_errors_prompt ────────────────────────────────────────────────
+
+
+def test_build_errors_prompt():
+    """_build_errors_prompt formats recent failure traces into a prompt."""
+    fake_failures = [
+        {
+            "id": "trace-abc-123",
+            "name": "cai-solve",
+            "timestamp": "2025-06-15T10:30:00+00:00",
+            "errors": [
+                {
+                    "name": "implement",
+                    "status_message": "LLM rate limit exceeded",
+                    "output": "Error: 429 Too Many Requests",
+                },
+            ],
+        },
+        {
+            "id": "trace-def-456",
+            "name": "cai-audit",
+            "timestamp": "2025-06-15T11:00:00+00:00",
+            "errors": [
+                {
+                    "name": "run_audit",
+                    "status_message": "Context length exceeded",
+                    "output": None,
+                },
+            ],
+        },
+    ]
+
+    with patch("cai.workflows.audit._TRACES") as mock_traces:
+        mock_traces.list_failures.return_value = fake_failures
+        prompt = _build_errors_prompt([])
+
+    assert "Recent failures (2 traces with errors)" in prompt
+    assert "trace-abc-123" in prompt
+    assert "trace-def-456" in prompt
+    assert "cai-solve" in prompt
+    assert "cai-audit" in prompt
+    assert "2025-06-15T10:30:00" in prompt
+    assert "2025-06-15T11:00:00" in prompt
+    assert "implement" in prompt
+    assert "run_audit" in prompt
+    assert "LLM rate limit exceeded" in prompt
+    assert "Context length exceeded" in prompt
+    assert "Error: 429 Too Many Requests" in prompt
+    assert "trace_analyst" in prompt
+    assert "last_detected_at" in prompt
+    assert "Additional context" not in prompt
+
+
+def test_build_errors_prompt_with_unknown_args():
+    """Unknown CLI args are forwarded as 'Additional context'."""
+    fake_failures = [
+        {
+            "id": "trace-001",
+            "name": "cai-solve",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+            "errors": [{"name": "step", "status_message": "err", "output": None}],
+        },
+    ]
+
+    with patch("cai.workflows.audit._TRACES") as mock_traces:
+        mock_traces.list_failures.return_value = fake_failures
+        prompt = _build_errors_prompt(["--verbose", "--dry-run"])
+
+    assert "Additional context: --verbose --dry-run" in prompt
+
+
+def test_build_errors_prompt_no_failures():
+    """_build_errors_prompt raises SystemExit when no failures are found."""
+    with patch("cai.workflows.audit._TRACES") as mock_traces:
+        mock_traces.list_failures.return_value = []
+        with pytest.raises(SystemExit):
+            _build_errors_prompt([])
+
+
+def test_build_errors_prompt_truncates_long_messages():
+    """Status messages longer than 300 chars are truncated with ..."""
+    long_msg = "x" * 500
+    fake_failures = [
+        {
+            "id": "trace-001",
+            "name": "cai-solve",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+            "errors": [{"name": "step", "status_message": long_msg, "output": None}],
+        },
+    ]
+
+    with patch("cai.workflows.audit._TRACES") as mock_traces:
+        mock_traces.list_failures.return_value = fake_failures
+        prompt = _build_errors_prompt([])
+
+    # Full message should NOT appear (truncated to 300 chars)
+    assert long_msg not in prompt
+    assert long_msg[:300] in prompt
+
+
+def test_build_errors_prompt_output_truncated():
+    """Output fields longer than 200 chars are truncated."""
+    long_output = "y" * 300
+    fake_failures = [
+        {
+            "id": "trace-001",
+            "name": "cai-solve",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+            "errors": [{"name": "step", "status_message": "msg", "output": long_output}],
+        },
+    ]
+
+    with patch("cai.workflows.audit._TRACES") as mock_traces:
+        mock_traces.list_failures.return_value = fake_failures
+        prompt = _build_errors_prompt([])
+
+    assert long_output not in prompt
+    assert long_output[:200] in prompt
+
+
+def test_build_errors_prompt_handles_missing_optional_fields():
+    """Errors dicts missing status_message or output render gracefully."""
+    fake_failures = [
+        {
+            "id": "trace-minimal",
+            "name": "cai-solve",
+            "timestamp": None,
+            "errors": [{"name": "step"}],
+        },
+    ]
+
+    with patch("cai.workflows.audit._TRACES") as mock_traces:
+        mock_traces.list_failures.return_value = fake_failures
+        prompt = _build_errors_prompt([])
+
+    assert "trace-minimal" in prompt
+    assert "cai-solve" in prompt
+    # Should not crash; just renders what it has
+    assert "Recent failures (1 traces with errors)" in prompt
+
+
+# ── main --mode errors ──────────────────────────────────────────────────
+
+
+@patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "errors"])
+def test_main_errors_mode(
+    mock_setup_langfuse,
+    mock_build_prompt,
+    mock_cai_bot,
+    mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
+):
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(
+        output=AuditOutput(issues=[ProposedIssue(title="Err issue", body="Details", confidence=8)])
+    ))
+    mock_dedupe_agent.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="Related")
+    ))
+
+    repo_mock = mock_cai_bot.repo.return_value
+    repo_mock.get_issues.return_value = []
+    repo_mock.create_issue.return_value = MagicMock(html_url="https://github.com/owner/repo/issues/1")
+
+    with patch("cai.workflows.audit._build_errors_prompt", return_value="errors prompt") as mock_ep:
+        main()
+
+    mock_ep.assert_called_once()
+    mock_audit_agent.run.assert_called_once()
+    repo_mock.create_issue.assert_called_once_with(
+        title="Err issue", body="Details", labels=["cai:audit", "cai:human-review"]
+    )
+
+
+@patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "errors"])
+def test_main_errors_mode_no_traces(
+    mock_setup_langfuse,
+    mock_build_prompt,
+    mock_cai_bot,
+    mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
+):
+    """When no failure traces exist, the errors prompt builder calls sys.exit."""
+    with patch(
+        "cai.workflows.audit._build_errors_prompt",
+        side_effect=SystemExit(1),
+    ) as mock_ep:
+        with pytest.raises(SystemExit):
+            main()
+
+    mock_ep.assert_called_once()
+    mock_audit_agent.run.assert_not_called()
