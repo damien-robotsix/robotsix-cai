@@ -43,6 +43,16 @@ from cai.log.observability import langfuse_workflow, setup_langfuse
 from cai.log.traces import _TRACES
 from cai.workflows.state import WithConfidence, _inline_refs
 
+# Per the auditor rubrics (src/cai/agents/{audit,architecture_auditor,duplication_auditor}.md),
+# 9-10 is the band where the agent claims a fix is safe to dispatch without human review.
+# Below that, we tag the issue for human triage instead of auto-routing it to cai-solve.
+_AUTO_RAISE_CONFIDENCE_THRESHOLD = 9
+
+
+def _labels_for_confidence(confidence: int) -> list[str]:
+    routing = "cai:raised" if confidence >= _AUTO_RAISE_CONFIDENCE_THRESHOLD else "cai:human-review"
+    return ["cai:audit", routing]
+
 
 class ProposedIssue(WithConfidence):
     title: str
@@ -184,12 +194,13 @@ class CreateIssuesNode(BaseNode[AuditState, None, AuditOutput]):
                     file=sys.stderr,
                 )
 
+            labels = _labels_for_confidence(issue.confidence)
             created = repo_obj.create_issue(
                 title=issue.title,
                 body=issue.body,
-                labels=["cai:audit"],
+                labels=labels,
             )
-            print(f"Created: {created.html_url}")
+            print(f"Created (confidence={issue.confidence}, labels={labels}): {created.html_url}")
 
         return End(ctx.state.output)
 

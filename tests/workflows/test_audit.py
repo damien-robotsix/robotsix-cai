@@ -12,6 +12,7 @@ from cai.workflows.audit import (
     _audit_agent,
     _build_architecture_prompt,
     _dedupe_agent,
+    _labels_for_confidence,
     main,
 )
 
@@ -91,6 +92,46 @@ def test_proposed_issue_confidence_bounds():
         ProposedIssue(title="t", body="b", confidence=11)
 
 
+@pytest.mark.parametrize(
+    "confidence,expected",
+    [
+        (1, ["cai:audit", "cai:human-review"]),
+        (8, ["cai:audit", "cai:human-review"]),
+        (9, ["cai:audit", "cai:raised"]),
+        (10, ["cai:audit", "cai:raised"]),
+    ],
+)
+def test_labels_for_confidence(confidence, expected):
+    assert _labels_for_confidence(confidence) == expected
+
+
+@patch("sys.argv", ["cai-audit", "--repo", "owner/repo"])
+def test_main_low_confidence_uses_human_review_label(
+    mock_setup_langfuse,
+    mock_build_prompt,
+    mock_cai_bot,
+    mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
+):
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(
+        output=AuditOutput(issues=[ProposedIssue(title="Issue 1", body="Body 1", confidence=7)])
+    ))
+    mock_dedupe_agent.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="Brand new")
+    ))
+
+    repo_mock = mock_cai_bot.repo.return_value
+    repo_mock.get_issues.return_value = []
+    repo_mock.create_issue.return_value = MagicMock(html_url="https://github.com/owner/repo/issues/1")
+
+    main()
+
+    repo_mock.create_issue.assert_called_once_with(
+        title="Issue 1", body="Body 1", labels=["cai:audit", "cai:human-review"]
+    )
+
+
 def test_dedupe_output_model():
     output = DedupeOutput(action="new", target_issue_number=None, reason="Brand new")
     assert output.action == "new"
@@ -133,7 +174,7 @@ def test_main_creates_issues(
     mock_build_prompt.assert_called_once()
     mock_cai_bot.repo.assert_called_once_with("owner/repo")
     repo_mock.create_issue.assert_called_once_with(
-        title="Issue 1", body="Body 1", labels=["cai:audit"]
+        title="Issue 1", body="Body 1", labels=["cai:audit", "cai:raised"]
     )
 
 
@@ -191,7 +232,7 @@ def test_main_append_issue_fallback(
     main()
 
     repo_mock.create_issue.assert_called_once_with(
-        title="Issue 1", body="Body 1", labels=["cai:audit"]
+        title="Issue 1", body="Body 1", labels=["cai:audit", "cai:raised"]
     )
 
 
