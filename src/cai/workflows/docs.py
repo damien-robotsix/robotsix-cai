@@ -38,9 +38,15 @@ class DocsNode(BaseNode[IssueState]):
 
         prompt = (
             "Review the implementation changes and ensure the `docs/` folder is up to date.\n\n"
+            "Identify every user-visible change in the implementation summary (new/changed CLI, "
+            "workflow node, agent, label, trigger, env var, integration). For each, either update "
+            "the right page under `docs/` or explain in your summary why it does not need a doc "
+            "change (internal refactor, already covered at a specific path, etc.). A bare "
+            "\"no updates needed\" is not acceptable.\n\n"
             "Return:\n"
-            "- summary: a concise description of the documentation changes made\n"
-            "- commit_message: a commit message for these changes (empty if none)\n\n"
+            "- summary: per-change justification as described above\n"
+            "- commit_message: a commit message for the docs changes, or an empty string only if "
+            "the summary shows every user-visible change is already covered or internal-only\n\n"
             f"## Issue metadata\n\n{meta_json}\n\n"
             f"## Issue body (plan)\n\n{body}\n\n"
             f"## Implementation summary\n\n{state.implement_output.summary}\n\n"
