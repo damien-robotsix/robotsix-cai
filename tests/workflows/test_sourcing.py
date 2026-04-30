@@ -259,7 +259,7 @@ def test_create_issues_node_new_issue():
         ProposedIssue(title="Tool A", body="Body A", confidence=9),
     ])
 
-    with patch("cai.workflows.sourcing._dedupe_agent", return_value=fake_dedupe):
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
         ctx = GraphRunContext(
             state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
             deps=None,
@@ -294,7 +294,7 @@ def test_create_issues_node_discard():
         ProposedIssue(title="Tool A", body="Body A", confidence=5),
     ])
 
-    with patch("cai.workflows.sourcing._dedupe_agent", return_value=fake_dedupe):
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
         ctx = GraphRunContext(
             state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
             deps=None,
@@ -330,7 +330,7 @@ def test_create_issues_node_append():
         ProposedIssue(title="Tool B", body="Body B details", confidence=7),
     ])
 
-    with patch("cai.workflows.sourcing._dedupe_agent", return_value=fake_dedupe):
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
         ctx = GraphRunContext(
             state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
             deps=None,
@@ -368,7 +368,7 @@ def test_create_issues_node_append_no_target_falls_back():
         ProposedIssue(title="Tool C", body="Body C", confidence=8),
     ])
 
-    with patch("cai.workflows.sourcing._dedupe_agent", return_value=fake_dedupe):
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
         ctx = GraphRunContext(
             state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
             deps=None,
@@ -413,7 +413,7 @@ def test_create_issues_node_multiple_issues():
         ProposedIssue(title="Issue 3", body="Body 3", confidence=10),
     ])
 
-    with patch("cai.workflows.sourcing._dedupe_agent", return_value=fake_dedupe):
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
         ctx = GraphRunContext(
             state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
             deps=None,
@@ -457,7 +457,7 @@ def test_create_issues_node_low_confidence_uses_human_review():
         ProposedIssue(title="Low Conf", body="Body", confidence=3),
     ])
 
-    with patch("cai.workflows.sourcing._dedupe_agent", return_value=fake_dedupe):
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
         ctx = GraphRunContext(
             state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
             deps=None,
