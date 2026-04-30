@@ -37,7 +37,7 @@ from typing import Any
 import httpx
 import yaml
 from openai import AsyncOpenAI
-from pydantic_ai import Agent
+from pydantic_ai import Agent, NativeOutput, PromptedOutput, TextOutput, ToolOutput
 from pydantic_ai.capabilities.abstract import AbstractCapability
 from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
 from pydantic_ai.models import ModelRequestParameters
@@ -45,6 +45,19 @@ from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 AGENT_DIR = Path(__file__).resolve().parent
+
+_OUTPUT_MARKERS = (NativeOutput, PromptedOutput, TextOutput, ToolOutput)
+
+
+def _wrap_output(output_type: Any) -> Any:
+    # PromptedOutput injects the schema into the system prompt and parses
+    # the assistant's text as JSON, so the structured result lands without
+    # a `final_result` tool call. Weaker models terminate more reliably
+    # when they don't have to fake that tool call. NativeOutput would be
+    # stronger but DeepSeek doesn't honour json_schema response_format.
+    if output_type is None or isinstance(output_type, _OUTPUT_MARKERS):
+        return output_type
+    return PromptedOutput(output_type)
 
 
 def resolve_agent_path(name: str) -> Path:
@@ -547,13 +560,6 @@ def build_deep_agent(
     if factory_tools:
         extra["tools"] = [*(extra.get("tools") or []), *factory_tools]
 
-    # 'exhaustive' so a model that emits a side-effect tool call (e.g.
-    # write_file) in the same assistant turn as final_result still has the
-    # side-effect executed. The pydantic-ai default 'early' silently stubs
-    # those calls with "Tool not executed - a final result was already
-    # processed", which lost the refined body in cai-solve.
-    extra.setdefault("end_strategy", "exhaustive")
-
     # str_replace beat hashline in production: hashline edits churned on
     # multi-edit responses because each applied edit shifted line numbers
     # and invalidated subsequent (line, hash) pairs (see commit c86189f).
@@ -573,7 +579,7 @@ def build_deep_agent(
         build_model(config),
         name=config["name"],
         instructions=instructions,
-        output_type=output_type,
+        output_type=_wrap_output(output_type),
         **build_deep_agent_kwargs(config),
         **extra,
     )
@@ -603,11 +609,8 @@ def load_agent_from_md(
     kwargs: dict = {
         "system_prompt": instructions,
         "name": config["name"],
-        "output_type": output_type,
+        "output_type": _wrap_output(output_type),
         "tools": [*(tools or []), *factory_tools],
-        # See build_deep_agent: 'exhaustive' so side-effect tool calls
-        # bundled in the final-result turn still execute.
-        "end_strategy": "exhaustive",
     }
     if deps_type is not None:
         kwargs["deps_type"] = deps_type
