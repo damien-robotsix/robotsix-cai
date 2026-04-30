@@ -1,7 +1,7 @@
 ---
 name: Issue Deduplicator
 description: Deduplicates proposed issues against open issues.
-model: google/gemini-3-flash-preview
+model: anthropic/claude-haiku-4-5
 ---
 
 

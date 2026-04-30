@@ -31,7 +31,7 @@ def test_issue_deduplicator_agent_config():
     
     # Assert basics
     assert config["name"] == "Issue Deduplicator"
-    assert config["model"] == "google/gemini-3-flash-preview"
+    assert config["model"] == "anthropic/claude-haiku-4-5"
     # Assert description
     assert "description" in config
     assert "duplicate" in config["description"].lower()

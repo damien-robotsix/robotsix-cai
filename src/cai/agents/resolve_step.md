@@ -1,7 +1,7 @@
 ---
 name: resolve_step
 description: Resolves the conflicts of a single rebase step using the picked commit's diff and PR context.
-model: google/gemini-3-flash-preview
+model: anthropic/claude-haiku-4-5
 tools:
   - filesystem_read
   - conflict_list

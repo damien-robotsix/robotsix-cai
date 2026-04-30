@@ -1,7 +1,7 @@
 ---
 name: trace_analyst
 description: Deeply analyzes specific Langfuse traces, identifying root causes of failures, reasoning flaws, and optimization opportunities. Works in tandem with the audit agent to understand the 'why' behind trace behavior. Cannot list or filter traces directly.
-model: google/gemini-3-flash-preview
+model: anthropic/claude-haiku-4-5
 tools:
   - filesystem_read
   - traces_show
