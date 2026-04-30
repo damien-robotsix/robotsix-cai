@@ -4,6 +4,7 @@ from pydantic_graph import Graph
 
 from cai.github.bot import CaiBot
 from cai.github.issues import IssueMeta
+from cai.github.labels import LabelSpec, ensure_labels
 from cai.github.pr import list_resolved_threads, list_unresolved_threads
 from cai.github.repo import IssueWorkspace, PRWorkspace
 from cai.log import langfuse_workflow, session_id_for_pr
@@ -43,6 +44,23 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
     ):
         solve_graph.run_sync(ExploreNode(), state=state)
     assert state.new_meta is not None
+    if meta.number is not None:
+        ensure_labels(
+            bot,
+            meta.repo,
+            [
+                LabelSpec(name="cai:raised", color="0e8a16", description="Trigger cai to solve"),
+                LabelSpec(name="cai:audit", color="fbca04", description="For cai to review"),
+                LabelSpec(name="cai:pr-ready", color="0e8a16", description="CAI solve completed; PR opened"),
+                LabelSpec(name="cai:failed", color="b60205", description="CAI solve did not complete"),
+            ],
+        )
+        issue = bot.repo(meta.repo).get_issue(meta.number)
+        labels = [lbl.name for lbl in issue.labels if lbl.name != "cai:raised"]
+        outcome = "cai:pr-ready" if state.pr_url else "cai:failed"
+        labels.append(outcome)
+        issue.edit(labels=labels)
+        state.new_meta.labels = labels
     return state.new_meta, state.pr_url
 
 

@@ -63,6 +63,8 @@ def main() -> None:
         [
             LabelSpec(name="cai:raised", color="0e8a16", description="Trigger cai to solve"),
             LabelSpec(name="cai:audit", color="fbca04", description="For cai to review"),
+            LabelSpec(name="cai:pr-ready", color="0e8a16", description="CAI solve completed; PR opened"),
+            LabelSpec(name="cai:failed", color="b60205", description="CAI solve did not complete"),
         ],
     )
 
