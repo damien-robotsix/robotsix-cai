@@ -42,7 +42,7 @@ from cai.agents.loader import build_deep_agent, load_agent_from_md, parse_agent_
 from cai.git import clone as git_clone
 from cai.github.bot import CaiBot
 from cai.log.observability import langfuse_workflow, setup_langfuse
-from cai.log.traces import _TRACES
+from cai.log.traces import _TRACES, _format_failures
 from cai.workflows.state import WithConfidence, _inline_refs
 
 # Per the auditor rubrics (src/cai/agents/{audit,architecture_auditor,duplication_auditor}.md),
@@ -285,16 +285,12 @@ def _build_errors_prompt(unknown: list[str]) -> str:
         print("No recent failures found in Langfuse.", file=sys.stderr)
         sys.exit(1)
 
-    lines = [f"Recent failures ({len(failures)} traces with errors):"]
-    for f in failures:
-        ts = (f["timestamp"] or "?")[:19]
-        lines.append(f"\n[{ts}] {f['name']}  trace_id={f['id']}")
-        for e in f["errors"]:
-            lines.append(f"  Failed step: {e['name']}")
-            if e.get("status_message"):
-                lines.append(f"    Message: {e['status_message'][:300]}")
-            if e.get("output"):
-                lines.append(f"    Output:  {e['output'][:200]}")
+    lines = _format_failures(
+        failures,
+        max_message_len=300,
+        max_output_len=200,
+        header=f"Recent failures ({len(failures)} traces with errors):",
+    )
 
     prompt = (
         "Audit the following recent failures in Langfuse traces.\n\n"
