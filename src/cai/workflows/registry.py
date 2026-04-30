@@ -6,10 +6,9 @@ slug, nav order, mermaid graph) so the docs generator and any future code
 generator (CI YAML, session-id strategy, …) all read from one place
 instead of duplicating it.
 
-Only the fields needed by ``scripts/gen_workflow_graphs.py`` are
-populated for now. Later sub-issues of #1468 extend the spec with
-``cli_entry``, ``session_id``, and ``github_trigger`` to drive the rest
-of the per-workflow boilerplate.
+Every field on every entry is populated so that downstream tooling
+(docs, CI YAML, session-id generation, GitHub event routing) has a
+single source of truth.
 """
 from __future__ import annotations
 

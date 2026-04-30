@@ -137,11 +137,28 @@ def test_github_trigger_full_construction():
     assert t.workflows == ["ci.yml"]
 
 
+def test_github_trigger_explicit_none_fields():
+    """GitHubTrigger accepts explicit ``None`` for optional fields."""
+    t = GitHubTrigger(kind="workflow_dispatch", label=None, workflows=None)
+    assert t.kind == "workflow_dispatch"
+    assert t.label is None
+    assert t.workflows is None
+
+
 def test_github_trigger_is_frozen():
     """GitHubTrigger is immutable."""
     t = GitHubTrigger(kind="workflow_dispatch")
     with pytest.raises(FrozenInstanceError):
         t.kind = "other"  # type: ignore[misc]
+
+
+def test_github_trigger_equality():
+    """GitHubTrigger instances are compared by value."""
+    a = GitHubTrigger(kind="issue_label", label="cai:raised")
+    b = GitHubTrigger(kind="issue_label", label="cai:raised")
+    c = GitHubTrigger(kind="issue_label", label="other")
+    assert a == b
+    assert a != c
 
 
 # ── WorkflowSpec dataclass ─────────────────────────────────────────────
@@ -152,6 +169,34 @@ def test_workflow_spec_is_frozen():
     spec = WORKFLOWS[0]
     with pytest.raises(FrozenInstanceError):
         spec.slug = "hacked"  # type: ignore[misc]
+
+
+def test_workflow_spec_construction():
+    """WorkflowSpec can be constructed directly with all seven fields."""
+    trigger = GitHubTrigger(kind="workflow_dispatch")
+
+    def _dummy_session() -> str:
+        return "sess-1"
+
+    spec = WorkflowSpec(
+        slug="test-wf",
+        title="Test Workflow",
+        nav_order=99,
+        blurb="A test workflow.",
+        graph=WORKFLOWS[0].graph,
+        cli_entry="cai.workflows.solve:main",
+        session_id=_dummy_session,
+        github_trigger=trigger,
+    )
+    assert spec.slug == "test-wf"
+    assert spec.title == "Test Workflow"
+    assert spec.nav_order == 99
+    assert spec.blurb == "A test workflow."
+    assert isinstance(spec.graph, Graph)
+    assert spec.cli_entry == "cai.workflows.solve:main"
+    assert callable(spec.session_id)
+    assert spec.session_id() == "sess-1"
+    assert spec.github_trigger is trigger
 
 
 # ── _solve_session_id helper ───────────────────────────────────────────
@@ -172,6 +217,12 @@ def test_solve_session_id_pr_path_delegates():
 def test_solve_session_id_pr_path_non_cai_branch():
     """With a non-cai branch, falls back to ``pr-<number>``."""
     result = _solve_session_id(42, branch="feature/widget")
+    assert result == "pr-42"
+
+
+def test_solve_session_id_empty_branch():
+    """With an empty string branch, falls back to ``pr-<number>``."""
+    result = _solve_session_id(42, branch="")
     assert result == "pr-42"
 
 
