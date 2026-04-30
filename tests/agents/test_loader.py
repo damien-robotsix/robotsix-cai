@@ -1,12 +1,13 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pathlib import Path
 from pydantic_ai.exceptions import ModelRetry
 
 from cai.agents.loader import (
     GrepGuardrailAsRetry,
+    _get_arg,
     parse_agent_md,
     resolve_agent_path,
 )
@@ -99,7 +100,7 @@ def test_grep_guardrail_raises_at_threshold():
             None, call=_grep_call(), tool_def=None, args={},
             result="No matches for 'foo'",
         ))
-    with pytest.raises(ModelRetry, match="Repeated zero-result grep"):
+    with pytest.raises(ModelRetry, match="Multiple zero-result grep"):
         _run(cap.after_tool_execute(
             None, call=_grep_call(), tool_def=None, args={},
             result="No matches for 'bar'",
@@ -111,9 +112,282 @@ def test_grep_guardrail_raises_at_threshold():
 def test_grep_guardrail_for_run_returns_fresh_instance():
     cap = GrepGuardrailAsRetry()
     cap._empty_grep_count = 5
+    cap._recently_removed.add("old_stuff")
     fresh = _run(cap.for_run(None))
     assert fresh is not cap
     assert fresh._empty_grep_count == 0
+    assert fresh._recently_removed == set()
+
+
+def test_grep_guardrail_edit_file_tracks_old_string():
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "pytest.raises(Exception)"},
+        result="ok",
+    ))
+    assert "pytest.raises(Exception)" in cap._recently_removed
+    assert cap._empty_grep_count == 0
+
+
+def test_grep_guardrail_verification_grep_not_counted():
+    """An empty grep whose pattern contains a recently-removed old_string
+    is a verification — it must NOT increment the counter or reset it."""
+    cap = GrepGuardrailAsRetry()
+    # First, simulate an edit_file that removed something.
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "pytest.raises(Exception)"},
+        result="ok",
+    ))
+    # Pre-set counter to 1 to verify it's neither incremented nor reset.
+    cap._empty_grep_count = 1
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={"pattern": r"pytest\.raises\(Exception\)"},
+        result="No matches for 'pytest.raises(Exception)'",
+    ))
+    # Counter stays at 1 — verification grep is invisible.
+    assert cap._empty_grep_count == 1
+
+
+def test_grep_guardrail_non_verification_grep_still_increments():
+    """A grep that does NOT match any recently-removed old_string must
+    still increment the counter normally."""
+    cap = GrepGuardrailAsRetry()
+    # Record an edit.
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "pytest.raises(Exception)"},
+        result="ok",
+    ))
+    # Now grep for something unrelated.
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={"pattern": "some_unrelated_thing"},
+        result="No matches for 'some_unrelated_thing'",
+    ))
+    assert cap._empty_grep_count == 1
+
+
+# ---------------------------------------------------------------------------
+# GrepGuardrailAsRetry — re.escape exemption path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "old_string, grep_pattern, description",
+    [
+        # Dot — re.escape produces \.
+        ("foo.bar", r"foo\.bar", "dot metacharacter"),
+        # Parentheses — re.escape produces \( and \)
+        ("func(arg)", r"func\(arg\)", "parentheses"),
+        # Asterisk — re.escape produces \*
+        ("import *", r"import \*", "asterisk"),
+        # Plus — re.escape produces \+
+        ("a+b", r"a\+b", "plus"),
+        # Question mark — re.escape produces \?
+        ("maybe?", r"maybe\?", "question mark"),
+        # Square brackets — re.escape produces \[ and \]
+        ("arr[0]", r"arr\[0\]", "square brackets"),
+        # Curly braces — re.escape produces \{ and \}
+        ("x{1,3}", r"x\{1,3\}", "curly braces"),
+        # Caret — re.escape produces \^
+        ("^start", r"\^start", "caret"),
+        # Dollar — re.escape produces \$
+        ("end$", r"end\$", "dollar"),
+        # Pipe — re.escape produces \|
+        ("a|b", r"a\|b", "pipe"),
+        # Backslash — re.escape produces \\
+        (r"c:\path", r"c:\\path", "backslash"),
+        # Multiple metacharacters combined
+        ("pytest.raises(Exception)", r"pytest\.raises\(Exception\)", "multiple metacharacters"),
+    ],
+)
+def test_grep_guardrail_verification_exempts_regex_escaped_pattern(
+    old_string, grep_pattern, description
+):
+    """The re.escape path exempts zero-result greps whose pattern is the
+    regex-escaped form of a recently-removed old_string."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": old_string},
+        result="ok",
+    ))
+    cap._empty_grep_count = 2
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={"pattern": grep_pattern},
+        result=f"No matches for '{grep_pattern}'",
+    ))
+    assert cap._empty_grep_count == 2, (
+        f"Verification grep should be exempt for {description}"
+    )
+
+
+def test_grep_guardrail_raw_substring_path_still_works():
+    """The original raw-substring check (removed in pattern) must still
+    exempt greps where the pattern literally contains the old_string."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "needle"},
+        result="ok",
+    ))
+    cap._empty_grep_count = 2
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={"pattern": "searching for needle here"},
+        result="No matches for 'searching for needle here'",
+    ))
+    assert cap._empty_grep_count == 2
+
+
+def test_grep_guardrail_multiple_removed_one_matches_via_escape():
+    """When multiple old_strings are tracked, an exemption is granted if
+    ANY one of them matches via either the raw-substring or re.escape path."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "unrelated stuff"},
+        result="ok",
+    ))
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "pytest.raises(Exception)"},
+        result="ok",
+    ))
+    cap._empty_grep_count = 2
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={"pattern": r"pytest\.raises\(Exception\)"},
+        result="No matches for 'pytest.raises(Exception)'",
+    ))
+    assert cap._empty_grep_count == 2
+
+
+def test_grep_guardrail_verification_exempts_via_re_search_fallback():
+    """When neither raw-substring nor re.escape checks match, the
+    re.search fallback exempts a verification grep whose regex matches
+    a recently-removed string directly.
+
+    This handles version-dependent re.escape differences (e.g. whether
+    spaces are escaped).  ``re.search(r"import \*", "import *")``
+    succeeds even when ``re.escape("import *")`` does not appear in the
+    pattern."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "import *"},
+        result="ok",
+    ))
+    cap._empty_grep_count = 2
+    # Pattern only escapes the asterisk, not the space — so the raw
+    # substring check fails ("import *" not in "import \*") and the
+    # re.escape check may or may not pass depending on Python version.
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={"pattern": r"import \*"},
+        result="No matches for 'import \\*'",
+    ))
+    assert cap._empty_grep_count == 2, (
+        "re.search fallback should exempt verification grep"
+    )
+
+
+def test_grep_guardrail_re_search_fallback_handles_invalid_regex():
+    """When the grep pattern is an invalid regex, re.search raises
+    re.error which is caught silently — the exemption is not granted
+    and the grep is counted normally."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "some.text"},
+        result="ok",
+    ))
+    cap._empty_grep_count = 1
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={"pattern": r"invalid[regex(unclosed"},
+        result="No matches for 'invalid[regex(unclosed'",
+    ))
+    # Exemption not granted — counter increments normally.
+    assert cap._empty_grep_count == 2
+
+
+def test_grep_guardrail_verification_exempt_does_not_reset_counter():
+    """A verification grep must leave an existing non-zero counter
+    untouched — it neither increments nor resets it."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "pytest.raises(Exception)"},
+        result="ok",
+    ))
+    # Build up a real streak first.
+    for _ in range(2):
+        _run(cap.after_tool_execute(
+            None,
+            call=_grep_call(),
+            tool_def=None,
+            args={"pattern": "unrelated"},
+            result="No matches for 'unrelated'",
+        ))
+    assert cap._empty_grep_count == 2
+    # Verification grep — counter stays at 2, streak continues.
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={"pattern": r"pytest\.raises\(Exception\)"},
+        result="No matches for 'pytest.raises(Exception)'",
+    ))
+    assert cap._empty_grep_count == 2
+    # Next non-exempt empty grep hits threshold and raises.
+    with pytest.raises(ModelRetry, match="Multiple zero-result grep"):
+        _run(cap.after_tool_execute(
+            None,
+            call=_grep_call(),
+            tool_def=None,
+            args={"pattern": "unrelated2"},
+            result="No matches for 'unrelated2'",
+        ))
+    assert cap._empty_grep_count == 0
 
 
 def test_grep_guardrail_wired_into_build_deep_agent_capabilities(monkeypatch):
@@ -136,6 +410,129 @@ def test_grep_guardrail_wired_into_build_deep_agent_capabilities(monkeypatch):
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
     assert "GrepGuardrailAsRetry" in cap_types
+
+
+# ---------------------------------------------------------------------------
+# _get_arg
+# ---------------------------------------------------------------------------
+
+
+def test_get_arg_from_dict():
+    assert _get_arg({"pattern": "foo"}, "pattern") == "foo"
+    assert _get_arg({"old_string": "bar"}, "old_string") == "bar"
+
+
+def test_get_arg_from_object():
+    obj = SimpleNamespace(pattern="foo", old_string="bar")
+    assert _get_arg(obj, "pattern") == "foo"
+    assert _get_arg(obj, "old_string") == "bar"
+
+
+def test_get_arg_missing_key_from_dict():
+    assert _get_arg({"other": 1}, "pattern") is None
+
+
+def test_get_arg_missing_attr_from_object():
+    obj = SimpleNamespace(other=1)
+    assert _get_arg(obj, "pattern") is None
+
+
+def test_get_arg_from_none():
+    assert _get_arg(None, "pattern") is None
+
+
+# ---------------------------------------------------------------------------
+# GrepGuardrailAsRetry — additional edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_grep_guardrail_edit_file_ignores_empty_old_string():
+    """Empty old_string values should not be added to _recently_removed."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": ""},
+        result="ok",
+    ))
+    assert cap._recently_removed == set()
+
+
+def test_grep_guardrail_edit_file_object_args():
+    """edit_file with object-style args (not dict) should still track old_string."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args=SimpleNamespace(old_string="remove_me"),
+        result="ok",
+    ))
+    assert "remove_me" in cap._recently_removed
+
+
+def test_grep_guardrail_grep_object_args():
+    """grep with object-style args should extract pattern for verification check."""
+    cap = GrepGuardrailAsRetry()
+    # Simulate an edit first.
+    _run(cap.after_tool_execute(
+        None,
+        call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None,
+        args={"old_string": "needle"},
+        result="ok",
+    ))
+    cap._empty_grep_count = 1
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args=SimpleNamespace(pattern="looking for needle here"),
+        result="No matches for 'looking for needle here'",
+    ))
+    # Verification grep — counter unchanged.
+    assert cap._empty_grep_count == 1
+
+
+def test_grep_guardrail_empty_result_string_counts_as_empty():
+    """A completely empty result string is treated as empty and increments."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={},
+        result="",
+    ))
+    assert cap._empty_grep_count == 1
+
+
+def test_grep_guardrail_whitespace_only_result_counts_as_empty():
+    """A whitespace-only result string is treated as empty and increments."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={},
+        result="   \n\t  ",
+    ))
+    assert cap._empty_grep_count == 1
+
+
+def test_grep_guardrail_no_exemption_when_recently_removed_empty():
+    """When _recently_removed is empty, no exemption logic runs at all."""
+    cap = GrepGuardrailAsRetry()
+    assert cap._recently_removed == set()
+    _run(cap.after_tool_execute(
+        None,
+        call=_grep_call(),
+        tool_def=None,
+        args={"pattern": "something"},
+        result="No matches for 'something'",
+    ))
+    assert cap._empty_grep_count == 1
 
 
 # ---------------------------------------------------------------------------

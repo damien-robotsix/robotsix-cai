@@ -31,6 +31,7 @@ __all__ = [
 
 import json
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,13 @@ class ToolErrorAsRetry(AbstractCapability):
         )
 
 
+def _get_arg(args: Any, name: str) -> Any:
+    """Extract a named argument from tool ``args``, which may be a dict or object."""
+    if isinstance(args, dict):
+        return args.get(name)
+    return getattr(args, name, None)
+
+
 class GrepGuardrailAsRetry(AbstractCapability):
     """Break the model out of a repeated zero-result ``grep`` loop.
 
@@ -116,6 +124,7 @@ class GrepGuardrailAsRetry(AbstractCapability):
     def __init__(self) -> None:
         super().__init__()
         self._empty_grep_count = 0
+        self._recently_removed: set[str] = set()
 
     async def for_run(self, ctx: Any) -> "GrepGuardrailAsRetry":
         return GrepGuardrailAsRetry()
@@ -129,20 +138,54 @@ class GrepGuardrailAsRetry(AbstractCapability):
         args: Any,
         result: Any,
     ) -> Any:
+        # Track edit_file old_string values so we can later exempt
+        # verification greps from the empty-result counter.
+        if call.tool_name == "edit_file":
+            old_string = _get_arg(args, "old_string")
+            if isinstance(old_string, str) and old_string:
+                self._recently_removed.add(old_string)
+            return result
+
         if call.tool_name != "grep":
             return result
+
         text = result if isinstance(result, str) else ""
         stripped = text.strip()
         is_empty = not stripped or stripped.startswith(self._NO_MATCH_PREFIX)
         if not is_empty:
             self._empty_grep_count = 0
             return result
+
+        # Exempt verification greps: when the grep pattern contains
+        # an old_string that was recently removed via edit_file, the
+        # zero-result grep is confirming the edit — not a wild goose
+        # chase.  Don't count it or reset the streak.
+        if self._recently_removed:
+            pattern = _get_arg(args, "pattern")
+            if isinstance(pattern, str) and pattern:
+                if any(
+                    removed in pattern or re.escape(removed) in pattern
+                    for removed in self._recently_removed
+                ):
+                    return result
+                # re.escape escaping can differ between Python versions
+                # (e.g. whether space is escaped).  Fall back to testing
+                # whether the grep regex itself matches a removed string.
+                try:
+                    if any(
+                        re.search(pattern, removed)
+                        for removed in self._recently_removed
+                    ):
+                        return result
+                except re.error:
+                    pass
+
         self._empty_grep_count += 1
         if self._empty_grep_count >= self._THRESHOLD:
             self._empty_grep_count = 0
             raise ModelRetry(
-                "Repeated zero-result grep queries detected. "
-                "Stop searching globally and trust your local edits."
+                "Multiple zero-result grep queries in a row. "
+                "Stop searching and work with what you already know."
             )
         return result
 
