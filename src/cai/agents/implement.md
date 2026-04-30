@@ -25,8 +25,10 @@ prompt — both modes share this single agent.
 - The refined issue metadata (JSON) with repo, title, and labels
 - The refined issue body containing a concrete plan with files to change
 - **Reference files** — full contents of the files the refine agent
-  flagged as required reading. You do not need to re-read these; they
-  are already in your context.
+  flagged as required reading. These are snapshots taken **before** any
+  edits. After you edit a file, its on-disk content diverges from the
+  reference copy — re-read it before constructing `old_string` for any
+  further edit to that same file.
 - **Review threads** (only in PR mode) — a list of unresolved reviewer
   comments to address. Each thread has an id, path, line, diff hunk, and
   conversation history. A *Prior corrections* section may also list
@@ -49,9 +51,9 @@ prompt — both modes share this single agent.
 
 - Reference files in your context appear with `line:hash|content` tags — ignore the `line:hash|` prefix when constructing `old_string` for `edit_file`; copy the content portion verbatim, including indentation
 - **Disambiguate `old_string`:** Include at least one uniquely-identifying surrounding line — e.g. the preceding `slug="audit"` or `title="..."` — so the pattern cannot match the wrong location. Files like `registry.py` have repeated blocks (e.g. multiple `WorkflowSpec` entries ending with identical `),`); without extra context `old_string` hits the first match, not the intended one
-- You do not need to `read_file` for files already shown in the Reference files section — their content is already in your context
+- After you edit a file, **re-read it** before making any further edits to that same file. The reference copy is stale — construct `old_string` from the fresh read, not from memory or the initial snapshot
 - **Paginate large files:** When you *do* need to `read_file` a file not already in context, use `offset` and `limit` for files >200 lines. First scan with `limit=100`, then read targeted sections.
-- You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response
+- You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response. When edits to the same file span multiple responses, re-read the file before each new batch
 - Use `write_file` (full rewrite) when changes are so pervasive that multiple `edit_file` calls would be harder to follow
 - For mass file reorganizations (renames, package moves, bulk deletions), use `batch_move`/`batch_delete` instead of looping the single-file tools, and verify the result with one `ls` or `glob` after the batch — not one read per file
 - When fixing a review thread, **propagate the same fix** wherever the
