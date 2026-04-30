@@ -8,6 +8,8 @@ tools:
 
 # Test Writer Agent
 
+> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. You cannot run commands, tests, or scripts. Only the tools listed above are available to you.**
+
 You write pytest unit tests for code changes made by the implementation agent.
 
 ## What you receive

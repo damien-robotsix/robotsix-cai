@@ -257,3 +257,81 @@ def test_agent_prompt_includes_pagination_guidance(agent_name):
         f"Agent '{agent_name}' system prompt missing pagination guidance.\n"
         f"Expected text: '{PAGINATION_TEXT}'"
     )
+
+
+# ---------------------------------------------------------------------------
+# Anti-hallucination guard in agent system prompts
+# ---------------------------------------------------------------------------
+
+ANTI_HALLUCINATION_TEXT = (
+    "> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. "
+    "You cannot run commands, tests, or scripts. "
+    "Only the tools listed above are available to you.**"
+)
+
+
+AGENTS_WITH_ANTI_HALLUCINATION = [
+    "docs",
+    "implement",
+    "python_review",
+    "refine",
+    "test_writer",
+]
+
+
+@pytest.mark.parametrize("agent_name", AGENTS_WITH_ANTI_HALLUCINATION)
+def test_agent_prompt_includes_anti_hallucination_guard(agent_name):
+    """Each of the five agents that lack an execute tool must carry the
+    defensive anti-hallucination blockquote in their system prompt."""
+    path = resolve_agent_path(agent_name)
+    _, system_prompt = parse_agent_md(path)
+    assert ANTI_HALLUCINATION_TEXT in system_prompt, (
+        f"Agent '{agent_name}' system prompt missing anti-hallucination guard.\n"
+        f"Expected text:\n{ANTI_HALLUCINATION_TEXT}"
+    )
+
+
+@pytest.mark.parametrize("agent_name", AGENTS_WITH_ANTI_HALLUCINATION)
+def test_anti_hallucination_guard_positioned_after_agent_header(agent_name):
+    """The anti-hallucination blockquote must appear after the agent title
+    heading (# Agent Name) so it's the first instruction the model sees."""
+    path = resolve_agent_path(agent_name)
+    _, system_prompt = parse_agent_md(path)
+
+    # The guard must be present ...
+    guard_idx = system_prompt.index(ANTI_HALLUCINATION_TEXT)
+    # ... and must appear after the `# ` heading that starts the body.
+    heading_end = system_prompt.index("\n")
+    assert guard_idx > heading_end, (
+        f"Agent '{agent_name}': anti-hallucination guard must appear "
+        f"after the title heading, but was found before it."
+    )
+
+
+AGENTS_WITHOUT_EXECUTE = AGENTS_WITH_ANTI_HALLUCINATION
+
+
+@pytest.mark.parametrize("agent_name", AGENTS_WITHOUT_EXECUTE)
+def test_agents_without_execute_tool_dont_declare_it(agent_name):
+    """Agents carrying the anti-hallucination guard must not list execute,
+    bash, shell, or run in their frontmatter tools."""
+    path = resolve_agent_path(agent_name)
+    config, _ = parse_agent_md(path)
+    tools = config.get("tools", [])
+    forbidden = {"execute", "bash", "shell", "run"}
+    intersection = set(tools) & forbidden
+    assert not intersection, (
+        f"Agent '{agent_name}' declares {sorted(intersection)} in tools "
+        f"but also carries the anti-hallucination guard — remove the guard "
+        f"or add the tool."
+    )
+
+
+def test_anti_hallucination_guard_absent_from_explore():
+    """Explore agent (which has no execute tool either) should NOT
+    contain the guard unless explicitly added."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    assert ANTI_HALLUCINATION_TEXT not in system_prompt, (
+        "Anti-hallucination guard found unexpectedly in explore agent prompt."
+    )
