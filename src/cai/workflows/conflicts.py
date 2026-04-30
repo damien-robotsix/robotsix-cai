@@ -1,16 +1,15 @@
 """``cai-resolve-conflicts`` CLI: rebase a PR onto its base branch and let
 the resolve_step agent resolve conflicts step-by-step.
 
-The flow is:
+The flow is implemented as a ``pydantic_graph.Graph``:
 
-1. Prepare the PR workspace (clones the head branch).
-2. Fetch ``origin`` and ``git rebase origin/<base>``.
-3. While the rebase stops at a conflict, hand the current commit's diff
-   plus the conflicted files to the ``resolve_step`` agent, then
-   ``git rebase --continue``.
-4. Run a sanity test pass once the rebase finishes.
-5. Push ``--force`` so the PR's diff view shows head-vs-base only,
-   without a noisy merge commit.
+* ``RebaseLoopNode`` — fetches ``origin`` and rebases onto ``origin/<base>``.
+  When the rebase stops at a conflict, hands the current commit's diff
+  plus the conflicted files to the ``resolve_step`` agent and continues.
+* ``SanityTestNode`` — runs the test suite once the rebase finishes
+  (skipped when the rebase needed no agent involvement).
+* ``PushNode`` — force-pushes the head branch so the PR's diff view shows
+  head-vs-base only, without a noisy merge commit.
 
 If the rebase or sanity tests fail, the workflow raises immediately with
 a clear error so the failure is visible rather than silently falling back
@@ -25,11 +24,13 @@ import asyncio
 import json
 import sys
 import traceback
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_ai.usage import UsageLimits
 from pydantic_deep import DeepAgentDeps, LocalBackend
+from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.git import (
@@ -266,6 +267,77 @@ def _push(bot: CaiBot, workspace: PRWorkspace) -> None:
     )
 
 
+@dataclass
+class ConflictsState:
+    bot: CaiBot
+    workspace: PRWorkspace
+    touched: list[str] = field(default_factory=list)
+    mode: str = "clean"
+
+
+class RebaseLoopNode(BaseNode[ConflictsState, None, dict]):
+    """Fetch the base branch and rebase the PR onto it.
+
+    The resolve_step agent is invoked for each conflicting commit until
+    the rebase finishes cleanly. On any failure the rebase is aborted and
+    a ``RuntimeError`` is raised so the caller sees a clear failure
+    rather than a silent fallback.
+    """
+
+    async def run(
+        self, ctx: GraphRunContext[ConflictsState]
+    ) -> "SanityTestNode | PushNode":
+        ws = ctx.state.workspace
+        # _rebase_loop is sync because it owns its own asyncio.run() to keep
+        # all resolve_step agent calls in one event loop. Bridge across the
+        # graph's running loop with to_thread so that loop is left untouched.
+        ok, touched = await asyncio.to_thread(_rebase_loop, ws)
+        if not ok:
+            if rebase_in_progress(ws.repo_root):
+                rebase_abort(ws.repo_root)
+            raise RuntimeError(
+                f"Rebase of {ws.repo}#{ws.number} onto {ws.base_branch!r} failed. "
+                "The resolve_step agent could not clear all conflict markers. "
+                "Manual intervention required."
+            )
+        ctx.state.touched = touched
+        if not touched:
+            ctx.state.mode = "clean"
+            return PushNode()
+        return SanityTestNode()
+
+
+class SanityTestNode(BaseNode[ConflictsState, None, dict]):
+    """Run the sanity test pass after the agent resolved at least one step."""
+
+    async def run(self, ctx: GraphRunContext[ConflictsState]) -> "PushNode":
+        ws = ctx.state.workspace
+        passed, details = _run_tests(ws.repo_root)
+        if not passed:
+            raise RuntimeError(
+                f"Rebase of {ws.repo}#{ws.number} onto {ws.base_branch!r} succeeded "
+                "but the sanity test pass failed. Fix the tests before retrying.\n\n"
+                f"Test output:\n{details}"
+            )
+        ctx.state.mode = "rebased"
+        return PushNode()
+
+
+class PushNode(BaseNode[ConflictsState, None, dict]):
+    """Force-push the head branch and emit the JSON summary."""
+
+    async def run(self, ctx: GraphRunContext[ConflictsState]) -> End[dict]:
+        _push(ctx.state.bot, ctx.state.workspace)
+        return End(
+            {"mode": ctx.state.mode, "conflicted_files": ctx.state.touched}
+        )
+
+
+conflicts_graph: Graph[ConflictsState, None, dict] = Graph(
+    nodes=[RebaseLoopNode, SanityTestNode, PushNode]
+)
+
+
 def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
     """Rebase the PR onto its base and resolve conflicts step-by-step.
 
@@ -277,45 +349,25 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
 
     Raises ``RuntimeError`` if the rebase loop fails (e.g. resolve_step
     could not clear all markers) or if sanity tests fail after the rebase.
-    The caller sees a clear failure rather than a silent fallback to a
-    doomed implement loop.
     """
     pr_ref = f"{workspace.repo}#{workspace.number}"
-    with langfuse_workflow(
-        "cai-resolve-conflicts",
-        input={
-            "pr": pr_ref,
-            "base": workspace.base_branch,
-            "head": workspace.head_branch,
-        },
-        metadata={"repo": workspace.repo, "pr_number": workspace.number},
-        session_id=session_id_for_pr(workspace.number, workspace.head_branch),
-    ):
-        ok, touched = _rebase_loop(workspace)
+    state = ConflictsState(bot=bot, workspace=workspace)
 
-        if not ok:
-            if rebase_in_progress(workspace.repo_root):
-                rebase_abort(workspace.repo_root)
-            raise RuntimeError(
-                f"Rebase of {pr_ref} onto {workspace.base_branch!r} failed. "
-                "The resolve_step agent could not clear all conflict markers. "
-                "Manual intervention required."
-            )
+    async def _drive() -> dict:
+        with langfuse_workflow(
+            "cai-resolve-conflicts",
+            input={
+                "pr": pr_ref,
+                "base": workspace.base_branch,
+                "head": workspace.head_branch,
+            },
+            metadata={"repo": workspace.repo, "pr_number": workspace.number},
+            session_id=session_id_for_pr(workspace.number, workspace.head_branch),
+        ):
+            result = await conflicts_graph.run(RebaseLoopNode(), state=state)
+        return result.output
 
-        if not touched:
-            _push(bot, workspace)
-            return {"mode": "clean", "conflicted_files": []}
-
-        passed, details = _run_tests(workspace.repo_root)
-        if not passed:
-            raise RuntimeError(
-                f"Rebase of {pr_ref} onto {workspace.base_branch!r} succeeded "
-                "but the sanity test pass failed. Fix the tests before retrying.\n\n"
-                f"Test output:\n{details}"
-            )
-
-        _push(bot, workspace)
-        return {"mode": "rebased", "conflicted_files": touched}
+    return asyncio.run(_drive())
 
 
 def main() -> None:
