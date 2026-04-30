@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-from git import Actor, Repo
+from git import Repo
 from git.exc import GitCommandError
 
 
@@ -58,9 +58,32 @@ def commit(
     author_name: str,
     author_email: str,
 ) -> None:
-    """Commit the staged index using ``author_name``/``author_email``."""
-    actor = Actor(author_name, author_email)
-    Repo(str(repo_root)).index.commit(message, author=actor, committer=actor)
+    """Commit the staged index using ``author_name``/``author_email``.
+
+    Goes through ``git commit`` (not GitPython's ``index.commit``) so the
+    repository's pre-commit hooks fire — the regen-workflow-graphs hook
+    relies on this to keep ``docs/workflows/*.md`` in sync with the live
+    graph topology. When a hook modifies tracked files (the auto-fix
+    path), the modifications are staged and the commit is retried once;
+    a second hook-driven modification is treated as a real failure.
+    """
+    repo = Repo(str(repo_root))
+    env = {
+        "GIT_AUTHOR_NAME": author_name,
+        "GIT_AUTHOR_EMAIL": author_email,
+        "GIT_COMMITTER_NAME": author_name,
+        "GIT_COMMITTER_EMAIL": author_email,
+    }
+    for attempt in range(2):
+        try:
+            with repo.git.custom_environment(**env):
+                repo.git.commit("-m", message)
+            return
+        except GitCommandError:
+            modified = repo.git.diff("--name-only").splitlines()
+            if not modified or attempt == 1:
+                raise
+            repo.git.add("-A")
 
 
 def fetch(

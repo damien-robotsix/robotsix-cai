@@ -9,8 +9,10 @@ from pathlib import Path
 
 import pytest
 from git import Actor, Repo
+from git.exc import GitCommandError
 
 from cai.git import (
+    commit,
     conflicted_paths,
     current_rebase_step,
     index_matches_head,
@@ -186,6 +188,76 @@ def test_rev_parse_resolves_refs(tmp_path):
     assert rev_parse(repo_root, "HEAD") == feature_sha
     assert rev_parse(repo_root, "main") == seed_sha
     assert rev_parse(repo_root, "feature") == feature_sha
+
+
+def _install_pre_commit_hook(repo_root: Path, body: str) -> None:
+    hook = repo_root / ".git" / "hooks" / "pre-commit"
+    hook.write_text(body)
+    hook.chmod(0o755)
+
+
+def test_commit_runs_pre_commit_hook_and_succeeds_when_clean(tmp_path):
+    """A pre-commit hook that does nothing must let the commit through."""
+    repo_root = tmp_path / "repo"
+    repo = _init(repo_root)
+    marker = repo_root / "hook_ran"
+    _install_pre_commit_hook(
+        repo_root,
+        f"#!/usr/bin/env bash\ntouch {marker}\nexit 0\n",
+    )
+
+    (repo_root / "x.txt").write_text("x\n")
+    repo.git.add("x.txt")
+    commit(repo_root, "add x", author_name="cai-bot", author_email="cai@example.com")
+
+    assert marker.exists(), "pre-commit hook did not run"
+    assert repo.head.commit.message.strip() == "add x"
+    assert repo.head.commit.author.name == "cai-bot"
+
+
+def test_commit_retries_when_hook_modifies_files(tmp_path):
+    """When a hook regenerates a tracked file, the modification is staged
+    and the commit retries — mirrors the regen-workflow-graphs flow."""
+    repo_root = tmp_path / "repo"
+    repo = _init(repo_root)
+    (repo_root / "gen.txt").write_text("stale\n")
+    repo.git.add("gen.txt")
+    repo.index.commit("seed gen.txt")
+
+    flag = repo_root / ".hook_already_ran"
+    _install_pre_commit_hook(
+        repo_root,
+        # First invocation rewrites gen.txt and exits 1; subsequent
+        # invocations are no-ops so the retry can succeed.
+        f"""#!/usr/bin/env bash
+if [ -f {flag} ]; then exit 0; fi
+touch {flag}
+echo regenerated > {repo_root}/gen.txt
+exit 1
+""",
+    )
+
+    (repo_root / "y.txt").write_text("y\n")
+    repo.git.add("y.txt")
+    commit(repo_root, "add y", author_name="cai-bot", author_email="cai@example.com")
+
+    assert (repo_root / "gen.txt").read_text() == "regenerated\n"
+    # The committed tree contains both the original staged change and the
+    # hook's regeneration.
+    assert "y.txt" in repo.head.commit.tree
+    assert repo.head.commit.tree["gen.txt"].data_stream.read().decode() == "regenerated\n"
+
+
+def test_commit_raises_when_hook_keeps_failing(tmp_path):
+    """A hook that never succeeds (e.g. lint failure) bubbles up."""
+    repo_root = tmp_path / "repo"
+    repo = _init(repo_root)
+    _install_pre_commit_hook(repo_root, "#!/usr/bin/env bash\nexit 1\n")
+
+    (repo_root / "z.txt").write_text("z\n")
+    repo.git.add("z.txt")
+    with pytest.raises(GitCommandError):
+        commit(repo_root, "add z", author_name="cai-bot", author_email="cai@example.com")
 
 
 def test_index_matches_head(tmp_path):
