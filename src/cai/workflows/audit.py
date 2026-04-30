@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -423,6 +424,106 @@ def _build_duplication_prompt(
     return prompt
 
 
+# ---------------------------------------------------------------------------
+# Architecture mode — clone the target repo, walk the directory tree, and
+# collect structural signals for the architecture_auditor agent.
+# ---------------------------------------------------------------------------
+
+_DIRS_TO_SKIP = frozenset({
+    ".git", "__pycache__", "node_modules", ".venv", "venv", ".tox",
+    ".eggs", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    "dist", "build",
+})
+
+
+def _build_architecture_prompt(
+    bot: CaiBot, repo: str, workspace: Path, unknown: list[str]
+) -> str:
+    """Clone ``repo`` into ``workspace`` and build a prompt of structural context."""
+    print(f"Cloning {repo} into {workspace} for architecture audit...", file=sys.stderr)
+    _clone_repo_for_audit(bot, repo, workspace)
+
+    tree_lines: list[str] = []
+    file_metadata: list[str] = []
+    package_dirs_with_init: list[str] = []
+    package_dirs_without_init: list[str] = []
+
+    for root, dirs, files in os.walk(workspace):
+        dirs[:] = [
+            d for d in dirs
+            if d not in _DIRS_TO_SKIP and not d.startswith(".")
+        ]
+
+        rel_root = Path(root).relative_to(workspace)
+        depth = 0 if rel_root == Path(".") else len(rel_root.parts)
+        indent = "    " * depth
+
+        if rel_root == Path("."):
+            tree_lines.append(".")
+        else:
+            tree_lines.append(f"{indent}{rel_root.name}/")
+
+        has_init = "__init__.py" in files
+        py_files = [f for f in files if f.endswith(".py")]
+
+        if rel_root != Path(".") and py_files:
+            if has_init:
+                package_dirs_with_init.append(str(rel_root))
+            else:
+                package_dirs_without_init.append(str(rel_root))
+
+        for fname in sorted(files):
+            if fname.startswith("."):
+                continue
+            file_indent = "    " * (depth + 1)
+            tree_lines.append(f"{file_indent}{fname}")
+
+            if fname.endswith(".py"):
+                fpath = Path(root) / fname
+                rel_path = str(fpath.relative_to(workspace))
+                try:
+                    line_count = len(fpath.read_text().splitlines())
+                except (OSError, ValueError):
+                    line_count = 0
+                large_marker = " !LARGE!" if line_count > 300 else ""
+                file_metadata.append(f"  {rel_path}: {line_count} lines{large_marker}")
+
+    prompt = (
+        f"Architecture audit of {repo}. The repository is checked out at the "
+        f"agent's filesystem root.\n\n"
+        f"## Directory Tree\n\n"
+        + "\n".join(tree_lines)
+        + "\n\n## Python File Metadata\n\n"
+        + ("\n".join(file_metadata) if file_metadata else "(no Python files found)")
+        + "\n\n## Package Structure Summary\n\n"
+    )
+
+    if package_dirs_with_init:
+        prompt += "Directories with __init__.py (proper packages):\n"
+        for d in sorted(package_dirs_with_init):
+            prompt += f"  - {d}\n"
+    else:
+        prompt += "No directories with __init__.py found.\n"
+
+    if package_dirs_without_init:
+        prompt += (
+            "\nDirectories with Python files but NO __init__.py "
+            "(implicit namespace or potential missing package):\n"
+        )
+        for d in sorted(package_dirs_without_init):
+            prompt += f"  - {d}\n"
+
+    prompt += (
+        "\nUse `filesystem_read` to inspect specific files for deeper context. "
+        "Delegate broad searches to the `explore` subagent."
+    )
+
+    if unknown:
+        prompt += f"\n\nAdditional context: {' '.join(unknown)}"
+
+    return prompt
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="cai-audit",
@@ -435,13 +536,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["cost", "errors", "duplication"],
+        choices=["cost", "errors", "duplication", "architecture"],
         default="cost",
         help=(
             "Audit mode: 'cost' analyses the most expensive of the last 10 "
             "issue-solving sessions; 'errors' analyses the 10 most recent "
             "traces that contain error-level observations; 'duplication' "
-            "clones the repo and audits jscpd copy-paste findings."
+            "clones the repo and audits jscpd copy-paste findings; "
+            "'architecture' clones the repo and audits structural health."
         ),
     )
     args, unknown = parser.parse_known_args()
@@ -458,6 +560,11 @@ def main() -> None:
             prompt = _build_cost_prompt(unknown)
         elif args.mode == "errors":
             prompt = _build_errors_prompt(unknown)
+        elif args.mode == "architecture":
+            workspace_root = Path(tempfile.mkdtemp(prefix="cai-audit-arch-"))
+            workspace = workspace_root / "repo"
+            agent_name = "architecture_auditor"
+            prompt = _build_architecture_prompt(bot, args.repo, workspace, unknown)
         else:
             workspace_root = Path(tempfile.mkdtemp(prefix="cai-audit-dup-"))
             workspace = workspace_root / "repo"

@@ -1,4 +1,6 @@
 import sys
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,6 +10,7 @@ from cai.workflows.audit import (
     DedupeOutput,
     ProposedIssue,
     _audit_agent,
+    _build_architecture_prompt,
     _dedupe_agent,
     main,
 )
@@ -227,3 +230,166 @@ def test_main_with_unknown_args(
 
     mock_audit_agent.run.assert_called_once()
     mock_build_prompt.assert_called_once_with(["extra", "context"])
+
+
+def test_build_architecture_prompt():
+    """Verify _build_architecture_prompt produces a non-empty prompt with
+    structural signals from a small temp repo."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+
+        # Create a package with __init__.py
+        pkg = workspace / "mypkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("# package init\n")
+        (pkg / "module.py").write_text("def foo():\n    pass\n")
+
+        # Create a large file (>300 lines)
+        large = workspace / "big_file.py"
+        large.write_text("\n".join(f"# line {i}" for i in range(350)))
+
+        # Create a non-Python file
+        (workspace / "README.md").write_text("# Hello\n")
+
+        # Create a directory with Python files but no __init__.py
+        nopkg = workspace / "nopkg"
+        nopkg.mkdir()
+        (nopkg / "util.py").write_text("def bar():\n    return 1\n")
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_architecture_prompt(
+                MagicMock(), "owner/repo", workspace, []
+            )
+
+    assert prompt
+    assert "owner/repo" in prompt
+    assert "mypkg/" in prompt
+    assert "nopkg/" in prompt
+    assert "module.py" in prompt
+    assert "big_file.py" in prompt
+    assert "!LARGE!" in prompt
+    assert "README.md" in prompt
+    assert "__init__.py" in prompt
+    # Line-count annotation for the small module
+    assert "lines" in prompt
+    # Package structure summary
+    assert "mypkg" in prompt
+    assert "nopkg" in prompt
+    # Closing instruction
+    assert "filesystem_read" in prompt
+    assert "explore" in prompt
+    # No "Additional context" when unknown is empty
+    assert "Additional context" not in prompt
+
+
+def test_build_architecture_prompt_unknown_args():
+    """Unknown CLI args are forwarded as 'Additional context' in the prompt."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+        (workspace / "mod.py").write_text("x = 1\n")
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_architecture_prompt(
+                MagicMock(), "owner/repo", workspace,
+                ["--extra-flag", "some-value"],
+            )
+
+    assert "Additional context: --extra-flag some-value" in prompt
+
+
+@pytest.mark.parametrize(
+    "line_count,expect_large",
+    [
+        (300, False),
+        (301, True),
+    ],
+)
+def test_build_architecture_prompt_large_boundary(line_count, expect_large):
+    """Files with exactly 300 lines are NOT marked !LARGE!; 301+ are."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+        (workspace / "mod.py").write_text(
+            "\n".join(f"# line {i}" for i in range(line_count))
+        )
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_architecture_prompt(
+                MagicMock(), "owner/repo", workspace, []
+            )
+
+    if expect_large:
+        assert "!LARGE!" in prompt
+    else:
+        assert "!LARGE!" not in prompt
+
+
+def test_build_architecture_prompt_no_python_files():
+    """Prompt handles repos with no Python files gracefully."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+        (workspace / "README.md").write_text("# Hello\n")
+        (workspace / "script.sh").write_text("echo hi\n")
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_architecture_prompt(
+                MagicMock(), "owner/repo", workspace, []
+            )
+
+    assert "(no Python files found)" in prompt
+    assert "No directories with __init__.py found" in prompt
+
+
+@patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "architecture"])
+def test_main_architecture_mode(
+    mock_setup_langfuse,
+    mock_build_prompt,
+    mock_cai_bot,
+    mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
+):
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(output=AuditOutput(issues=[])))
+
+    canned_prompt = "architecture prompt"
+    with patch(
+        "cai.workflows.audit._build_architecture_prompt",
+        return_value=canned_prompt,
+    ) as mock_arch_prompt:
+        # Also capture the call to _audit_agent to verify agent_name
+        with patch(
+            "cai.workflows.audit._audit_agent",
+            return_value=mock_audit_agent,
+        ) as patched_agent:
+            main()
+
+    mock_arch_prompt.assert_called_once()
+    # Verify the agent factory was called with architecture_auditor name
+    patched_agent.assert_called_once_with("architecture_auditor")
+    mock_audit_agent.run.assert_called_once()
+    call_args = mock_audit_agent.run.call_args
+    assert call_args[0][0] == canned_prompt
+
+
+@patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "bogus"])
+def test_main_architecture_invalid_mode_rejected(
+    mock_setup_langfuse,
+    mock_build_prompt,
+    mock_cai_bot,
+    mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
+):
+    with pytest.raises(SystemExit):
+        main()
