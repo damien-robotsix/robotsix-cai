@@ -152,7 +152,7 @@ async def _run_resolve_step(repo_root: Path, prompt: str) -> None:
     await _resolve_step_agent().run(
         prompt,
         deps=_resolve_step_deps(repo_root),
-        usage_limits=UsageLimits(request_limit=30),
+        usage_limits=UsageLimits(request_limit=60),
     )
 
 
