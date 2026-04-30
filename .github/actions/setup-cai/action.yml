@@ -1,0 +1,23 @@
+name: 'Setup CAI Config'
+description: 'Stage cai-config directory with secrets for Docker container mount'
+inputs:
+  cai_github_app_pem:
+    description: 'CAI GitHub App private key (PEM)'
+    required: true
+  cai_app_env:
+    description: 'CAI app environment configuration'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Stage cai config for container
+      shell: bash
+      env:
+        CAI_GITHUB_APP_PEM: ${{ inputs.cai_github_app_pem }}
+        CAI_APP_ENV: ${{ inputs.cai_app_env }}
+      run: |
+        mkdir -p "${RUNNER_TEMP}/cai-config"
+        printf '%s\n' "$CAI_GITHUB_APP_PEM" > "${RUNNER_TEMP}/cai-config/github-app.pem"
+        printf '%s\n' "$CAI_APP_ENV" > "${RUNNER_TEMP}/cai-config/app.env"
+        chmod 600 "${RUNNER_TEMP}/cai-config/github-app.pem" "${RUNNER_TEMP}/cai-config/app.env"
+        sudo chown -R 1000:1000 "${RUNNER_TEMP}/cai-config"
