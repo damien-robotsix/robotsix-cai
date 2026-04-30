@@ -64,7 +64,8 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
         issue.edit(labels=labels)
         state.new_meta.labels = labels
     if state.pr_number is not None:
-        set_label(bot, meta.repo, state.pr_number, "cai:human-review", present=True)
+        if not state.auto_merge_enabled:
+            set_label(bot, meta.repo, state.pr_number, "cai:human-review", present=True)
     return state.new_meta, state.pr_url
 
 
@@ -104,5 +105,7 @@ def solve_pr(bot: CaiBot, workspace: PRWorkspace) -> IssueMeta:
         session_id=session_id_for_pr(workspace.number, workspace.head_branch),
     ):
         solve_graph.run_sync(ImplementNode(), state=state)
-    set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=True)
+    if not state.auto_merge_enabled:
+        set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=True)
     return meta
+
