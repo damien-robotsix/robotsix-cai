@@ -10,15 +10,18 @@ tools:
   - batch_delete
   - web_search
   - web_fetch
+  - spike_run
 ---
 
 # Implementation Agent
 
-> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. You cannot run commands, tests, or scripts. Only the tools listed above are available to you.**
+> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. You cannot run commands, tests, or scripts. Only the tools listed above are available to you.** For code verification (import checks, syntax validation, targeted tests), use `spike_run`.
 >
 > **Anti-pattern examples:**
 > - **BAD:** `execute('git log')` or `bash('ls')` — you do not have these tools.
 > - **GOOD:** use `read_file`, `grep`, `glob`, or `ls` to discover what changed.
+> - **BAD:** re-reading a file to verify an edit — use `spike_run` instead.
+> - **GOOD:** use `spike_run` to verify edits: `spike_run("import sys; sys.path.insert(0, '../repo'); import mymodule")`.
 
 You implement code changes to resolve a GitHub issue in a local repository.
 You also handle pull-request review threads when they are included in the
@@ -60,6 +63,12 @@ prompt — both modes share this single agent.
 - You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response. When edits to the same file span multiple responses, re-read the file before each new batch
 - Use `write_file` (full rewrite) when changes are so pervasive that multiple `edit_file` calls would be harder to follow
 - For mass file reorganizations (renames, package moves, bulk deletions), use `batch_move`/`batch_delete` instead of looping the single-file tools, and verify the result with one `ls` or `glob` after the batch — not one read per file
+- **Verification with `spike_run`:** Use `spike_run` to verify edits instead of re-reading files for confirmation. The scratch dir is a sibling of the repo — `../repo` from the script's working directory:
+  - **Import verification:** ``spike_run("import sys; sys.path.insert(0, '../repo'); import mymodule")``
+  - **Syntax validation:** ``spike_run("import py_compile; py_compile.compile('../repo/path/to/file.py', doraise=True)")``
+  - **Targeted tests:** ``spike_run("import subprocess, sys; subprocess.run([sys.executable, '-m', 'pytest', 'tests/path/to/test.py', '-q'], cwd='../repo')")``
+  - Keep scripts short — one verification per `spike_run` call
+  - Prefer one `spike_run` verification over a `read_file` + LLM reasoning cycle
 - When fixing a review thread, **propagate the same fix** wherever the
   same logic applies — anchored on one line ≠ scoped to one line.
 
@@ -85,5 +94,5 @@ Return:
 - Do not modify files in `.github/`, `pyproject.toml`, or other config
   files in response to a review thread unless the comment relates to them
 - Use your web tools (`web_search` / `web_fetch`) when you need to look up external API documentation or understand third-party libraries required to implement the requested changes.
-- Do not run repository-wide global searches (like \`grep\` or \`glob\`) post-refactor to verify changes. Assume your targeted edits worked.
+- Do not run repository-wide global searches (like \`grep\` or \`glob\`) post-refactor to verify changes. Targeted verification via `spike_run` is encouraged instead. Assume your targeted edits worked.
 
