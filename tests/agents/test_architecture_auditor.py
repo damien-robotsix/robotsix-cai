@@ -110,6 +110,28 @@ def test_architecture_auditor_uses_filesystem_read():
     assert "Inspect" in instructions
 
 
+def test_architecture_auditor_module_size_lens():
+    """The Module size lens must flag any file over 300 lines, not just those bundling unrelated concerns."""
+    path = resolve_agent_path("architecture_auditor")
+    _, instructions = parse_agent_md(path)
+
+    # The 300-line threshold is preserved
+    assert "300 lines" in instructions
+
+    # Files should be split into smaller, single-purpose modules
+    # (no longer requires that files "bundle unrelated concerns")
+    assert "split into smaller" in instructions
+    assert "single-purpose" in instructions
+
+    # Clarifying note: even single-concern files become hard to navigate, review, and test
+    assert "navigate" in instructions
+    assert "hard to" in instructions
+
+    # Old precondition must be absent
+    assert "bundle unrelated" not in instructions.lower()
+    assert "bundling unrelated" not in instructions.lower()
+
+
 @pytest.mark.parametrize(
     "confidence_level,expected_text",
     [
