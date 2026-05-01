@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from pydantic_graph import Graph
+from pydantic_ai.exceptions import AgentRunError
 
 from cai.github.bot import CaiBot
 from cai.github.issues import IssueMeta
@@ -48,7 +49,16 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
         ):
             await solve_graph.run(ExploreNode(), state=state)
 
-    asyncio.run(_run())
+    try:
+        asyncio.run(_run())
+    except AgentRunError:
+        if meta.number is not None:
+            ensure_labels(bot, meta.repo, CAI_LABEL_SPECS)
+            issue = bot.repo(meta.repo).get_issue(meta.number)
+            labels = [lbl.name for lbl in issue.labels if lbl.name != "cai:raised"]
+            labels.append("cai:failed")
+            issue.edit(labels=labels)
+        raise
     assert state.new_meta is not None
     if meta.number is not None:
         ensure_labels(bot, meta.repo, CAI_LABEL_SPECS)
