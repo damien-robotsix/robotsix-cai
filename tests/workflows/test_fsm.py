@@ -31,6 +31,16 @@ class TestModuleIntegrity:
         assert hasattr(solve_graph, "run_sync")
         assert callable(solve_graph.run_sync)
 
+    def test_solve_graph_includes_github_workflow_review(self):
+        """solve_graph.nodes includes GitHubWorkflowReviewNode between PythonReviewNode and TestSanityNode."""
+        from cai.workflows.fsm import solve_graph
+        from cai.workflows.github_workflow_review import GitHubWorkflowReviewNode
+
+        assert any(
+            issubclass(defn.node, GitHubWorkflowReviewNode)
+            for defn in solve_graph.node_defs.values()
+        ), "GitHubWorkflowReviewNode must be registered in solve_graph.node_defs"
+
 
 # ---------------------------------------------------------------------------
 # solve_issue tests
