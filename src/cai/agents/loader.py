@@ -395,6 +395,9 @@ class HistoryCompactorCapability(AbstractCapability):
         "batch_move", "batch_delete",
     })
 
+    async def for_run(self, ctx: Any) -> "HistoryCompactorCapability":
+        return HistoryCompactorCapability()
+
     # ------------------------------------------------------------------
     # before_model_request — compact superseded tool outputs
     # ------------------------------------------------------------------
@@ -507,6 +510,7 @@ class HistoryCompactorCapability(AbstractCapability):
         # contains this ToolCallPart by the time wrap_tool_execute fires,
         # and parallel read_file calls share that ModelResponse.
         prior_msg_idx: int | None = None
+        prior_call_id: str | None = None
         for i in range(len(ctx.messages) - 1, -1, -1):
             msg = ctx.messages[i]
             if not isinstance(msg, ModelResponse):
@@ -520,6 +524,7 @@ class HistoryCompactorCapability(AbstractCapability):
                     continue
                 if part.args_as_dict() == current_args:
                     prior_msg_idx = i
+                    prior_call_id = part.tool_call_id
                     break
             if prior_msg_idx is not None:
                 break
@@ -538,10 +543,27 @@ class HistoryCompactorCapability(AbstractCapability):
                 if part.tool_name in self._FILE_MODIFYING_TOOLS:
                     return await handler(args)
 
+        # Find the matching ToolReturnPart by scanning forward from the
+        # prior ModelResponse for a ModelRequest whose ToolReturnPart
+        # carries the same tool_call_id.
+        if prior_call_id is not None:
+            for i in range(prior_msg_idx + 1, len(ctx.messages)):
+                msg = ctx.messages[i]
+                if not isinstance(msg, ModelRequest):
+                    continue
+                for part in msg.parts:
+                    if isinstance(part, ToolReturnPart) and part.tool_call_id == prior_call_id:
+                        return part.content
+
+        # Defensive fallback: include the file path so different files
+        # produce different strings, preventing pydantic-ai's global
+        # "same result 3 times" counter from blocking genuinely new reads.
+        path = current_args.get("path", "unknown")
         return (
-            "[Warning: identical read_file requested without intervening file "
-            "edits. The file content has not changed — reuse your previous "
-            "read_file output instead of re-reading or trying different offsets.]"
+            f"[Warning: identical read_file({path!r}) requested without "
+            f"intervening file edits. The file content has not changed — "
+            f"reuse your previous read_file output instead of re-reading "
+            f"or trying different offsets.]"
         )
 
 
