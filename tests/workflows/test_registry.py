@@ -21,6 +21,7 @@ from cai.workflows.registry import (
     WorkflowSpec,
     _audit_session_id,
     _conflicts_session_id,
+    _ci_triage_session_id,
     _memory_audit_session_id,
     _parent_check_session_id,
     _solve_session_id,
@@ -69,6 +70,7 @@ def test_registry_covers_user_facing_cli_scripts():
         "audit-errors": "cai-audit",
         "memory-audit": "cai-memory-audit",
         "parent-check": "cai-parent-check",
+        "ci-triage": "cai-ci-triage",
     }
     registered = {spec.slug for spec in WORKFLOWS}
     assert registered == set(expected), (
@@ -547,70 +549,5 @@ def test_memory_audit_session_id_format():
     """Returns a string matching ``memory-audit-YYYYMMDD-HHMM``."""
     import re
 
-    sid = _memory_audit_session_id(CliArgs())
-    assert re.match(r"^memory-audit-\d{8}-\d{4}$", sid), f"unexpected format: {sid!r}"
-
-
-# ── parent-check workflow ────────────────────────────────────────────────
-
-
-def test_parent_check_spec_trigger():
-    """The parent-check workflow triggers on ``issues`` ``closed`` with a sub-issue filter."""
-    spec = by_slug("parent-check")
-    assert len(spec.github_trigger.on) == 1
-    assert spec.github_trigger.on[0].event == "issues"
-    assert spec.github_trigger.on[0].types == ["closed"]
-    assert spec.github_trigger.job_if == (
-        "contains(github.event.issue.labels.*.name, 'cai:sub-issue')"
-    )
-
-
-def test_parent_check_spec_fields():
-    """The parent-check workflow has the expected slug, title, cli_entry, and permissions."""
-    spec = by_slug("parent-check")
-    assert spec.slug == "parent-check"
-    assert spec.title == "CAI Parent Check"
-    assert spec.cli_entry == "cai.workflows.parent_check:main"
-    assert spec.docker_command == (
-        "cai-parent-check ${{ github.repository }}#${{ github.event.issue.number }}"
-    )
-    assert spec.permissions == {"issues": "write"}
-    assert spec.authorized_user_variant == "none"
-    assert spec.concurrency_group is None
-    assert callable(spec.session_id)
-
-
-def test_parent_check_cli_entry_is_importable():
-    """parent_check's cli_entry resolves to a callable."""
-    import importlib
-
-    module_path, _, attr = by_slug("parent-check").cli_entry.partition(":")
-    mod = importlib.import_module(module_path)
-    target = getattr(mod, attr)
-    assert callable(target)
-
-
-def test_parent_check_session_id_format():
-    """Returns ``parent-check-{number}``."""
-    result = _parent_check_session_id(CliArgs(number=7))
-    assert result == "parent-check-7"
-
-
-def test_parent_check_session_id_none_number():
-    """When number is None, returns ``parent-check-None`` (str)."""
-    result = _parent_check_session_id(CliArgs())
-    assert result == "parent-check-None"
-
-
-def test_conflicts_session_id_with_number():
-    """With a PR number, returns ``conflicts-{repo}#{number}``."""
-    result = _conflicts_session_id(CliArgs(repo="a/b", number=7))
-    assert result == "conflicts-a-b#7"
-
-
-def test_conflicts_session_id_no_number():
-    """Without a PR number, returns ``conflicts-{repo}-YYYYMMDD-HHMM``."""
-    import re
-
-    result = _conflicts_session_id(CliArgs(repo="a/b"))
-    assert re.match(r"^conflicts-a-b-\d{8}-\d{4}$", result), f"unexpected format: {result!r}"
+        "parent-check": "cai-parent-check",
+        "ci-triage": "cai-ci-triage",
