@@ -5,7 +5,7 @@ on:
     types: [labeled]
 
 jobs:
-  audit:
+  audit-errors:
     if: github.event.label.name == 'cai:failed' && !contains(github.event.issue.labels.*.name, 'cai:audit')
     runs-on: ubuntu-latest
     permissions:

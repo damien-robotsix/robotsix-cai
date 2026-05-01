@@ -42,6 +42,10 @@ def _render(spec, shape):
     env = Environment(
         loader=FileSystemLoader(str(SCRIPTS_DIR / "templates")),
         keep_trailing_newline=True,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        variable_start_string="<%",
+        variable_end_string="%>",
     )
     template = env.get_template("cai_workflow.yml.j2")
     return template.render(spec=spec, shape=shape)

@@ -23,8 +23,9 @@ from cai.workflows.registry import WORKFLOWS  # noqa: E402
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 
-# Slugs that are deliberately kept hand-written.
-SKIP_SLUGS = {"audit-auto"}
+# Slugs without a generated workflow file. ``audit-auto`` is kept
+# hand-written; ``memory-audit`` has no GitHub Actions workflow yet.
+SKIP_SLUGS = {"audit-auto", "memory-audit"}
 
 
 def _determine_shape(spec) -> str:
@@ -42,6 +43,10 @@ def main() -> int:
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES_DIR)),
         keep_trailing_newline=True,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        variable_start_string="<%",
+        variable_end_string="%>",
     )
     template = env.get_template("cai_workflow.yml.j2")
 

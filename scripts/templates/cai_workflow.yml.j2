@@ -1,4 +1,4 @@
-name: {{ spec.title }}
+name: <% spec.title %>
 
 {% if shape == "resolve" -%}
 # Triggered after Docker publish succeeds so the resolve job always pulls
@@ -9,32 +9,32 @@ on:
 {% for evt in spec.github_trigger.on -%}
 {% if evt.event == "issues" %}
   issues:
-    types: [{{ evt.types | join(', ') }}]
+    types: [<% evt.types | join(', ') %>]
 {% elif evt.event == "pull_request_review" %}
   pull_request_review:
-    types: [{{ evt.types | join(', ') }}]
+    types: [<% evt.types | join(', ') %>]
 {% elif evt.event == "schedule" %}
   schedule:
-    - cron: "{{ evt.cron }}"
+    - cron: "<% evt.cron %>"
 {% elif evt.event == "workflow_run" %}
   workflow_run:
-    workflows: [{{ evt.workflows | map('tojson') | join(', ') }}]
-    types: [{{ evt.types | join(', ') }}]
-    branches: [{{ evt.branches | join(', ') }}]
+    workflows: [<% evt.workflows | map('tojson') | join(', ') %>]
+    types: [<% evt.types | join(', ') %>]
+    branches: [<% evt.branches | join(', ') %>]
 {% elif evt.event == "workflow_dispatch" -%}
 {% if evt.inputs %}
   workflow_dispatch:
     inputs:
 {% for name, inp in evt.inputs.items() %}
-      {{ name }}:
-        description: {{ inp.description | tojson }}
-        required: {{ inp.required | lower }}
-        default: {{ inp.default }}
+      <% name %>:
+        description: <% inp.description | tojson %>
+        required: <% inp.required | lower %>
+        default: <% inp.default %>
 {% if inp.type == "choice" %}
         type: choice
         options:
 {% for opt in inp.options %}
-          - {{ opt }}
+          - <% opt %>
 {% endfor -%}
 {% endif -%}
 {% endfor -%}
@@ -43,32 +43,32 @@ on:
 {% endif -%}
 {% elif evt.event == "push" %}
   push:
-    branches: [{{ evt.branches | join(', ') }}]
+    branches: [<% evt.branches | join(', ') %>]
 {% endif -%}
 {% endfor -%}
 {% if shape != "resolve" and spec.concurrency_group %}
 
 concurrency:
-  group: {{ spec.concurrency_group }}
+  group: <% spec.concurrency_group %>
   cancel-in-progress: true
 {% endif -%}
 {% if shape == "resolve" %}
 
 concurrency:
-  group: {{ spec.concurrency_group }}
+  group: <% spec.concurrency_group %>
   cancel-in-progress: true
 {% endif %}
 
 jobs:
 {% if shape == "simple" %}
-  {{ spec.slug }}:
+  <% spec.slug %>:
 {% if spec.github_trigger.job_if %}
-    if: {{ spec.github_trigger.job_if }}
+    if: <% spec.github_trigger.job_if %>
 {% endif %}
     runs-on: ubuntu-latest
     permissions:
 {% for perm, level in spec.permissions.items() %}
-      {{ perm }}: {{ level }}
+      <% perm %>: <% level %>
 {% endfor %}
 
     steps:
@@ -98,7 +98,7 @@ jobs:
             exit 1
           fi
 
-{% endif -%}
+{% endif %}
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -108,7 +108,7 @@ jobs:
           cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
           cai_app_env: ${{ secrets.CAI_APP_ENV }}
 
-      - name: Run {{ spec.title }}
+      - name: Run <% spec.title %>
         run: |
           docker run --rm \
             -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
@@ -117,7 +117,7 @@ jobs:
             -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
             -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
             docker.io/robotsix/cai:latest \
-            {{ spec.docker_command }}
+            <% spec.docker_command %>
 {% elif shape == "gate" %}
   check:
     runs-on: ubuntu-latest
@@ -157,7 +157,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
 {% for perm, level in spec.permissions.items() %}
-      {{ perm }}: {{ level }}
+      <% perm %>: <% level %>
 {% endfor %}
     steps:
       - name: Checkout repository
@@ -169,7 +169,7 @@ jobs:
           cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
           cai_app_env: ${{ secrets.CAI_APP_ENV }}
 
-      - name: Run {{ spec.title }}
+      - name: Run <% spec.title %>
         env:
           TARGET_REPO: ${{ github.event.inputs.repo || github.repository }}
         run: |
@@ -180,7 +180,7 @@ jobs:
             -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
             -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
             docker.io/robotsix/cai:latest \
-            {{ spec.docker_command }}
+            <% spec.docker_command %>
 {% elif shape == "resolve" %}
   discover:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
@@ -226,7 +226,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
 {% for perm, level in spec.permissions.items() %}
-      {{ perm }}: {{ level }}
+      <% perm %>: <% level %>
 {% endfor %}
     strategy:
       fail-fast: false
@@ -256,5 +256,5 @@ jobs:
             -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
             -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
             docker.io/robotsix/cai:latest \
-            {{ spec.docker_command }}
+            <% spec.docker_command %>
 {% endif -%}
