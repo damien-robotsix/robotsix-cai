@@ -1,15 +1,9 @@
 name: CAI Audit Auto
 
 on:
-  workflow_run:
-    workflows:
-      - "CAI Solve"
-      - "CAI Solve (PR review)"
-      - "CAI Resolve Conflicts"
-      - "CAI Sourcing"
-      - "CAI Audit Errors"
-      - "CAI Audit Duplication"
-    types: [completed]
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   check:
@@ -20,24 +14,25 @@ jobs:
       should_run: ${{ steps.gate.outputs.should_run }}
       count: ${{ steps.gate.outputs.count }}
     steps:
-      - name: Count completed cai-* workflow runs
+      - name: Count cai-* workflow runs in the last 24h
         id: gate
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
           total=0
           workflows=$(gh api "/repos/${{ github.repository }}/actions/workflows" --jq '.workflows[] | select(.path | startswith(".github/workflows/cai-")) | select(.name != "CAI Audit" and .name != "CAI Audit Auto") | .id')
           for id in $workflows; do
-            count=$(gh api "/repos/${{ github.repository }}/actions/workflows/$id/runs?status=completed&per_page=1" --jq '.total_count')
+            count=$(gh api "/repos/${{ github.repository }}/actions/workflows/$id/runs?status=completed&created=%3E$since&per_page=1" --jq '.total_count')
             total=$((total + count))
           done
           echo "count=$total" >> "$GITHUB_OUTPUT"
-          if [ "$total" -gt 0 ] && [ $((total % 10)) -eq 0 ]; then
+          if [ "$total" -gt 0 ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_run=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Completed cai-* workflow runs: $total"
+          echo "Completed cai-* workflow runs since $since: $total"
 
   audit:
     needs: check
