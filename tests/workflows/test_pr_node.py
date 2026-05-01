@@ -58,3 +58,24 @@ def test_pr_node_issue_mode_creates_pr(
     mock_create.assert_called_once()
     assert state.pr_url == "https://pr/1"
     assert state.pr_number == 1
+
+
+@patch("cai.workflows.pr.create_pull_request")
+@patch("cai.workflows.pr.push_branch")
+@patch("cai.workflows.pr._has_staged_changes", return_value=False)
+@patch("cai.workflows.pr.commit")
+@patch("cai.workflows.pr.stage_all")
+def test_pr_node_issue_mode_no_changes_skips_push_and_create(
+    mock_stage, mock_commit, mock_dirty, mock_push, mock_create, state
+):
+    # Issue mode where the implement agent decided no code change was
+    # needed: nothing is staged, so pushing an empty branch and creating a
+    # no-diff PR both fail at GitHub. Skip both.
+    result = _run(PRNode(), state)
+
+    assert isinstance(result, MergeEvaluationNode)
+    mock_commit.assert_not_called()
+    mock_push.assert_not_called()
+    mock_create.assert_not_called()
+    assert state.pr_url is None
+    assert state.pr_number is None

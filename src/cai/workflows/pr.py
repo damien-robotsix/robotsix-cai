@@ -69,6 +69,13 @@ class PRNode(BaseNode[IssueState]):
             _post_replies_and_resolve(state, committed)
             return MergeEvaluationNode()
 
+        # New-issue path with nothing committed: the implement agent decided
+        # no code change was needed (e.g. issue already fixed by a prior PR).
+        # Pushing an empty branch and opening a no-diff PR both fail at GitHub
+        # ("No commits between main and …"), so stop here.
+        if not committed and state.pr_number is None:
+            return MergeEvaluationNode()
+
         push_branch(
             state.repo_root,
             remote_url,
