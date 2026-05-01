@@ -87,7 +87,8 @@ class TestNode(BaseNode[IssueState]):
             "Tests must never call LLM APIs or require external services.\n\n"
             f"## Issue metadata\n\n{meta_json}\n\n"
             f"## Implementation summary\n\n{state.implement_output.summary}\n\n"
-            f"## Implementation commit message\n\n{state.implement_output.commit_message}"
+            f"## Implementation commit message\n\n{state.implement_output.commit_message}\n\n"
+            f"{state.reference_files_section()}"
         )
         if state.findings is not None:
             prompt += f"\n\n## Codebase findings (explore agent)\n\n{state.findings.summary}"
@@ -99,7 +100,7 @@ class TestNode(BaseNode[IssueState]):
         result = await _test_writer_agent().run(
             prompt,
             deps=repo_deps(state.repo_root, write_dirs=[tests_dir]),
-            usage_limits=UsageLimits(request_limit=50),
+            usage_limits=UsageLimits(request_limit=20),
         )
         state.test_output = result.output
 

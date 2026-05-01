@@ -29,6 +29,13 @@ def test_test_writer_agent_config():
     assert "Pure pytest" in instructions
     assert "pytest.mark.parametrize" in instructions
 
+    # Batched workflow guidance (added to reduce LLM call overhead)
+    assert "Plan first" in instructions
+    assert "Read all relevant files in parallel" in instructions
+    assert "batch all test additions" in instructions
+    assert "Paginate large files" in instructions
+    assert "Read each file once" in instructions
+
 
 def test_test_writer_model_is_not_pro():
     """Regression test: test_writer must NOT use the expensive reasoning model."""
