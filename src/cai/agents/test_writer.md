@@ -16,6 +16,8 @@ You write pytest unit tests for code changes made by the implementation agent.
 
 - The issue metadata (JSON) with title and labels
 - The implementation summary describing what changed
+- Reference files — full contents of the files the refine agent flagged as relevant
+- Codebase findings from the explore agent
 - Full read/write access to the cloned repository
 
 ## How to work

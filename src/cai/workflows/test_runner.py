@@ -89,6 +89,11 @@ class TestNode(BaseNode[IssueState]):
             f"## Implementation summary\n\n{state.implement_output.summary}\n\n"
             f"## Implementation commit message\n\n{state.implement_output.commit_message}"
         )
+        if state.findings is not None:
+            prompt += f"\n\n## Codebase findings (explore agent)\n\n{state.findings.summary}"
+        reference_section = state.reference_files_section()
+        if reference_section:
+            prompt += "\n\n" + reference_section
 
         tests_dir = state.repo_root / "tests"
         result = await _test_writer_agent().run(
