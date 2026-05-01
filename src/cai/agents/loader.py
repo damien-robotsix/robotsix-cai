@@ -812,6 +812,10 @@ TOOL_FACTORIES: dict[str, str] = {
     "traces_session_cost": "cai.log.traces:TRACES_SESSION_COST_TOOL",
     "traces_session": "cai.log.traces:TRACES_SESSION_TOOL",
     "traces_solve_sessions": "cai.log.traces:TRACES_SOLVE_SESSIONS_TOOL",
+    "git_log": "cai.tools.git_tools:GIT_LOG_TOOL",
+    "git_diff": "cai.tools.git_tools:GIT_DIFF_TOOL",
+    "git_blame": "cai.tools.git_tools:GIT_BLAME_TOOL",
+    "git_show": "cai.tools.git_tools:GIT_SHOW_TOOL",
 }
 
 _DEEP_FLAG_DEFAULTS: dict[str, bool] = {
