@@ -87,8 +87,7 @@ class TestNode(BaseNode[IssueState]):
             "Tests must never call LLM APIs or require external services.\n\n"
             f"## Issue metadata\n\n{meta_json}\n\n"
             f"## Implementation summary\n\n{state.implement_output.summary}\n\n"
-            f"## Implementation commit message\n\n{state.implement_output.commit_message}\n\n"
-            f"{state.reference_files_section()}"
+            f"## Implementation commit message\n\n{state.implement_output.commit_message}"
         )
         if state.findings is not None:
             prompt += f"\n\n## Codebase findings (explore agent)\n\n{state.findings.summary}"
@@ -106,7 +105,9 @@ class TestNode(BaseNode[IssueState]):
 
         passed, details = _run_tests(state.repo_root)
         state.tests_passed = passed
-        if not passed:
+        if passed:
+            state.test_failure_details = ""
+        else:
             state.test_failure_details = details
 
         if not passed and state.test_retry_count < 1:
@@ -134,7 +135,9 @@ class TestSanityNode(BaseNode[IssueState]):
 
         passed, details = _run_tests(state.repo_root)
         state.tests_passed = passed
-        if not passed:
+        if passed:
+            state.test_failure_details = ""
+        else:
             state.test_failure_details = details
 
         if not passed and state.test_retry_count < 2:
