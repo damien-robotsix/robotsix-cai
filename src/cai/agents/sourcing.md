@@ -5,6 +5,7 @@ model: deepseek/deepseek-v4-pro
 tools:
   - web_search
   - web_fetch
+  - raise_issue
 subagents:
   - issue_deduplicator
 ---

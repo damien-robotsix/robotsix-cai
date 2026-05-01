@@ -6,6 +6,7 @@ tools:
   - filesystem_read
   - web_fetch
   - subagents
+  - raise_issue
 subagents:
   - explore
 ---

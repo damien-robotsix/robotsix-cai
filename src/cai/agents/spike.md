@@ -5,6 +5,7 @@ model: deepseek/deepseek-v4-pro
 tools:
   - filesystem_read
   - spike_run
+  - raise_issue
 ---
 
 # Runtime Spike

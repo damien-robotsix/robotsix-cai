@@ -1076,6 +1076,61 @@ def test_antipattern_examples_absent_from_explore():
 
 
 # ---------------------------------------------------------------------------
+# raise_issue tool in agent frontmatter
+# ---------------------------------------------------------------------------
+
+PRO_MODEL_AGENTS = [
+    "docs",
+    "spike",
+    "duplication_auditor",
+    "audit",
+    "implement",
+    "python_review",
+    "architecture_auditor",
+    "refine",
+    "deps_auditor",
+    "security_auditor",
+    "sourcing",
+    "explore",
+]
+
+FLASH_MODEL_AGENTS = [
+    "trace_analyst",
+    "issue_deduplicator",
+    "merge_evaluator",
+    "resolve_step",
+    "memory_audit",
+    "test_writer",
+]
+
+
+@pytest.mark.parametrize("agent_name", PRO_MODEL_AGENTS)
+def test_pro_model_agent_has_raise_issue_tool(agent_name: str):
+    """Every pro-model agent definition should list ``raise_issue`` in
+    its YAML frontmatter ``tools`` list."""
+    path = resolve_agent_path(agent_name)
+    config, _ = parse_agent_md(path)
+    tools = config.get("tools", [])
+    assert "raise_issue" in tools, (
+        f"{agent_name}.md is a pro-model agent but its frontmatter "
+        f"tools list does not include 'raise_issue'. Found: {tools}"
+    )
+
+
+@pytest.mark.parametrize("agent_name", FLASH_MODEL_AGENTS)
+def test_flash_model_agent_does_not_have_raise_issue(agent_name: str):
+    """Flash-model agents should NOT list ``raise_issue`` in their
+    frontmatter ``tools`` list — only pro-model agents get it."""
+    path = resolve_agent_path(agent_name)
+    config, _ = parse_agent_md(path)
+    tools = config.get("tools", [])
+    assert "raise_issue" not in tools, (
+        f"{agent_name}.md is a flash-model agent but unexpectedly "
+        f"has 'raise_issue' in its tools list: {tools}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # task tool parameter-name note
 # ---------------------------------------------------------------------------
 

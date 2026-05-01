@@ -10,6 +10,7 @@ tools:
   - batch_delete
   - web_search
   - web_fetch
+  - raise_issue
   - spike_run
 ---
 

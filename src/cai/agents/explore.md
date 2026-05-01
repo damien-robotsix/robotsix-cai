@@ -8,6 +8,7 @@ tools:
   - git_diff
   - git_blame
   - git_show
+  - raise_issue
 ---
 
 # Repo Explorer
