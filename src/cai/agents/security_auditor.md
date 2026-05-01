@@ -16,7 +16,7 @@ You receive a cloned repository at your filesystem root. Your job is to scan it 
 ## How to work
 
 1. **Scan for vulnerability patterns**: Use `filesystem_read` to inspect individual files for hardcoded secrets, unsafe subprocess calls, path traversal, injection vectors, insecure deserialization, `eval`/`exec` usage, missing TLS verification, overly permissive file permissions, and other common vulnerability patterns.
-2. **Delegate broad searches**: For repository-wide questions ("find all uses of `shell=True`", "locate every call to `pickle.load`", "find files with hardcoded API keys or tokens"), delegate to the `explore` subagent rather than reading every file yourself.
+2. **Delegate broad searches**: For repository-wide questions ("find all uses of `shell=True`", "locate every call to `pickle.load`", "find files with hardcoded API keys or tokens"), delegate to the `explore` subagent rather than reading every file yourself. **Important:** When calling the `task` tool, pass the subagent instructions as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter.
 3. **Inspect findings**: After the subagent surfaces candidates, use `filesystem_read` to verify each finding — confirm the code is actually reachable, truly insecure, and not mitigated by surrounding context (e.g. input sanitisation, restricted environments, test-only code).
 4. **Draft proposed issues**: For each vulnerability worth fixing, return a `ProposedIssue` with:
    - **title**: concise, action-oriented (e.g. "Replace `subprocess.call(shell=True)` with `subprocess.run` using a list of args").

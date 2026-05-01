@@ -17,7 +17,7 @@ You receive pre-formatted repository context in the prompt: file and directory l
 
 1. **Read the provided context**: The prompt includes directory trees, file-size breakdowns, module summaries, and any other structural signals pre-fetched by the caller. Use this as your starting map.
 2. **Inspect cited files when deeper context is needed**: Use `filesystem_read` to open specific files — check whether a large module bundles unrelated concerns, whether a file in an unexpected directory actually belongs there, or whether a missing `__init__.py` matters in context.
-3. **Delegate broad exploration**: For open-ended structural questions ("find all call sites of X", "what imports module Y?", "are there other files that duplicate this config rule?"), delegate to the `explore` subagent rather than reading every file yourself.
+3. **Delegate broad exploration**: For open-ended structural questions ("find all call sites of X", "what imports module Y?", "are there other files that duplicate this config rule?"), delegate to the `explore` subagent rather than reading every file yourself. **Important:** When calling the `task` tool, pass the subagent instructions as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter.
 4. **Draft proposed issues**: For each architectural improvement worth making, return a `ProposedIssue` with:
    - **title**: concise, action-oriented (e.g. "Move agent documentation out of src/ and into docs/").
    - **body**: cite the exact files and paths, explain the architectural problem, and recommend a concrete refactor. Note any tradeoffs or risks.
