@@ -15,10 +15,12 @@ from pydantic_graph import Graph
 
 from cai.workflows.registry import (
     WORKFLOWS,
+    CliArgs,
     GitHubTrigger,
     GitHubTriggerEvent,
     WorkflowSpec,
     _audit_session_id,
+    _conflicts_session_id,
     _memory_audit_session_id,
     _solve_session_id,
     _sourcing_session_id,
@@ -109,11 +111,16 @@ def test_each_spec_cli_entry_is_importable():
 
 
 def test_each_spec_session_id_is_callable():
-    """Every spec's session_id field must be callable."""
+    """Every spec's session_id field must be a callable accepting CliArgs."""
     for spec in WORKFLOWS:
         assert callable(spec.session_id), (
             f"{spec.slug}: session_id ({type(spec.session_id).__name__}) "
             f"is not callable"
+        )
+        # Verify the callable accepts a CliArgs argument
+        result = spec.session_id(CliArgs(repo="test/repo", number=42, branch="feature/x"))
+        assert isinstance(result, str), (
+            f"{spec.slug}: session_id did not return a str"
         )
 
 
@@ -273,6 +280,41 @@ def test_github_trigger_equality():
     assert a != c
 
 
+# ── CliArgs dataclass ────────────────────────────────────────────────────
+
+
+def test_cli_args_defaults():
+    """CliArgs fields default to repo='', number=None, branch=None."""
+    args = CliArgs()
+    assert args.repo == ""
+    assert args.number is None
+    assert args.branch is None
+
+
+def test_cli_args_construction():
+    """CliArgs accepts all three fields."""
+    args = CliArgs(repo="owner/repo", number=42, branch="feature/x")
+    assert args.repo == "owner/repo"
+    assert args.number == 42
+    assert args.branch == "feature/x"
+
+
+def test_cli_args_is_frozen():
+    """CliArgs is immutable."""
+    args = CliArgs(repo="a/b", number=1)
+    with pytest.raises(FrozenInstanceError):
+        args.repo = "other"  # type: ignore[misc]
+
+
+def test_cli_args_equality():
+    """CliArgs instances are compared by value."""
+    a = CliArgs(repo="a/b", number=1, branch="x")
+    b = CliArgs(repo="a/b", number=1, branch="x")
+    c = CliArgs(repo="a/b", number=2, branch="x")
+    assert a == b
+    assert a != c
+
+
 # ── WorkflowSpec dataclass ─────────────────────────────────────────────
 
 
@@ -287,7 +329,7 @@ def test_workflow_spec_construction():
     """WorkflowSpec can be constructed directly with all required fields."""
     trigger = GitHubTrigger(on=[GitHubTriggerEvent(event="workflow_dispatch")])
 
-    def _dummy_session() -> str:
+    def _dummy_session(args: CliArgs) -> str:
         return "sess-1"
 
     spec = WorkflowSpec(
@@ -309,7 +351,7 @@ def test_workflow_spec_construction():
     assert isinstance(spec.graph, Graph)
     assert spec.cli_entry == "cai.workflows.solve:main"
     assert callable(spec.session_id)
-    assert spec.session_id() == "sess-1"
+    assert spec.session_id(CliArgs()) == "sess-1"
     assert spec.github_trigger is trigger
     assert spec.docker_command == "cai-test"
     assert spec.permissions == {"contents": "read"}
@@ -320,27 +362,33 @@ def test_workflow_spec_construction():
 # ── _solve_session_id helper ───────────────────────────────────────────
 
 
+def test_solve_session_id_unknown():
+    """With no number and no branch, returns ``issue-unknown``."""
+    result = _solve_session_id(CliArgs())
+    assert result == "issue-unknown"
+
+
 def test_solve_session_id_issue_path():
     """Without a branch, returns ``issue-<number>``."""
-    result = _solve_session_id(42)
+    result = _solve_session_id(CliArgs(number=42))
     assert result == "issue-42"
 
 
 def test_solve_session_id_pr_path_delegates():
     """With a branch, delegates to ``session_id_for_pr``."""
-    result = _solve_session_id(42, branch="cai/solve-99")
+    result = _solve_session_id(CliArgs(number=42, branch="cai/solve-99"))
     assert result == "issue-99"
 
 
 def test_solve_session_id_pr_path_non_cai_branch():
     """With a non-cai branch, falls back to ``pr-<number>``."""
-    result = _solve_session_id(42, branch="feature/widget")
+    result = _solve_session_id(CliArgs(number=42, branch="feature/widget"))
     assert result == "pr-42"
 
 
 def test_solve_session_id_empty_branch():
     """With an empty string branch, falls back to ``pr-<number>``."""
-    result = _solve_session_id(42, branch="")
+    result = _solve_session_id(CliArgs(number=42, branch=""))
     assert result == "pr-42"
 
 
@@ -348,22 +396,22 @@ def test_solve_session_id_empty_branch():
 
 
 def test_audit_session_id_format():
-    """Returns a string matching ``audit-YYYYMMDD-HHMMSS``."""
+    """Returns a string matching ``audit-{repo}-YYYYMMDD-HHMM``."""
     import re
 
-    sid = _audit_session_id()
-    assert re.match(r"^audit-\d{8}-\d{6}$", sid), f"unexpected format: {sid!r}"
+    sid = _audit_session_id(CliArgs(repo="owner/name"))
+    assert re.match(r"^audit-owner-name-\d{8}-\d{4}$", sid), f"unexpected format: {sid!r}"
 
 
 # ── _sourcing_session_id helper ─────────────────────────────────────────
 
 
 def test_sourcing_session_id_format():
-    """Returns a string matching ``sourcing-YYYYMMDD-HHMMSS``."""
+    """Returns a string matching ``sourcing-{repo}-YYYYMMDD-HHMM``."""
     import re
 
-    sid = _sourcing_session_id()
-    assert re.match(r"^sourcing-\d{8}-\d{6}$", sid), f"unexpected format: {sid!r}"
+    sid = _sourcing_session_id(CliArgs(repo="owner/name"))
+    assert re.match(r"^sourcing-owner-name-\d{8}-\d{4}$", sid), f"unexpected format: {sid!r}"
 
 
 # ── Specific workflow field assertions ─────────────────────────────────
@@ -487,8 +535,22 @@ def test_memory_audit_spec_fields():
 
 
 def test_memory_audit_session_id_format():
-    """Returns a string matching ``memory-audit-YYYYMMDD-HHMMSS``."""
+    """Returns a string matching ``memory-audit-YYYYMMDD-HHMM``."""
     import re
 
-    sid = _memory_audit_session_id()
-    assert re.match(r"^memory-audit-\d{8}-\d{6}$", sid), f"unexpected format: {sid!r}"
+    sid = _memory_audit_session_id(CliArgs())
+    assert re.match(r"^memory-audit-\d{8}-\d{4}$", sid), f"unexpected format: {sid!r}"
+
+
+def test_conflicts_session_id_with_number():
+    """With a PR number, returns ``conflicts-{repo}#{number}``."""
+    result = _conflicts_session_id(CliArgs(repo="a/b", number=7))
+    assert result == "conflicts-a-b#7"
+
+
+def test_conflicts_session_id_no_number():
+    """Without a PR number, returns ``conflicts-{repo}-YYYYMMDD-HHMM``."""
+    import re
+
+    result = _conflicts_session_id(CliArgs(repo="a/b"))
+    assert re.match(r"^conflicts-a-b-\d{8}-\d{4}$", result), f"unexpected format: {result!r}"

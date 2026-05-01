@@ -658,7 +658,9 @@ def main() -> None:
             workspace=workspace,
         )
 
-        session_id = f"audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+        from cai.workflows.registry import by_slug, CliArgs
+        cli_args = CliArgs(repo=args.repo)
+        session_id = by_slug("audit").session_id(cli_args)
 
         async def _run() -> None:
             with langfuse_workflow(

@@ -9,7 +9,7 @@ from cai.github.issues import IssueMeta
 from cai.github.labels import CAI_LABEL_SPECS, ensure_labels, set_label
 from cai.github.pr import list_resolved_threads, list_unresolved_threads
 from cai.github.repo import IssueWorkspace, PRWorkspace
-from cai.log import langfuse_workflow, session_id_for_pr
+from cai.log import langfuse_workflow
 from cai.workflows.docs import DocsNode
 from cai.workflows.explore import ExploreNode
 from cai.workflows.implement import ImplementNode
@@ -38,7 +38,11 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
         repo_root=workspace.repo_root.resolve(),
     )
     issue_ref = f"{meta.repo}#{meta.number}" if meta.number else meta.repo
-    session_id = f"issue-{meta.number}" if meta.number else None
+    session_id = None
+    if meta.number is not None:
+        from cai.workflows.registry import by_slug, CliArgs
+        cli_args = CliArgs(repo=meta.repo, number=meta.number)
+        session_id = by_slug("solve").session_id(cli_args)
     async def _run():
         with langfuse_workflow(
             "cai-solve",
@@ -94,12 +98,15 @@ def solve_pr(bot: CaiBot, workspace: PRWorkspace) -> IssueMeta:
     )
     state.new_meta = meta
     pr_ref = f"{workspace.repo}#{workspace.number}"
+    from cai.workflows.registry import by_slug, CliArgs
+    cli_args = CliArgs(repo=workspace.repo, number=workspace.number, branch=workspace.head_branch)
+    _pr_session_id = by_slug("solve-pr").session_id(cli_args)
     async def _run():
         with langfuse_workflow(
             "cai-solve",
             input={"pr": pr_ref, "title": workspace.title, "branch": workspace.head_branch},
             metadata={"repo": workspace.repo, "pr_number": workspace.number},
-            session_id=session_id_for_pr(workspace.number, workspace.head_branch),
+            session_id=_pr_session_id,
         ):
             await solve_graph.run(ImplementNode(), state=state)
 

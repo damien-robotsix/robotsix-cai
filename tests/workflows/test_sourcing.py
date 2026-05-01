@@ -501,7 +501,7 @@ def test_main_runs_graph(
 
 @patch("sys.argv", ["cai-sourcing", "--repo", "owner/repo"])
 def test_main_session_id_format():
-    """main() creates a session id matching sourcing-YYYYMMDD-HHMMSS."""
+    """main() creates a session id matching sourcing-{repo}-YYYYMMDD-HHMM."""
     import re
 
     with patch("cai.workflows.sourcing.setup_langfuse"):
@@ -513,7 +513,7 @@ def test_main_session_id_format():
 
     call_kwargs = mock_lf.call_args[1]
     session_id = call_kwargs["session_id"]
-    assert re.match(r"^sourcing-\d{8}-\d{6}$", session_id), f"unexpected format: {session_id!r}"
+    assert re.match(r"^sourcing-owner-repo-\d{8}-\d{4}$", session_id), f"unexpected format: {session_id!r}"
 
 
 @patch("sys.argv", ["cai-sourcing", "--repo", "owner/repo"])

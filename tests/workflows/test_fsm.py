@@ -285,7 +285,7 @@ def _build_solve_pr_mocks():
         "run": patch("cai.workflows.fsm.solve_graph.run", new_callable=AsyncMock),
         "unresolved": patch("cai.workflows.fsm.list_unresolved_threads", return_value=[]),
         "resolved": patch("cai.workflows.fsm.list_resolved_threads", return_value=[]),
-        "session_id": patch("cai.workflows.fsm.session_id_for_pr", return_value="sess"),
+        "session_id": patch("cai.workflows.registry.session_id_for_pr", return_value="sess"),
     }
 
 

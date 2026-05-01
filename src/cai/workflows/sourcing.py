@@ -153,7 +153,9 @@ def main() -> None:
         prompt=prompt,
     )
 
-    session_id = f"sourcing-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    from cai.workflows.registry import by_slug, CliArgs
+    cli_args = CliArgs(repo=args.repo)
+    session_id = by_slug("sourcing").session_id(cli_args)
 
     async def _run() -> None:
         with langfuse_workflow(

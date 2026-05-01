@@ -63,7 +63,7 @@ from cai.github.repo import (
     parse_pr_ref,
     prepare_pr_workspace,
 )
-from cai.log import langfuse_workflow, session_id_for_pr
+from cai.log import langfuse_workflow
 from cai.workflows.state import IssueState, ResolveStepOutput
 from cai.workflows.test_runner import _run_tests
 
@@ -453,6 +453,9 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
     set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=False)
     state = ConflictsState(bot=bot, workspace=workspace)
 
+    from cai.workflows.registry import by_slug, CliArgs
+    cli_args = CliArgs(repo=workspace.repo, number=workspace.number, branch=workspace.head_branch)
+    _conflicts_sid = by_slug("conflicts").session_id(cli_args)
     async def _drive() -> dict:
         with langfuse_workflow(
             "cai-resolve-conflicts",
@@ -462,7 +465,7 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
                 "head": workspace.head_branch,
             },
             metadata={"repo": workspace.repo, "pr_number": workspace.number},
-            session_id=session_id_for_pr(workspace.number, workspace.head_branch),
+            session_id=_conflicts_sid,
         ):
             result = await conflicts_graph.run(RebaseLoopNode(), state=state)
         if result.output.get("mode") != "obsolete":
