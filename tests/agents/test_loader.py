@@ -1198,7 +1198,8 @@ def test_history_compactor_before_model_request_ls():
 
 def test_history_compactor_wrap_tool_execute_short_circuit():
     """Duplicate read_file with identical args and no intervening file edit
-    returns the warning string without calling the handler."""
+    returns the cached content from the prior ToolReturnPart without calling
+    the handler."""
     cap = HistoryCompactorCapability()
     handler_called = False
 
@@ -1222,9 +1223,7 @@ def test_history_compactor_wrap_tool_execute_short_circuit():
     result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
 
     assert not handler_called
-    assert "Warning: identical read_file" in result
-    assert "file content has not changed" in result
-    assert "reuse your previous read_file output" in result
+    assert result == "old file content"
 
 
 def test_history_compactor_wrap_tool_execute_non_matching():
@@ -1532,9 +1531,7 @@ def test_history_compactor_wrap_tool_execute_non_edit_tools_preserve_short_circu
     result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
 
     assert not handler_called
-    assert "Warning: identical read_file" in result
-    assert "file content has not changed" in result
-    assert "reuse your previous read_file output" in result
+    assert result == "old"
 
 
 def test_history_compactor_wrap_tool_execute_no_prior_matching_read():
@@ -1614,6 +1611,90 @@ def test_history_compactor_wired_into_build_deep_agent_capabilities(monkeypatch)
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
     assert "HistoryCompactorCapability" in cap_types
+
+
+def test_history_compactor_wrap_tool_execute_three_different_cached_files():
+    """Three different cached files in sequence all succeed — each returns
+    its respective cached content, so the 'same result 3 times' counter
+    does not block genuinely new reads."""
+    cap = HistoryCompactorCapability()
+    handler_called = [False]
+
+    async def handler(_args):
+        handler_called[0] = True
+        return "should-not-reach"
+
+    # Prior reads for files A, B, C.
+    tc_a = ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="c1")
+    tr_a = ToolReturnPart(tool_name="read_file", content="content-A", tool_call_id="c1")
+    tc_b = ToolCallPart(tool_name="read_file", args={"path": "b.py"}, tool_call_id="c2")
+    tr_b = ToolReturnPart(tool_name="read_file", content="content-B", tool_call_id="c2")
+    tc_c = ToolCallPart(tool_name="read_file", args={"path": "c.py"}, tool_call_id="c3")
+    tr_c = ToolReturnPart(tool_name="read_file", content="content-C", tool_call_id="c3")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[tc_a]),
+            ModelRequest(parts=[tr_a]),
+            ModelResponse(parts=[tc_b]),
+            ModelRequest(parts=[tr_b]),
+            ModelResponse(parts=[tc_c]),
+            ModelRequest(parts=[tr_c]),
+        ],
+    )
+
+    call_a = ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="c4")
+    call_b = ToolCallPart(tool_name="read_file", args={"path": "b.py"}, tool_call_id="c5")
+    call_c = ToolCallPart(tool_name="read_file", args={"path": "c.py"}, tool_call_id="c6")
+
+    r_a = _run(cap.wrap_tool_execute(ctx, call=call_a, tool_def=None, args={}, handler=handler))
+    r_b = _run(cap.wrap_tool_execute(ctx, call=call_b, tool_def=None, args={}, handler=handler))
+    r_c = _run(cap.wrap_tool_execute(ctx, call=call_c, tool_def=None, args={}, handler=handler))
+
+    assert not any(handler_called)
+    assert r_a == "content-A"
+    assert r_b == "content-B"
+    assert r_c == "content-C"
+
+
+def test_history_compactor_wrap_tool_execute_warning_fallback_when_no_tool_return():
+    """When a prior identical read_file call exists but its ToolReturnPart
+    cannot be found (defensive scenario), the warning includes the file path
+    so different files produce different strings."""
+    cap = HistoryCompactorCapability()
+    handler_called = [False]
+
+    async def handler(_args):
+        handler_called[0] = True
+        return "should-not-reach"
+
+    # Prior call present but its ToolReturnPart is missing from messages.
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "orphan.py"}, tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            # ModelRequest with matching ToolReturnPart is deliberately absent.
+        ],
+    )
+
+    call = ToolCallPart(tool_name="read_file", args={"path": "orphan.py"}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
+
+    assert not any(handler_called)
+    assert "Warning: identical read_file" in result
+    assert "'orphan.py'" in result
+    assert "file content has not changed" in result
+
+
+def test_history_compactor_for_run_returns_fresh_instance():
+    """for_run returns a new HistoryCompactorCapability instance so
+    concurrent runs of an lru_cache'd agent don't share state."""
+    cap = HistoryCompactorCapability()
+    fresh = _run(cap.for_run(None))
+    assert fresh is not cap
+    assert isinstance(fresh, HistoryCompactorCapability)
 
 
 # ---------------------------------------------------------------------------
