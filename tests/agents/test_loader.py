@@ -966,13 +966,14 @@ AGENTS_WITH_ANTI_HALLUCINATION = [
     "python_review",
     "refine",
     "test_writer",
+    "trace_analyst",
 ]
 
 
 @pytest.mark.parametrize("agent_name", AGENTS_WITH_ANTI_HALLUCINATION)
 def test_agent_prompt_includes_anti_hallucination_guard(agent_name):
-    """Each of the five agents that lack an execute tool must carry the
-    defensive anti-hallucination blockquote in their system prompt."""
+    """Each agent that lacks an execute tool must carry the
+    defensive anti-hallucination blockquote in its system prompt."""
     path = resolve_agent_path(agent_name)
     _, system_prompt = parse_agent_md(path)
     assert ANTI_HALLUCINATION_TEXT in system_prompt, (
@@ -1041,6 +1042,7 @@ AGENTS_WITH_ANTIPATTERN_EXAMPLES = [
     "docs",
     "test_writer",
     "refine",
+    "trace_analyst",
 ]
 
 
