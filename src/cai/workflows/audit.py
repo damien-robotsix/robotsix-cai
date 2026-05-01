@@ -210,18 +210,24 @@ class RunAuditNode(BaseNode[AuditState, None, AuditOutput]):
         return CreateIssuesNode()
 
 
+async def _create_issues_node_run(
+    ctx: GraphRunContext, labels_for_confidence: typing.Callable[[int], list[str]]
+) -> End:
+    assert ctx.state.output is not None
+    await _create_issues_from_proposals(
+        bot=ctx.state.bot,
+        repo_name=ctx.state.repo,
+        issues=ctx.state.output.issues,
+        labels_for_confidence=labels_for_confidence,
+    )
+    return End(ctx.state.output)
+
+
 class CreateIssuesNode(BaseNode[AuditState, None, AuditOutput]):
     """Per proposed issue: check recent commits, dedupe, then create/append/discard."""
 
     async def run(self, ctx: GraphRunContext[AuditState]) -> End[AuditOutput]:
-        assert ctx.state.output is not None
-        await _create_issues_from_proposals(
-            bot=ctx.state.bot,
-            repo_name=ctx.state.repo,
-            issues=ctx.state.output.issues,
-            labels_for_confidence=_labels_for_confidence,
-        )
-        return End(ctx.state.output)
+        return await _create_issues_node_run(ctx, _labels_for_confidence)
 
 
 def _recent_commits_since(repo_obj: object, last_detected_at: str | None) -> str:
