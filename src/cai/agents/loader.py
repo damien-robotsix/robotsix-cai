@@ -16,6 +16,7 @@ from __future__ import annotations
 __all__ = [
     "AGENT_DIR",
     "EditFileGuardrailAsRetry",
+    "GlobPatternSanitizer",
     "GrepGuardrailAsRetry",
     "HistoryCompactorCapability",
     "ModelRequestErrorAsRetry",
@@ -98,6 +99,47 @@ class ToolErrorAsRetry(AbstractCapability):
             f"Tool {call.tool_name!r} raised {type(error).__name__}: {error}. "
             f"Adjust the arguments and try again."
         )
+
+
+class GlobPatternSanitizer(AbstractCapability):
+    """Sanitize ``glob`` patterns so ``**`` in a non-pure segment doesn't crash the tool.
+
+    Python's ``pathlib.Path.glob`` rejects patterns where ``**`` is mixed
+    with other characters in a path component (e.g. ``**/.github/issues**``)
+    with ``ValueError: '**' can only be an entire path component``. Models —
+    especially DeepSeek V4 — repeatedly trip this and then keep retrying the
+    same broken pattern, burning the request budget. Rewriting offending
+    segments at the boundary (``issues**`` → ``issues*``) preserves the
+    model's intent (recursive match in that segment) while keeping the call
+    valid, so the run keeps making progress instead of looping.
+    """
+
+    @staticmethod
+    def _sanitize(pattern: str) -> str:
+        segments = pattern.split("/")
+        changed = False
+        for i, seg in enumerate(segments):
+            if "**" in seg and seg != "**":
+                segments[i] = seg.replace("**", "*")
+                changed = True
+        return "/".join(segments) if changed else pattern
+
+    async def before_tool_execute(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any,
+    ) -> Any:
+        if call.tool_name == "glob":
+            pattern = args.get("pattern") if isinstance(args, dict) else None
+            if isinstance(pattern, str):
+                fixed = self._sanitize(pattern)
+                if fixed != pattern:
+                    args["pattern"] = fixed
+        elif call.tool_name == "grep":
+            glob_pattern = args.get("glob_pattern") if isinstance(args, dict) else None
+            if isinstance(glob_pattern, str):
+                fixed = self._sanitize(glob_pattern)
+                if fixed != glob_pattern:
+                    args["glob_pattern"] = fixed
+        return args
 
 
 def _get_arg(args: Any, name: str) -> Any:
@@ -837,6 +879,7 @@ def build_deep_agent(
     extra["capabilities"] = [
         *(extra.get("capabilities") or []),
         EditFileGuardrailAsRetry(),
+        GlobPatternSanitizer(),
         ToolErrorAsRetry(),
         ModelRequestErrorAsRetry(),
         GrepGuardrailAsRetry(),

@@ -9,6 +9,7 @@ from pydantic_ai.models import ModelRequestContext
 
 from cai.agents.loader import (
     EditFileGuardrailAsRetry,
+    GlobPatternSanitizer,
     GrepGuardrailAsRetry,
     _get_arg,
     HistoryCompactorCapability,
@@ -1328,3 +1329,92 @@ def test_history_compactor_wired_into_build_deep_agent_capabilities(monkeypatch)
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
     assert "HistoryCompactorCapability" in cap_types
+
+
+# ---------------------------------------------------------------------------
+# GlobPatternSanitizer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        # The exact failing pattern from issue #1463.
+        ("**/.github/issues**", "**/.github/issues*"),
+        # Trailing-segment ** mixed with extension.
+        ("src/**.py", "src/*.py"),
+        # Leading-segment ** mixed with prefix.
+        ("**foo/bar", "*foo/bar"),
+        # Multiple offending segments.
+        ("a**/b**c/d", "a*/b*c/d"),
+        # Pure ** components are preserved (recursive intent intact).
+        ("**", "**"),
+        ("**/foo/**", "**/foo/**"),
+        ("src/**/test_*.py", "src/**/test_*.py"),
+        # Patterns without ** are untouched.
+        ("src/*.py", "src/*.py"),
+    ],
+)
+def test_glob_sanitizer_rewrites_only_offending_segments(raw, expected):
+    assert GlobPatternSanitizer._sanitize(raw) == expected
+
+
+def test_glob_sanitizer_rewrites_glob_pattern_arg():
+    cap = GlobPatternSanitizer()
+    args = {"pattern": "**/.github/issues**", "path": "."}
+    out = _run(cap.before_tool_execute(
+        None, call=_grep_call("glob"), tool_def=None, args=args,
+    ))
+    assert out["pattern"] == "**/.github/issues*"
+    assert args["pattern"] == "**/.github/issues*"
+
+
+def test_glob_sanitizer_rewrites_grep_glob_pattern_arg():
+    """grep's glob_pattern field is also sanitized — same pathlib rule applies."""
+    cap = GlobPatternSanitizer()
+    args = {"pattern": "TODO", "glob_pattern": "src/**.py"}
+    out = _run(cap.before_tool_execute(
+        None, call=_grep_call("grep"), tool_def=None, args=args,
+    ))
+    assert out["glob_pattern"] == "src/*.py"
+
+
+def test_glob_sanitizer_passes_through_other_tools():
+    cap = GlobPatternSanitizer()
+    args = {"path": "**/foo**"}
+    out = _run(cap.before_tool_execute(
+        None, call=_grep_call("read_file"), tool_def=None, args=args,
+    ))
+    assert out is args
+    assert args == {"path": "**/foo**"}
+
+
+def test_glob_sanitizer_leaves_valid_pattern_unchanged():
+    cap = GlobPatternSanitizer()
+    args = {"pattern": "**/*.py", "path": "."}
+    out = _run(cap.before_tool_execute(
+        None, call=_grep_call("glob"), tool_def=None, args=args,
+    ))
+    assert out["pattern"] == "**/*.py"
+
+
+def test_glob_sanitizer_wired_into_build_deep_agent_capabilities(monkeypatch):
+    import cai.agents.loader as loader
+
+    captured: dict = {}
+
+    def fake_create_deep_agent(model, **kwargs):
+        captured["capabilities"] = kwargs.get("capabilities")
+        return object()
+
+    monkeypatch.setattr(
+        "pydantic_deep.create_deep_agent", fake_create_deep_agent
+    )
+    monkeypatch.setattr(loader, "build_model", lambda config: object())
+    monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
+
+    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    loader.build_deep_agent(config, "instructions")
+
+    cap_types = [type(c).__name__ for c in captured["capabilities"]]
+    assert "GlobPatternSanitizer" in cap_types
