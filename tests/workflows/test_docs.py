@@ -276,7 +276,7 @@ def test_deps_creates_deep_agent_deps_with_local_backend(tmp_path):
     deps = _deps(tmp_path)
     assert deps.backend is not None
     assert str(deps.backend.root_dir) == str(tmp_path)
-    assert str(tmp_path) in deps.backend._allowed_directories
+    assert tmp_path in deps.backend._allowed_directories
 
 
 # ---------------------------------------------------------------------------
