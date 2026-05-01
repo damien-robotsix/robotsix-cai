@@ -30,6 +30,31 @@ def _test_writer_agent():
     return build_deep_agent(config, instructions, output_type=TestOutput)
 
 
+def _python_changes(repo_root: Path) -> list[str]:
+    """Return paths of .py files with staged or unstaged changes (or untracked)."""
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+        capture_output=True,
+        text=True,
+        cwd=str(repo_root),
+    )
+    paths: list[str] = []
+    entries = [e for e in result.stdout.split("\0") if e]
+    i = 0
+    while i < len(entries):
+        entry = entries[i]
+        # Each entry is "XY <path>"; renames consume the next entry as the old path.
+        status = entry[:2]
+        path = entry[3:]
+        if status[0] == "R" or status[1] == "R":
+            i += 2  # skip rename source
+        else:
+            i += 1
+        if path.endswith(".py"):
+            paths.append(path)
+    return paths
+
+
 def _run_tests(repo_root: Path) -> tuple[bool, str]:
     """Compile-check src/ then run pytest with API keys stripped from env.
 
@@ -81,22 +106,25 @@ class TestNode(BaseNode[IssueState]):
         assert state.new_meta is not None
         assert state.implement_output is not None
 
-        meta_json = state.new_meta.model_dump_json(indent=2)
-        prompt = (
-            "Write or update pytest unit tests for the implementation described below.\n\n"
-            "Tests must never call LLM APIs or require external services.\n\n"
-            f"## Issue metadata\n\n{meta_json}\n\n"
-            f"## Implementation summary\n\n{state.implement_output.summary}\n\n"
-            f"## Implementation commit message\n\n{state.implement_output.commit_message}"
-        )
+        if _python_changes(state.repo_root):
+            meta_json = state.new_meta.model_dump_json(indent=2)
+            changed_py = "\n".join(f"- {p}" for p in _python_changes(state.repo_root))
+            prompt = (
+                "Write or update pytest unit tests for the implementation described below.\n\n"
+                "Tests must never call LLM APIs or require external services.\n\n"
+                f"## Issue metadata\n\n{meta_json}\n\n"
+                f"## Implementation summary\n\n{state.implement_output.summary}\n\n"
+                f"## Implementation commit message\n\n{state.implement_output.commit_message}\n\n"
+                f"## Python files changed\n\n{changed_py}"
+            )
 
-        tests_dir = state.repo_root / "tests"
-        result = await _test_writer_agent().run(
-            prompt,
-            deps=repo_deps(state.repo_root, write_dirs=[tests_dir]),
-            usage_limits=UsageLimits(request_limit=50),
-        )
-        state.test_output = result.output
+            tests_dir = state.repo_root / "tests"
+            result = await _test_writer_agent().run(
+                prompt,
+                deps=repo_deps(state.repo_root, write_dirs=[tests_dir]),
+                usage_limits=UsageLimits(request_limit=50),
+            )
+            state.test_output = result.output
 
         passed, details = _run_tests(state.repo_root)
         state.tests_passed = passed
