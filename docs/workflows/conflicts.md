@@ -1,10 +1,10 @@
 ---
-title: cai-resolve-conflicts
+title: CAI Resolve Conflicts
 parent: Workflows
 nav_order: 3
 ---
 
-# cai-resolve-conflicts
+# CAI Resolve Conflicts
 
 Rebases a pull request onto its base branch, asking the resolve_step agent to clear conflict markers commit-by-commit. Runs a sanity test pass after a non-trivial rebase before force-pushing the rewritten head.
 

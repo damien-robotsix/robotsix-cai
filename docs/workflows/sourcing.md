@@ -1,10 +1,10 @@
 ---
-title: cai-sourcing
+title: CAI Sourcing
 parent: Workflows
 nav_order: 4
 ---
 
-# cai-sourcing
+# CAI Sourcing
 
 Monthly scan of the open-source ecosystem for transferable tools, libraries, and frameworks. Surfaces findings as triageable GitHub issues.
 
