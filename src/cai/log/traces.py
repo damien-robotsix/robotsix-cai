@@ -257,6 +257,39 @@ def _obs_error_dict(obs) -> dict:
     }
 
 
+def _format_failures(
+    failures: list[dict],
+    *,
+    max_message_len: int | None = None,
+    max_output_len: int | None = None,
+    header: str | None = None,
+) -> list[str]:
+    """Format Langfuse trace failures into display lines.
+
+    Returns a list of lines (no trailing newline). Caller joins them.
+
+    Expected ``failures`` dict keys: id, name, timestamp,
+    errors[].name/status_message/output.
+    """
+    lines = [header] if header else []
+    for f in failures:
+        ts = (f["timestamp"] or "?")[:19]
+        lines.append(f"\n[{ts}] {f['name']}  trace_id={f['id']}")
+        for e in f["errors"]:
+            lines.append(f"  Failed step: {e['name']}")
+            msg = e.get("status_message")
+            if msg:
+                if max_message_len is not None:
+                    msg = msg[:max_message_len]
+                lines.append(f"    Message: {msg}")
+            out = e.get("output")
+            if out:
+                if max_output_len is not None:
+                    out = out[:max_output_len]
+                lines.append(f"    Output:  {out}")
+    return lines
+
+
 # --- module-level singleton --------------------------------------------------
 
 _TRACES = LangfuseTraces()
@@ -364,16 +397,7 @@ async def traces_failures(
         return f"Could not fetch failures: {exc}"
     if not failures:
         return "No failed traces found in the scanned set."
-    lines = []
-    for f in failures:
-        ts = (f["timestamp"] or "?")[:19]
-        lines.append(f"\n[{ts}] {f['name']}  trace_id={f['id']}")
-        for e in f["errors"]:
-            lines.append(f"  Failed step: {e['name']}")
-            if e.get("status_message"):
-                lines.append(f"    Message: {e['status_message']}")
-            if e.get("output"):
-                lines.append(f"    Output:  {e['output']}")
+    lines = _format_failures(failures)
     return "\n".join(lines)
 
 
