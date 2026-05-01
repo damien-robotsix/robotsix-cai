@@ -175,7 +175,7 @@ missing, and why it matters>
   interpretation and note the ambiguity in *Description*.
 - **Keep it short.** A wall of text is counterproductive — the
   implementation agent reads this as context.
-- **Paginate large files:** When reading files >200 lines, use `offset` and `limit`. First scan with `limit=100` to understand structure, then read targeted sections.
+- **Read files whole:** Prefer reading entire files by omitting `offset` and `limit`. Re-reading file regions already in context is wasteful — reference earlier outputs instead.
 - **Files to change vs Scope guardrails are disjoint.** A path may
   appear in only one section, never both. If you would forbid a file
   that's required for the change to work, include it in *Files to

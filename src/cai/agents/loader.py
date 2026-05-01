@@ -19,6 +19,7 @@ __all__ = [
     "GlobPatternSanitizer",
     "GrepGuardrailAsRetry",
     "HistoryCompactorCapability",
+    "MicroReadGuardCapability",
     "ModelRequestErrorAsRetry",
     "TOOL_FACTORIES",
     "TOOL_FLAGS",
@@ -507,6 +508,30 @@ class HistoryCompactorCapability(AbstractCapability):
         )
 
 
+class MicroReadGuardCapability(AbstractCapability):
+    """Auto-extend tiny ``limit`` values on ``read_file`` to prevent micro-reading.
+
+    Agents sometimes call ``read_file`` with ``limit=15`` or ``limit=60``,
+    producing a wasteful read→think→read→think loop. This capability bumps
+    any ``limit`` below 200 up to 200, so the agent gets a meaningful chunk
+    on every call. An absent ``limit`` (whole-file read) is left alone.
+    """
+
+    _MIN_LIMIT = 200
+
+    async def before_tool_execute(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any,
+    ) -> Any:
+        if call.tool_name == "read_file":
+            limit = _get_arg(args, "limit")
+            if limit is not None and isinstance(limit, int) and limit < self._MIN_LIMIT:
+                if isinstance(args, dict):
+                    args["limit"] = self._MIN_LIMIT
+                else:
+                    setattr(args, "limit", self._MIN_LIMIT)
+        return args
+
+
 # httpx defaults read/write/pool to None (infinite). Without these, a silently
 # dropped OpenRouter request will hang the agent indefinitely instead of
 # surfacing as a retryable error.
@@ -928,6 +953,7 @@ def build_deep_agent(
         ToolErrorAsRetry(),
         ModelRequestErrorAsRetry(),
         GrepGuardrailAsRetry(),
+        MicroReadGuardCapability(),
         HistoryCompactorCapability(),
     ]
 

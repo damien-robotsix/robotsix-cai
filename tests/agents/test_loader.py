@@ -14,6 +14,7 @@ from cai.agents.loader import (
     GrepGuardrailAsRetry,
     _get_arg,
     HistoryCompactorCapability,
+    MicroReadGuardCapability,
     UnknownToolRetry,
     parse_agent_md,
     resolve_agent_path,
@@ -778,10 +779,10 @@ def test_parse_agent_md_dash_dash_dash_in_body_not_confused(monkeypatch, tmp_pat
 
 
 # ---------------------------------------------------------------------------
-# Pagination guidance in agent system prompts
+# Read-whole guidance in agent system prompts
 # ---------------------------------------------------------------------------
 
-PAGINATION_TEXT = "Paginate large files"
+READ_WHOLE_TEXT = "Read files whole"
 
 
 @pytest.mark.parametrize(
@@ -792,13 +793,13 @@ PAGINATION_TEXT = "Paginate large files"
         "refine",
     ],
 )
-def test_agent_prompt_includes_pagination_guidance(agent_name):
-    """Ensure each agent's system prompt contains read_file pagination guidance."""
+def test_agent_prompt_includes_read_whole_guidance(agent_name):
+    """Ensure each agent's system prompt contains read-whole guidance."""
     path = resolve_agent_path(agent_name)
     _, system_prompt = parse_agent_md(path)
-    assert PAGINATION_TEXT in system_prompt, (
-        f"Agent '{agent_name}' system prompt missing pagination guidance.\n"
-        f"Expected text: '{PAGINATION_TEXT}'"
+    assert READ_WHOLE_TEXT in system_prompt, (
+        f"Agent '{agent_name}' system prompt missing read-whole guidance.\n"
+        f"Expected text: '{READ_WHOLE_TEXT}'"
     )
 
 
@@ -1714,3 +1715,99 @@ def test_unknown_tool_retry_re_raises_on_non_matching_format():
             )
         )
     assert str(exc_info.value) == str(original)
+
+
+# ---------------------------------------------------------------------------
+# MicroReadGuardCapability
+# ---------------------------------------------------------------------------
+
+
+def _micro_read_call(tool_name="read_file"):
+    return SimpleNamespace(tool_name=tool_name)
+
+
+def test_micro_read_guard_extends_limit_below_minimum():
+    """limit below 200 is bumped to 200."""
+    cap = MicroReadGuardCapability()
+    args = {"path": "a.py", "limit": 15}
+    out = _run(cap.before_tool_execute(
+        None, call=_micro_read_call(), tool_def=None, args=args,
+    ))
+    assert out["limit"] == 200
+
+
+def test_micro_read_guard_leaves_limit_at_or_above_minimum():
+    """limit >= 200 is left unchanged."""
+    cap = MicroReadGuardCapability()
+    args = {"path": "a.py", "limit": 200}
+    out = _run(cap.before_tool_execute(
+        None, call=_micro_read_call(), tool_def=None, args=args,
+    ))
+    assert out["limit"] == 200
+
+    args = {"path": "a.py", "limit": 500}
+    out = _run(cap.before_tool_execute(
+        None, call=_micro_read_call(), tool_def=None, args=args,
+    ))
+    assert out["limit"] == 500
+
+
+def test_micro_read_guard_leaves_absent_limit_alone():
+    """When limit is not set, the args are passed through unchanged."""
+    cap = MicroReadGuardCapability()
+    args = {"path": "a.py"}
+    out = _run(cap.before_tool_execute(
+        None, call=_micro_read_call(), tool_def=None, args=args,
+    ))
+    assert out is args
+    assert "limit" not in out
+
+
+def test_micro_read_guard_passes_through_non_read_file():
+    """Non-read_file tools are passed through unchanged."""
+    cap = MicroReadGuardCapability()
+    args = {"path": ".", "limit": 15}
+    out = _run(cap.before_tool_execute(
+        None, call=_micro_read_call("ls"), tool_def=None, args=args,
+    ))
+    assert out is args
+    assert out["limit"] == 15
+
+
+def test_micro_read_guard_object_args():
+    """Object-style args with limit below minimum are bumped."""
+    cap = MicroReadGuardCapability()
+    args = SimpleNamespace(path="a.py", limit=60)
+    out = _run(cap.before_tool_execute(
+        None, call=_micro_read_call(), tool_def=None, args=args,
+    ))
+    assert out is args
+    assert out.limit == 200
+
+
+def test_micro_read_guard_wired_into_build_deep_agent_capabilities(monkeypatch):
+    import cai.agents.loader as loader
+
+    captured: dict = {}
+
+    def fake_create_deep_agent(model, **kwargs):
+        captured["capabilities"] = kwargs.get("capabilities")
+        return object()
+
+    monkeypatch.setattr(
+        "pydantic_deep.create_deep_agent", fake_create_deep_agent
+    )
+    monkeypatch.setattr(loader, "build_model", lambda config: object())
+    monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
+
+    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    loader.build_deep_agent(config, "instructions")
+
+    cap_types = [type(c).__name__ for c in captured["capabilities"]]
+    assert "MicroReadGuardCapability" in cap_types
+    # Must appear before HistoryCompactorCapability so modified args reach the compactor
+    micro_idx = cap_types.index("MicroReadGuardCapability")
+    hist_idx = cap_types.index("HistoryCompactorCapability")
+    assert micro_idx < hist_idx, (
+        "MicroReadGuardCapability must be before HistoryCompactorCapability"
+    )
