@@ -33,6 +33,7 @@ cai-resolve-conflicts = "cai.workflows.conflicts:main"
 cai-audit = "cai.workflows.audit:main"
 cai-sourcing = "cai.workflows.sourcing:main"
 cai-memory-audit = "cai.workflows.memory_audit:main"
+cai-chain-sub-issue = "cai.workflows.chain:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cai"]
