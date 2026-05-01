@@ -23,6 +23,7 @@ __all__ = [
     "TOOL_FACTORIES",
     "TOOL_FLAGS",
     "ToolErrorAsRetry",
+    "UnknownToolRetry",
     "build_deep_agent",
     "build_deep_agent_kwargs",
     "build_model",
@@ -256,16 +257,53 @@ class EditFileGuardrailAsRetry(AbstractCapability):
         if not isinstance(error, ModelRetry):
             return
         if call.tool_name != "edit_file":
-            raise error
+            return
         message = str(error)
         if "same result" not in message:
-            raise error
+            return
         raise ModelRetry(
             f"{message} The old_string may match multiple locations in "
             f"the file. Include more surrounding context — at minimum one "
             f"unique line above or below (e.g., a slug, title, or function "
             f"name) — to disambiguate the target location."
         )
+
+
+class UnknownToolRetry(AbstractCapability):
+    """Enrich ``Unknown tool name`` ModelRetry errors with concrete guidance.
+
+    When a model hallucinates a non-existent tool like ``execute``,
+    pydantic_ai raises ``ModelRetry("Unknown tool name: 'execute'. ...")``
+    which gets the vague suffix ``"Fix the errors and try again."`` from
+    ``RetryPromptPart.model_response()``. DeepSeek models interpret this
+    as "fix your command syntax" and retry with different commands
+    instead of switching to a valid tool. This capability enriches the
+    message with explicit anti-hallucination guidance.
+    """
+
+    async def on_tool_execute_error(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
+    ) -> None:
+        if not isinstance(error, ModelRetry):
+            return
+        message = str(error)
+        if not message.startswith("Unknown tool name:"):
+            raise error
+        match = re.match(
+            r"Unknown tool name: '(\w+)'\. Available tools: (.+)\.",
+            message,
+        )
+        if match:
+            tool_name = match.group(1)
+            available = match.group(2)
+            raise ModelRetry(
+                f"Unknown tool name: '{tool_name}'. "
+                f"The tool you called does not exist.\n"
+                f"Available tools: {available}.\n"
+                f"You cannot run shell commands. "
+                f"Use read_file or grep to inspect files instead."
+            )
+        raise error
 
 
 class ModelRequestErrorAsRetry(AbstractCapability):
@@ -885,6 +923,7 @@ def build_deep_agent(
     extra["capabilities"] = [
         *(extra.get("capabilities") or []),
         EditFileGuardrailAsRetry(),
+        UnknownToolRetry(),
         GlobPatternSanitizer(),
         ToolErrorAsRetry(),
         ModelRequestErrorAsRetry(),

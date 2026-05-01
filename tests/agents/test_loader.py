@@ -14,6 +14,7 @@ from cai.agents.loader import (
     GrepGuardrailAsRetry,
     _get_arg,
     HistoryCompactorCapability,
+    UnknownToolRetry,
     parse_agent_md,
     resolve_agent_path,
 )
@@ -94,36 +95,34 @@ def test_edit_file_guardrail_passes_through_non_model_retry():
     assert result is None
 
 
-def test_edit_file_guardrail_re_raises_non_edit_file():
-    """ModelRetry from a non-edit_file tool is re-raised unchanged."""
+def test_edit_file_guardrail_passes_through_non_edit_file_model_retry():
+    """ModelRetry from a non-edit_file tool passes through to downstream
+    capabilities (e.g. UnknownToolRetry) instead of being re-raised."""
     cap = EditFileGuardrailAsRetry()
     original = ModelRetry("tool crashed")
-    with pytest.raises(ModelRetry) as exc:
-        _run(cap.on_tool_execute_error(
-            None,
-            call=_edit_call("read_file"),
-            tool_def=None,
-            args={},
-            error=original,
-        ))
-    assert exc.value is original
-    assert str(exc.value) == "tool crashed"
+    result = _run(cap.on_tool_execute_error(
+        None,
+        call=_edit_call("read_file"),
+        tool_def=None,
+        args={},
+        error=original,
+    ))
+    assert result is None
 
 
-def test_edit_file_guardrail_re_raises_without_same_result():
-    """ModelRetry from edit_file without 'same result' passes through unchanged."""
+def test_edit_file_guardrail_passes_through_without_same_result():
+    """ModelRetry from edit_file without 'same result' passes through
+    to downstream capabilities unchanged."""
     cap = EditFileGuardrailAsRetry()
     original = ModelRetry("old_string not found")
-    with pytest.raises(ModelRetry) as exc:
-        _run(cap.on_tool_execute_error(
-            None,
-            call=_edit_call(),
-            tool_def=None,
-            args={},
-            error=original,
-        ))
-    assert exc.value is original
-    assert str(exc.value) == "old_string not found"
+    result = _run(cap.on_tool_execute_error(
+        None,
+        call=_edit_call(),
+        tool_def=None,
+        args={},
+        error=original,
+    ))
+    assert result is None
 
 
 def test_edit_file_guardrail_enriches_same_result_message():
@@ -881,6 +880,60 @@ def test_anti_hallucination_guard_absent_from_explore():
     )
 
 
+ANTIPATTERN_EXAMPLES_TEXT = (
+    "> **Anti-pattern examples:**\n"
+    "> - **BAD:** `execute('git log')` or `bash('ls')`"
+    " — you do not have these tools.\n"
+    "> - **GOOD:** use `read_file`, `grep`, `glob`,"
+    " or `ls` to discover what changed."
+)
+
+AGENTS_WITH_ANTIPATTERN_EXAMPLES = [
+    "python_review",
+    "implement",
+    "docs",
+    "test_writer",
+    "refine",
+]
+
+
+@pytest.mark.parametrize("agent_name", AGENTS_WITH_ANTIPATTERN_EXAMPLES)
+def test_agent_prompt_includes_antipattern_examples(agent_name):
+    """Anti-pattern BAD/GOOD examples are present in every agent
+    that lacks execute/bash/shell/run tools."""
+    path = resolve_agent_path(agent_name)
+    _, system_prompt = parse_agent_md(path)
+    assert ANTIPATTERN_EXAMPLES_TEXT in system_prompt, (
+        f"Anti-pattern examples missing from {agent_name!r} prompt.\n"
+        f"Expected text:\n{ANTIPATTERN_EXAMPLES_TEXT}"
+    )
+
+
+@pytest.mark.parametrize("agent_name", AGENTS_WITH_ANTIPATTERN_EXAMPLES)
+def test_antipattern_examples_positioned_after_anti_hallucination_guard(
+    agent_name,
+):
+    """Anti-pattern examples appear after the anti-hallucination blockquote."""
+    path = resolve_agent_path(agent_name)
+    _, system_prompt = parse_agent_md(path)
+    guard_idx = system_prompt.index(ANTI_HALLUCINATION_TEXT)
+    antipattern_idx = system_prompt.index(ANTIPATTERN_EXAMPLES_TEXT)
+    assert antipattern_idx > guard_idx, (
+        f"Anti-pattern examples must come after the anti-hallucination "
+        f"blockquote in {agent_name!r} prompt."
+    )
+
+
+def test_antipattern_examples_absent_from_explore():
+    """Explore agent should NOT contain anti-pattern examples since it
+    is read-only and its description already states its constraints."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    assert ANTIPATTERN_EXAMPLES_TEXT not in system_prompt, (
+        "Anti-pattern examples found unexpectedly in explore agent prompt."
+    )
+
+
 # ---------------------------------------------------------------------------
 # task tool parameter-name note
 # ---------------------------------------------------------------------------
@@ -1559,3 +1612,105 @@ def test_tool_error_as_retry_converts_generic_exception():
     assert "RuntimeError" in str(exc_info.value)
     assert "Unexpected failure" in str(exc_info.value)
 
+
+# ---------------------------------------------------------------------------
+# UnknownToolRetry
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_tool_retry_enriches_message():
+    """ModelRetry starting with 'Unknown tool name:' gets enriched guidance."""
+    cap = UnknownToolRetry()
+    original = ModelRetry(
+        "Unknown tool name: 'execute'. "
+        "Available tools: ls, read_file, write_file, edit_file, glob, grep."
+    )
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.on_tool_execute_error(
+            None,
+            call=SimpleNamespace(tool_name="execute"),
+            tool_def=None,
+            args={},
+            error=original,
+        ))
+    msg = str(exc.value)
+    assert "Unknown tool name: 'execute'" in msg
+    assert "The tool you called does not exist" in msg
+    assert "Available tools: ls, read_file, write_file, edit_file, glob, grep" in msg
+    assert "You cannot run shell commands" in msg
+    assert "Use read_file or grep to inspect files instead" in msg
+
+
+def test_unknown_tool_retry_passes_through_other_errors():
+    """Non-ModelRetry errors are not consumed by this guardrail."""
+    cap = UnknownToolRetry()
+    result = _run(cap.on_tool_execute_error(
+        None,
+        call=SimpleNamespace(tool_name="execute"),
+        tool_def=None,
+        args={},
+        error=ValueError("something went wrong"),
+    ))
+    assert result is None
+
+
+def test_unknown_tool_retry_passes_through_other_model_retry():
+    """ModelRetry without 'Unknown tool name:' prefix is re-raised unchanged."""
+    cap = UnknownToolRetry()
+    original = ModelRetry("Some other retry message")
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.on_tool_execute_error(
+            None,
+            call=SimpleNamespace(tool_name="edit_file"),
+            tool_def=None,
+            args={},
+            error=original,
+        ))
+    assert exc.value is original
+    assert str(exc.value) == "Some other retry message"
+
+
+def test_unknown_tool_retry_wired_into_build_deep_agent_capabilities(monkeypatch):
+    """UnknownToolRetry is registered in the build_deep_agent capabilities list."""
+    import cai.agents.loader as loader
+
+    captured: dict = {}
+
+    def fake_create_deep_agent(model, **kwargs):
+        captured["capabilities"] = kwargs.get("capabilities")
+        return object()
+
+    monkeypatch.setattr(
+        "pydantic_deep.create_deep_agent", fake_create_deep_agent
+    )
+    monkeypatch.setattr(loader, "build_model", lambda config: object())
+    monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
+
+    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    loader.build_deep_agent(config, "instructions")
+
+    cap_types = [type(c).__name__ for c in captured["capabilities"]]
+    assert "UnknownToolRetry" in cap_types
+
+
+def test_unknown_tool_retry_re_raises_on_non_matching_format():
+    """When ``Unknown tool name:`` is the prefix but the rest of the
+    message doesn't match the expected pydantic_ai format, the original
+    error is re-raised unchanged so downstream retry machinery still works."""
+    import cai.agents.loader as loader
+
+    cap = loader.UnknownToolRetry()
+    call = SimpleNamespace(tool_name="invalid_tool")
+    tool_def = object()
+    args = {}
+    original = ModelRetry(
+        "Unknown tool name: 'some_tool' (unexpected format)."
+    )
+
+    with pytest.raises(ModelRetry) as exc_info:
+        asyncio.run(
+            cap.on_tool_execute_error(
+                None, call=call, tool_def=tool_def, args=args, error=original,
+            )
+        )
+    assert str(exc_info.value) == str(original)
