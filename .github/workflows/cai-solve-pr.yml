@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  solve:
+  solve-pr:
     if: github.event.review.state == 'changes_requested'
     runs-on: ubuntu-latest
     permissions:
@@ -40,7 +40,7 @@ jobs:
           cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
           cai_app_env: ${{ secrets.CAI_APP_ENV }}
 
-      - name: Run CAI Solve (PR)
+      - name: Run CAI Solve (PR review)
         run: |
           docker run --rm \
             -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \

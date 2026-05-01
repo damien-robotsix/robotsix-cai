@@ -5,7 +5,7 @@ on:
     types: [labeled]
 
 jobs:
-  audit:
+  audit-errors:
     if: github.event.label.name == 'cai:failed' && !contains(github.event.issue.labels.*.name, 'cai:audit')
     runs-on: ubuntu-latest
     permissions:
@@ -21,7 +21,7 @@ jobs:
           cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
           cai_app_env: ${{ secrets.CAI_APP_ENV }}
 
-      - name: Run CAI Audit (errors)
+      - name: Run CAI Audit Errors
         run: |
           docker run --rm \
             -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \

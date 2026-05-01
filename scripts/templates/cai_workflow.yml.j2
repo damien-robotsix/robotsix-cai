@@ -1,0 +1,260 @@
+name: <% spec.title %>
+
+{% if shape == "resolve" -%}
+# Triggered after Docker publish succeeds so the resolve job always pulls
+# the image that corresponds to the commit that just landed on main.
+
+{% endif -%}
+on:
+{% for evt in spec.github_trigger.on -%}
+{% if evt.event == "issues" %}
+  issues:
+    types: [<% evt.types | join(', ') %>]
+{% elif evt.event == "pull_request_review" %}
+  pull_request_review:
+    types: [<% evt.types | join(', ') %>]
+{% elif evt.event == "schedule" %}
+  schedule:
+    - cron: "<% evt.cron %>"
+{% elif evt.event == "workflow_run" %}
+  workflow_run:
+    workflows: [<% evt.workflows | map('tojson') | join(', ') %>]
+    types: [<% evt.types | join(', ') %>]
+    branches: [<% evt.branches | join(', ') %>]
+{% elif evt.event == "workflow_dispatch" -%}
+{% if evt.inputs %}
+  workflow_dispatch:
+    inputs:
+{% for name, inp in evt.inputs.items() %}
+      <% name %>:
+        description: <% inp.description | tojson %>
+        required: <% inp.required | lower %>
+        default: <% inp.default %>
+{% if inp.type == "choice" %}
+        type: choice
+        options:
+{% for opt in inp.options %}
+          - <% opt %>
+{% endfor -%}
+{% endif -%}
+{% endfor -%}
+{% else %}
+  workflow_dispatch:
+{% endif -%}
+{% elif evt.event == "push" %}
+  push:
+    branches: [<% evt.branches | join(', ') %>]
+{% endif -%}
+{% endfor -%}
+{% if shape != "resolve" and spec.concurrency_group %}
+
+concurrency:
+  group: <% spec.concurrency_group %>
+  cancel-in-progress: true
+{% endif -%}
+{% if shape == "resolve" %}
+
+concurrency:
+  group: <% spec.concurrency_group %>
+  cancel-in-progress: true
+{% endif %}
+
+jobs:
+{% if shape == "simple" %}
+  <% spec.slug %>:
+{% if spec.github_trigger.job_if %}
+    if: <% spec.github_trigger.job_if %>
+{% endif %}
+    runs-on: ubuntu-latest
+    permissions:
+{% for perm, level in spec.permissions.items() %}
+      <% perm %>: <% level %>
+{% endfor %}
+
+    steps:
+{% if spec.authorized_user_variant == "standard" %}
+      - name: Verify authorized user
+        env:
+          APPROVED_AI_USERS: ${{ secrets.APPROVED_AI_USERS }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if ! echo "$APPROVED_AI_USERS" | tr ',' '\n' | tr ' ' '\n' | tr -d '\r' | grep -qFx "$ACTOR"; then
+            echo "Unauthorized user: $ACTOR"
+            exit 1
+          fi
+
+{% elif spec.authorized_user_variant == "skip_bots" %}
+      - name: Verify authorized user
+        env:
+          APPROVED_AI_USERS: ${{ secrets.APPROVED_AI_USERS }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if echo "$ACTOR" | grep -q '\[bot\]'; then
+            echo "Skipping bot actor: $ACTOR"
+            exit 1
+          fi
+          if ! echo "$APPROVED_AI_USERS" | tr ',' '\n' | tr ' ' '\n' | tr -d '\r' | grep -qFx "$ACTOR"; then
+            echo "Unauthorized user: $ACTOR"
+            exit 1
+          fi
+
+{% endif %}
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Stage cai config for container
+        uses: ./.github/actions/setup-cai
+        with:
+          cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
+          cai_app_env: ${{ secrets.CAI_APP_ENV }}
+
+      - name: Run <% spec.title %>
+        run: |
+          docker run --rm \
+            -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
+            -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            -e LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}" \
+            -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
+            -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
+            docker.io/robotsix/cai:latest \
+            <% spec.docker_command %>
+{% elif shape == "gate" %}
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+    steps:
+      - name: Checkout (for commit count)
+        if: github.event_name == 'push'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to run
+        id: gate
+        run: |
+          event="${{ github.event_name }}"
+          if [ "$event" != "push" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Decision: $event — run"
+            exit 0
+          fi
+          count=$(git rev-list --count HEAD)
+          echo "Total commits on main: $count"
+          if [ "$count" -gt 0 ] && [ $((count % 30)) -eq 0 ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Decision: push (count=$count) — run"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Decision: push (count=$count, not a multiple of 30) — skip"
+          fi
+
+  audit:
+    needs: check
+    if: needs.check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+{% for perm, level in spec.permissions.items() %}
+      <% perm %>: <% level %>
+{% endfor %}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Stage cai config for container
+        uses: ./.github/actions/setup-cai
+        with:
+          cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
+          cai_app_env: ${{ secrets.CAI_APP_ENV }}
+
+      - name: Run <% spec.title %>
+        env:
+          TARGET_REPO: ${{ github.event.inputs.repo || github.repository }}
+        run: |
+          docker run --rm \
+            -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
+            -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            -e LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}" \
+            -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
+            -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
+            docker.io/robotsix/cai:latest \
+            <% spec.docker_command %>
+{% elif shape == "resolve" %}
+  discover:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      prs: ${{ steps.list.outputs.prs }}
+    steps:
+      - name: List PRs that conflict with main
+        id: list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # GitHub computes "mergeable" asynchronously after a push to the
+          # base branch. Poll a few times so freshly-invalidated PRs show
+          # up as CONFLICTING instead of UNKNOWN on the first call.
+          attempt=0
+          while : ; do
+            attempt=$((attempt + 1))
+            json=$(gh pr list \
+              --repo "$REPO" \
+              --base main \
+              --state open \
+              --json number,mergeable \
+              --limit 100)
+            unknown=$(echo "$json" | jq '[.[] | select(.mergeable == "UNKNOWN")] | length')
+            if [ "$unknown" -eq 0 ] || [ "$attempt" -ge 6 ]; then
+              break
+            fi
+            sleep 10
+          done
+          prs=$(echo "$json" | jq -c '[.[] | select(.mergeable == "CONFLICTING") | .number]')
+          echo "prs=$prs" >> "$GITHUB_OUTPUT"
+          echo "Found conflicting PRs: $prs"
+
+  resolve:
+    needs: discover
+    if: needs.discover.outputs.prs != '[]' && needs.discover.outputs.prs != ''
+    runs-on: ubuntu-latest
+    permissions:
+{% for perm, level in spec.permissions.items() %}
+      <% perm %>: <% level %>
+{% endfor %}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        pr: ${{ fromJSON(needs.discover.outputs.prs) }}
+    concurrency:
+      group: cai-resolve-conflicts-${{ matrix.pr }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Stage cai config for container
+        uses: ./.github/actions/setup-cai
+        with:
+          cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
+          cai_app_env: ${{ secrets.CAI_APP_ENV }}
+
+      - name: Run CAI Resolve Conflicts (PR #${{ matrix.pr }})
+        run: |
+          docker run --rm \
+            -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
+            -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            -e LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}" \
+            -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
+            -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
+            docker.io/robotsix/cai:latest \
+            <% spec.docker_command %>
+{% endif -%}

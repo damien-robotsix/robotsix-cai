@@ -13,3 +13,13 @@ repos:
         # rewritten, which makes the commit fail; the user re-stages the
         # regenerated files and commits again.
         files: '^(src/cai/workflows/.*\.py|scripts/gen_workflow_graphs\.py|docs/workflows/.*\.md)$'
+      - id: regen-github-workflows
+        name: Regenerate cai-*.yml workflow files
+        entry: python scripts/gen_github_workflows.py
+        language: system
+        pass_filenames: false
+        # Re-run when registry, generator, template, or generated workflows
+        # change. Hook exits non-zero if any .github/workflows/cai-*.yml
+        # was rewritten, which makes the commit fail; the user re-stages
+        # the regenerated files and commits again.
+        files: '^(src/cai/workflows/.*\.py|scripts/gen_github_workflows\.py|scripts/templates/.*\.j2|\.github/workflows/cai-.*\.yml)$'
