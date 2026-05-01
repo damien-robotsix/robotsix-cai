@@ -72,8 +72,18 @@ class PRNode(BaseNode[IssueState]):
         # New-issue path with nothing committed: the implement agent decided
         # no code change was needed (e.g. issue already fixed by a prior PR).
         # Pushing an empty branch and opening a no-diff PR both fail at GitHub
-        # ("No commits between main and …"), so stop here.
+        # ("No commits between main and …"), so close the issue as not_planned
+        # with the agent's reasoning instead.
         if not committed and state.pr_number is None:
+            if state.new_meta.number is not None:
+                issue = state.bot.repo(state.new_meta.repo).get_issue(
+                    state.new_meta.number
+                )
+                issue.create_comment(
+                    "Closing as not planned — no code change is needed.\n\n"
+                    f"{state.implement_output.summary}"
+                )
+                issue.edit(state="closed", state_reason="not_planned")
             return MergeEvaluationNode()
 
         push_branch(

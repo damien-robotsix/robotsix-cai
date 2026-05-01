@@ -65,12 +65,17 @@ def test_pr_node_issue_mode_creates_pr(
 @patch("cai.workflows.pr._has_staged_changes", return_value=False)
 @patch("cai.workflows.pr.commit")
 @patch("cai.workflows.pr.stage_all")
-def test_pr_node_issue_mode_no_changes_skips_push_and_create(
+def test_pr_node_issue_mode_no_changes_closes_issue_as_not_planned(
     mock_stage, mock_commit, mock_dirty, mock_push, mock_create, state
 ):
     # Issue mode where the implement agent decided no code change was
     # needed: nothing is staged, so pushing an empty branch and creating a
-    # no-diff PR both fail at GitHub. Skip both.
+    # no-diff PR both fail at GitHub. Skip both, comment with the agent's
+    # reasoning, and close the issue as not_planned.
+    state.implement_output.summary = "Already fixed by PR #42."
+    issue = MagicMock()
+    state.bot.repo.return_value.get_issue.return_value = issue
+
     result = _run(PRNode(), state)
 
     assert isinstance(result, MergeEvaluationNode)
@@ -79,3 +84,10 @@ def test_pr_node_issue_mode_no_changes_skips_push_and_create(
     mock_create.assert_not_called()
     assert state.pr_url is None
     assert state.pr_number is None
+    state.bot.repo.assert_called_once_with("o/r")
+    state.bot.repo.return_value.get_issue.assert_called_once_with(99)
+    issue.create_comment.assert_called_once()
+    comment_body = issue.create_comment.call_args.args[0]
+    assert "not planned" in comment_body
+    assert "Already fixed by PR #42." in comment_body
+    issue.edit.assert_called_once_with(state="closed", state_reason="not_planned")
