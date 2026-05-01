@@ -194,6 +194,133 @@ def test_edit_file_guardrail_wired_into_build_deep_agent_capabilities(monkeypatc
     )
 
 
+# ---------------------------------------------------------------------------
+# EditFileGuardrailAsRetry — before_tool_execute old_string pre-verification
+# ---------------------------------------------------------------------------
+
+
+def _tmp_file(tmp_path, name, content):
+    """Write *content* to *name* under tmp_path and return its string path."""
+    f = tmp_path / name
+    f.write_text(content)
+    return str(f)
+
+
+def test_edit_file_guardrail_before_execute_old_string_found(tmp_path):
+    """old_string found in file → args returned unchanged, no ModelRetry."""
+    cap = EditFileGuardrailAsRetry()
+    fpath = _tmp_file(tmp_path, "a.py", "line1\nline2\nline3\n")
+    args = {"path": fpath, "old_string": "line2", "new_string": "replacement"}
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_edit_file_guardrail_before_execute_old_string_not_found(tmp_path):
+    """old_string NOT in file → ModelRetry with path and diagnostic message."""
+    cap = EditFileGuardrailAsRetry()
+    fpath = _tmp_file(tmp_path, "a.py", "line1\nline2\n")
+    args = {"path": fpath, "old_string": "missing_line", "new_string": "replacement"}
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.before_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args,
+        ))
+    msg = str(exc.value)
+    assert "old_string not found" in msg
+    assert fpath in msg
+    assert "read_file" in msg
+    assert "Do not reconstruct from memory" in msg
+
+
+def test_edit_file_guardrail_before_execute_old_string_with_blank_lines(tmp_path):
+    """old_string with exact blank-line count must match when file has them."""
+    cap = EditFileGuardrailAsRetry()
+    content = "def foo():\n    pass\n\n\ndef bar():\n    pass\n"
+    fpath = _tmp_file(tmp_path, "a.py", content)
+    # Exact substring — two blank lines before def bar.
+    args = {"path": fpath, "old_string": "    pass\n\n\ndef bar():", "new_string": "x"}
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_edit_file_guardrail_before_execute_wrong_blank_line_count(tmp_path):
+    """One blank line instead of two → ModelRetry (doesn't match file content)."""
+    cap = EditFileGuardrailAsRetry()
+    content = "def foo():\n    pass\n\n\ndef bar():\n    pass\n"
+    fpath = _tmp_file(tmp_path, "a.py", content)
+    # Wrong: only one blank line where file has two.
+    args = {"path": fpath, "old_string": "    pass\n\ndef bar():", "new_string": "x"}
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.before_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args,
+        ))
+    assert "old_string not found" in str(exc.value)
+
+
+def test_edit_file_guardrail_before_execute_non_edit_file_passthrough():
+    """Non-edit_file tools pass through without reading anything."""
+    cap = EditFileGuardrailAsRetry()
+    args = {"pattern": "something"}
+    result = _run(cap.before_tool_execute(
+        None, call=_grep_call("grep"), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_edit_file_guardrail_before_execute_missing_old_string():
+    """Missing old_string → pass through (let the real tool handle it)."""
+    cap = EditFileGuardrailAsRetry()
+    args = {"path": "somefile.py", "new_string": "replacement"}
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_edit_file_guardrail_before_execute_empty_old_string():
+    """Empty old_string → pass through (let the real tool handle it)."""
+    cap = EditFileGuardrailAsRetry()
+    args = {"path": "somefile.py", "old_string": "", "new_string": "replacement"}
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_edit_file_guardrail_before_execute_missing_path():
+    """Missing path arg → pass through (let the real tool handle it)."""
+    cap = EditFileGuardrailAsRetry()
+    args = {"old_string": "something", "new_string": "replacement"}
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_edit_file_guardrail_before_execute_file_not_found(tmp_path):
+    """FileNotFoundError → pass through (let the real tool handle it)."""
+    cap = EditFileGuardrailAsRetry()
+    args = {"path": str(tmp_path / "nonexistent.py"), "old_string": "x", "new_string": "y"}
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_edit_file_guardrail_before_execute_object_args(tmp_path):
+    """Object-style args (not dict) should work for extraction."""
+    cap = EditFileGuardrailAsRetry()
+    fpath = _tmp_file(tmp_path, "a.py", "hello world\n")
+    args = SimpleNamespace(path=fpath, old_string="hello world", new_string="hi")
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
 def test_grep_guardrail_passes_through_non_grep_tool():
     cap = GrepGuardrailAsRetry()
     result = _run(cap.after_tool_execute(

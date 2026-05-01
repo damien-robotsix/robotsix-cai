@@ -49,7 +49,7 @@ prompt — both modes share this single agent.
 
 ## Editing strategy
 
-- Reference files in your context appear with `line:hash|content` tags — ignore the `line:hash|` prefix when constructing `old_string` for `edit_file`; copy the content portion verbatim, including indentation
+- Reference files in your context appear with `line:hash|content` tags — ignore the `line:hash|` prefix when constructing `old_string` for `edit_file`; copy the content portion verbatim, including indentation and every blank line — never reconstruct old_string from memory
 - **Disambiguate `old_string`:** Include at least one uniquely-identifying surrounding line — e.g. the preceding `slug="audit"` or `title="..."` — so the pattern cannot match the wrong location. Files like `registry.py` have repeated blocks (e.g. multiple `WorkflowSpec` entries ending with identical `),`); without extra context `old_string` hits the first match, not the intended one
 - After you edit a file, **re-read it** before making any further edits to that same file. The reference copy is stale — construct `old_string` from the fresh read, not from memory or the initial snapshot
 - **Paginate large files:** When you *do* need to `read_file` a file not already in context, use `offset` and `limit` for files >200 lines. First scan with `limit=100`, then read targeted sections.

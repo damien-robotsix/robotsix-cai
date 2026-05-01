@@ -248,7 +248,36 @@ class EditFileGuardrailAsRetry(AbstractCapability):
     times in a row." This capability catches that ``ModelRetry`` and
     enriches the message with a hint to include more surrounding
     context so the model can disambiguate the target location.
+
+    Before the tool executes, it also pre-verifies that ``old_string``
+    exists in the target file. Agents sometimes reconstruct
+    ``old_string`` from memory rather than copying verbatim from
+    ``read_file`` output, wasting the retry budget on strings that
+    can never match. Catching this on the first attempt saves latency
+    and tokens.
     """
+
+    async def before_tool_execute(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any,
+    ) -> Any:
+        if call.tool_name != "edit_file":
+            return args
+        old_string = _get_arg(args, "old_string")
+        path = _get_arg(args, "path")
+        if not (isinstance(old_string, str) and old_string and isinstance(path, str) and path):
+            return args
+        try:
+            content = Path(path).read_text()
+        except (FileNotFoundError, PermissionError, OSError):
+            return args
+        if old_string not in content:
+            raise ModelRetry(
+                f"old_string not found in {path}. "
+                f"Re-read the file with read_file and copy the exact target "
+                f"lines — including all whitespace, blank lines, and surrounding "
+                f"content — into old_string. Do not reconstruct from memory."
+            )
+        return args
 
     async def on_tool_execute_error(
         self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
