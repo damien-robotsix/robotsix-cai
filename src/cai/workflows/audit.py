@@ -471,6 +471,7 @@ def _build_architecture_prompt(
 
     tree_lines: list[str] = []
     file_metadata: list[str] = []
+    large_files: list[tuple[str, int]] = []
     package_dirs_with_init: list[str] = []
     package_dirs_without_init: list[str] = []
 
@@ -511,8 +512,19 @@ def _build_architecture_prompt(
                     line_count = len(fpath.read_text().splitlines())
                 except (OSError, ValueError):
                     line_count = 0
-                large_marker = " !LARGE!" if line_count > 300 else ""
+                is_large = line_count > 300
+                large_marker = " !LARGE!" if is_large else ""
                 file_metadata.append(f"  {rel_path}: {line_count} lines{large_marker}")
+                if is_large:
+                    large_files.append((rel_path, line_count))
+
+    if large_files:
+        large_section = "\n".join(
+            f"  - {path}: {lines} lines"
+            for path, lines in sorted(large_files, key=lambda x: -x[1])
+        )
+    else:
+        large_section = "(no Python files exceed 300 lines)"
 
     prompt = (
         f"Architecture audit of {repo}. The repository is checked out at the "
@@ -521,6 +533,8 @@ def _build_architecture_prompt(
         + "\n".join(tree_lines)
         + "\n\n## Python File Metadata\n\n"
         + ("\n".join(file_metadata) if file_metadata else "(no Python files found)")
+        + "\n\n## Large Python Files (>300 lines)\n\n"
+        + large_section
         + "\n\n## Package Structure Summary\n\n"
     )
 

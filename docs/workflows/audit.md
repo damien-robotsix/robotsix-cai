@@ -6,7 +6,7 @@ nav_order: 2
 
 # cai-audit
 
-Runs the audit agent in one of four modes — cost, errors, duplication, or architecture — and files proposed improvements as GitHub issues. Use ``--mode architecture`` to clone the target repo and audit its structure for refactoring opportunities.
+Runs an audit agent against Langfuse traces or a cloned repository, then files proposed improvements as GitHub issues.
 
 ## Modes
 
@@ -16,7 +16,7 @@ Runs the audit agent in one of four modes — cost, errors, duplication, or arch
 | `errors` | Audits the 10 most recent traces that contain error-level observations. |
 | `duplication` | Clones the repo, runs jscpd, and audits copy-paste findings. |
 | `architecture` | Clones the repo and audits structural health. |
-| `security` | Clones the repo and audits for common vulnerability patterns (hardcoded secrets, unsafe APIs, misconfigurations). |
+| `security` | Clones the repo and audits for common vulnerability patterns (hardcoded secrets, unsafe subprocess, injection vectors, insecure deserialization, etc.). |
 
 ## Graph
 

@@ -338,6 +338,10 @@ def test_build_architecture_prompt():
     # Package structure summary
     assert "mypkg" in prompt
     assert "nopkg" in prompt
+    # Dedicated large-files section lists big_file.py explicitly
+    assert "## Large Python Files (>300 lines)" in prompt
+    large_section = prompt.split("## Large Python Files (>300 lines)")[1]
+    assert "big_file.py" in large_section.split("##")[0]
     # Closing instruction
     assert "filesystem_read" in prompt
     assert "explore" in prompt
@@ -409,6 +413,7 @@ def test_build_architecture_prompt_no_python_files():
 
     assert "(no Python files found)" in prompt
     assert "No directories with __init__.py found" in prompt
+    assert "(no Python files exceed 300 lines)" in prompt
 
 
 @patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "architecture"])

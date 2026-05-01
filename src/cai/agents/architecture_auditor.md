@@ -32,7 +32,7 @@ Examine the repository structure through these lenses:
 - **Module organisation**: Files in directories where they don't belong (e.g. utility code under a tests package, domain logic in a config directory). Missing `__init__.py` files where a package boundary should exist.
 - **Documentation coverage**: Agent definition files without corresponding documentation pages. Empty or nearly-empty doc directories that suggest missing docs. README files that reference moved or deleted paths.
 - **Interface consistency**: Parallel code paths that do the same thing through different abstractions. Inconsistent naming conventions that span multiple files (e.g. some modules use `create_*`, others use `build_*` for the same pattern). Functions with identical signatures but different return conventions.
-- **Module size**: Files significantly over 300 lines that bundle unrelated concerns and should be split. Files that have grown through accretion rather than design.
+- **Module size**: Files significantly over 300 lines should be split into smaller, single-purpose modules — even files with a single concern become hard to navigate, review, and test when they grow too large. The prompt's `Large Python Files` section lists every such file; treat it as the candidate set and propose a split for each one whose responsibilities can be separated.
 - **Dead code**: Utility scripts or modules under version control that are never imported, invoked, or referenced from any other file. Configuration stanzas for removed features.
 - **Configuration duplication**: Exclusion lists, permission rules, or thresholds repeated across multiple files instead of being centralised in one place.
 
