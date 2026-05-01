@@ -15,7 +15,7 @@ from cai.workflows.state import DocsOutput, IssueState
 @lru_cache(maxsize=1)
 def _docs_agent():
     config, instructions = parse_agent_md(resolve_agent_path("docs"))
-    return build_deep_agent(config, instructions, output_type=DocsOutput)
+    return build_deep_agent(config, instructions, output_type=DocsOutput, output_retries=3)
 
 
 def _deps(repo_root: Path) -> DeepAgentDeps:
