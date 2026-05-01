@@ -5,7 +5,7 @@ followed by the markdown that becomes the agent's system prompt::
 
     ---
     name: cai-refine
-    model: anthropic/claude-sonnet-4-6
+    model: deepseek/deepseek-v4-pro
     ---
 
     # Refinement Agent
@@ -700,8 +700,8 @@ def parse_agent_md(path: str | Path) -> tuple[dict, str]:
 def build_model(config: dict) -> OpenRouterModel:
     """Build a pydantic-ai model from the ``model`` frontmatter key.
 
-    The value is the full OpenRouter model ID, e.g. ``anthropic/claude-sonnet-4-6``
-    or ``google/gemini-flash-1.5``.
+    The value is the full OpenRouter model ID, e.g. ``deepseek/deepseek-v4-pro``
+    or ``deepseek/deepseek-v4-flash``.
 
     All requests go through OpenRouter, so the returned model is always an
     ``_OpenRouterServerToolsModel``. When ``web_search`` is in

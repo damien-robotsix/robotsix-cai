@@ -200,7 +200,7 @@ def test_edit_file_guardrail_wired_into_build_deep_agent_capabilities(monkeypatc
     monkeypatch.setattr(loader, "build_model", lambda config: object())
     monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
 
-    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    config = {"name": "test-agent", "model": "deepseek/deepseek-v4-pro"}
     loader.build_deep_agent(config, "instructions")
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
@@ -727,7 +727,7 @@ def test_grep_guardrail_wired_into_build_deep_agent_capabilities(monkeypatch):
     monkeypatch.setattr(loader, "build_model", lambda config: object())
     monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
 
-    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    config = {"name": "test-agent", "model": "deepseek/deepseek-v4-pro"}
     loader.build_deep_agent(config, "instructions")
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
@@ -868,7 +868,7 @@ def test_parse_agent_md_valid(monkeypatch, tmp_path):
     md_path.write_text(
         "---\n"
         "name: test-agent\n"
-        "model: anthropic/claude-sonnet-4-6\n"
+        "model: deepseek/deepseek-v4-pro\n"
         "---\n"
         "## System prompt body\n\n"
         "This is the system prompt.\n"
@@ -876,7 +876,7 @@ def test_parse_agent_md_valid(monkeypatch, tmp_path):
     )
     config, system_prompt = parse_agent_md(str(md_path))
     assert config["name"] == "test-agent"
-    assert config["model"] == "anthropic/claude-sonnet-4-6"
+    assert config["model"] == "deepseek/deepseek-v4-pro"
     assert "## System prompt body" in system_prompt
     assert "This is the system prompt." in system_prompt
 
@@ -902,7 +902,7 @@ def test_parse_agent_md_missing_name_field(monkeypatch, tmp_path):
     md_path = tmp_path / "no_name.md"
     md_path.write_text(
         "---\n"
-        "model: anthropic/claude-sonnet-4-6\n"
+        "model: deepseek/deepseek-v4-pro\n"
         "---\n"
         "System prompt without a name field.\n"
     )
@@ -925,7 +925,7 @@ def test_parse_agent_md_dash_dash_dash_in_comment_not_closing_delimiter(monkeypa
     md_path.write_text(
         "---\n"
         'name: test-agent\n'
-        'model: anthropic/claude-sonnet-4-6\n'
+        'model: deepseek/deepseek-v4-pro\n'
         "# a comment with --- inside it\n"
         "---\n"
         "## Body after closing delimiter.\n"
@@ -942,7 +942,7 @@ def test_parse_agent_md_dash_dash_dash_in_body_not_confused(monkeypatch, tmp_pat
     md_path.write_text(
         "---\n"
         'name: test-agent\n'
-        'model: anthropic/claude-sonnet-4-6\n'
+        'model: deepseek/deepseek-v4-pro\n'
         "---\n"
         "Here is a --- separator in the body text.\n"
         "It should not break parsing.\n"
@@ -1682,7 +1682,7 @@ def test_history_compactor_wired_into_build_deep_agent_capabilities(monkeypatch)
     monkeypatch.setattr(loader, "build_model", lambda config: object())
     monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
 
-    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    config = {"name": "test-agent", "model": "deepseek/deepseek-v4-pro"}
     loader.build_deep_agent(config, "instructions")
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
@@ -1855,7 +1855,7 @@ def test_glob_sanitizer_wired_into_build_deep_agent_capabilities(monkeypatch):
     monkeypatch.setattr(loader, "build_model", lambda config: object())
     monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
 
-    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    config = {"name": "test-agent", "model": "deepseek/deepseek-v4-pro"}
     loader.build_deep_agent(config, "instructions")
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
@@ -1996,7 +1996,7 @@ def test_unknown_tool_retry_wired_into_build_deep_agent_capabilities(monkeypatch
     monkeypatch.setattr(loader, "build_model", lambda config: object())
     monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
 
-    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    config = {"name": "test-agent", "model": "deepseek/deepseek-v4-pro"}
     loader.build_deep_agent(config, "instructions")
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
@@ -2109,7 +2109,7 @@ def test_micro_read_guard_wired_into_build_deep_agent_capabilities(monkeypatch):
     monkeypatch.setattr(loader, "build_model", lambda config: object())
     monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
 
-    config = {"name": "test-agent", "model": "anthropic/claude-sonnet-4-6"}
+    config = {"name": "test-agent", "model": "deepseek/deepseek-v4-pro"}
     loader.build_deep_agent(config, "instructions")
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]

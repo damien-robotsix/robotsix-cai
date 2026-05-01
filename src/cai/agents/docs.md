@@ -1,7 +1,7 @@
 ---
 name: docs
 description: Reviews implementation changes and updates documentation in the docs/ folder.
-model: anthropic/claude-sonnet-4-6
+model: deepseek/deepseek-v4-pro
 tools:
   - filesystem
   - raise_issue
