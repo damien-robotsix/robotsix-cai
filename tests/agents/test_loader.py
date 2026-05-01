@@ -10,6 +10,7 @@ from pydantic_ai.models import ModelRequestContext
 from cai.agents.loader import (
     EditFileGuardrailAsRetry,
     GlobPatternSanitizer,
+    ToolErrorAsRetry,
     GrepGuardrailAsRetry,
     _get_arg,
     HistoryCompactorCapability,
@@ -1445,3 +1446,65 @@ def test_glob_sanitizer_wired_into_build_deep_agent_capabilities(monkeypatch):
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
     assert "GlobPatternSanitizer" in cap_types
+
+
+# ToolErrorAsRetry
+
+def test_tool_error_as_retry_converts_valueerror_to_model_retry():
+    """A ValueError (e.g. from an invalid glob pattern) is converted to ModelRetry."""
+    cap = ToolErrorAsRetry()
+    call = _grep_call("glob")
+    with pytest.raises(ModelRetry) as exc_info:
+        _run(cap.on_tool_execute_error(
+            ctx=None, call=call, tool_def=None,
+            args={"pattern": "**/.github/issues**"},
+            error=ValueError("'**' can only be an entire path component"),
+        ))
+    assert "glob" in str(exc_info.value)
+    assert "ValueError" in str(exc_info.value)
+    assert "'**' can only be an entire path component" in str(exc_info.value)
+
+
+def test_tool_error_as_retry_re_raises_model_retry_untouched():
+    """ModelRetry passes through unchanged so existing retry machinery still works."""
+    cap = ToolErrorAsRetry()
+    call = _grep_call("glob")
+    original = ModelRetry("Custom retry message")
+    with pytest.raises(ModelRetry) as exc_info:
+        _run(cap.on_tool_execute_error(
+            ctx=None, call=call, tool_def=None, args={},
+            error=original,
+        ))
+    assert exc_info.value is original
+    assert str(exc_info.value) == "Custom retry message"
+
+
+def test_tool_error_as_retry_includes_tool_name_and_error_details():
+    """The retry message tells the model which tool failed and what the error was."""
+    cap = ToolErrorAsRetry()
+    call = _grep_call("grep")
+    with pytest.raises(ModelRetry) as exc_info:
+        _run(cap.on_tool_execute_error(
+            ctx=None, call=call, tool_def=None, args={},
+            error=PermissionError("Permission denied: /root/.ssh"),
+        ))
+    message = str(exc_info.value)
+    assert "'grep'" in message
+    assert "PermissionError" in message
+    assert "Permission denied: /root/.ssh" in message
+    assert "Adjust the arguments and try again." in message
+
+
+def test_tool_error_as_retry_converts_generic_exception():
+    """Any exception type is converted to ModelRetry, not just ValueError."""
+    cap = ToolErrorAsRetry()
+    call = _grep_call("edit_file")
+    with pytest.raises(ModelRetry) as exc_info:
+        _run(cap.on_tool_execute_error(
+            ctx=None, call=call, tool_def=None, args={},
+            error=RuntimeError("Unexpected failure"),
+        ))
+    assert "edit_file" in str(exc_info.value)
+    assert "RuntimeError" in str(exc_info.value)
+    assert "Unexpected failure" in str(exc_info.value)
+
