@@ -282,13 +282,11 @@ class TestSolveIssueAsyncioRun:
             assert kwargs.get("state") is not None
 
 
-class TestSolveIssueAgentRunError:
-    """Tests that solve_issue catches AgentRunError and applies cai:failed label."""
+class TestSolveIssueFailureLabel:
+    """Tests that solve_issue applies cai:failed when the graph raises."""
 
-    def test_agent_run_error_applies_cai_failed_label(self, tmp_path: Path):
-        """When AgentRunError is raised, ensure_labels is called and issue.edit removes cai:raised, adds cai:failed."""
-        from pydantic_ai.exceptions import AgentRunError
-
+    def test_graph_exception_applies_failed_label(self, tmp_path: Path):
+        """When solve_graph.run raises, cai:failed is applied and cai:raised removed."""
         mocks = _build_solve_issue_mocks()
 
         with (
@@ -297,53 +295,33 @@ class TestSolveIssueAgentRunError:
             mocks["set_label"] as mock_set_label,
             mocks["run"] as mock_run,
         ):
-            mock_run.side_effect = AgentRunError("Usage limit exceeded")
-
-            bot = _mock_bot()
-            workspace = _workspace_issue_files(tmp_path)
-
-            from cai.github.labels import CAI_LABEL_SPECS
-            from cai.workflows.fsm import solve_issue
-
-            with pytest.raises(AgentRunError):
-                solve_issue(bot, workspace)
-
-            # ensure_labels was called with CAI_LABEL_SPECS
-            mock_ensure.assert_called_once_with(bot, "o/r", CAI_LABEL_SPECS)
-
-            # The mock issue was fetched and edited with correct labels
-            issue = bot.repo("o/r").get_issue(99)
-            issue.edit.assert_called_once()
-            _args, kwargs = issue.edit.call_args
-            assert "cai:raised" not in kwargs["labels"]
-            assert "cai:failed" in kwargs["labels"]
-
-    def test_agent_run_error_re_raised(self, tmp_path: Path):
-        """AgentRunError propagates to the caller after label handling."""
-        from pydantic_ai.exceptions import AgentRunError
-
-        mocks = _build_solve_issue_mocks()
-
-        with (
-            mocks["langfuse"],
-            mocks["ensure"] as mock_ensure,
-            mocks["set_label"] as mock_set_label,
-            mocks["run"] as mock_run,
-        ):
-            mock_run.side_effect = AgentRunError("Usage limit exceeded")
+            # Arrange: the graph raises a RuntimeError
+            mock_run.side_effect = RuntimeError("graph exploded")
 
             bot = _mock_bot()
             workspace = _workspace_issue_files(tmp_path)
 
             from cai.workflows.fsm import solve_issue
 
-            with pytest.raises(AgentRunError):
+            with pytest.raises(RuntimeError, match="graph exploded"):
                 solve_issue(bot, workspace)
 
-    def test_agent_run_error_without_issue_number(self, tmp_path: Path):
-        """When meta.number is None, labels are not modified but exception still propagates."""
-        from pydantic_ai.exceptions import AgentRunError
+            # Assert: ensure_labels was called so cai:failed label spec exists
+            mock_ensure.assert_called_once()
 
+            # Assert: issue.edit was called with labels containing cai:failed
+            # and NOT containing cai:raised
+            mock_issue = bot.repo.return_value.get_issue.return_value
+            mock_issue.edit.assert_called_once()
+            edit_call_labels = mock_issue.edit.call_args.kwargs["labels"]
+            assert "cai:failed" in edit_call_labels
+            assert "cai:raised" not in edit_call_labels
+
+            # Assert: set_label (for human-review) was never called
+            mock_set_label.assert_not_called()
+
+    def test_graph_exception_without_issue_number_skips_label(self, tmp_path: Path):
+        """When meta.number is None and the graph raises, no label edit occurs."""
         mocks = _build_solve_issue_mocks()
 
         with (
@@ -352,37 +330,21 @@ class TestSolveIssueAgentRunError:
             mocks["set_label"] as mock_set_label,
             mocks["run"] as mock_run,
         ):
-            mock_run.side_effect = AgentRunError("Usage limit exceeded")
+            mock_run.side_effect = RuntimeError("graph exploded")
 
             bot = _mock_bot()
-
-            # Create workspace where issue_json has null number
-            root = tmp_path / "workspace_no_number"
-            root.mkdir()
-            json_path = root / "0.json"
-            md_path = root / "0.md"
-            repo_root = root / "repo"
-            repo_root.mkdir()
-            json_path.write_text(
-                '{"repo": "o/r", "number": null, "title": "No number issue", "labels": []}'
-            )
-            md_path.write_text("body")
-
-            from cai.github.repo import IssueWorkspace
-
-            workspace = IssueWorkspace(
-                root=root,
-                issue_json=json_path,
-                issue_md=md_path,
-                repo_root=repo_root,
+            workspace = _workspace_issue_files(tmp_path)
+            # Modify the issue JSON to have no number
+            workspace.issue_json.write_text(
+                '{"repo": "o/r", "number": null, "title": "Test issue", "labels": ["cai:raised"]}'
             )
 
             from cai.workflows.fsm import solve_issue
 
-            with pytest.raises(AgentRunError):
+            with pytest.raises(RuntimeError, match="graph exploded"):
                 solve_issue(bot, workspace)
 
-            # Labels must not have been touched when meta.number is None
+            # Assert: ensure_labels and issue.edit never called
             mock_ensure.assert_not_called()
             mock_set_label.assert_not_called()
 

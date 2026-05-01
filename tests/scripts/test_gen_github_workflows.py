@@ -473,6 +473,37 @@ def test_template_render_resolve_no_auth_step():
     assert "Verify authorized user" not in rendered
 
 
+# ── Template rendering: solve failure step ───────────────────────────────
+
+
+def test_template_solve_spec_has_failure_step():
+    """The solve spec renders a ``Mark issue as failed`` step with ``if: failure()``."""
+    from cai.workflows.registry import by_slug
+
+    spec = by_slug("solve")
+    shape = _determine_shape(spec)
+
+    rendered = _render(spec, shape)
+
+    assert "Mark issue as failed" in rendered
+    assert "if: failure()" in rendered
+    assert "cai:failed" in rendered
+    assert "gh issue edit" in rendered
+
+
+def test_template_audit_errors_spec_does_not_have_failure_step():
+    """A non-solve simple-shape spec does NOT include the failure step."""
+    from cai.workflows.registry import by_slug
+
+    spec = by_slug("audit-errors")
+    shape = _determine_shape(spec)
+
+    rendered = _render(spec, shape)
+
+    assert "Mark issue as failed" not in rendered
+    assert "if: failure()" not in rendered
+
+
 # ── Template rendering: SKIP_SLUGS ──────────────────────────────────────
 
 
@@ -508,6 +539,8 @@ def test_template_roundtrip_for_solve_spec():
     assert "actions/checkout@v4" in rendered
     assert "docker.io/robotsix/cai:latest" in rendered
     assert spec.docker_command in rendered
+    assert "Mark issue as failed" in rendered
+    assert "if: failure()" in rendered
 
 
 def test_template_roundtrip_for_pr_review_spec():
