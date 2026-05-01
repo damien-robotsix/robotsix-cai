@@ -4,6 +4,10 @@ on:
   issues:
     types: [labeled]
 
+concurrency:
+  group: cai-audit-errors
+  cancel-in-progress: true
+
 jobs:
   audit-errors:
     if: github.event.label.name == 'cai:failed' && !contains(github.event.issue.labels.*.name, 'cai:audit')

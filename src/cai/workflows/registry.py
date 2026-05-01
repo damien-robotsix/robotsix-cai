@@ -236,6 +236,10 @@ WORKFLOWS: list[WorkflowSpec] = [
         ),
         docker_command='cai-audit --repo "${{ github.repository }}" --mode errors',
         permissions={"contents": "read"},
+        # Single global slot — the audit reads "10 most recent failures" from
+        # Langfuse, so parallel runs from a burst of cai:failed labels would
+        # all examine the same data and race to file duplicate issues.
+        concurrency_group="cai-audit-errors",
         authorized_user_variant="none",
     ),
     WorkflowSpec(
