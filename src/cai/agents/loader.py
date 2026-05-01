@@ -256,11 +256,14 @@ class EditFileGuardrailAsRetry(AbstractCapability):
     before retrying.
 
     Before the tool executes, it also pre-verifies that ``old_string``
-    exists in the target file. Agents sometimes reconstruct
-    ``old_string`` from memory rather than copying verbatim from
-    ``read_file`` output, wasting the retry budget on strings that
-    can never match. Catching this on the first attempt saves latency
-    and tokens.
+    exists in the target file and is not ambiguous (matching multiple
+    locations). Agents sometimes reconstruct ``old_string`` from memory
+    rather than copying verbatim from ``read_file`` output, wasting the
+    retry budget on strings that can never match.  When ``old_string``
+    appears more than once the guardrail rejects the call with the
+    match count and disambiguation guidance — catching the ambiguity
+    before the edit lands on the wrong location.  Both checks fire on
+    the first attempt, saving latency and tokens.
     """
 
     async def before_tool_execute(
@@ -282,6 +285,12 @@ class EditFileGuardrailAsRetry(AbstractCapability):
                 f"Re-read the file with read_file and copy the exact target "
                 f"lines — including all whitespace, blank lines, and surrounding "
                 f"content — into old_string. Do not reconstruct from memory."
+            )
+        if content.count(old_string) > 1:
+            raise ModelRetry(
+                f"old_string appears {content.count(old_string)} times in {path}. "
+                f"Include more surrounding context — at minimum one unique line "
+                f"above AND below the target location — to disambiguate."
             )
         return args
 

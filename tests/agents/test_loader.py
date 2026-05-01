@@ -236,6 +236,35 @@ def test_edit_file_guardrail_before_execute_old_string_found(tmp_path):
     assert result is args
 
 
+def test_edit_file_guardrail_before_execute_old_string_ambiguous(tmp_path):
+    """old_string matches multiple locations → ModelRetry with match count."""
+    cap = EditFileGuardrailAsRetry()
+    content = "line A\nduplicate line\nline B\nduplicate line\nline C\n"
+    fpath = _tmp_file(tmp_path, "a.py", content)
+    args = {"path": fpath, "old_string": "duplicate line\n", "new_string": "replacement"}
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.before_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args,
+        ))
+    msg = str(exc.value)
+    assert "appears 2 times" in msg
+    assert fpath in msg
+    assert "above AND below" in msg
+    assert "disambiguate" in msg
+
+
+def test_edit_file_guardrail_before_execute_old_string_unique(tmp_path):
+    """Single-match old_string passes through normally (different shape than _found test)."""
+    cap = EditFileGuardrailAsRetry()
+    content = "header\nunique middle line\nfooter\nheader2\nunique middle other\nfooter2\n"
+    fpath = _tmp_file(tmp_path, "b.py", content)
+    args = {"path": fpath, "old_string": "unique middle line", "new_string": "replacement"}
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
 def test_edit_file_guardrail_before_execute_old_string_not_found(tmp_path):
     """old_string NOT in file → ModelRetry with path and diagnostic message."""
     cap = EditFileGuardrailAsRetry()
@@ -2091,3 +2120,82 @@ def test_micro_read_guard_wired_into_build_deep_agent_capabilities(monkeypatch):
     assert micro_idx < hist_idx, (
         "MicroReadGuardCapability must be before HistoryCompactorCapability"
     )
+
+
+# ---------------------------------------------------------------------------
+# EditFileGuardrailAsRetry — multi-match detection edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_edit_file_guardrail_docstring_mentions_proactive_rejection():
+    """The EditFileGuardrailAsRetry docstring must describe the proactive
+    multi-match rejection that fires before tool execution."""
+    doc = EditFileGuardrailAsRetry.__doc__
+    assert doc is not None
+    assert "pre-verifies" in doc or "before the tool executes" in doc
+    assert "not ambiguous" in doc or "more than once" in doc or "matching multiple" in doc
+    assert "rejects" in doc
+    assert "match count" in doc
+    assert "disambiguation" in doc
+
+
+@pytest.mark.parametrize("match_count", [2, 3, 5])
+def test_edit_file_guardrail_before_execute_old_string_reports_accurate_count(
+    tmp_path, match_count
+):
+    """The ModelRetry message must report the correct count for 2, 3, 5+ matches."""
+    cap = EditFileGuardrailAsRetry()
+    # Build content where old_string repeats exactly *match_count* times.
+    unique_footer = "\nfooter that disambiguates nothing\n"
+    lines = ["irrelevant\n"] * match_count
+    content = "".join(lines) + unique_footer
+    old_string = "irrelevant"
+    fpath = _tmp_file(tmp_path, "multi_match.py", content)
+    args = {"path": fpath, "old_string": old_string, "new_string": "replacement"}
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.before_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args,
+        ))
+    msg = str(exc.value)
+    assert f"appears {match_count} times" in msg, (
+        f"Expected 'appears {match_count} times' in message, got: {msg}"
+    )
+    assert fpath in msg
+    assert "above AND below" in msg
+    assert "disambiguate" in msg
+
+
+def test_edit_file_guardrail_before_execute_multi_line_ambiguous(tmp_path):
+    """Multi-line old_string that appears multiple times is rejected."""
+    cap = EditFileGuardrailAsRetry()
+    content = (
+        "# header\n"
+        "    def repeated(self):\n"
+        "        pass\n"
+        "# middle\n"
+        "    def repeated(self):\n"
+        "        pass\n"
+        "# footer\n"
+    )
+    old_string = "    def repeated(self):\n        pass\n"
+    fpath = _tmp_file(tmp_path, "multi_line.py", content)
+    args = {"path": fpath, "old_string": old_string, "new_string": "    def new_method(self):\n        pass\n"}
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.before_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args,
+        ))
+    msg = str(exc.value)
+    assert "appears 2 times" in msg
+    assert "above AND below" in msg
+
+
+def test_edit_file_guardrail_before_execute_non_overlapping_count_only(tmp_path):
+    """str.count does NOT count overlapping occurrences, so 'aaa'.count('aa') == 1.
+    This edge case should still pass through (single match), not raise ModelRetry."""
+    cap = EditFileGuardrailAsRetry()
+    fpath = _tmp_file(tmp_path, "aaa.py", "aaa\n")
+    args = {"path": fpath, "old_string": "aa", "new_string": "bb"}
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
