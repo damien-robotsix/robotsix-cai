@@ -573,3 +573,25 @@ def test_template_roundtrip_for_resolve_spec():
     assert "CONFLICTING" in rendered
     assert "matrix:" in rendered
     assert "max-parallel: 1" in rendered
+
+
+def test_template_roundtrip_for_parent_check_spec():
+    """Rendering the parent-check spec produces a simple-shaped workflow with issues/closed trigger."""
+    from cai.workflows.registry import by_slug
+
+    spec = by_slug("parent-check")
+    shape = _determine_shape(spec)
+
+    assert shape == "simple"
+
+    rendered = _render(spec, shape)
+
+    assert "name: CAI Parent Check" in rendered
+    assert "issues:" in rendered
+    assert "types: [closed]" in rendered
+    assert "contains(github.event.issue.labels.*.name, 'cai:sub-issue')" in rendered
+    assert "  parent-check:" in rendered
+    assert "issues: write" in rendered
+    assert "Verify authorized user" not in rendered  # authorized_user_variant == "none"
+    assert "concurrency:" not in rendered  # concurrency_group is None
+    assert spec.docker_command in rendered

@@ -23,6 +23,7 @@ from cai.workflows.conflicts import conflicts_graph
 from cai.workflows.fsm import solve_graph
 from cai.workflows.sourcing import sourcing_graph
 from cai.workflows.memory_audit import memory_audit_graph
+from cai.workflows.parent_check import parent_check_graph
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,10 @@ def _sourcing_session_id(args: CliArgs) -> str:
 def _memory_audit_session_id(args: CliArgs) -> str:
     """Return a timestamp-based session id for the memory audit workflow."""
     return f"memory-audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
+
+
+def _parent_check_session_id(args: CliArgs) -> str:
+    return f"parent-check-{args.number}"
 
 
 def _conflicts_session_id(args: CliArgs) -> str:
@@ -335,6 +340,26 @@ WORKFLOWS: list[WorkflowSpec] = [
         ),
         docker_command="cai-memory-audit",
         permissions={"contents": "read"},
+        authorized_user_variant="none",
+    ),
+    WorkflowSpec(
+        slug="parent-check",
+        title="CAI Parent Check",
+        nav_order=9,
+        blurb=(
+            "Triggered when a sub-issue labeled ``cai:sub-issue`` is closed. "
+            "Checks whether all sibling sub-issues of the parent are also closed "
+            "and, if so, files a summary finding on the parent issue."
+        ),
+        graph=parent_check_graph,
+        cli_entry="cai.workflows.parent_check:main",
+        session_id=_parent_check_session_id,
+        github_trigger=GitHubTrigger(
+            on=[GitHubTriggerEvent(event="issues", types=["closed"])],
+            job_if="contains(github.event.issue.labels.*.name, 'cai:sub-issue')",
+        ),
+        docker_command="cai-parent-check ${{ github.repository }}#${{ github.event.issue.number }}",
+        permissions={"issues": "write"},
         authorized_user_variant="none",
     ),
 ]

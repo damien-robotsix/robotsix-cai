@@ -119,17 +119,18 @@ class TestCAILabelSpecs:
         ("cai:pr-ready", "0e8a16", "CAI solve completed; PR opened"),
         ("cai:failed", "b60205", "CAI solve did not complete"),
         ("cai:human-review", "1d76db", "Awaiting human review/merge — CAI is done"),
+        ("cai:sub-issue", "bfdadc", "Sub-issue of a parent issue — tracked for parent completion checks"),
     ]
 
     def test_is_list_of_five(self):
         assert isinstance(CAI_LABEL_SPECS, list)
-        assert len(CAI_LABEL_SPECS) == 5
+        assert len(CAI_LABEL_SPECS) == 6
 
     def test_all_items_are_label_specs(self):
         for spec in CAI_LABEL_SPECS:
             assert isinstance(spec, LabelSpec)
 
-    @pytest.mark.parametrize("index", range(5))
+    @pytest.mark.parametrize("index", range(6))
     def test_each_spec_has_correct_fields(self, index):
         spec = CAI_LABEL_SPECS[index]
         expected_name, expected_color, expected_desc = self.EXPECTED[index]
@@ -170,6 +171,6 @@ class TestCAILabelSpecs:
         result = ensure_labels(mock_bot, "owner/repo", CAI_LABEL_SPECS)
 
         assert result == {spec.name: "created" for spec in CAI_LABEL_SPECS}
-        assert mock_repo.create_label.call_count == 5
+        assert mock_repo.create_label.call_count == 6
         for spec in CAI_LABEL_SPECS:
             mock_repo.create_label.assert_any_call(spec.name, spec.color, spec.description)
