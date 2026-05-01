@@ -1,8 +1,10 @@
 import json
-import pytest
-from unittest.mock import Mock
 
-from cai.github.issues import pull, push
+import pytest
+import requests
+from unittest.mock import Mock, patch
+
+from cai.github.issues import get_parent_issue, list_sub_issues, pull, push
 
 
 def _setup_push_test(tmp_path, mock_caibot_class, labels, number=None,
@@ -406,3 +408,98 @@ def test_pull_does_not_raise_for_varied_inputs(tmp_path, body, has_comments):
     pull(mock_bot, "owner/repo", number, directory)
     md_path = directory / f"{number}.md"
     assert md_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# list_sub_issues() tests
+# ---------------------------------------------------------------------------
+
+
+def test_list_sub_issues_requests_correct_url_and_headers():
+    """list_sub_issues sends GET to .../issues/{n}/sub_issues with correct headers."""
+    mock_bot = Mock()
+    mock_bot.token_for.return_value = "fake-token"
+
+    mock_response = Mock()
+    mock_response.json.return_value = [
+        {"number": 10, "title": "child", "state": "open", "state_reason": None},
+    ]
+
+    with patch("cai.github.issues.requests.get", return_value=mock_response) as mock_get:
+        result = list_sub_issues(mock_bot, "owner/repo", 5)
+
+    mock_bot.token_for.assert_called_once_with("owner/repo")
+    mock_get.assert_called_once()
+    call_kwargs = mock_get.call_args[1]
+    assert call_kwargs["timeout"] == 30
+    assert call_kwargs["headers"]["Authorization"] == "Bearer fake-token"
+    assert call_kwargs["headers"]["Accept"] == "application/vnd.github+json"
+    assert call_kwargs["headers"]["X-GitHub-Api-Version"] == "2022-11-28"
+
+    url = mock_get.call_args[0][0]
+    assert url == "https://api.github.com/repos/owner/repo/issues/5/sub_issues"
+
+    mock_response.raise_for_status.assert_called_once()
+    assert result == [{"number": 10, "title": "child", "state": "open", "state_reason": None}]
+
+
+# ---------------------------------------------------------------------------
+# get_parent_issue() tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_parent_issue_requests_correct_url_and_headers():
+    """get_parent_issue sends GET to .../issues/{n}/parent with correct headers."""
+    mock_bot = Mock()
+    mock_bot.token_for.return_value = "fake-token"
+
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"number": 42}
+
+    with patch("cai.github.issues.requests.get", return_value=mock_response) as mock_get:
+        result = get_parent_issue(mock_bot, "owner/repo", 10)
+
+    mock_bot.token_for.assert_called_once_with("owner/repo")
+    mock_get.assert_called_once()
+    call_kwargs = mock_get.call_args[1]
+    assert call_kwargs["timeout"] == 30
+    assert call_kwargs["headers"]["Authorization"] == "Bearer fake-token"
+    assert call_kwargs["headers"]["Accept"] == "application/vnd.github+json"
+    assert call_kwargs["headers"]["X-GitHub-Api-Version"] == "2022-11-28"
+
+    url = mock_get.call_args[0][0]
+    assert url == "https://api.github.com/repos/owner/repo/issues/10/parent"
+
+    mock_response.raise_for_status.assert_called_once()
+    assert result == 42
+
+
+def test_get_parent_issue_returns_none_on_404():
+    """get_parent_issue returns None when the API responds with 404."""
+    mock_bot = Mock()
+    mock_bot.token_for.return_value = "fake-token"
+
+    mock_response = Mock()
+    mock_response.status_code = 404
+
+    with patch("cai.github.issues.requests.get", return_value=mock_response):
+        result = get_parent_issue(mock_bot, "owner/repo", 10)
+
+    assert result is None
+    # raise_for_status must NOT be called for 404
+    mock_response.raise_for_status.assert_not_called()
+
+
+def test_get_parent_issue_propagates_non_404_http_errors():
+    """get_parent_issue raises via raise_for_status() for non-404 HTTP errors."""
+    mock_bot = Mock()
+    mock_bot.token_for.return_value = "fake-token"
+
+    mock_response = Mock()
+    mock_response.status_code = 500
+    mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("500")
+
+    with patch("cai.github.issues.requests.get", return_value=mock_response):
+        with pytest.raises(requests.exceptions.HTTPError):
+            get_parent_issue(mock_bot, "owner/repo", 10)
