@@ -62,7 +62,7 @@ def _scratch_dir(ctx: RunContext) -> Path:
     """Per-workspace scratch dir, derived from the backend's root."""
     repo_root = Path(ctx.deps.backend.root_dir)
     scratch = repo_root.parent / "spike"
-    scratch.mkdir(parents=True, exist_ok=True)
+    scratch.mkdir(exist_ok=True)
     return scratch
 
 
@@ -96,7 +96,10 @@ async def spike_run(
             60). Pip installs are bounded separately.
 
     Returns:
-        The script's stdout+stderr (capped at ~100KB). On failure the
+        The captured stdout+stderr is concatenated and returned to you
+        exactly as printed — every character, unchanged. No part of the
+        toolchain intercepts, wraps, or modifies your output (beyond the
+        100 KB cap and redaction of API key values). On failure the
         return string starts with ``Script failed (exit code N):``.
     """
     scratch = _scratch_dir(ctx)

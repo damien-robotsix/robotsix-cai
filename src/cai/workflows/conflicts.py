@@ -7,7 +7,11 @@ The flow is implemented as a ``pydantic_graph.Graph``:
   When the rebase stops at a conflict, hands the current commit's diff
   plus the conflicted files to the ``resolve_step`` agent and continues.
 * ``SanityTestNode`` — runs the test suite once the rebase finishes
-  (skipped when the rebase needed no agent involvement).
+  (skipped when the rebase needed no agent involvement). On failure the
+  node hands off to ``solve_graph`` entered at ``ImplementNode`` — the
+  same recovery path ``cai-solve`` uses when a sanity-test pass fails
+  mid-run — so the implement agent can fix the rebased tree and PRNode
+  force-pushes the result. Up to two implement retries before giving up.
 * ``PushNode`` — force-pushes the head branch so the PR's diff view shows
   head-vs-base only, without a noisy merge commit.
 * ``ObsoleteNode`` — taken when the rebase consumes every commit (because
@@ -15,9 +19,8 @@ The flow is implemented as a ``pydantic_graph.Graph``:
   and labelled ``cai:obsolete``; the branch is **not** force-pushed,
   preserving the original commits behind the closed PR.
 
-If the rebase or sanity tests fail, the workflow raises immediately with
-a clear error so the failure is visible rather than silently falling back
-to a doomed implement loop.
+If the rebase loop itself fails, the workflow raises immediately with a
+clear error rather than silently falling back to a doomed implement loop.
 
 Prints a JSON summary on stdout.
 """
@@ -52,6 +55,7 @@ from cai.git import (
     stage_all,
 )
 from cai.github.bot import CaiBot
+from cai.github.issues import IssueMeta
 from cai.github.labels import LabelSpec, ensure_labels, set_label
 from cai.github.repo import (
     PRWorkspace,
@@ -60,7 +64,7 @@ from cai.github.repo import (
     prepare_pr_workspace,
 )
 from cai.log import langfuse_workflow, session_id_for_pr
-from cai.workflows.state import ResolveStepOutput
+from cai.workflows.state import IssueState, ResolveStepOutput
 from cai.workflows.test_runner import _run_tests
 
 
@@ -337,19 +341,45 @@ class RebaseLoopNode(BaseNode[ConflictsState, None, dict]):
 
 
 class SanityTestNode(BaseNode[ConflictsState, None, dict]):
-    """Run the sanity test pass after the agent resolved at least one step."""
+    """Run the sanity test pass after the agent resolved at least one step.
 
-    async def run(self, ctx: GraphRunContext[ConflictsState]) -> "PushNode":
+    On failure, hand off to ``solve_graph`` entered at ``ImplementNode``
+    (the same recovery path ``cai-solve`` uses for sanity-test failures
+    mid-run): the implement agent receives the test output, fixes the
+    rebased tree, ``TestSanityNode`` reruns up to two more times, and
+    ``PRNode`` force-pushes the rewritten head. Our own ``PushNode`` is
+    bypassed in that case since solve's ``PRNode`` already pushed.
+    """
+
+    async def run(self, ctx: GraphRunContext[ConflictsState]) -> "PushNode | End[dict]":
+        # Delayed import to avoid the ``conflicts → fsm → (transitively) …``
+        # chain at module import time; the cycle isn't real today but the
+        # late binding keeps it that way.
+        from cai.workflows.fsm import solve_graph
+        from cai.workflows.implement import ImplementNode
+
         ws = ctx.state.workspace
         passed, details = _run_tests(ws.repo_root)
-        if not passed:
-            raise RuntimeError(
-                f"Rebase of {ws.repo}#{ws.number} onto {ws.base_branch!r} succeeded "
-                "but the sanity test pass failed. Fix the tests before retrying.\n\n"
-                f"Test output:\n{details}"
-            )
-        ctx.state.mode = "rebased"
-        return PushNode()
+        if passed:
+            ctx.state.mode = "rebased"
+            return PushNode()
+
+        ctx.state.mode = "rebased+fixed"
+        meta = IssueMeta(repo=ws.repo, number=ws.number, title=ws.title)
+        impl_state = IssueState(
+            bot=ctx.state.bot,
+            meta=meta,
+            body_path=ws.body_path.resolve(),
+            repo_root=ws.repo_root.resolve(),
+            branch_name=ws.head_branch,
+            pr_number=ws.number,
+            test_failure_details=details,
+        )
+        impl_state.new_meta = meta
+        await solve_graph.run(ImplementNode(), state=impl_state)
+        return End(
+            {"mode": ctx.state.mode, "conflicted_files": ctx.state.touched}
+        )
 
 
 class PushNode(BaseNode[ConflictsState, None, dict]):
@@ -409,11 +439,15 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
     * ``"clean"`` — rebase finished with no agent involvement.
     * ``"rebased"`` — rebase finished, agent resolved one or more steps,
       sanity tests pass, branch force-pushed.
+    * ``"rebased+fixed"`` — rebase finished but sanity tests failed; the
+      implement agent then fixed the tree (via ``solve_graph``), and the
+      rewritten head was pushed by ``PRNode``.
     * ``"obsolete"`` — every commit was already on base after rebase; PR
       closed with a comment, branch left untouched.
 
-    Raises ``RuntimeError`` if the rebase loop fails (e.g. resolve_step
-    could not clear all markers) or if sanity tests fail after the rebase.
+    Raises ``RuntimeError`` only when the rebase loop itself fails (e.g.
+    resolve_step could not clear all markers). Sanity-test failures are
+    routed through the implement agent rather than aborting.
     """
     pr_ref = f"{workspace.repo}#{workspace.number}"
     set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=False)
@@ -446,9 +480,9 @@ def main() -> None:
         description=(
             "Rebase a pull request onto its base branch with the "
             "resolve_step agent handling each conflicting step, run a "
-            "sanity test pass, then force-push. Falls back to the "
-            "implement agent if the rebase or tests fail. Prints a JSON "
-            "summary on stdout."
+            "sanity test pass, then force-push. If the sanity tests fail, "
+            "hand off to the implement agent (via solve_graph) to fix the "
+            "rebased tree before pushing. Prints a JSON summary on stdout."
         ),
     )
     parser.add_argument(

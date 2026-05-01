@@ -22,6 +22,7 @@ from cai.workflows.audit import audit_graph
 from cai.workflows.conflicts import conflicts_graph
 from cai.workflows.fsm import solve_graph
 from cai.workflows.sourcing import sourcing_graph
+from cai.workflows.memory_audit import memory_audit_graph
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,11 @@ def _audit_session_id() -> str:
 def _sourcing_session_id() -> str:
     """Return a timestamp-based session id matching the pattern in ``sourcing.py``."""
     return f"sourcing-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+
+
+def _memory_audit_session_id() -> str:
+    """Return a timestamp-based session id for the memory audit workflow."""
+    return f"memory-audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
 
 WORKFLOWS: list[WorkflowSpec] = [
@@ -277,6 +283,25 @@ WORKFLOWS: list[WorkflowSpec] = [
             ],
         ),
         docker_command='cai-audit --repo "$TARGET_REPO" --mode duplication',
+        permissions={"contents": "read"},
+        authorized_user_variant="none",
+    ),
+    WorkflowSpec(
+        slug="memory-audit",
+        title="cai-memory-audit",
+        nav_order=8,
+        blurb=(
+            "Scans `.cai/memory/` entries, verifies their claims against "
+            "the current codebase, and marks stale or superseded entries "
+            "by updating their YAML frontmatter status fields."
+        ),
+        graph=memory_audit_graph,
+        cli_entry="cai.workflows.memory_audit:main",
+        session_id=_memory_audit_session_id,
+        github_trigger=GitHubTrigger(
+            on=[GitHubTriggerEvent(event="workflow_dispatch")],
+        ),
+        docker_command="cai-memory-audit",
         permissions={"contents": "read"},
         authorized_user_variant="none",
     ),

@@ -128,23 +128,46 @@ def test_solve_conflicts_resolved_pushes_when_tests_pass(
     mock_push.assert_called_once()
 
 
+@patch("cai.workflows.fsm.solve_graph")
 @patch("cai.workflows.conflicts.rev_parse")
 @patch("cai.workflows.conflicts.langfuse_workflow")
 @patch("cai.workflows.conflicts._run_tests")
 @patch("cai.workflows.conflicts.push_branch")
 @patch("cai.workflows.conflicts._rebase_loop")
-def test_solve_conflicts_raises_when_tests_fail(
-    mock_loop, mock_push, mock_run_tests, mock_langfuse, mock_rev_parse, workspace
+def test_solve_conflicts_hands_off_to_implement_when_tests_fail(
+    mock_loop,
+    mock_push,
+    mock_run_tests,
+    mock_langfuse,
+    mock_rev_parse,
+    mock_solve_graph,
+    workspace,
 ):
+    # Sanity-test failure used to abort the workflow. It now routes through
+    # solve_graph entered at ImplementNode (mirroring solve's recovery path),
+    # so ConflictsState.mode is "rebased+fixed" and our PushNode is bypassed
+    # (solve's PRNode handles the push from inside the handoff).
     mock_loop.return_value = (True, ["src/a.py"])
     mock_run_tests.return_value = (False, "FAILED tests/test_a.py::test_x")
     mock_rev_parse.side_effect = lambda root, ref: "head" if ref == "HEAD" else "base"
+    mock_solve_graph.run = AsyncMock()
     bot = MagicMock()
     bot.token_for.return_value = "tok"
 
-    with pytest.raises(RuntimeError, match="sanity test pass failed"):
-        solve_conflicts(bot, workspace)
+    result = solve_conflicts(bot, workspace)
 
+    assert result == {"mode": "rebased+fixed", "conflicted_files": ["src/a.py"]}
+    mock_solve_graph.run.assert_awaited_once()
+    # The implement-handoff path entered solve_graph at ImplementNode with
+    # the test failure details preset on IssueState.
+    from cai.workflows.implement import ImplementNode
+    entry_node, kwargs = mock_solve_graph.run.await_args.args[0], mock_solve_graph.run.await_args.kwargs
+    assert isinstance(entry_node, ImplementNode)
+    assert kwargs["state"].test_failure_details == "FAILED tests/test_a.py::test_x"
+    assert kwargs["state"].pr_number == workspace.number
+    assert kwargs["state"].branch_name == workspace.head_branch
+    # Our own PushNode is bypassed; solve's PRNode (inside the mocked
+    # solve_graph) is responsible for the push in this branch.
     mock_push.assert_not_called()
 
 

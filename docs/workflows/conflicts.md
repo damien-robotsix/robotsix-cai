@@ -21,6 +21,7 @@ stateDiagram-v2
   RebaseLoopNode --> PushNode
   RebaseLoopNode --> ObsoleteNode
   SanityTestNode --> PushNode
+  SanityTestNode --> [*]
   PushNode --> [*]
   ObsoleteNode --> [*]
 ```

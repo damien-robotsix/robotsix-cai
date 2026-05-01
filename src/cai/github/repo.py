@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from cai.git import clone
+from cai.git import clone, set_local
 
 from .bot import CaiBot
 from .issues import pull
@@ -51,6 +51,22 @@ def issue_workspace(repo: str, number: int) -> Path:
     """Return the per-issue workspace path. Pure — does not touch disk."""
     owner, name = repo.split("/", 1)
     return WORKSPACE_ROOT / owner / name / str(number)
+
+
+def _configure_identity(repo_root: Path, bot: CaiBot) -> None:
+    """Write ``user.name`` / ``user.email`` to the clone's local config.
+
+    Without this, ``git rebase --continue`` (and any other path where git
+    records a commit on its own) aborts with "Committer identity unknown"
+    because the workspace clone inherits no identity from the host. The
+    values mirror what ``cai-app-init`` writes for an interactive setup.
+    """
+    set_local("user.name", bot.bot_login, repo_root=repo_root)
+    set_local(
+        "user.email",
+        f"{bot.app_id}+{bot.bot_login}@users.noreply.github.com",
+        repo_root=repo_root,
+    )
 
 
 @dataclass(frozen=True)
@@ -86,6 +102,7 @@ def prepare_workspace(bot: CaiBot, repo: str, number: int) -> IssueWorkspace:
             repo_root,
             env={"GIT_TERMINAL_PROMPT": "0"},
         )
+    _configure_identity(repo_root, bot)
 
     return IssueWorkspace(
         root=root,
@@ -138,6 +155,7 @@ def prepare_pr_workspace(bot: CaiBot, repo: str, number: int) -> PRWorkspace:
             branch=head_branch,
             env={"GIT_TERMINAL_PROMPT": "0"},
         )
+    _configure_identity(repo_root, bot)
 
     return PRWorkspace(
         root=root,

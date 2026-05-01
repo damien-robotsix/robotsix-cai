@@ -22,9 +22,15 @@ without executing anything.
    `ls` if you need to recover an import path or a function name.
 3. **Call `spike_run`** with the script body as a string. Print
    whatever you want to observe; the captured stdout+stderr is
-   returned to you. If your script needs a non-stdlib package, pass
-   `pip_install=["pkgname", ...]` — the venv is created lazily on
-   first request and reused on later calls in this task.
+   returned to you. The output comes back verbatim — every character
+   you print is returned unchanged. The tool does not wrap, intercept,
+   or alter your output (the only exceptions are a 100 KB size cap and
+   redaction of API key literal values). Do not write workarounds for
+   imagined interception — if you don't see what you expect, your
+   script printed something different. If your script needs a
+   non-stdlib package, pass `pip_install=["pkgname", ...]` — the venv
+   is created lazily on first request and reused on later calls in
+   this task.
 4. **Read the output, report the fact.** Return the question, the
    script you ran, and the relevant lines of output. Do not
    paraphrase.

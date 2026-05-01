@@ -53,6 +53,46 @@ def add_sub_issue(bot: CaiBot, parent_repo: str, parent_number: int, child_id: i
     resp.raise_for_status()
 
 
+def list_sub_issues(bot: CaiBot, parent_repo: str, parent_number: int) -> list[dict]:
+    """Return the sub-issues of ``parent_number``.
+
+    Each dict in the returned list has keys like ``number``, ``title``,
+    ``state``, and ``state_reason``.
+    """
+    token = bot.token_for(parent_repo)
+    url = f"https://api.github.com/repos/{parent_repo}/issues/{parent_number}/sub_issues"
+    resp = requests.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_parent_issue(bot: CaiBot, repo: str, number: int) -> int | None:
+    """Return the parent issue number of ``number``, or ``None`` if it has no parent."""
+    token = bot.token_for(repo)
+    url = f"https://api.github.com/repos/{repo}/issues/{number}/parent"
+    resp = requests.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        timeout=30,
+    )
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.json()["number"]
+
+
 def _meta_paths(directory: Path, number: int) -> tuple[Path, Path]:
     return directory / f"{number}.json", directory / f"{number}.md"
 
