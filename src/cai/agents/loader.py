@@ -427,6 +427,9 @@ class HistoryCompactorCapability(AbstractCapability):
         current_args = call.args_as_dict()
 
         # Scan ctx.messages backward for a prior identical read_file call.
+        # Skip the current call itself: the latest ModelResponse already
+        # contains this ToolCallPart by the time wrap_tool_execute fires,
+        # and parallel read_file calls share that ModelResponse.
         prior_msg_idx: int | None = None
         for i in range(len(ctx.messages) - 1, -1, -1):
             msg = ctx.messages[i]
@@ -436,6 +439,8 @@ class HistoryCompactorCapability(AbstractCapability):
                 if not isinstance(part, ToolCallPart):
                     continue
                 if part.tool_name != "read_file":
+                    continue
+                if part.tool_call_id == call.tool_call_id:
                     continue
                 if part.args_as_dict() == current_args:
                     prior_msg_idx = i

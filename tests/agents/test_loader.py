@@ -1309,6 +1309,33 @@ def test_history_compactor_wrap_tool_execute_no_prior_matching_read():
     assert result == "first read"
 
 
+def test_history_compactor_wrap_tool_execute_skips_self_match():
+    """The current ToolCallPart sits inside ctx.messages by the time
+    wrap_tool_execute fires (especially for parallel tool calls in one
+    ModelResponse). The scan must skip it by tool_call_id, otherwise every
+    read_file would self-match and short-circuit to the warning string."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "file content"
+
+    # Simulate the runtime state: the model emitted three parallel read_file
+    # calls and the ModelResponse holding all three is already in ctx.messages.
+    call_a = ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="c1")
+    call_b = ToolCallPart(tool_name="read_file", args={"path": "b.py"}, tool_call_id="c2")
+    call_c = ToolCallPart(tool_name="read_file", args={"path": "c.py"}, tool_call_id="c3")
+
+    ctx = _make_ctx(messages=[ModelResponse(parts=[call_a, call_b, call_c])])
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call_a, tool_def=None, args={}, handler=handler))
+
+    assert handler_called
+    assert result == "file content"
+
+
 def test_history_compactor_wired_into_build_deep_agent_capabilities(monkeypatch):
     import cai.agents.loader as loader
 
