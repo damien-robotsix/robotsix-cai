@@ -1,12 +1,12 @@
 ---
-title: CAI Solve
+title: CAI Solve (PR review)
 parent: Workflows
-nav_order: 1
+nav_order: 6
 ---
 
-# CAI Solve
+# CAI Solve (PR review)
 
-Drives a GitHub issue or pull request through the same graph. Issues are explored, refined, implemented, and pushed as a new PR. PRs enter at the implement step with their unresolved review threads in the prompt, and the bundled fix is pushed in place.
+Responds to 'changes requested' pull request reviews by implementing the requested fixes and pushing them in place.
 
 ## Graph
 
@@ -14,7 +14,7 @@ Drives a GitHub issue or pull request through the same graph. Issues are explore
 
 ```mermaid
 ---
-title: solve_graph
+title: solve-pr_graph
 ---
 stateDiagram-v2
   ExploreNode --> RefineNode

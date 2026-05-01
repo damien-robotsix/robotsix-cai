@@ -1,10 +1,10 @@
 ---
-title: cai-audit
+title: CAI Audit
 parent: Workflows
 nav_order: 2
 ---
 
-# cai-audit
+# CAI Audit
 
 Runs an audit agent against Langfuse traces or a cloned repository, then files proposed improvements as GitHub issues.
 
