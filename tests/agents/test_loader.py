@@ -143,7 +143,11 @@ def test_edit_file_guardrail_enriches_same_result_message():
     msg = str(exc.value)
     assert "edit_file returned the same result 3 times in a row." in msg
     assert "old_string may match multiple locations" in msg
+    assert "already been applied" in msg
+    assert "the edit may have already been applied" in msg
+    assert "the text is already present" in msg
     assert "unique line above or below" in msg
+    assert "disambiguate" in msg
 
 
 def test_edit_file_guardrail_enriches_same_result_partial():
@@ -163,6 +167,21 @@ def test_edit_file_guardrail_enriches_same_result_partial():
     msg = str(exc.value)
     assert "same result" in msg
     assert "old_string may match multiple locations" in msg
+    assert "already been applied" in msg
+    assert "the edit may have already been applied" in msg
+    assert "the text is already present" in msg
+    assert "disambiguate" in msg
+
+
+def test_edit_file_guardrail_docstring_mentions_already_applied():
+    """The EditFileGuardrailAsRetry docstring must mention both possible
+    causes of the 'same result' error — disambiguation failure and
+    already-applied edit."""
+    doc = EditFileGuardrailAsRetry.__doc__
+    assert doc is not None
+    assert "already successfully applied" in doc or "already present" in doc
+    assert "already been applied" in doc
+    assert "disambiguate" in doc, "Docstring must mention disambiguation as one possible cause"
 
 
 def test_edit_file_guardrail_wired_into_build_deep_agent_capabilities(monkeypatch):
@@ -1202,6 +1221,8 @@ def test_history_compactor_wrap_tool_execute_short_circuit():
 
     assert not handler_called
     assert "Warning: identical read_file" in result
+    assert "file content has not changed" in result
+    assert "reuse your previous read_file output" in result
 
 
 def test_history_compactor_wrap_tool_execute_non_matching():
@@ -1510,6 +1531,8 @@ def test_history_compactor_wrap_tool_execute_non_edit_tools_preserve_short_circu
 
     assert not handler_called
     assert "Warning: identical read_file" in result
+    assert "file content has not changed" in result
+    assert "reuse your previous read_file output" in result
 
 
 def test_history_compactor_wrap_tool_execute_no_prior_matching_read():

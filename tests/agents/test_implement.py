@@ -109,3 +109,17 @@ def test_implement_agent_config():
         "Assume your targeted edits worked"
         in instructions
     ), "Guideline must tell agent to assume targeted edits worked"
+
+    # Assert trust-successful-edits guidance (issue #1602)
+    assert (
+        "Trust successful edits"
+        in instructions
+    ), "Prompt must include 'Trust successful edits' heading"
+    assert (
+        "do not need to re-read the file to verify the edit succeeded"
+        in instructions
+    ), "Prompt must tell agent not to re-read just to confirm a successful edit"
+    assert (
+        "reuse your previous `read_file` output"
+        in instructions
+    ), "Prompt must mention reusing previous read_file output when HistoryCompactor fires"
