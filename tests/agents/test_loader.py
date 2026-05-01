@@ -863,6 +863,39 @@ def test_anti_hallucination_guard_absent_from_explore():
 
 
 # ---------------------------------------------------------------------------
+# task tool parameter-name note
+# ---------------------------------------------------------------------------
+
+_TASK_TOOL_PARAM_TEXT = (
+    "When calling the `task` tool, pass the subagent instructions as "
+    "`description=`, not `prompt=`. The `task` tool has no `prompt` parameter."
+)
+
+
+@pytest.mark.parametrize(
+    "agent_name",
+    [
+        "refine",
+        "audit",
+        "security_auditor",
+        "deps_auditor",
+        "architecture_auditor",
+        "sourcing",
+    ],
+)
+def test_agent_prompt_includes_task_tool_parameter_note(agent_name: str):
+    """Every agent that uses subagents must warn the model to pass
+    instructions as ``description=``, not ``prompt=``, since the ``task``
+    tool has no ``prompt`` parameter."""
+    path = resolve_agent_path(agent_name)
+    _, system_prompt = parse_agent_md(path)
+    assert _TASK_TOOL_PARAM_TEXT in system_prompt, (
+        f"{agent_name}.md system prompt missing the task-tool parameter-name note. "
+        f"Expected note:\n{_TASK_TOOL_PARAM_TEXT}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # HistoryCompactorCapability
 # ---------------------------------------------------------------------------
 

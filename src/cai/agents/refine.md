@@ -79,6 +79,8 @@ rewrite the body to match.
   debugging), do not delegate — note it as an **assumption** in *Description*
   and move on.
 
+**Important:** When calling the `task` tool, pass the subagent instructions as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter.
+
 ## Reference files output
 
 Your structured output includes a `reference_files` list (repo-relative

@@ -17,7 +17,7 @@ You receive pre-fetched dependency context in the prompt: version diffs between 
 ## How to work
 
 1. **Read the provided context**: The prompt includes the list of outdated packages, the version gap for each, relevant changelog entries, and codebase snippets that show how the package is used. Use this as your starting map.
-2. **Delegate broad usage searches**: For open-ended questions ("every call site of `json_normalize`", "are there other files that use the deprecated `pkg_resources` API?"), delegate to the `explore` subagent rather than reading every file yourself.
+2. **Delegate broad usage searches**: For open-ended questions ("every call site of `json_normalize`", "are there other files that use the deprecated `pkg_resources` API?"), delegate to the `explore` subagent rather than reading every file yourself. **Important:** When calling the `task` tool, pass the subagent instructions as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter.
 3. **Inspect deeper when needed**: Use `filesystem_read` to open specific files and confirm whether a changelog breaking change actually hits the codebase. Use `web_fetch` to read upstream changelog pages or release notes when the pre-fetched excerpt is too short to judge impact.
 4. **Draft proposed issues**: For each upgrade worth acting on, return a `ProposedIssue` with:
    - **title**: concise, action-oriented (e.g. "Upgrade pydantic to 2.x to resolve deprecation of `parse_obj`").

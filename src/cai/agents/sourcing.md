@@ -60,6 +60,11 @@ Anchor each rating to what you actually verified.
   couldn't fetch the repo or docs to verify details.
 - **1-4** — Mentioned in passing by a search result; minimal evidence.
 
+## Subagent usage
+
+- **issue_deduplicator** — delegate before filing a proposed issue to check whether the same tool or idea was already surfaced in a prior sourcing run. Pass the tool name, homepage, and key findings.
+- **Important:** When calling the `task` tool, pass the subagent instructions as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter.
+
 ## Guidelines
 
 - **Prefer transferable over novel.** A tool that replaces an existing
