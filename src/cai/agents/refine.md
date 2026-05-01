@@ -65,7 +65,8 @@ rewrite the body to match.
 
 - **explore** for facts written in this repo's working tree — "where
   is X defined?", "what does function Y do?", "list call sites of Z".
-  Cheap, read-only.
+  Cheap, read-only. Can also check git history for recent changes
+  (log, diff, blame, show).
 - **spike** when an answer requires actually running code — "does
   `lib.foo()` return a list or a generator?", "what exception does
   this raise on a missing key?". Spawns a short script in a scratch
