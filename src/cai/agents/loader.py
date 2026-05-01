@@ -521,6 +521,7 @@ class HistoryCompactorCapability(AbstractCapability):
         # and parallel read_file calls share that ModelResponse.
         prior_msg_idx: int | None = None
         matched_prior_args: dict | None = None
+        matched_by_overlap = False
         for i in range(len(ctx.messages) - 1, -1, -1):
             msg = ctx.messages[i]
             if not isinstance(msg, ModelResponse):
@@ -548,6 +549,7 @@ class HistoryCompactorCapability(AbstractCapability):
                     if current_offset >= prior_offset:
                         prior_msg_idx = i
                         matched_prior_args = prior_args
+                        matched_by_overlap = True
                         break
                 elif current_limit is not None:
                     # Both have explicit limits — compare end positions.
@@ -556,6 +558,7 @@ class HistoryCompactorCapability(AbstractCapability):
                     if prior_offset <= current_offset and prior_end >= current_end:
                         prior_msg_idx = i
                         matched_prior_args = prior_args
+                        matched_by_overlap = True
                         break
                 # current_limit is None but prior_limit is not None:
                 # we can't confirm the prior range covers to EOF →
@@ -583,8 +586,30 @@ class HistoryCompactorCapability(AbstractCapability):
                 if part.tool_name in self._FILE_MODIFYING_TOOLS:
                     return await handler(args)
 
-                    matched_prior_args = prior_args
-        )
+        # No intervening file-modifying tool found — short-circuit to a
+        # warning so the model doesn't waste a round-trip re-reading.
+        path = current_args.get("path", "unknown")
+        if matched_by_overlap:
+            current_offset = current_args.get("offset", 0)
+            current_limit = current_args.get("limit")
+            prior_offset = matched_prior_args.get("offset", 0)
+            prior_limit = matched_prior_args.get("limit")
+            current_limit_str = f", limit={current_limit}" if current_limit is not None else ""
+            prior_limit_str = f", limit={prior_limit}" if prior_limit is not None else ", limit=EOF"
+            warning = (
+                f"Warning: read_file({path!r}, offset={current_offset}"
+                f"{current_limit_str}) is covered by a prior "
+                f"read_file({path!r}, offset={prior_offset}{prior_limit_str}) "
+                f"at message index {prior_msg_idx} — file content has "
+                f"not changed; review your previous messages for the content."
+            )
+        else:
+            warning = (
+                f"Warning: identical read_file({path!r}) call at message "
+                f"index {prior_msg_idx} — file content has not changed; "
+                f"review your previous messages for the content."
+            )
+        return warning
 
 
 class MicroReadGuardCapability(AbstractCapability):
