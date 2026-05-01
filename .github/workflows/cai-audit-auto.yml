@@ -1,34 +1,43 @@
 name: CAI Audit Auto
 
 on:
-  issues:
-    types: [closed]
+  workflow_run:
+    workflows:
+      - "CAI Solve"
+      - "CAI Solve (PR review)"
+      - "CAI Resolve Conflicts"
+      - "CAI Sourcing"
+      - "CAI Audit Errors"
+      - "CAI Audit Duplication"
+    types: [completed]
 
 jobs:
   check:
-    if: contains(github.event.issue.labels.*.name, 'cai:raised')
     runs-on: ubuntu-latest
     permissions:
-      issues: read
+      actions: read
     outputs:
       should_run: ${{ steps.gate.outputs.should_run }}
       count: ${{ steps.gate.outputs.count }}
     steps:
-      - name: Count closed cai:raised issues
+      - name: Count completed cai-* workflow runs
         id: gate
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          count=$(gh issue list --repo "${{ github.repository }}" \
-            --state closed --label "cai:raised" \
-            --limit 1000 --json number --jq 'length')
-          echo "count=$count" >> "$GITHUB_OUTPUT"
-          if [ "$count" -gt 0 ] && [ $((count % 10)) -eq 0 ]; then
+          total=0
+          workflows=$(gh api "/repos/${{ github.repository }}/actions/workflows" --jq '.workflows[] | select(.path | startswith(".github/workflows/cai-")) | select(.name != "CAI Audit" and .name != "CAI Audit Auto") | .id')
+          for id in $workflows; do
+            count=$(gh api "/repos/${{ github.repository }}/actions/workflows/$id/runs?status=completed&per_page=1" --jq '.total_count')
+            total=$((total + count))
+          done
+          echo "count=$total" >> "$GITHUB_OUTPUT"
+          if [ "$total" -gt 0 ] && [ $((total % 10)) -eq 0 ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_run=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Closed cai:raised issues: $count"
+          echo "Completed cai-* workflow runs: $total"
 
   audit:
     needs: check
@@ -39,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [cost, errors, architecture, security]
+        mode: [cost, errors]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
