@@ -244,12 +244,16 @@ class EditFileGuardrailAsRetry(AbstractCapability):
 
     When ``old_string`` matches multiple locations in the file,
     ``str_replace`` replaces the **first** match — which may be the
-    wrong one. Subsequent retries find the edit already applied
+    wrong one. Subsequent retries find the edit already been applied
     (in the wrong place) or the file unchanged at the intended spot,
     producing the error "``edit_file`` returned the same result 3
-    times in a row." This capability catches that ``ModelRetry`` and
-    enriches the message with a hint to include more surrounding
-    context so the model can disambiguate the target location.
+    times in a row." The "same result" error can also mean the edit
+    was already successfully applied (the text is already present).
+    This capability catches that ``ModelRetry`` and enriches the
+    message with hints for both possible causes: include more
+    surrounding context so the model can disambiguate the target
+    location, or check whether the intended change is already there
+    before retrying.
 
     Before the tool executes, it also pre-verifies that ``old_string``
     exists in the target file. Agents sometimes reconstruct
@@ -293,9 +297,12 @@ class EditFileGuardrailAsRetry(AbstractCapability):
             return
         raise ModelRetry(
             f"{message} The old_string may match multiple locations in "
-            f"the file. Include more surrounding context — at minimum one "
-            f"unique line above or below (e.g., a slug, title, or function "
-            f"name) — to disambiguate the target location."
+            f"the file, or the edit may have already been applied (the text "
+            f"is already present). If you successfully edited this file "
+            f"earlier, check whether the intended change is already there "
+            f"before retrying. Include more surrounding context — at minimum "
+            f"one unique line above or below (e.g., a slug, title, or "
+            f"function name) — to disambiguate the target location."
         )
 
 
@@ -533,7 +540,8 @@ class HistoryCompactorCapability(AbstractCapability):
 
         return (
             "[Warning: identical read_file requested without intervening file "
-            "edits. Review your previous messages instead of re-reading.]"
+            "edits. The file content has not changed — reuse your previous "
+            "read_file output instead of re-reading or trying different offsets.]"
         )
 
 

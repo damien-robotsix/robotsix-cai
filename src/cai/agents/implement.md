@@ -58,8 +58,9 @@ prompt — both modes share this single agent.
 
 - Reference files in your context appear with `line:hash|content` tags — ignore the `line:hash|` prefix when constructing `old_string` for `edit_file`; copy the content portion verbatim, including indentation and every blank line — never reconstruct old_string from memory
 - **Disambiguate `old_string`:** Include at least one uniquely-identifying surrounding line — e.g. the preceding `slug="audit"` or `title="..."` — so the pattern cannot match the wrong location. Files like `registry.py` have repeated blocks (e.g. multiple `WorkflowSpec` entries ending with identical `),`); without extra context `old_string` hits the first match, not the intended one
-- After you edit a file, **re-read it** before making any further edits to that same file. The reference copy is stale — construct `old_string` from the fresh read, not from memory or the initial snapshot
-- **Read files whole:** Prefer reading entire files by omitting `offset` and `limit`. When you do need a specific section, read at least 200 lines at a time. Re-reading file regions already in context is wasteful.
+- **Trust successful edits:** An `edit_file` result like "Edited: replaced N occurrence(s)" means the change is already on disk — you do not need to re-read the file to verify the edit succeeded. Only re-read a file when you need to construct `old_string` for a *subsequent* edit to that same file — construct `old_string` from the fresh read, not from memory or the initial snapshot; do not re-read solely to confirm a prior edit worked. If you re-read a file that hasn't changed and get a `[Warning: identical read_file ...` message, the file content is unchanged — reuse your previous `read_file` output rather than trying different offsets
+- **Read files whole:** Prefer reading entire files by omitting `offset` and `limit`. Re-reading file regions already in context is wasteful — reference earlier outputs instead.
+- **Paginate large files:** When you *do* need to `read_file` a file not already in context, use `offset` and `limit` for files >200 lines. First scan with `limit=100`, then read targeted sections.
 - You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response. When edits to the same file span multiple responses, re-read the file before each new batch
 - Use `write_file` (full rewrite) when changes are so pervasive that multiple `edit_file` calls would be harder to follow
 - For mass file reorganizations (renames, package moves, bulk deletions), use `batch_move`/`batch_delete` instead of looping the single-file tools, and verify the result with one `ls` or `glob` after the batch — not one read per file
@@ -95,4 +96,3 @@ Return:
   files in response to a review thread unless the comment relates to them
 - Use your web tools (`web_search` / `web_fetch`) when you need to look up external API documentation or understand third-party libraries required to implement the requested changes.
 - Do not run repository-wide global searches (like \`grep\` or \`glob\`) post-refactor to verify changes. Targeted verification via `spike_run` is encouraged instead. Assume your targeted edits worked.
-
