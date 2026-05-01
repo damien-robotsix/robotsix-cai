@@ -16,6 +16,7 @@ def test_implement_agent_config():
     assert "filesystem" in tools
     assert "web_search" in tools
     assert "web_fetch" in tools
+    assert "spike_run" in tools
 
     # Assert instructions
     assert "web_search" in instructions
@@ -27,6 +28,7 @@ def test_implement_agent_config():
         r"Do not run repository-wide global searches (like \`grep\` or \`glob\`)"
     ) in instructions
     assert "post-refactor to verify changes" in instructions
+    assert "Targeted verification via `spike_run`" in instructions
 
     # Assert re-read-after-edit guidance is present (issue #1525)
     assert (
@@ -41,3 +43,69 @@ def test_implement_agent_config():
         "re-read the file before each new batch"
         in instructions
     ), "Prompt must instruct re-reading between multi-response edit batches"
+
+    # Assert spike_run verification guidance (issue #1639)
+    assert (
+        "For code verification (import checks, syntax validation, targeted tests), use `spike_run`"
+        in instructions
+    ), "Warning block must direct agent to spike_run for code verification"
+
+    # Assert anti-hallucination blockquote restored (issue #1639)
+    assert (
+        "`run` tool" in instructions
+    ), "Anti-hallucination blockquote must list `run` among forbidden tools"
+    assert (
+        "You cannot run commands, tests, or scripts. Only the tools listed above are available to you."
+        in instructions
+    ), "Anti-hallucination blockquote must include the restored 'cannot run commands' phrasing"
+
+    # Assert original BAD→GOOD anti-pattern pair is present and contiguous
+    # before the spike_run-specific pair (issue #1639)
+    assert (
+        "`execute('git log')` or `bash('ls')`"
+        in instructions
+    ), "Anti-pattern examples must include the original BAD example for execute/bash"
+    assert (
+        "use `read_file`, `grep`, `glob`, or `ls` to discover what changed"
+        in instructions
+    ), "Anti-pattern examples must include the original GOOD example using read-only tools"
+    assert (
+        "re-reading a file to verify an edit"
+        in instructions
+    ), "Anti-pattern example must warn against re-reading for verification"
+    assert (
+        "use `spike_run` to verify edits"
+        in instructions
+    ), "Must include a GOOD example using spike_run for verification"
+
+    # Assert Verification with `spike_run` subsection (issue #1639)
+    assert (
+        "Verification with `spike_run`"
+        in instructions
+    ), "Must include a Verification with spike_run subsection"
+    assert (
+        "import sys; sys.path.insert(0, '../repo'); import mymodule"
+        in instructions
+    ), "Must show import verification pattern using spike_run"
+    assert (
+        "import py_compile; py_compile.compile"
+        in instructions
+    ), "Must show syntax validation pattern using spike_run"
+    assert (
+        "pytest"
+        in instructions
+    ), "Must show targeted test pattern using spike_run"
+    assert (
+        "Keep scripts short"
+        in instructions
+    ), "Must instruct agent to keep spike_run scripts short"
+    assert (
+        "Prefer one `spike_run` verification over a `read_file` + LLM reasoning cycle"
+        in instructions
+    ), "Must encourage spike_run over read+LLM verification cycle"
+
+    # Assert softened global-search guideline (issue #1639)
+    assert (
+        "Assume your targeted edits worked"
+        in instructions
+    ), "Guideline must tell agent to assume targeted edits worked"
