@@ -272,6 +272,111 @@ class TestSolveIssueAsyncioRun:
             assert kwargs.get("state") is not None
 
 
+class TestSolveIssueAgentRunError:
+    """Tests that solve_issue catches AgentRunError and applies cai:failed label."""
+
+    def test_agent_run_error_applies_cai_failed_label(self, tmp_path: Path):
+        """When AgentRunError is raised, ensure_labels is called and issue.edit removes cai:raised, adds cai:failed."""
+        from pydantic_ai.exceptions import AgentRunError
+
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"] as mock_ensure,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+        ):
+            mock_run.side_effect = AgentRunError("Usage limit exceeded")
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            from cai.github.labels import CAI_LABEL_SPECS
+            from cai.workflows.fsm import solve_issue
+
+            with pytest.raises(AgentRunError):
+                solve_issue(bot, workspace)
+
+            # ensure_labels was called with CAI_LABEL_SPECS
+            mock_ensure.assert_called_once_with(bot, "o/r", CAI_LABEL_SPECS)
+
+            # The mock issue was fetched and edited with correct labels
+            issue = bot.repo("o/r").get_issue(99)
+            issue.edit.assert_called_once()
+            _args, kwargs = issue.edit.call_args
+            assert "cai:raised" not in kwargs["labels"]
+            assert "cai:failed" in kwargs["labels"]
+
+    def test_agent_run_error_re_raised(self, tmp_path: Path):
+        """AgentRunError propagates to the caller after label handling."""
+        from pydantic_ai.exceptions import AgentRunError
+
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"] as mock_ensure,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+        ):
+            mock_run.side_effect = AgentRunError("Usage limit exceeded")
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            from cai.workflows.fsm import solve_issue
+
+            with pytest.raises(AgentRunError):
+                solve_issue(bot, workspace)
+
+    def test_agent_run_error_without_issue_number(self, tmp_path: Path):
+        """When meta.number is None, labels are not modified but exception still propagates."""
+        from pydantic_ai.exceptions import AgentRunError
+
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"] as mock_ensure,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+        ):
+            mock_run.side_effect = AgentRunError("Usage limit exceeded")
+
+            bot = _mock_bot()
+
+            # Create workspace where issue_json has null number
+            root = tmp_path / "workspace_no_number"
+            root.mkdir()
+            json_path = root / "0.json"
+            md_path = root / "0.md"
+            repo_root = root / "repo"
+            repo_root.mkdir()
+            json_path.write_text(
+                '{"repo": "o/r", "number": null, "title": "No number issue", "labels": []}'
+            )
+            md_path.write_text("body")
+
+            from cai.github.repo import IssueWorkspace
+
+            workspace = IssueWorkspace(
+                root=root,
+                issue_json=json_path,
+                issue_md=md_path,
+                repo_root=repo_root,
+            )
+
+            from cai.workflows.fsm import solve_issue
+
+            with pytest.raises(AgentRunError):
+                solve_issue(bot, workspace)
+
+            # Labels must not have been touched when meta.number is None
+            mock_ensure.assert_not_called()
+            mock_set_label.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # solve_pr tests
 # ---------------------------------------------------------------------------
