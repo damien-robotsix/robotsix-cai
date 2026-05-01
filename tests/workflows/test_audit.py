@@ -416,6 +416,93 @@ def test_build_architecture_prompt_no_python_files():
     assert "(no Python files exceed 300 lines)" in prompt
 
 
+def test_build_architecture_prompt_skips_dirs_and_dotfiles():
+    """Directories in _DIRS_TO_SKIP and hidden files/dirs must be excluded."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+        # Create a real package
+        pkg = workspace / "mypkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "mod.py").write_text("x = 1\n")
+        # Create dirs that must be skipped
+        (workspace / ".git").mkdir()
+        (workspace / "__pycache__").mkdir()
+        (workspace / "node_modules").mkdir()
+        (workspace / ".venv").mkdir()
+        (workspace / ".tox").mkdir()
+        (workspace / ".mypy_cache").mkdir()
+        (workspace / ".pytest_cache").mkdir()
+        (workspace / ".ruff_cache").mkdir()
+        (workspace / "dist").mkdir()
+        (workspace / "build").mkdir()
+        (workspace / "venv").mkdir()
+        # Create a dot-directory (not in _DIRS_TO_SKIP but starts with ".")
+        (workspace / ".hidden_dir").mkdir()
+        # Create hidden files
+        (workspace / ".hidden_file").write_text("secret\n")
+        (workspace / ".env").write_text("KEY=val\n")
+        # Create files in skipped dirs (should also be excluded)
+        ((workspace / ".git") / "config").write_text("[core]\n")
+        ((workspace / "__pycache__") / "mod.cpython-311.pyc").write_text("")
+        ((workspace / "node_modules") / "lodash.js").write_text("// js\n")
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_architecture_prompt(
+                MagicMock(), "owner/repo", workspace, []
+            )
+
+    # Skipped dirs must NOT appear
+    for skipped in (
+        ".git", "__pycache__", "node_modules", ".venv", ".tox",
+        ".eggs", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+        "dist", "build", "venv",
+    ):
+        assert skipped not in prompt, f"{skipped!r} must be excluded from prompt"
+
+    # Hidden directories and files must NOT appear
+    assert ".hidden_dir" not in prompt
+    assert ".hidden_file" not in prompt
+    assert ".env" not in prompt
+
+    # Real package content MUST appear
+    assert "mypkg/" in prompt
+    assert "mod.py" in prompt
+    assert "__init__.py" in prompt
+
+
+def test_build_architecture_prompt_all_small_files():
+    """When Python files exist but none exceed 300 lines, show the 'no large' message."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+        pkg = workspace / "smallpkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "a.py").write_text("\n".join(["x = 1"] * 50))   # 50 lines
+        (pkg / "b.py").write_text("\n".join(["x = 1"] * 299))  # 299 lines
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit", return_value=None
+        ):
+            prompt = _build_architecture_prompt(
+                MagicMock(), "owner/repo", workspace, []
+            )
+
+    # No !LARGE! markers
+    assert "!LARGE!" not in prompt
+    # The "no large" message should be present
+    assert "(no Python files exceed 300 lines)" in prompt
+    # Package and files should still appear
+    assert "smallpkg/" in prompt
+    assert "a.py" in prompt
+    assert "b.py" in prompt
+    assert "Directories with __init__.py" in prompt
+
+
 @patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "architecture"])
 def test_main_architecture_mode(
     mock_setup_langfuse,
