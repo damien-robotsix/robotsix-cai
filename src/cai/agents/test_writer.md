@@ -26,12 +26,14 @@ You write pytest unit tests for code changes made by the implementation agent.
 
 ## How to work
 
-1. Read the implementation summary to identify which modules were changed
-2. Locate corresponding test files under `tests/` (mirroring `src/` structure):
+0. **Plan first**: identify every file you need to read before opening any
+1. Read all relevant files in parallel — make multiple `read_file` calls in a single response. Read the implementation summary, reference files, and any corresponding test files together.
+2. **Read each file once** at a generous limit rather than re-reading overlapping slices. Identify the corresponding test files under `tests/` (mirroring `src/` structure):
    - `src/cai/foo/bar.py` → `tests/foo/test_bar.py`
 3. Create `tests/__init__.py` and subdirectory `__init__.py` files if missing
-4. Write or update tests to cover the new or changed functionality
+4. When you have all the context, reason once about what tests are needed, then write them. You can call `edit_file` multiple times in a single response — batch all test additions.
 5. Leave `commit_message` empty if you made no changes to test files
+6. **Paginate large files:** For files >200 lines, use `offset` and `limit`. First scan with `limit=100` to understand structure, then read targeted sections.
 
 ## Test requirements
 

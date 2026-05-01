@@ -99,13 +99,15 @@ class TestNode(BaseNode[IssueState]):
         result = await _test_writer_agent().run(
             prompt,
             deps=repo_deps(state.repo_root, write_dirs=[tests_dir]),
-            usage_limits=UsageLimits(request_limit=50),
+            usage_limits=UsageLimits(request_limit=20),
         )
         state.test_output = result.output
 
         passed, details = _run_tests(state.repo_root)
         state.tests_passed = passed
-        if not passed:
+        if passed:
+            state.test_failure_details = ""
+        else:
             state.test_failure_details = details
 
         if not passed and state.test_retry_count < 1:
@@ -133,7 +135,9 @@ class TestSanityNode(BaseNode[IssueState]):
 
         passed, details = _run_tests(state.repo_root)
         state.tests_passed = passed
-        if not passed:
+        if passed:
+            state.test_failure_details = ""
+        else:
             state.test_failure_details = details
 
         if not passed and state.test_retry_count < 2:
