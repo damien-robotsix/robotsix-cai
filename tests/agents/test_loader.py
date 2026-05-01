@@ -238,6 +238,24 @@ def test_grep_guardrail_raises_at_threshold():
     assert cap._empty_grep_count == 0
 
 
+def test_grep_guardrail_recovery_message_suggests_read_file():
+    """The ModelRetry raised at threshold must suggest read_file as an alternative."""
+    cap = GrepGuardrailAsRetry()
+    for _ in range(GrepGuardrailAsRetry._THRESHOLD - 1):
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'foo'",
+        ))
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'bar'",
+        ))
+    msg = str(exc.value)
+    assert "read_file" in msg
+    assert "ls/glob" in msg
+
+
 def test_grep_guardrail_for_run_returns_fresh_instance():
     cap = GrepGuardrailAsRetry()
     cap._empty_grep_count = 5
