@@ -8,13 +8,13 @@ from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
-from cai.workflows.state import IssueState, GitHubWorkflowReviewOutput
+from cai.workflows.state import IssueState, PydanticAIReviewOutput
 
 
 @lru_cache(maxsize=1)
-def _github_workflow_review_agent():
-    config, instructions = parse_agent_md(resolve_agent_path("github_workflow_review"))
-    return build_deep_agent(config, instructions, output_type=GitHubWorkflowReviewOutput)
+def _pydantic_ai_review_agent():
+    config, instructions = parse_agent_md(resolve_agent_path("pydantic_ai_review"))
+    return build_deep_agent(config, instructions, output_type=PydanticAIReviewOutput)
 
 
 def _deps(repo_root: Path) -> DeepAgentDeps:
@@ -26,9 +26,9 @@ def _deps(repo_root: Path) -> DeepAgentDeps:
     )
 
 
-class GitHubWorkflowReviewNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> PydanticAIReviewNode:
-        from cai.workflows.pydantic_ai_review import PydanticAIReviewNode
+class PydanticAIReviewNode(BaseNode[IssueState]):
+    async def run(self, ctx: GraphRunContext[IssueState]) -> TestSanityNode:
+        from cai.workflows.test_runner import TestSanityNode
 
         state = ctx.state
         assert state.new_meta is not None
@@ -37,7 +37,9 @@ class GitHubWorkflowReviewNode(BaseNode[IssueState]):
         meta_json = state.new_meta.model_dump_json(indent=2)
 
         prompt = (
-            "Review the GitHub Actions workflow files changed by the implementation agent.\n\n"
+            "Review the pydantic-ai library usage in Python files changed by the implementation agent.\n\n"
+            "Focus on .py files that import or use pydantic_ai, pydantic_graph, or pydantic_deep. "
+            "Use web_fetch to verify API correctness against the latest pydantic-ai documentation.\n\n"
             "Fix only Critical and Warning issues from the rubric. "
             "Leave the commit_message empty if you made no changes.\n\n"
             f"## Issue metadata\n\n{meta_json}\n\n"
@@ -45,10 +47,10 @@ class GitHubWorkflowReviewNode(BaseNode[IssueState]):
             f"## Implementation commit message\n\n{state.implement_output.commit_message}"
         )
 
-        result = await _github_workflow_review_agent().run(
+        result = await _pydantic_ai_review_agent().run(
             prompt,
             deps=_deps(state.repo_root),
-            usage_limits=UsageLimits(request_limit=20),
+            usage_limits=UsageLimits(request_limit=50),
         )
-        state.github_workflow_review_output = result.output
-        return PydanticAIReviewNode()
+        state.pydantic_ai_review_output = result.output
+        return TestSanityNode()

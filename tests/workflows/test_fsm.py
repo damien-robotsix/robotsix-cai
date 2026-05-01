@@ -41,6 +41,39 @@ class TestModuleIntegrity:
             for defn in solve_graph.node_defs.values()
         ), "GitHubWorkflowReviewNode must be registered in solve_graph.node_defs"
 
+    def test_solve_graph_includes_pydantic_ai_review(self):
+        """solve_graph.nodes includes PydanticAIReviewNode between GitHubWorkflowReviewNode and TestSanityNode."""
+        from cai.workflows.fsm import solve_graph
+        from cai.workflows.pydantic_ai_review import PydanticAIReviewNode
+
+        assert any(
+            issubclass(defn.node, PydanticAIReviewNode)
+            for defn in solve_graph.node_defs.values()
+        ), "PydanticAIReviewNode must be registered in solve_graph.node_defs"
+
+    def test_solve_graph_node_ordering(self):
+        """solve_graph.nodes are in the expected order: ... PythonReview, GitHubWorkflowReview, PydanticAIReview, TestSanity ..."""
+        from cai.workflows.fsm import solve_graph
+        from cai.workflows.github_workflow_review import GitHubWorkflowReviewNode
+        from cai.workflows.pydantic_ai_review import PydanticAIReviewNode
+        from cai.workflows.python_review import PythonReviewNode
+        from cai.workflows.test_runner import TestSanityNode
+
+        # Get the ordered list of node classes from the graph's internal defs.
+        # pydantic_graph stores them in insertion order.
+        node_classes = [defn.node for defn in solve_graph.node_defs.values()]
+
+        # Find the indices of the adjacent nodes we care about.
+        python_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, PythonReviewNode))
+        gh_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, GitHubWorkflowReviewNode))
+        ai_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, PydanticAIReviewNode))
+        sanity_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, TestSanityNode))
+
+        assert python_idx < gh_idx < ai_idx < sanity_idx, (
+            f"Expected PythonReview({python_idx}) < GitHubWorkflowReview({gh_idx}) "
+            f"< PydanticAIReview({ai_idx}) < TestSanity({sanity_idx})"
+        )
+
 
 # ---------------------------------------------------------------------------
 # solve_issue tests

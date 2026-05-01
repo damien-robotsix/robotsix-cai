@@ -11,6 +11,7 @@ from cai.workflows.state import (
     DocsOutput,
     GitHubWorkflowReviewOutput,
     ImplementOutput,
+    PydanticAIReviewOutput,
     PythonReviewOutput,
     TestOutput,
 )
@@ -56,7 +57,7 @@ def test_pr_node_existing_pr_skips_create(
 def test_pr_node_issue_mode_creates_pr(
     mock_stage, mock_commit, mock_dirty, mock_push, mock_create, state
 ):
-    # Issue mode: no pr_number, no threads → opens a new PR.
+    # Issue mode: no pr_number, no threads -> opens a new PR.
     result = _run(PRNode(), state)
 
     assert isinstance(result, MergeEvaluationNode)
@@ -149,6 +150,9 @@ def test_bundled_commit_message_includes_all_non_empty(state):
     state.github_workflow_review_output = GitHubWorkflowReviewOutput(
         summary="Fixed workflow", commit_message="ci: fix workflow permissions",
     )
+    state.pydantic_ai_review_output = PydanticAIReviewOutput(
+        summary="Fixed agent construction", commit_message="fix: correct Agent construction",
+    )
     state.docs_output = DocsOutput(
         summary="Docs updated", commit_message="docs: update readme",
     )
@@ -160,6 +164,7 @@ def test_bundled_commit_message_includes_all_non_empty(state):
         "test: add tests\n\n"
         "style: fix lint\n\n"
         "ci: fix workflow permissions\n\n"
+        "fix: correct Agent construction\n\n"
         "docs: update readme"
     )
 
@@ -172,7 +177,39 @@ def test_bundled_commit_message_skips_none_outputs(state):
     state.test_output = None
     state.python_review_output = None
     state.github_workflow_review_output = None
+    state.pydantic_ai_review_output = None
     state.docs_output = None
+
+    result = _bundled_commit_message(state)
+
+    assert result == "feat: add feature"
+
+
+def test_bundled_commit_message_includes_pydantic_ai_review(state):
+    """_bundled_commit_message includes the pydantic-ai review commit message when present."""
+    state.implement_output = ImplementOutput(
+        summary="s", commit_message="feat: add feature", required_checks=[], replies=[],
+    )
+    state.pydantic_ai_review_output = PydanticAIReviewOutput(
+        summary="Fixed deprecated API usage in solver.py",
+        commit_message="fix: update deprecated pydantic-ai API",
+    )
+
+    result = _bundled_commit_message(state)
+
+    assert "feat: add feature" in result
+    assert "fix: update deprecated pydantic-ai API" in result
+
+
+def test_bundled_commit_message_skips_empty_pydantic_ai_review(state):
+    """_bundled_commit_message skips the pydantic-ai review when its commit_message is empty."""
+    state.implement_output = ImplementOutput(
+        summary="s", commit_message="feat: add feature", required_checks=[], replies=[],
+    )
+    state.pydantic_ai_review_output = PydanticAIReviewOutput(
+        summary="No issues found.",
+        commit_message="",
+    )
 
     result = _bundled_commit_message(state)
 
