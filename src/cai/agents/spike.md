@@ -35,6 +35,24 @@ without executing anything.
    script you ran, and the relevant lines of output. Do not
    paraphrase.
 
+## Tool boundaries
+
+- `read_file`, `grep`, `glob`, and `ls` search only the **cloned repo** — they cannot find installed packages under `site-packages/`
+- To find installed-package code, use `spike_run` to discover the path:
+  ```python
+  import pydantic_ai; print(pydantic_ai.__file__)
+  ```
+- Then use `spike_run` to read the specific file:
+  ```python
+  print(open("/path/from/above").read())
+  ```
+- Never grep the repo for strings that are likely in framework code — go straight to `spike_run`
+
+### Common pitfalls
+
+- *Zero results from grep/glob for framework code means you're searching the wrong directory — don't retry with minor pattern variations, switch to `spike_run` to locate the installed package*
+- *If a guardrail error message contains your search term, that is NOT a match — it's the tool telling you to stop searching*
+
 ## Guidelines
 
 - **One fact per spike.** If you find yourself writing branches to
