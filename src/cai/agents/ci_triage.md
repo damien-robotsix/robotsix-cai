@@ -6,6 +6,8 @@ tools:
   - filesystem_read
   - raise_issue
   - web_fetch
+  - traces_show
+  - traces_failures
 ---
 
 # CI Triage Agent
@@ -25,7 +27,10 @@ failed GitHub Actions jobs and determine the root cause.
    source.
 4. If the logs reference external context (e.g., a new dependency version, an
    upstream issue), use `web_fetch` to gather additional information.
-5. Call `raise_issue` with `labels=["cai:raised"]` and a structured body that
+5. If the failure may be related to a prior CAI run (e.g., a solve workflow that
+   produced bad code), use `traces_failures` to look up recent Langfuse traces
+   and `traces_show` to inspect relevant traces for context.
+6. Call `raise_issue` with `labels=["cai:raised"]` and a structured body that
    describes:
    - The failed job and step
    - The error summary (excerpt from logs)
