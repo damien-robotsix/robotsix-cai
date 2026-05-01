@@ -28,6 +28,8 @@ def _bundled_commit_message(state: IssueState) -> str:
         parts.append(state.test_output.commit_message)
     if state.python_review_output and state.python_review_output.commit_message:
         parts.append(state.python_review_output.commit_message)
+    if state.github_workflow_review_output and state.github_workflow_review_output.commit_message:
+        parts.append(state.github_workflow_review_output.commit_message)
     if state.docs_output and state.docs_output.commit_message:
         parts.append(state.docs_output.commit_message)
     return "\n\n".join(parts)
