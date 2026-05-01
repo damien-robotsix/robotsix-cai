@@ -1,5 +1,6 @@
 import sys
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,11 +15,27 @@ from cai.workflows.audit import (
     _build_errors_prompt,
     _build_security_prompt,
     _create_issues_from_proposals,
+    _create_issues_node_run,
     _dedupe_agent,
     _labels_for_confidence,
     _recent_commits_since,
     main,
 )
+from cai.workflows.audit import AuditState
+from pydantic_graph import End, GraphRunContext
+
+
+@dataclass
+class _MockSourcingState:
+    """Duck-typed stand-in for SourcingState (defined in sourcing.py).
+
+    The _create_issues_node_run helper accepts a bare GraphRunContext, so we
+    only need a structurally compatible state with bot, repo, and output.
+    """
+    bot: object
+    repo: str
+    prompt: str = ""
+    output: object | None = None
 
 
 @pytest.fixture(autouse=True)
@@ -1335,3 +1352,162 @@ def test_audit_output_drop_nulls_passes_regular_issues():
     output = AuditOutput.model_validate(data)
     assert len(output.issues) == 1
     assert output.issues[0].title == "Regular"
+
+
+# ── _create_issues_node_run ──────────────────────────────────────────────
+
+
+def test_create_issues_node_run_asserts_when_output_none():
+    """_create_issues_node_run raises AssertionError when ctx.state.output is None."""
+    ctx = GraphRunContext(
+        state=AuditState(bot=MagicMock(), repo="owner/repo", prompt="p"),
+        deps=None,
+    )
+    with pytest.raises(AssertionError):
+        import asyncio
+        asyncio.run(_create_issues_node_run(ctx, _labels_for_confidence))
+
+
+def test_create_issues_node_run_returns_end():
+    """_create_issues_node_run returns End wrapping the state output."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    output = AuditOutput(issues=[
+        ProposedIssue(title="Test", body="Body", confidence=9),
+    ])
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        ctx = GraphRunContext(
+            state=AuditState(bot=bot, repo="owner/repo", prompt="p", output=output),
+            deps=None,
+        )
+        import asyncio
+        result = asyncio.run(_create_issues_node_run(ctx, _labels_for_confidence))
+
+    assert isinstance(result, End)
+    assert result.data is output
+
+
+def test_create_issues_node_run_calls_create_issues_from_proposals():
+    """_create_issues_node_run delegates to _create_issues_from_proposals
+    with the correct arguments."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    output = AuditOutput(issues=[
+        ProposedIssue(title="Test", body="Body", confidence=7),
+    ])
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        ctx = GraphRunContext(
+            state=AuditState(bot=bot, repo="owner/repo", prompt="p", output=output),
+            deps=None,
+        )
+        import asyncio
+        asyncio.run(_create_issues_node_run(ctx, _labels_for_confidence))
+
+    repo_mock.create_issue.assert_called_once_with(
+        title="Test",
+        body="Body",
+        labels=["cai:audit", "cai:human-review"],
+    )
+
+
+def test_create_issues_node_run_custom_labels_callable():
+    """_create_issues_node_run passes the labels_for_confidence callable through."""
+    custom_labels = lambda c: ["custom", "label"]
+
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    output = AuditOutput(issues=[
+        ProposedIssue(title="Custom", body="Custom labels", confidence=5),
+    ])
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        ctx = GraphRunContext(
+            state=AuditState(bot=bot, repo="owner/repo", prompt="p", output=output),
+            deps=None,
+        )
+        import asyncio
+        asyncio.run(_create_issues_node_run(ctx, custom_labels))
+
+    repo_mock.create_issue.assert_called_once_with(
+        title="Custom",
+        body="Custom labels",
+        labels=["custom", "label"],
+    )
+
+
+def test_create_issues_node_run_with_sourcing_state():
+    """_create_issues_node_run works with a sourcing-compatible state type,
+    confirming structural compatibility."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    output = AuditOutput(issues=[
+        ProposedIssue(title="Sourcing compat", body="Body", confidence=8),
+    ])
+
+    sourcing_labels = lambda c: ["cai:sourcing", "cai:raised"]
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        ctx = GraphRunContext(
+            state=_MockSourcingState(bot=bot, repo="owner/repo", output=output),
+            deps=None,
+        )
+        import asyncio
+        result = asyncio.run(_create_issues_node_run(ctx, sourcing_labels))
+
+    assert isinstance(result, End)
+    assert result.data is output
+    repo_mock.create_issue.assert_called_once_with(
+        title="Sourcing compat",
+        body="Body",
+        labels=["cai:sourcing", "cai:raised"],
+    )

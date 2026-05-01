@@ -21,7 +21,7 @@ from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.github.bot import CaiBot
 from cai.log.observability import langfuse_workflow, setup_langfuse
-from cai.workflows.audit import ProposedIssue, _create_issues_from_proposals
+from cai.workflows.audit import ProposedIssue, _create_issues_node_run
 
 
 def _labels_for_confidence(confidence: int) -> list[str]:
@@ -74,14 +74,7 @@ class CreateIssuesNode(BaseNode[SourcingState, None, SourcingOutput]):
     """Per proposed issue: check recent commits, dedupe, then create/append/discard."""
 
     async def run(self, ctx: GraphRunContext[SourcingState]) -> End[SourcingOutput]:
-        assert ctx.state.output is not None
-        await _create_issues_from_proposals(
-            bot=ctx.state.bot,
-            repo_name=ctx.state.repo,
-            issues=ctx.state.output.issues,
-            labels_for_confidence=_labels_for_confidence,
-        )
-        return End(ctx.state.output)
+        return await _create_issues_node_run(ctx, _labels_for_confidence)
 
 
 sourcing_graph: Graph[SourcingState, None, SourcingOutput] = Graph(
