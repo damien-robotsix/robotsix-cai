@@ -448,3 +448,93 @@ def test_spike_md_mentions_api_key_redaction():
 
     assert "redaction" in content.lower() or "api key" in content.lower() or \
            "key" in content.lower()
+
+
+# ---------------------------------------------------------------------------
+# spike.md prompt — tool boundaries and common pitfalls
+# ---------------------------------------------------------------------------
+
+
+def test_spike_md_has_tool_boundaries_heading():
+    """spike.md contains '## Tool boundaries' section."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    assert "## Tool boundaries" in content
+
+
+def test_spike_md_tool_boundaries_scoped_to_repo():
+    """spike.md states that read_file/grep/glob/ls search only the cloned repo."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    assert "cloned repo" in content
+    assert "site-packages" in content or "installed packages" in content
+    assert "cannot find installed" in content.lower() or "cannot see" in content.lower()
+
+
+def test_spike_md_tool_boundaries_recommends_spike_run():
+    """spike.md recommends using spike_run to discover installed-package paths."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    # The section should mention using spike_run to locate installed package code
+    assert "use `spike_run`" in content.lower() or "spike_run" in content
+
+
+def test_spike_md_tool_boundaries_example_import():
+    """spike.md gives an example of discovering an installed package path via spike_run."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    assert "import " in content and "__file__" in content
+    assert "print(" in content
+
+
+def test_spike_md_tool_boundaries_discourages_grep_for_framework():
+    """spike.md warns against grepping the repo for framework code strings."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    assert "never grep" in content.lower() or "go straight to" in content.lower()
+
+
+def test_spike_md_has_common_pitfalls_subsection():
+    """spike.md contains '### Common pitfalls' subsection."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    assert "### Common pitfalls" in content
+
+
+def test_spike_md_pitfall_no_retry_grep():
+    """spike.md warns against retrying grep with minor pattern variations."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    assert "don't retry" in content.lower() or "do not retry" in content.lower()
+
+
+def test_spike_md_pitfall_guardrail_messages():
+    """spike.md warns that guardrail error messages containing a search term are not matches."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    assert "guardrail" in content.lower()
+    assert "not a match" in content.lower()
