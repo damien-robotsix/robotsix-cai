@@ -13,8 +13,10 @@ from cai.workflows.audit import (
     _build_architecture_prompt,
     _build_errors_prompt,
     _build_security_prompt,
+    _create_issues_from_proposals,
     _dedupe_agent,
     _labels_for_confidence,
+    _recent_commits_since,
     main,
 )
 
@@ -750,3 +752,406 @@ def test_main_errors_mode_no_traces(
 
     mock_ep.assert_called_once()
     mock_audit_agent.run.assert_not_called()
+
+
+# ── _recent_commits_since ───────────────────────────────────────────────
+
+
+def test_recent_commits_since_no_timestamp_returns_empty():
+    """When last_detected_at is None, the function returns an empty string."""
+    result = _recent_commits_since(MagicMock(), None)
+    assert result == ""
+
+
+def test_recent_commits_since_no_commits_returns_empty():
+    """When no commits are found since the timestamp, returns empty string."""
+    repo_mock = MagicMock()
+    repo_mock.get_commits.return_value = []
+
+    result = _recent_commits_since(repo_mock, "2025-06-01T00:00:00Z")
+    assert result == ""
+
+
+def test_recent_commits_since_formats_commits():
+    """Commits are formatted with short sha and first line of message."""
+    commit_a = MagicMock()
+    commit_a.sha = "abc123def456789"
+    commit_a.commit.message = "Fix: resolve the bug\n\nExtended description."
+
+    commit_b = MagicMock()
+    commit_b.sha = "fed9876543210"
+    commit_b.commit.message = "feat: add new feature"
+
+    repo_mock = MagicMock()
+    repo_mock.get_commits.return_value = [commit_a, commit_b]
+
+    result = _recent_commits_since(repo_mock, "2025-06-01T00:00:00Z")
+
+    assert "Commits merged after" in result
+    assert "2025-06-01T00:00:00" in result
+    assert "abc123de" in result
+    assert "Fix: resolve the bug" in result
+    assert "fed98765" in result
+    assert "feat: add new feature" in result
+    assert "discard" in result
+
+
+def test_recent_commits_since_truncates_at_20_commits():
+    """Only the first 20 commits are included."""
+    commits = []
+    for i in range(25):
+        c = MagicMock()
+        c.sha = f"sha{i:040d}"
+        c.commit.message = f"commit {i}"
+        commits.append(c)
+
+    repo_mock = MagicMock()
+    repo_mock.get_commits.return_value = commits
+
+    result = _recent_commits_since(repo_mock, "2025-06-01T00:00:00Z")
+
+    # The 21st commit (index 20) should NOT appear
+    assert "commit 20" not in result
+    assert "commit 19" in result
+
+
+def test_recent_commits_since_handles_exception():
+    """When get_commits raises, the function returns empty string gracefully."""
+    repo_mock = MagicMock()
+    repo_mock.get_commits.side_effect = RuntimeError("API error")
+
+    result = _recent_commits_since(repo_mock, "2025-06-01T00:00:00Z")
+    assert result == ""
+
+
+def test_recent_commits_since_parses_iso_timestamp():
+    """The function correctly parses ISO timestamps with Z suffix."""
+    commit = MagicMock()
+    commit.sha = "abc123def456"
+    commit.commit.message = "fix: something"
+
+    repo_mock = MagicMock()
+    repo_mock.get_commits.return_value = [commit]
+
+    result = _recent_commits_since(repo_mock, "2025-06-01T12:30:00Z")
+
+    # The truncated timestamp (first 19 chars) should appear
+    assert "2025-06-01T12:30:00" in result
+    # Verify get_commits was called with a datetime argument
+    call_args = repo_mock.get_commits.call_args
+    from datetime import datetime, timezone
+    assert call_args[1]["since"] == datetime(2025, 6, 1, 12, 30, 0, tzinfo=timezone.utc)
+
+
+# ── _create_issues_from_proposals ──────────────────────────────────────
+
+
+def test_create_issues_from_proposals_new_issue():
+    """When dedupe says 'new', the function creates an issue with labels
+    from the provided callable."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="Brand new")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(title="Test", body="Body text", confidence=7)
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=lambda c: ["custom", "label"],
+        ))
+
+    repo_mock.create_issue.assert_called_once_with(
+        title="Test",
+        body="Body text",
+        labels=["custom", "label"],
+    )
+
+
+def test_create_issues_from_proposals_discard():
+    """When dedupe says 'discard', no issue is created or appended."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="discard", target_issue_number=None, reason="Duplicate")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(title="Test", body="Body", confidence=5)
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=lambda c: ["tag"],
+        ))
+
+    repo_mock.create_issue.assert_not_called()
+
+
+def test_create_issues_from_proposals_append():
+    """When dedupe says 'append' with a target, a comment is added."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="append", target_issue_number=42, reason="Related")
+    ))
+
+    existing = MagicMock()
+    existing.number = 42
+    existing.title = "Existing"
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = [existing]
+    repo_mock.get_issue.return_value = existing
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(title="Test", body="Body content", confidence=8)
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=lambda c: ["tag"],
+        ))
+
+    repo_mock.create_issue.assert_not_called()
+    existing.create_comment.assert_called_once_with(
+        "**Additional proposed issue details:**\n\n**Title**: Test\n\n**Body**:\nBody content"
+    )
+
+
+def test_create_issues_from_proposals_append_no_target_falls_back():
+    """When dedupe says 'append' but gives no target, a new issue is created."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="append", target_issue_number=None, reason="Related")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(title="Test", body="Body", confidence=10)
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=lambda c: ["prefix", "fallback"],
+        ))
+
+    repo_mock.create_issue.assert_called_once_with(
+        title="Test",
+        body="Body",
+        labels=["prefix", "fallback"],
+    )
+
+
+def test_create_issues_from_proposals_multiple_issues():
+    """Mixed outcomes across multiple issues are all processed."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(side_effect=[
+        MagicMock(output=DedupeOutput(action="new", target_issue_number=None, reason="New")),
+        MagicMock(output=DedupeOutput(action="discard", target_issue_number=None, reason="Dup")),
+        MagicMock(output=DedupeOutput(action="new", target_issue_number=None, reason="Also new")),
+    ])
+
+    c1 = MagicMock()
+    c1.html_url = "https://github.com/owner/repo/issues/1"
+    c2 = MagicMock()
+    c2.html_url = "https://github.com/owner/repo/issues/3"
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    repo_mock.create_issue.side_effect = [c1, c2]
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issues = [
+        ProposedIssue(title="A", body="Body A", confidence=9),
+        ProposedIssue(title="B", body="Body B", confidence=4),
+        ProposedIssue(title="C", body="Body C", confidence=10),
+    ]
+
+    def labeler(c: int) -> list[str]:
+        return ["audit", "raised" if c >= 9 else "human-review"]
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=issues,
+            labels_for_confidence=labeler,
+        ))
+
+    assert repo_mock.create_issue.call_count == 2
+    assert repo_mock.create_issue.call_args_list[0][1] == {
+        "title": "A", "body": "Body A",
+        "labels": ["audit", "raised"],
+    }
+    assert repo_mock.create_issue.call_args_list[1][1] == {
+        "title": "C", "body": "Body C",
+        "labels": ["audit", "raised"],
+    }
+
+
+def test_create_issues_from_proposals_open_issues_listed():
+    """Open issues are summarized and included in the dedupe prompt."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    existing_a = MagicMock()
+    existing_a.number = 1
+    existing_a.title = "First existing issue"
+    existing_b = MagicMock()
+    existing_b.number = 2
+    existing_b.title = "Second existing issue"
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = [existing_a, existing_b]
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/3"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(title="Test", body="Body", confidence=5)
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=lambda c: ["label"],
+        ))
+
+    # The dedupe prompt should include the open issues summary
+    prompt = fake_dedupe.run.call_args[0][0]
+    assert "#1: First existing issue" in prompt
+    assert "#2: Second existing issue" in prompt
+
+
+def test_create_issues_from_proposals_empty_issues_list():
+    """When no issues are passed, repo is never accessed."""
+    bot = MagicMock()
+
+    with patch("cai.workflows.audit._dedupe_agent") as mock_dedupe_factory:
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[],
+            labels_for_confidence=lambda c: ["label"],
+        ))
+
+    bot.repo.assert_not_called()
+    mock_dedupe_factory.assert_not_called()
+
+
+def test_create_issues_from_proposals_recent_commits_in_prompt():
+    """When an issue has last_detected_at, recent commits are included in
+    the dedupe prompt."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    commit = MagicMock()
+    commit.sha = "abc123def456789"
+    commit.commit.message = "fix: resolve the bug"
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    repo_mock.get_commits.return_value = [commit]
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(
+        title="Test", body="Body", confidence=5,
+        last_detected_at="2025-06-01T00:00:00Z",
+    )
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=lambda c: ["label"],
+        ))
+
+    prompt = fake_dedupe.run.call_args[0][0]
+    assert "Commits merged after" in prompt
+    assert "abc123de" in prompt
+    assert "fix: resolve the bug" in prompt
+
+
+def test_create_issues_from_proposals_no_open_issues_message():
+    """When there are no open issues, a placeholder message is shown."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(title="Test", body="Body", confidence=5)
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=lambda c: ["label"],
+        ))
+
+    prompt = fake_dedupe.run.call_args[0][0]
+    assert "No open issues." in prompt

@@ -121,6 +121,76 @@ def _dedupe_agent():
     )
 
 
+async def _create_issues_from_proposals(
+    bot: CaiBot,
+    repo_name: str,
+    issues: list[ProposedIssue],
+    labels_for_confidence: typing.Callable[[int], list[str]],
+) -> None:
+    """Deduplicate proposed issues against open issues and create, append, or discard each."""
+    if not issues:
+        return
+
+    repo_obj = bot.repo(repo_name)
+
+    open_issues = repo_obj.get_issues(state="open")
+    open_issues_summary = (
+        "\n".join(f"#{issue.number}: {issue.title}" for issue in open_issues)
+        or "No open issues."
+    )
+    dedupe_agent = _dedupe_agent()
+
+    for issue in issues:
+        print(f"Evaluating proposed issue: {issue.title}")
+
+        recent_commits_text = _recent_commits_since(repo_obj, issue.last_detected_at)
+
+        dedupe_prompt = (
+            f"Proposed issue title: {issue.title}\n"
+            f"Proposed issue body: {issue.body}\n\n"
+            f"Currently open issues:\n{open_issues_summary}"
+            + recent_commits_text
+        )
+        dedupe_decision: DedupeOutput = (await dedupe_agent.run(dedupe_prompt)).output
+
+        if dedupe_decision.action == "discard":
+            print(f"Discarding issue '{issue.title}': {dedupe_decision.reason}")
+            continue
+
+        if (
+            dedupe_decision.action == "append"
+            and dedupe_decision.target_issue_number is not None
+        ):
+            target_issue = repo_obj.get_issue(dedupe_decision.target_issue_number)
+            print(
+                f"Appending issue '{issue.title}' to "
+                f"#{target_issue.number}: {dedupe_decision.reason}"
+            )
+            target_issue.create_comment(
+                "**Additional proposed issue details:**\n\n"
+                f"**Title**: {issue.title}\n\n"
+                f"**Body**:\n{issue.body}"
+            )
+            continue
+
+        if dedupe_decision.action == "append":
+            print(
+                f"Warning: Deduplicator suggested appending '{issue.title}' "
+                f"but provided no target_issue_number. "
+                f"Reason: {dedupe_decision.reason}. "
+                "Falling back to creating a new issue.",
+                file=sys.stderr,
+            )
+
+        labels = labels_for_confidence(issue.confidence)
+        created = repo_obj.create_issue(
+            title=issue.title,
+            body=issue.body,
+            labels=labels,
+        )
+        print(f"Created (confidence={issue.confidence}, labels={labels}): {created.html_url}")
+
+
 class RunAuditNode(BaseNode[AuditState, None, AuditOutput]):
     """Run the audit agent against pre-fetched signal context."""
 
@@ -145,65 +215,12 @@ class CreateIssuesNode(BaseNode[AuditState, None, AuditOutput]):
 
     async def run(self, ctx: GraphRunContext[AuditState]) -> End[AuditOutput]:
         assert ctx.state.output is not None
-        repo_obj = ctx.state.bot.repo(ctx.state.repo)
-
-        open_issues = repo_obj.get_issues(state="open")
-        open_issues_summary = (
-            "\n".join(f"#{issue.number}: {issue.title}" for issue in open_issues)
-            or "No open issues."
+        await _create_issues_from_proposals(
+            bot=ctx.state.bot,
+            repo_name=ctx.state.repo,
+            issues=ctx.state.output.issues,
+            labels_for_confidence=_labels_for_confidence,
         )
-        dedupe_agent = _dedupe_agent()
-
-        for issue in ctx.state.output.issues:
-            print(f"Evaluating proposed issue: {issue.title}")
-
-            recent_commits_text = _recent_commits_since(repo_obj, issue.last_detected_at)
-
-            dedupe_prompt = (
-                f"Proposed issue title: {issue.title}\n"
-                f"Proposed issue body: {issue.body}\n\n"
-                f"Currently open issues:\n{open_issues_summary}"
-                + recent_commits_text
-            )
-            dedupe_decision: DedupeOutput = (await dedupe_agent.run(dedupe_prompt)).output
-
-            if dedupe_decision.action == "discard":
-                print(f"Discarding issue '{issue.title}': {dedupe_decision.reason}")
-                continue
-
-            if (
-                dedupe_decision.action == "append"
-                and dedupe_decision.target_issue_number is not None
-            ):
-                target_issue = repo_obj.get_issue(dedupe_decision.target_issue_number)
-                print(
-                    f"Appending issue '{issue.title}' to "
-                    f"#{target_issue.number}: {dedupe_decision.reason}"
-                )
-                target_issue.create_comment(
-                    "**Additional proposed issue details:**\n\n"
-                    f"**Title**: {issue.title}\n\n"
-                    f"**Body**:\n{issue.body}"
-                )
-                continue
-
-            if dedupe_decision.action == "append":
-                print(
-                    f"Warning: Deduplicator suggested appending '{issue.title}' "
-                    f"but provided no target_issue_number. "
-                    f"Reason: {dedupe_decision.reason}. "
-                    "Falling back to creating a new issue.",
-                    file=sys.stderr,
-                )
-
-            labels = _labels_for_confidence(issue.confidence)
-            created = repo_obj.create_issue(
-                title=issue.title,
-                body=issue.body,
-                labels=labels,
-            )
-            print(f"Created (confidence={issue.confidence}, labels={labels}): {created.html_url}")
-
         return End(ctx.state.output)
 
 
