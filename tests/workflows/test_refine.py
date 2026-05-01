@@ -92,8 +92,8 @@ def test_only_first_sub_issue_gets_cai_raised(mock_agent_factory, mock_push, moc
     meta_0 = IssueMeta.model_validate_json(sub_json_0.read_text())
     meta_1 = IssueMeta.model_validate_json(sub_json_1.read_text())
 
-    assert meta_0.labels == ["cai:raised"]
-    assert meta_1.labels == []
+    assert meta_0.labels == ["cai:raised", "cai:sub-issue"]
+    assert meta_1.labels == ["cai:sub-issue"]
 
 
 @patch("cai.workflows.refine.add_sub_issue")
@@ -151,10 +151,10 @@ def test_followup_sub_issues_drop_cai_raised_but_keep_other_labels(mock_agent_fa
     assert isinstance(result, End)
 
     sub_meta_0 = IssueMeta.model_validate_json((tmp_path / "sub_issue_0.json").read_text())
-    assert sub_meta_0.labels == ["cai:raised", "bug", "priority:high"]
+    assert sub_meta_0.labels == ["cai:raised", "bug", "priority:high", "cai:sub-issue"]
     for i in (1, 2):
         sub_meta = IssueMeta.model_validate_json((tmp_path / f"sub_issue_{i}.json").read_text())
-        assert sub_meta.labels == ["bug", "priority:high"]
+        assert sub_meta.labels == ["bug", "priority:high", "cai:sub-issue"]
 
 
 @patch("cai.workflows.refine.add_sub_issue")
@@ -213,7 +213,7 @@ def test_sub_issues_inherit_no_labels_when_parent_has_none(mock_agent_factory, m
 
     sub_json = tmp_path / "sub_issue_0.json"
     sub_meta = IssueMeta.model_validate_json(sub_json.read_text())
-    assert sub_meta.labels == []
+    assert sub_meta.labels == ["cai:sub-issue"]
 
 
 @patch("cai.workflows.refine.add_sub_issue")

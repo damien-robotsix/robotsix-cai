@@ -73,6 +73,8 @@ class RefineNode(BaseNode[IssueState]):
         followup_labels = [lbl for lbl in parent_labels if lbl != "cai:raised"]
         for idx, sub_title in enumerate(out.sub_issues):
             sub_labels = parent_labels if idx == 0 else followup_labels
+            if "cai:sub-issue" not in sub_labels:
+                sub_labels = sub_labels + ["cai:sub-issue"]
             sub_meta = IssueMeta(repo=new_meta.repo, title=sub_title, labels=sub_labels)
             sub_base = state.body_path.parent / f"sub_issue_{idx}"
             sub_json = sub_base.with_suffix(".json")
