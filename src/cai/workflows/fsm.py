@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from pydantic_graph import Graph
 
 from cai.github.bot import CaiBot
@@ -37,13 +39,16 @@ def solve_issue(bot: CaiBot, workspace: IssueWorkspace) -> tuple[IssueMeta, str 
     )
     issue_ref = f"{meta.repo}#{meta.number}" if meta.number else meta.repo
     session_id = f"issue-{meta.number}" if meta.number else None
-    with langfuse_workflow(
-        "cai-solve",
-        input={"issue": issue_ref, "title": meta.title},
-        metadata={"repo": meta.repo, "issue_number": meta.number},
-        session_id=session_id,
-    ):
-        solve_graph.run_sync(ExploreNode(), state=state)
+    async def _run():
+        with langfuse_workflow(
+            "cai-solve",
+            input={"issue": issue_ref, "title": meta.title},
+            metadata={"repo": meta.repo, "issue_number": meta.number},
+            session_id=session_id,
+        ):
+            await solve_graph.run(ExploreNode(), state=state)
+
+    asyncio.run(_run())
     assert state.new_meta is not None
     if meta.number is not None:
         ensure_labels(bot, meta.repo, CAI_LABEL_SPECS)
@@ -89,13 +94,16 @@ def solve_pr(bot: CaiBot, workspace: PRWorkspace) -> IssueMeta:
     )
     state.new_meta = meta
     pr_ref = f"{workspace.repo}#{workspace.number}"
-    with langfuse_workflow(
-        "cai-solve",
-        input={"pr": pr_ref, "title": workspace.title, "branch": workspace.head_branch},
-        metadata={"repo": workspace.repo, "pr_number": workspace.number},
-        session_id=session_id_for_pr(workspace.number, workspace.head_branch),
-    ):
-        solve_graph.run_sync(ImplementNode(), state=state)
+    async def _run():
+        with langfuse_workflow(
+            "cai-solve",
+            input={"pr": pr_ref, "title": workspace.title, "branch": workspace.head_branch},
+            metadata={"repo": workspace.repo, "pr_number": workspace.number},
+            session_id=session_id_for_pr(workspace.number, workspace.head_branch),
+        ):
+            await solve_graph.run(ImplementNode(), state=state)
+
+    asyncio.run(_run())
     if not state.auto_merge_enabled:
         set_label(bot, workspace.repo, workspace.number, "cai:human-review", present=True)
     return meta
