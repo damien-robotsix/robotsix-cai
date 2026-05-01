@@ -403,7 +403,9 @@ def test_solve_spec_fields():
     spec = by_slug("solve")
     assert spec.docker_command == "cai-solve ${{ github.repository }}#${{ github.event.issue.number }}"
     assert spec.permissions == {"contents": "write", "issues": "write"}
-    assert spec.concurrency_group == "cai-solve-${{ github.event.issue.number }}"
+    assert spec.concurrency_group == (
+        "cai-solve-${{ github.event.issue.number }}-${{ github.event.label.name }}"
+    )
     assert spec.authorized_user_variant == "standard"
 
 

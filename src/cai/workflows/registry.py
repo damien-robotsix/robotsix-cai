@@ -109,7 +109,9 @@ WORKFLOWS: list[WorkflowSpec] = [
         ),
         docker_command="cai-solve ${{ github.repository }}#${{ github.event.issue.number }}",
         permissions={"contents": "write", "issues": "write"},
-        concurrency_group="cai-solve-${{ github.event.issue.number }}",
+        # Per-(issue, label) so a cai:audit/cai:human-review label-add does
+        # not cancel an in-flight cai:raised solve on the same issue.
+        concurrency_group="cai-solve-${{ github.event.issue.number }}-${{ github.event.label.name }}",
         authorized_user_variant="standard",
     ),
     WorkflowSpec(
