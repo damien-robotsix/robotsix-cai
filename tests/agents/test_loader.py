@@ -1299,7 +1299,10 @@ def test_history_compactor_wrap_tool_execute_short_circuit():
     result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
 
     assert not handler_called
-    assert result == "old file content"
+    assert "Warning: read_file" in result
+    assert "is covered by a prior read_file" in result
+    assert "file content has not changed" in result
+    assert "review your previous messages" in result
 
 
 def test_history_compactor_wrap_tool_execute_non_matching():
@@ -1607,7 +1610,10 @@ def test_history_compactor_wrap_tool_execute_non_edit_tools_preserve_short_circu
     result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
 
     assert not handler_called
-    assert result == "old"
+    assert "Warning: read_file" in result
+    assert "is covered by a prior read_file" in result
+    assert "file content has not changed" in result
+    assert "review your previous messages" in result
 
 
 def test_history_compactor_wrap_tool_execute_no_prior_matching_read():
@@ -1665,6 +1671,195 @@ def test_history_compactor_wrap_tool_execute_skips_self_match():
 
     assert handler_called
     assert result == "file content"
+
+
+# ---------------------------------------------------------------------------
+# HistoryCompactorCapability — overlap-aware short-circuit
+# ---------------------------------------------------------------------------
+
+
+def test_history_compactor_wrap_tool_execute_overlapping_subset():
+    """Prior read offset=0 limit=500 fully contains new offset=200 limit=100 →
+    short-circuit returns warning, handler not called."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "file content"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 0, "limit": 500}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="big chunk", tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 200, "limit": 100}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
+
+    assert not handler_called
+    assert "Warning: read_file" in result
+    assert "is covered by a prior read_file" in result
+    assert "offset=200, limit=100" in result
+    assert "offset=0, limit=500" in result
+
+
+def test_history_compactor_wrap_tool_execute_disjoint_with_gap():
+    """Prior offset=0 limit=200, new offset=300 limit=200 → disjoint ranges
+    (gap at 200-299), handler called."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "page 2"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 0, "limit": 200}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="page 1", tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 300, "limit": 200}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
+
+    assert handler_called
+    assert result == "page 2"
+
+
+def test_history_compactor_wrap_tool_execute_partial_overlap_passes_through():
+    """Prior offset=0 limit=200, new offset=100 limit=300 → new extends beyond
+    prior, handler called."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "extended read"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 0, "limit": 200}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="first 200", tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 100, "limit": 300}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
+
+    assert handler_called
+    assert result == "extended read"
+
+
+def test_history_compactor_wrap_tool_execute_prior_no_limit_contains_any():
+    """Prior read with no offset/limit (whole-file) contains any same-file
+    subsequent read → short-circuit."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "file content"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py"}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="whole file", tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 100, "limit": 50}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
+
+    assert not handler_called
+    assert "Warning: read_file" in result
+    assert "is covered by a prior read_file" in result
+    assert "offset=100, limit=50" in result
+    assert "offset=0, limit=EOF" in result
+
+
+def test_history_compactor_wrap_tool_execute_current_no_limit_not_short_circuited():
+    """Prior has offset=0 limit=200, new read has no limit → can't confirm EOF
+    coverage, handler called."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "full re-read"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 0, "limit": 200}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="first 200 lines", tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="read_file", args={"path": "x.py"}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
+
+    assert handler_called
+    assert result == "full re-read"
+
+
+def test_history_compactor_wrap_tool_execute_overlap_blocked_by_intervening_edit():
+    """Prior offset=0 limit=500 contains new offset=100 limit=50, but an
+    intervening write_file forces a re-read."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "re-read after edit"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 0, "limit": 500}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="big chunk", tool_call_id="c1")
+    write_tc = ToolCallPart(tool_name="write_file", args={"path": "x.py", "content": "new"}, tool_call_id="c2")
+    write_tr = ToolReturnPart(tool_name="write_file", content="Wrote file", tool_call_id="c2")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+            ModelResponse(parts=[write_tc]),
+            ModelRequest(parts=[write_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 100, "limit": 50}, tool_call_id="c3")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
+
+    assert handler_called
+    assert result == "re-read after edit"
 
 
 def test_history_compactor_wired_into_build_deep_agent_capabilities(monkeypatch):
