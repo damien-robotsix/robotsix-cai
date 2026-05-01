@@ -1247,3 +1247,91 @@ def test_create_issues_from_proposals_no_open_issues_message():
 
     prompt = fake_dedupe.run.call_args[0][0]
     assert "No open issues." in prompt
+
+
+# ── _build_architecture_prompt clone & error handling ──────────────────
+
+
+def test_build_architecture_prompt_clones_repo():
+    """_build_architecture_prompt must clone the target repo into the workspace."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+
+        with patch(
+            "cai.workflows.audit._clone_repo_for_audit"
+        ) as mock_clone:
+            _build_architecture_prompt(MagicMock(), "owner/repo", workspace, [])
+
+    mock_clone.assert_called_once()
+    assert mock_clone.call_args[0][1] == "owner/repo"
+    assert mock_clone.call_args[0][2] == workspace
+
+
+def test_build_architecture_prompt_handles_read_error():
+    """When read_text raises OSError, the file is listed but line_count is 0."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "repo"
+        workspace.mkdir()
+        pkg = workspace / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "mod.py").write_text("x = 1\n")
+
+        with patch("pathlib.Path.read_text", side_effect=OSError("Permission denied")):
+            with patch(
+                "cai.workflows.audit._clone_repo_for_audit", return_value=None
+            ):
+                prompt = _build_architecture_prompt(
+                    MagicMock(), "owner/repo", workspace, []
+                )
+
+    # The file should still appear with 0 lines
+    assert "mod.py" in prompt
+    assert "0 lines" in prompt
+
+
+# ── AuditOutput model validator (_drop_nulls) ──────────────────────────
+
+
+def test_audit_output_drop_nulls_skips_none_items():
+    """None items in the issues list are dropped by the model validator."""
+    data = {"issues": [None, {"title": "A", "body": "B", "confidence": 5}, None]}
+    output = AuditOutput.model_validate(data)
+    assert len(output.issues) == 1
+    assert output.issues[0].title == "A"
+
+
+def test_audit_output_drop_nulls_with_markdown_fenced_strings():
+    """Gemini-style markdown-fenced JSON strings are parsed into issues."""
+    fenced = '```json\n{"title": "Fenced", "body": "Parsed", "confidence": 7}\n```'
+    data = {"issues": [fenced]}
+    output = AuditOutput.model_validate(data)
+    assert len(output.issues) == 1
+    assert output.issues[0].title == "Fenced"
+    assert output.issues[0].body == "Parsed"
+    assert output.issues[0].confidence == 7
+
+
+def test_audit_output_drop_nulls_skips_invalid_json_strings():
+    """Invalid JSON strings in the issues list are skipped."""
+    data = {"issues": ["this is not valid json"]}
+    output = AuditOutput.model_validate(data)
+    assert len(output.issues) == 0
+
+
+def test_audit_output_drop_nulls_fence_without_language():
+    """Markdown fences without a language tag are also parsed."""
+    fenced = '```\n{"title": "NoLang", "body": "Works", "confidence": 3}\n```'
+    data = {"issues": [fenced]}
+    output = AuditOutput.model_validate(data)
+    assert len(output.issues) == 1
+    assert output.issues[0].title == "NoLang"
+
+
+def test_audit_output_drop_nulls_passes_regular_issues():
+    """Regular ProposedIssue dicts pass through unchanged."""
+    data = {"issues": [{"title": "Regular", "body": "Unchanged", "confidence": 5}]}
+    output = AuditOutput.model_validate(data)
+    assert len(output.issues) == 1
+    assert output.issues[0].title == "Regular"
