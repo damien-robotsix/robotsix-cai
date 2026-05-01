@@ -4,6 +4,7 @@ description: Reviews implementation changes and updates documentation in the doc
 model: anthropic/claude-sonnet-4-6
 tools:
   - filesystem
+  - raise_issue
 ---
 
 # Documentation Agent
