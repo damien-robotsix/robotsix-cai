@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio as _real_asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -22,9 +23,11 @@ class TestModuleIntegrity:
         assert fsm.solve_graph is not None
 
     def test_solve_graph_surface(self):
-        """solve_graph is a pydantic Graph with run_sync exposed."""
+        """solve_graph is a pydantic Graph with run and run_sync exposed."""
         from cai.workflows.fsm import solve_graph
 
+        assert hasattr(solve_graph, "run")
+        assert callable(solve_graph.run)
         assert hasattr(solve_graph, "run_sync")
         assert callable(solve_graph.run_sync)
 
@@ -40,7 +43,7 @@ def _build_solve_issue_mocks():
         "langfuse": patch("cai.workflows.fsm.langfuse_workflow"),
         "ensure": patch("cai.workflows.fsm.ensure_labels"),
         "set_label": patch("cai.workflows.fsm.set_label"),
-        "run_sync": patch("cai.workflows.fsm.solve_graph.run_sync"),
+        "run": patch("cai.workflows.fsm.solve_graph.run", new_callable=AsyncMock),
     }
 
 
@@ -89,16 +92,16 @@ class TestSolveIssueHumanReviewLabel:
         """When auto_merge_enabled is False, set_label('cai:human-review', present=True) is called."""
         mocks = _build_solve_issue_mocks()
 
-        with mocks["langfuse"], mocks["ensure"] as mock_ensure, mocks["set_label"] as mock_set_label, mocks["run_sync"] as mock_run_sync:
+        with mocks["langfuse"], mocks["ensure"] as mock_ensure, mocks["set_label"] as mock_set_label, mocks["run"] as mock_run:
             # Arrange: set auto_merge_enabled=False on the state during graph run
-            def set_state(*args, **kwargs):
+            async def set_state(*args, **kwargs):
                 state = kwargs["state"]
                 state.pr_number = 1
                 state.pr_url = "https://github.com/o/r/pull/1"
                 state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
                 state.auto_merge_enabled = False
 
-            mock_run_sync.side_effect = set_state
+            mock_run.side_effect = set_state
 
             bot = _mock_bot()
             workspace = _workspace_issue_files(tmp_path)
@@ -116,15 +119,15 @@ class TestSolveIssueHumanReviewLabel:
         """When auto_merge_enabled is True, set_label('cai:human-review', present=True) is NOT called."""
         mocks = _build_solve_issue_mocks()
 
-        with mocks["langfuse"], mocks["ensure"] as mock_ensure, mocks["set_label"] as mock_set_label, mocks["run_sync"] as mock_run_sync:
-            def set_state(*args, **kwargs):
+        with mocks["langfuse"], mocks["ensure"] as mock_ensure, mocks["set_label"] as mock_set_label, mocks["run"] as mock_run:
+            async def set_state(*args, **kwargs):
                 state = kwargs["state"]
                 state.pr_number = 1
                 state.pr_url = "https://github.com/o/r/pull/1"
                 state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
                 state.auto_merge_enabled = True
 
-            mock_run_sync.side_effect = set_state
+            mock_run.side_effect = set_state
 
             bot = _mock_bot()
             workspace = _workspace_issue_files(tmp_path)
@@ -144,14 +147,14 @@ class TestSolveIssueHumanReviewLabel:
         """When no PR is opened (pr_number is None), set_label is never called."""
         mocks = _build_solve_issue_mocks()
 
-        with mocks["langfuse"], mocks["ensure"] as mock_ensure, mocks["set_label"] as mock_set_label, mocks["run_sync"] as mock_run_sync:
-            def set_state(*args, **kwargs):
+        with mocks["langfuse"], mocks["ensure"] as mock_ensure, mocks["set_label"] as mock_set_label, mocks["run"] as mock_run:
+            async def set_state(*args, **kwargs):
                 state = kwargs["state"]
                 state.pr_number = None
                 state.pr_url = None
                 state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
 
-            mock_run_sync.side_effect = set_state
+            mock_run.side_effect = set_state
 
             bot = _mock_bot()
             workspace = _workspace_issue_files(tmp_path)
@@ -164,6 +167,111 @@ class TestSolveIssueHumanReviewLabel:
             mock_set_label.assert_not_called()
 
 
+class TestSolveIssueAsyncioRun:
+    """Tests that solve_issue wraps langfuse_workflow + graph in a single asyncio.run."""
+
+    def test_asyncio_run_called_once(self, tmp_path: Path):
+        """asyncio.run is called exactly once by solve_issue."""
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"] as mock_ensure,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+        ):
+            async def set_state(*args, **kwargs):
+                state = kwargs["state"]
+                state.pr_number = 1
+                state.pr_url = "https://github.com/o/r/pull/1"
+                state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
+                state.auto_merge_enabled = False
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            from cai.workflows.fsm import solve_issue
+
+            # Patch asyncio.run in the fsm module to capture the call.
+            # Snapshot the real asyncio.run *before* patching because the
+            # patch replaces asyncio.run on the singleton asyncio module,
+            # which is the same object as _real_asyncio.
+            _real_run = _real_asyncio.run
+            with patch("cai.workflows.fsm.asyncio.run") as mock_asyncio_run:
+                mock_asyncio_run.side_effect = _real_run
+
+                solve_issue(bot, workspace)
+
+                mock_asyncio_run.assert_called_once()
+
+    def test_langfuse_workflow_called_with_session_id(self, tmp_path: Path):
+        """langfuse_workflow is entered with session_id='issue-99' for an issue run."""
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"] as mock_langfuse,
+            mocks["ensure"] as mock_ensure,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+        ):
+            async def set_state(*args, **kwargs):
+                state = kwargs["state"]
+                state.pr_number = 1
+                state.pr_url = "https://github.com/o/r/pull/1"
+                state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
+                state.auto_merge_enabled = False
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            from cai.workflows.fsm import solve_issue
+
+            solve_issue(bot, workspace)
+
+            mock_langfuse.assert_called_once_with(
+                "cai-solve",
+                input={"issue": "o/r#99", "title": "Test issue"},
+                metadata={"repo": "o/r", "issue_number": 99},
+                session_id="issue-99",
+            )
+
+    def test_graph_run_called_with_explore_node(self, tmp_path: Path):
+        """solve_graph.run is called with ExploreNode() as the start node."""
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"] as mock_ensure,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+        ):
+            async def set_state(*args, **kwargs):
+                state = kwargs["state"]
+                state.pr_number = 1
+                state.pr_url = "https://github.com/o/r/pull/1"
+                state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
+                state.auto_merge_enabled = False
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            from cai.workflows.fsm import solve_issue
+            from cai.workflows.explore import ExploreNode
+
+            solve_issue(bot, workspace)
+
+            assert mock_run.call_count >= 1
+            args, kwargs = mock_run.call_args
+            assert isinstance(args[0], ExploreNode)
+            assert kwargs.get("state") is not None
+
+
 # ---------------------------------------------------------------------------
 # solve_pr tests
 # ---------------------------------------------------------------------------
@@ -174,7 +282,7 @@ def _build_solve_pr_mocks():
     return {
         "langfuse": patch("cai.workflows.fsm.langfuse_workflow"),
         "set_label": patch("cai.workflows.fsm.set_label"),
-        "run_sync": patch("cai.workflows.fsm.solve_graph.run_sync"),
+        "run": patch("cai.workflows.fsm.solve_graph.run", new_callable=AsyncMock),
         "unresolved": patch("cai.workflows.fsm.list_unresolved_threads", return_value=[]),
         "resolved": patch("cai.workflows.fsm.list_resolved_threads", return_value=[]),
         "session_id": patch("cai.workflows.fsm.session_id_for_pr", return_value="sess"),
@@ -213,16 +321,16 @@ class TestSolvePRHumanReviewLabel:
         with (
             mocks["langfuse"],
             mocks["set_label"] as mock_set_label,
-            mocks["run_sync"] as mock_run_sync,
+            mocks["run"] as mock_run,
             mocks["unresolved"],
             mocks["resolved"],
             mocks["session_id"],
         ):
-            def set_state(*args, **kwargs):
+            async def set_state(*args, **kwargs):
                 state = kwargs["state"]
                 state.auto_merge_enabled = False
 
-            mock_run_sync.side_effect = set_state
+            mock_run.side_effect = set_state
 
             bot = _mock_bot()
             workspace = _workspace_pr_files(tmp_path)
@@ -250,16 +358,16 @@ class TestSolvePRHumanReviewLabel:
         with (
             mocks["langfuse"],
             mocks["set_label"] as mock_set_label,
-            mocks["run_sync"] as mock_run_sync,
+            mocks["run"] as mock_run,
             mocks["unresolved"],
             mocks["resolved"],
             mocks["session_id"],
         ):
-            def set_state(*args, **kwargs):
+            async def set_state(*args, **kwargs):
                 state = kwargs["state"]
                 state.auto_merge_enabled = True
 
-            mock_run_sync.side_effect = set_state
+            mock_run.side_effect = set_state
 
             bot = _mock_bot()
             workspace = _workspace_pr_files(tmp_path)
@@ -275,3 +383,105 @@ class TestSolvePRHumanReviewLabel:
             ]
             assert len(human_review_calls) == 1
             assert human_review_calls[0].kwargs == {"present": False}
+
+
+class TestSolvePRAsyncioRun:
+    """Tests that solve_pr wraps langfuse_workflow + graph in a single asyncio.run."""
+
+    def test_asyncio_run_called_once(self, tmp_path: Path):
+        """asyncio.run is called exactly once by solve_pr."""
+        mocks = _build_solve_pr_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+            mocks["unresolved"],
+            mocks["resolved"],
+            mocks["session_id"],
+        ):
+            async def set_state(*args, **kwargs):
+                state = kwargs["state"]
+                state.auto_merge_enabled = False
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_pr_files(tmp_path)
+
+            from cai.workflows.fsm import solve_pr
+
+            _real_run = _real_asyncio.run
+            with patch("cai.workflows.fsm.asyncio.run") as mock_asyncio_run:
+                mock_asyncio_run.side_effect = _real_run
+
+                solve_pr(bot, workspace)
+
+                mock_asyncio_run.assert_called_once()
+
+    def test_langfuse_workflow_called_with_session_id(self, tmp_path: Path):
+        """langfuse_workflow is entered with session_id from session_id_for_pr."""
+        mocks = _build_solve_pr_mocks()
+
+        with (
+            mocks["langfuse"] as mock_langfuse,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+            mocks["unresolved"],
+            mocks["resolved"],
+            mocks["session_id"] as mock_session_id,
+        ):
+            async def set_state(*args, **kwargs):
+                state = kwargs["state"]
+                state.auto_merge_enabled = False
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_pr_files(tmp_path)
+
+            from cai.workflows.fsm import solve_pr
+
+            solve_pr(bot, workspace)
+
+            # session_id_for_pr was consulted
+            mock_session_id.assert_called_once_with(99, "feature/x")
+
+            # langfuse_workflow receives the mocked session_id
+            mock_langfuse.assert_called_once_with(
+                "cai-solve",
+                input={"pr": "o/r#99", "title": "PR title", "branch": "feature/x"},
+                metadata={"repo": "o/r", "pr_number": 99},
+                session_id="sess",
+            )
+
+    def test_graph_run_called_with_implement_node(self, tmp_path: Path):
+        """solve_graph.run is called with ImplementNode() as the start node."""
+        mocks = _build_solve_pr_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+            mocks["unresolved"],
+            mocks["resolved"],
+            mocks["session_id"],
+        ):
+            async def set_state(*args, **kwargs):
+                state = kwargs["state"]
+                state.auto_merge_enabled = False
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_pr_files(tmp_path)
+
+            from cai.workflows.fsm import solve_pr
+            from cai.workflows.implement import ImplementNode
+
+            solve_pr(bot, workspace)
+
+            assert mock_run.call_count >= 1
+            args, kwargs = mock_run.call_args
+            assert isinstance(args[0], ImplementNode)
+            assert kwargs.get("state") is not None

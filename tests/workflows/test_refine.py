@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic_graph import End
@@ -362,8 +362,8 @@ def test_solve_issue_skips_failed_label_when_sub_issues_exist(tmp_path):
 
     with patch("cai.workflows.fsm.ensure_labels"):
         with patch("cai.workflows.fsm.langfuse_workflow"):
-            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
-                def run_sync_side_effect(*args, **kwargs):
+            with patch("cai.workflows.fsm.solve_graph.run", new_callable=AsyncMock) as mock_run:
+                async def side_effect(*args, **kwargs):
                     state = kwargs.get("state")
                     state.new_meta = state.meta.model_copy()
                     state.refine_output = RefineOutput(
@@ -371,7 +371,7 @@ def test_solve_issue_skips_failed_label_when_sub_issues_exist(tmp_path):
                     )
                     state.pr_url = None
 
-                mock_graph.run_sync.side_effect = run_sync_side_effect
+                mock_run.side_effect = side_effect
 
                 solve_issue(bot, workspace)
 
@@ -413,8 +413,8 @@ def test_solve_issue_skips_pr_ready_label_when_sub_issues_exist(tmp_path):
 
     with patch("cai.workflows.fsm.ensure_labels"):
         with patch("cai.workflows.fsm.langfuse_workflow"):
-            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
-                def run_sync_side_effect(*args, **kwargs):
+            with patch("cai.workflows.fsm.solve_graph.run", new_callable=AsyncMock) as mock_run:
+                async def side_effect(*args, **kwargs):
                     state = kwargs.get("state")
                     state.new_meta = state.meta.model_copy()
                     state.refine_output = RefineOutput(
@@ -422,7 +422,7 @@ def test_solve_issue_skips_pr_ready_label_when_sub_issues_exist(tmp_path):
                     )
                     state.pr_url = "https://github.com/owner/repo/pull/99"
 
-                mock_graph.run_sync.side_effect = run_sync_side_effect
+                mock_run.side_effect = side_effect
 
                 solve_issue(bot, workspace)
 
@@ -463,8 +463,8 @@ def test_solve_issue_applies_failed_label_when_no_sub_issues_and_no_pr(tmp_path)
 
     with patch("cai.workflows.fsm.ensure_labels"):
         with patch("cai.workflows.fsm.langfuse_workflow"):
-            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
-                def run_sync_side_effect(*args, **kwargs):
+            with patch("cai.workflows.fsm.solve_graph.run", new_callable=AsyncMock) as mock_run:
+                async def side_effect(*args, **kwargs):
                     state = kwargs.get("state")
                     state.new_meta = state.meta.model_copy()
                     state.refine_output = RefineOutput(
@@ -472,7 +472,7 @@ def test_solve_issue_applies_failed_label_when_no_sub_issues_and_no_pr(tmp_path)
                     )
                     state.pr_url = None
 
-                mock_graph.run_sync.side_effect = run_sync_side_effect
+                mock_run.side_effect = side_effect
 
                 solve_issue(bot, workspace)
 
@@ -512,8 +512,8 @@ def test_solve_issue_applies_pr_ready_label_when_no_sub_issues_and_pr_opened(tmp
 
     with patch("cai.workflows.fsm.ensure_labels"):
         with patch("cai.workflows.fsm.langfuse_workflow"):
-            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
-                def run_sync_side_effect(*args, **kwargs):
+            with patch("cai.workflows.fsm.solve_graph.run", new_callable=AsyncMock) as mock_run:
+                async def side_effect(*args, **kwargs):
                     state = kwargs.get("state")
                     state.new_meta = state.meta.model_copy()
                     state.refine_output = RefineOutput(
@@ -521,7 +521,7 @@ def test_solve_issue_applies_pr_ready_label_when_no_sub_issues_and_pr_opened(tmp
                     )
                     state.pr_url = "https://github.com/owner/repo/pull/99"
 
-                mock_graph.run_sync.side_effect = run_sync_side_effect
+                mock_run.side_effect = side_effect
 
                 solve_issue(bot, workspace)
 
@@ -561,14 +561,14 @@ def test_solve_issue_applies_failed_label_when_refine_output_is_none(tmp_path):
 
     with patch("cai.workflows.fsm.ensure_labels"):
         with patch("cai.workflows.fsm.langfuse_workflow"):
-            with patch("cai.workflows.fsm.solve_graph") as mock_graph:
-                def run_sync_side_effect(*args, **kwargs):
+            with patch("cai.workflows.fsm.solve_graph.run", new_callable=AsyncMock) as mock_run:
+                async def side_effect(*args, **kwargs):
                     state = kwargs.get("state")
                     state.new_meta = state.meta.model_copy()
                     state.refine_output = None
                     state.pr_url = None
 
-                mock_graph.run_sync.side_effect = run_sync_side_effect
+                mock_run.side_effect = side_effect
 
                 solve_issue(bot, workspace)
 
