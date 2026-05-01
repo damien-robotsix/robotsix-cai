@@ -121,7 +121,7 @@ def _conflicts_session_id(args: CliArgs) -> str:
     return f"conflicts-{repo_slug}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
 
 
-def _ci_triage_session_id() -> str:
+def _ci_triage_session_id(args: CliArgs) -> str:
     """Return a timestamp-based session id matching the pattern in ``ci_triage.py``."""
     return f"ci-triage-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
