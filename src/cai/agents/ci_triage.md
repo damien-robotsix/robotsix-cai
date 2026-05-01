@@ -6,8 +6,11 @@ tools:
   - filesystem_read
   - raise_issue
   - web_fetch
+  - subagents
   - traces_show
   - traces_failures
+subagents:
+  - trace_analyst
 ---
 
 # CI Triage Agent
@@ -29,7 +32,12 @@ failed GitHub Actions jobs and determine the root cause.
    upstream issue), use `web_fetch` to gather additional information.
 5. If the failure may be related to a prior CAI run (e.g., a solve workflow that
    produced bad code), use `traces_failures` to look up recent Langfuse traces
-   and `traces_show` to inspect relevant traces for context.
+   and `traces_show` to inspect individual trace details.
+   For any trace where you need to understand what happened inside (tool calls,
+   errors, reasoning steps), delegate to the `trace_analyst` subagent with the
+   specific trace ID. Keep your own context use minimal — do not inline large
+   trace outputs. **Important:** When calling the `task` tool, pass the subagent
+   instructions as `description=`, not `prompt=`.
 6. Call `raise_issue` with `labels=["cai:raised"]` and a structured body that
    describes:
    - The failed job and step

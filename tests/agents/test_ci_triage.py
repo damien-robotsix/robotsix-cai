@@ -92,3 +92,42 @@ def test_ci_triage_raise_issue_instructions():
     assert "The error summary" in instructions
     assert "The root cause analysis" in instructions
     assert "The affected files" in instructions
+
+
+def test_ci_triage_has_subagents_tool():
+    """ci_triage must list 'subagents' in its tools to enable subagent dispatch."""
+    path = resolve_agent_path("ci_triage")
+    config, _instructions = parse_agent_md(path)
+    tools = config.get("tools", [])
+    assert "subagents" in tools, (
+        "ci_triage must list subagents in tools to delegate to trace_analyst"
+    )
+
+
+def test_ci_triage_has_trace_analyst_subagent():
+    """ci_triage must declare trace_analyst as a subagent."""
+    path = resolve_agent_path("ci_triage")
+    config, _instructions = parse_agent_md(path)
+    subagents = config.get("subagents", [])
+    assert "trace_analyst" in subagents, (
+        "ci_triage must list trace_analyst as a subagent for deep trace analysis"
+    )
+
+
+def test_ci_triage_trace_analyst_instructions():
+    """Instructions must describe delegating deep trace analysis to trace_analyst."""
+    path = resolve_agent_path("ci_triage")
+    _, instructions = parse_agent_md(path)
+
+    assert "trace_analyst" in instructions, (
+        "Instructions must reference the trace_analyst subagent"
+    )
+    assert "delegate" in instructions.lower(), (
+        "Instructions must tell the agent to delegate to the subagent"
+    )
+    assert "trace ID" in instructions, (
+        "Instructions must mention passing a specific trace ID to the subagent"
+    )
+    assert "description=" in instructions or "description =" in instructions, (
+        "Instructions must remind about passing description= not prompt="
+    )
