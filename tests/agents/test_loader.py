@@ -962,6 +962,7 @@ ANTI_HALLUCINATION_TEXT = (
 
 AGENTS_WITH_ANTI_HALLUCINATION = [
     "docs",
+    "explore",
     "implement",
     "python_review",
     "refine",
@@ -1017,15 +1018,6 @@ def test_agents_without_execute_tool_dont_declare_it(agent_name):
         f"or add the tool."
     )
 
-
-def test_anti_hallucination_guard_absent_from_explore():
-    """Explore agent (which has no execute tool either) should NOT
-    contain the guard unless explicitly added."""
-    path = resolve_agent_path("explore")
-    _, system_prompt = parse_agent_md(path)
-    assert ANTI_HALLUCINATION_TEXT not in system_prompt, (
-        "Anti-hallucination guard found unexpectedly in explore agent prompt."
-    )
 
 
 ANTIPATTERN_EXAMPLES_TEXT = (
