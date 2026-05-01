@@ -231,7 +231,8 @@ class GrepGuardrailAsRetry(AbstractCapability):
             self._empty_grep_count = 0
             raise ModelRetry(
                 "Multiple zero-result grep queries in a row. "
-                "Stop searching and work with what you already know."
+                "Stop searching with grep. Instead, read the file(s) you're interested in directly with read_file, "
+                "or use ls/glob to explore the directory structure."
             )
         return result
 
