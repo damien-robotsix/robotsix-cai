@@ -824,6 +824,7 @@ TOOL_FACTORIES: dict[str, str] = {
     "git_diff": "cai.tools.git_tools:GIT_DIFF_TOOL",
     "git_blame": "cai.tools.git_tools:GIT_BLAME_TOOL",
     "git_show": "cai.tools.git_tools:GIT_SHOW_TOOL",
+    "file_info": "cai.tools.file_tools:FILE_INFO_TOOL",
 }
 
 _DEEP_FLAG_DEFAULTS: dict[str, bool] = {
