@@ -1,36 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cai.github.issues import IssueMeta
 from cai.workflows.merge_eval import MergeEvaluationNode
 from cai.workflows.pr import PRNode
-from cai.workflows.state import ImplementOutput, IssueState
+from cai.workflows.state import ImplementOutput
 
 
 @pytest.fixture
-def state(tmp_path: Path) -> IssueState:
-    body = tmp_path / "body.md"
-    body.write_text("body")
-    meta = IssueMeta(repo="o/r", number=99, title="t")
-    bot = MagicMock()
-    bot.token_for.return_value = "tok"
-    s = IssueState(
-        bot=bot,
-        meta=meta,
-        body_path=body,
-        repo_root=tmp_path,
-        branch_name="feature/x",
-    )
-    s.new_meta = meta
-    s.implement_output = ImplementOutput(
+def state(state: "IssueState") -> "IssueState":
+    state.implement_output = ImplementOutput(
         summary="s", commit_message="c", required_checks=[], replies=[]
     )
-    return s
+    return state
 
 
 def _run(node, state):
