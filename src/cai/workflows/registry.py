@@ -51,6 +51,16 @@ class GitHubTrigger:
 
 
 @dataclass(frozen=True)
+class CliArgs:
+    """Structured CLI inputs shared across workflow entry points for session-id
+    construction.
+    """
+    repo: str = ""
+    number: int | None = None
+    branch: str | None = None
+
+
+@dataclass(frozen=True)
 class WorkflowSpec:
     slug: str
     title: str
@@ -58,7 +68,7 @@ class WorkflowSpec:
     blurb: str
     graph: Graph
     cli_entry: str
-    session_id: Callable[..., str]
+    session_id: Callable[[CliArgs], str]
     github_trigger: GitHubTrigger
     docker_command: str
     permissions: dict[str, str]
@@ -66,27 +76,43 @@ class WorkflowSpec:
     authorized_user_variant: str = "standard"
 
 
-def _solve_session_id(number: int, branch: str | None = None) -> str:
+def _solve_session_id(args: CliArgs) -> str:
     """Return ``issue-{number}`` for issue runs; delegate to
     ``session_id_for_pr`` when a branch is supplied (PR path)."""
-    if branch is None:
-        return f"issue-{number}"
-    return session_id_for_pr(number, branch)
+    if args.number is None:
+        return "issue-unknown"
+    if args.branch is None:
+        return f"issue-{args.number}"
+    return session_id_for_pr(args.number, args.branch)
 
 
-def _audit_session_id() -> str:
-    """Return a timestamp-based session id matching the pattern in ``audit.py``."""
-    return f"audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+def _audit_session_id(args: CliArgs) -> str:
+    """Return a repo-qualified, minute-rounded session id for audit runs."""
+    repo_slug = args.repo.replace("/", "-")
+    return f"audit-{repo_slug}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
 
 
-def _sourcing_session_id() -> str:
-    """Return a timestamp-based session id matching the pattern in ``sourcing.py``."""
-    return f"sourcing-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+def _sourcing_session_id(args: CliArgs) -> str:
+    """Return a repo-qualified, minute-rounded session id for sourcing runs."""
+    repo_slug = args.repo.replace("/", "-")
+    return f"sourcing-{repo_slug}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
 
 
-def _memory_audit_session_id() -> str:
+def _memory_audit_session_id(args: CliArgs) -> str:
     """Return a timestamp-based session id for the memory audit workflow."""
-    return f"memory-audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    return f"memory-audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
+
+
+def _conflicts_session_id(args: CliArgs) -> str:
+    """Return a session id for conflict-resolution runs.
+
+    When a PR number is available, use ``conflicts-{repo}#{number}``;
+    otherwise fall back to a minute-rounded timestamp.
+    """
+    repo_slug = args.repo.replace("/", "-")
+    if args.number is not None:
+        return f"conflicts-{repo_slug}#{args.number}"
+    return f"conflicts-{repo_slug}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
 
 
 WORKFLOWS: list[WorkflowSpec] = [
@@ -201,7 +227,7 @@ WORKFLOWS: list[WorkflowSpec] = [
         ),
         graph=conflicts_graph,
         cli_entry="cai.workflows.conflicts:main",
-        session_id=session_id_for_pr,
+        session_id=_conflicts_session_id,
         github_trigger=GitHubTrigger(
             on=[
                 GitHubTriggerEvent(

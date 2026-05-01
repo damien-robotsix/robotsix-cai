@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
+from cai.log.observability import langfuse_workflow, setup_langfuse
 from cai.workflows._deps import repo_deps
 
 
@@ -85,8 +86,14 @@ def main() -> None:
     repo_root = args.repo_root.resolve()
     state = MemoryAuditState(repo_root=repo_root)
 
+    from cai.workflows.registry import by_slug, CliArgs
+    setup_langfuse()
+    cli_args = CliArgs()
+    session_id = by_slug("memory-audit").session_id(cli_args)
+
     async def _run() -> None:
-        await memory_audit_graph.run(MemoryAuditNode(), state=state)
+        with langfuse_workflow("cai-memory-audit", session_id=session_id):
+            await memory_audit_graph.run(MemoryAuditNode(), state=state)
 
     asyncio.run(_run())
 
