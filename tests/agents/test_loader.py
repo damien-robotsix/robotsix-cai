@@ -17,6 +17,7 @@ from cai.agents.loader import (
     HistoryCompactorCapability,
     MicroReadGuardCapability,
     UnknownToolRetry,
+    build_deep_agent,
     parse_agent_md,
     resolve_agent_path,
 )
@@ -1308,8 +1309,10 @@ ANTI_HALLUCINATION_TEXT = (
 AGENTS_WITH_ANTI_HALLUCINATION = [
     "docs",
     "explore",
+    "github_workflow_review",
     "implement",
     "parent_verifier",
+    "pydantic_ai_review",
     "python_review",
     "refine",
     "test_writer",
@@ -1319,30 +1322,60 @@ AGENTS_WITH_ANTI_HALLUCINATION = [
 
 @pytest.mark.parametrize("agent_name", AGENTS_WITH_ANTI_HALLUCINATION)
 def test_agent_prompt_includes_anti_hallucination_guard(agent_name):
-    """Each agent that lacks an execute tool must carry the
-    defensive anti-hallucination blockquote in its system prompt."""
+    """Each agent that lacks an execute tool must declare
+    anti_hallucination_guard in its common: list."""
     path = resolve_agent_path(agent_name)
-    _, system_prompt = parse_agent_md(path)
-    assert ANTI_HALLUCINATION_TEXT in system_prompt, (
-        f"Agent '{agent_name}' system prompt missing anti-hallucination guard.\n"
-        f"Expected text:\n{ANTI_HALLUCINATION_TEXT}"
+    config, _ = parse_agent_md(path)
+    common = config.get("common", [])
+    assert "anti_hallucination_guard" in common, (
+        f"Agent '{agent_name}' missing 'anti_hallucination_guard' in common: list. "
+        f"Got: {common}"
     )
 
 
 @pytest.mark.parametrize("agent_name", AGENTS_WITH_ANTI_HALLUCINATION)
-def test_anti_hallucination_guard_positioned_after_agent_header(agent_name):
-    """The anti-hallucination blockquote must appear after the agent title
-    heading (# Agent Name) so it's the first instruction the model sees."""
-    path = resolve_agent_path(agent_name)
-    _, system_prompt = parse_agent_md(path)
+def test_anti_hallucination_guard_positioned_after_agent_header(agent_name, monkeypatch):
+    """The anti-hallucination guard is injected after the title heading
+    via the common: mechanism and does not remain in the raw body."""
+    import cai.agents.loader as loader
 
-    # The guard must be present ...
-    guard_idx = system_prompt.index(ANTI_HALLUCINATION_TEXT)
-    # ... and must appear after the `# ` heading that starts the body.
-    heading_end = system_prompt.index("\n")
-    assert guard_idx > heading_end, (
-        f"Agent '{agent_name}': anti-hallucination guard must appear "
-        f"after the title heading, but was found before it."
+    path = resolve_agent_path(agent_name)
+    config, body = parse_agent_md(path)
+
+    # After migration, the guard text must NOT be in the raw body.
+    assert ANTI_HALLUCINATION_TEXT not in body, (
+        f"Agent '{agent_name}' still has inlined anti-hallucination guard "
+        f"in the raw body."
+    )
+
+    # The config must declare anti_hallucination_guard in common:.
+    common = config.get("common", [])
+    assert "anti_hallucination_guard" in common, (
+        f"Agent '{agent_name}' missing 'anti_hallucination_guard' in common: list."
+    )
+
+    # Verify the merged build_deep_agent output includes the guard.
+    fake_agent = object()
+    monkeypatch.setattr(loader, "build_model", lambda c: None)
+    monkeypatch.setattr(loader, "build_model_settings", lambda c: None)
+    monkeypatch.setattr(loader, "build_deep_agent_kwargs", lambda c: {})
+    monkeypatch.setattr(loader, "_prune_toolsets", lambda a, r: None)
+    monkeypatch.setattr("cai.agents.loader._resolve_subagents", lambda c: [])
+
+    captured_instructions = []
+
+    def fake_create(*args, **kwargs):
+        captured_instructions.append(kwargs.get("instructions", ""))
+        return fake_agent
+
+    monkeypatch.setattr("pydantic_deep.create_deep_agent", fake_create)
+
+    loader.build_deep_agent(config, body)
+    assert captured_instructions, "build_deep_agent did not call create_deep_agent"
+    merged = captured_instructions[0]
+
+    assert ANTI_HALLUCINATION_TEXT in merged, (
+        f"Agent '{agent_name}' merged instructions missing anti-hallucination guard."
     )
 
 
@@ -1376,8 +1409,10 @@ ANTIPATTERN_EXAMPLES_TEXT = (
 
 AGENTS_WITH_ANTIPATTERN_EXAMPLES = [
     "python_review",
+    "github_workflow_review",
     "implement",
     "docs",
+    "pydantic_ai_review",
     "test_writer",
     "refine",
     "trace_analyst",
@@ -1387,37 +1422,73 @@ AGENTS_WITH_ANTIPATTERN_EXAMPLES = [
 
 @pytest.mark.parametrize("agent_name", AGENTS_WITH_ANTIPATTERN_EXAMPLES)
 def test_agent_prompt_includes_antipattern_examples(agent_name):
-    """Anti-pattern BAD/GOOD examples are present in every agent
-    that lacks execute/bash/shell/run tools."""
+    """Each agent that needs anti-pattern examples must declare
+    antipattern_examples in its common: list."""
     path = resolve_agent_path(agent_name)
-    _, system_prompt = parse_agent_md(path)
-    assert ANTIPATTERN_EXAMPLES_TEXT in system_prompt, (
-        f"Anti-pattern examples missing from {agent_name!r} prompt.\n"
-        f"Expected text:\n{ANTIPATTERN_EXAMPLES_TEXT}"
+    config, _ = parse_agent_md(path)
+    common = config.get("common", [])
+    assert "antipattern_examples" in common, (
+        f"Agent '{agent_name}' missing 'antipattern_examples' in common: list. "
+        f"Got: {common}"
     )
 
 
 @pytest.mark.parametrize("agent_name", AGENTS_WITH_ANTIPATTERN_EXAMPLES)
 def test_antipattern_examples_positioned_after_anti_hallucination_guard(
-    agent_name,
+    agent_name, monkeypatch
 ):
-    """Anti-pattern examples appear after the anti-hallucination blockquote."""
+    """Anti-pattern examples appear after the anti-hallucination blockquote
+    in the merged build_deep_agent output."""
+    import cai.agents.loader as loader
+
     path = resolve_agent_path(agent_name)
-    _, system_prompt = parse_agent_md(path)
-    guard_idx = system_prompt.index(ANTI_HALLUCINATION_TEXT)
-    antipattern_idx = system_prompt.index(ANTIPATTERN_EXAMPLES_TEXT)
+    config, body = parse_agent_md(path)
+    common = config.get("common", [])
+    assert "antipattern_examples" in common, (
+        f"Agent '{agent_name}' missing 'antipattern_examples' in common: list."
+    )
+    # Antipattern examples are no longer inlined — verify via merged output.
+    assert ANTIPATTERN_EXAMPLES_TEXT not in body, (
+        f"Agent '{agent_name}' still has inlined antipattern examples "
+        f"in body — should come via common:."
+    )
+    fake_agent = object()
+    captured_instructions = []
+
+    def fake_create(*args, **kwargs):
+        captured_instructions.append(kwargs.get("instructions", ""))
+        return fake_agent
+
+    for k in ("model", "model_settings", "tools", "output_type", "deps_type"):
+        config.pop(k, None)
+    monkeypatch.setattr(loader, "build_model", lambda c: None)
+    monkeypatch.setattr(loader, "build_deep_agent_kwargs", lambda c: {})
+    monkeypatch.setattr(loader, "_prune_toolsets", lambda a, r: None)
+    monkeypatch.setattr("cai.agents.loader._resolve_subagents", lambda c: [])
+    monkeypatch.setattr("pydantic_deep.create_deep_agent", fake_create)
+    loader.build_deep_agent(config, body)
+    assert captured_instructions, "build_deep_agent did not call create_deep_agent"
+    merged = captured_instructions[0]
+    guard_idx = merged.index(ANTI_HALLUCINATION_TEXT)
+    antipattern_idx = merged.index(ANTIPATTERN_EXAMPLES_TEXT)
     assert antipattern_idx > guard_idx, (
         f"Anti-pattern examples must come after the anti-hallucination "
-        f"blockquote in {agent_name!r} prompt."
+        f"blockquote in {agent_name!r} merged prompt."
     )
 
 
 def test_antipattern_examples_absent_from_explore():
-    """Explore agent should NOT contain anti-pattern examples since it
-    is read-only and its description already states its constraints."""
+    """Explore agent should NOT declare antipattern_examples in its
+    common: list since it has no anti-pattern examples."""
     path = resolve_agent_path("explore")
-    _, system_prompt = parse_agent_md(path)
-    assert ANTIPATTERN_EXAMPLES_TEXT not in system_prompt, (
+    config, body = parse_agent_md(path)
+    common = config.get("common", [])
+    assert "antipattern_examples" not in common, (
+        f"Explore agent should not have 'antipattern_examples' in common: list. "
+        f"Got: {common}"
+    )
+    # Also verify it's not inlined in the raw body.
+    assert ANTIPATTERN_EXAMPLES_TEXT not in body, (
         "Anti-pattern examples found unexpectedly in explore agent prompt."
     )
 
@@ -1496,17 +1567,47 @@ _TASK_TOOL_PARAM_TEXT = (
         "security_auditor",
         "deps_auditor",
         "architecture_auditor",
-        "sourcing",
+        "ci_triage",
     ],
 )
-def test_agent_prompt_includes_task_tool_parameter_note(agent_name: str):
-    """Every agent that uses subagents must warn the model to pass
-    instructions as ``description=``, not ``prompt=``, since the ``task``
-    tool has no ``prompt`` parameter."""
+def test_agent_prompt_includes_task_tool_parameter_note(agent_name: str, monkeypatch):
+    """Every agent that has subagents in tools: must have the task-tool
+    parameter note in the merged build_deep_agent output (auto-inclusion
+    based on subagents in tools:)."""
+    import cai.agents.loader as loader
+
     path = resolve_agent_path(agent_name)
-    _, system_prompt = parse_agent_md(path)
-    assert _TASK_TOOL_PARAM_TEXT in system_prompt, (
-        f"{agent_name}.md system prompt missing the task-tool parameter-name note. "
+    config, body = parse_agent_md(path)
+
+    # The config must have subagents in tools: for auto-inclusion.
+    tools = config.get("tools", [])
+    assert "subagents" in tools, (
+        f"Agent '{agent_name}' expected to have 'subagents' in tools: "
+        f"for task-tool-note auto-inclusion."
+    )
+
+    # Verify the merged build_deep_agent output includes the note.
+    fake_agent = object()
+    monkeypatch.setattr(loader, "build_model", lambda c: None)
+    monkeypatch.setattr(loader, "build_model_settings", lambda c: None)
+    monkeypatch.setattr(loader, "build_deep_agent_kwargs", lambda c: {})
+    monkeypatch.setattr(loader, "_prune_toolsets", lambda a, r: None)
+    monkeypatch.setattr("cai.agents.loader._resolve_subagents", lambda c: [])
+
+    captured_instructions = []
+
+    def fake_create(*args, **kwargs):
+        captured_instructions.append(kwargs.get("instructions", ""))
+        return fake_agent
+
+    monkeypatch.setattr("pydantic_deep.create_deep_agent", fake_create)
+
+    loader.build_deep_agent(config, body)
+    assert captured_instructions, "build_deep_agent did not call create_deep_agent"
+    merged = captured_instructions[0]
+
+    assert _TASK_TOOL_PARAM_TEXT in merged, (
+        f"{agent_name}.md merged instructions missing the task-tool parameter-name note. "
         f"Expected note:\n{_TASK_TOOL_PARAM_TEXT}"
     )
 
@@ -2741,6 +2842,159 @@ def test_micro_read_guard_wired_into_build_deep_agent_capabilities(monkeypatch):
     )
 
 
+# ── _inject_common_fragments ─────────────────────────────────────────
+
+def test_inject_common_fragments_no_common_key():
+    """No ``common`` key in config returns instructions unchanged."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nSome body text."
+    config = {"name": "test"}
+    result = _inject_common_fragments(config, instructions)
+    assert result == instructions
+
+
+def test_inject_common_fragments_empty_common_list():
+    """Empty ``common`` list returns instructions unchanged."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nSome body text."
+    config = {"name": "test", "common": []}
+    result = _inject_common_fragments(config, instructions)
+    assert result == instructions
+
+
+def test_inject_common_fragments_unknown_name():
+    """Unknown fragment names are silently ignored."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nSome body text."
+    config = {"name": "test", "common": ["nonexistent_fragment"]}
+    result = _inject_common_fragments(config, instructions)
+    assert result == instructions
+
+
+def test_inject_common_fragments_anti_hallucination_only():
+    """Anti-hallucination guard is injected after the title heading."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nSome body text."
+    config = {"name": "test", "common": ["anti_hallucination_guard"]}
+    result = _inject_common_fragments(config, instructions)
+
+    assert "anti_hallucination_guard" not in result  # not the key name
+    assert "You do NOT have an `execute`, `bash`, `shell`, or `run` tool." in result
+    assert "# Test Agent" in result
+    # Fragment should be after the title heading
+    parts = result.split("# Test Agent")
+    assert len(parts) == 2
+    assert "execute" in parts[1]
+
+
+def test_inject_common_fragments_both_fragments():
+    """Both common fragments are injected in order after the title."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nSome body text."
+    config = {"name": "test", "common": ["anti_hallucination_guard", "antipattern_examples"]}
+    result = _inject_common_fragments(config, instructions)
+
+    assert "run` tool" in result
+    assert "Anti-pattern examples" in result
+    # anti-hallucination guard should come first, then antipattern examples
+    assert result.index("run` tool") < result.index("Anti-pattern")
+
+
+def test_inject_common_fragments_no_heading():
+    """When no ``# Title`` heading exists, fragments are prepended."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "Some body text without a title heading."
+    config = {"name": "test", "common": ["anti_hallucination_guard"]}
+    result = _inject_common_fragments(config, instructions)
+
+    assert "You do NOT have an `execute`" in result
+    # Original text should still be present
+    assert "without a title heading" in result
+
+
+def test_inject_common_fragments_task_tool_note():
+    """Task-tool-note is auto-injected when subagents is in tools."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "tools": ["subagents", "filesystem"], "common": []}
+    result = _inject_common_fragments(config, instructions)
+
+    assert "description=" in result
+    assert "`task` tool has no `prompt` parameter" in result
+
+
+def test_inject_common_fragments_no_task_tool_note_without_subagents():
+    """Task-tool-note is NOT injected when subagents is not in tools."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "tools": ["filesystem"], "common": []}
+    result = _inject_common_fragments(config, instructions)
+
+    assert "description=" not in result
+
+
+def test_inject_common_fragments_fragments_and_task_tool_note():
+    """Common fragments and task tool note are both injected when applicable."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {
+        "name": "test",
+        "tools": ["subagents"],
+        "common": ["anti_hallucination_guard", "antipattern_examples"],
+    }
+    result = _inject_common_fragments(config, instructions)
+
+    assert "execute" in result
+    assert "Anti-pattern examples" in result
+    assert "description=" in result
+
+
+def test_inject_common_fragments_common_not_a_list():
+    """When ``common`` is not a list, it is ignored."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "common": "anti_hallucination_guard"}
+    result = _inject_common_fragments(config, instructions)
+    assert result == instructions
+
+
+def test_inject_common_fragments_tools_not_a_list():
+    """When ``tools`` is not a list, task tool note is not injected."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "tools": "subagents", "common": []}
+    result = _inject_common_fragments(config, instructions)
+    assert result == instructions
+
+
+def test_inject_common_fragments_blank_lines_around_insertion():
+    """Inserted fragments are surrounded by blank lines."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\nSome body."
+    config = {"name": "test", "common": ["anti_hallucination_guard"]}
+    result = _inject_common_fragments(config, instructions)
+
+    lines = result.splitlines()
+    # Find the heading line
+    heading_idx = next(i for i, l in enumerate(lines) if l.startswith("# "))
+    # The line after heading should be blank
+    assert lines[heading_idx + 1] == "", (
+        f"Expected blank line after heading, got {lines[heading_idx + 1]!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # EditFileGuardrailAsRetry — multi-match detection edge cases
 # ---------------------------------------------------------------------------
@@ -2910,6 +3164,25 @@ def test_explore_agent_search_then_read_before_how_to_work():
     )
 
 
+def test_explore_agent_never_re_read_under_read_files_whole():
+    """The 'Never re-read' directive must appear on the same line or within the
+    Read files whole bullet, not as a standalone bullet."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    never_idx = system_prompt.index(NEVER_RE_READ_TEXT)
+    # The Read files whole bullet should appear before (on the same bullet line
+    # or very close to) the never-re-read text.
+    read_whole_idx = system_prompt.index(READ_FILES_WHOLE_BULLET)
+    assert read_whole_idx < never_idx, (
+        "Never re-read directive must appear after the Read files whole bullet."
+    )
+    # The gap between the bullet start and the directive should be within
+    # reasonable proximity (same or next line).
+    gap = never_idx - (read_whole_idx + len(READ_FILES_WHOLE_BULLET))
+    assert 0 <= gap < 120, (
+        f"Never re-read directive is too far from the Read files whole bullet "
+        f"(gap={gap} chars). It should be part of that bullet."
+    )
 def test_explore_agent_never_re_read_under_read_files_whole():
     """The 'Never re-read' directive must appear on the same line or within the
     Read files whole bullet, not as a standalone bullet."""

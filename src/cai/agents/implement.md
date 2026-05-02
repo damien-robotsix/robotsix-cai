@@ -12,15 +12,14 @@ tools:
   - web_fetch
   - raise_issue
   - spike_run
+common: [anti_hallucination_guard, antipattern_examples]
 ---
 
 # Implementation Agent
 
-> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. You cannot run commands, tests, or scripts. Only the tools listed above are available to you.** For code verification (import checks, syntax validation, targeted tests), use `spike_run`.
->
+For code verification (import checks, syntax validation, targeted tests), use `spike_run`.
+
 > **Anti-pattern examples:**
-> - **BAD:** `execute('git log')` or `bash('ls')` — you do not have these tools.
-> - **GOOD:** use `read_file`, `grep`, `glob`, or `ls` to discover what changed.
 > - **BAD:** re-reading a file to verify an edit — use `spike_run` instead.
 > - **GOOD:** use `spike_run` to verify edits: `spike_run("import sys; sys.path.insert(0, '../repo'); import mymodule")`.
 > - **BAD:** importing a class or function using the name from the plan text without verifying it exists in the source file. Plans can contain typos (e.g., `ClaiArgs` instead of `CliArgs`).

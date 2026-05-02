@@ -1,8 +1,7 @@
-import pytest
-from cai.agents.loader import parse_agent_md, resolve_agent_path
+from cai.agents.loader import parse_agent_md, resolve_agent_path, build_deep_agent
 
 
-def test_implement_agent_config():
+def test_implement_agent_config(monkeypatch):
     implement_file = resolve_agent_path("implement")
     assert implement_file.exists(), "implement.md must exist in AGENT_DIR"
     config, instructions = parse_agent_md(implement_file)
@@ -18,7 +17,42 @@ def test_implement_agent_config():
     assert "web_fetch" in tools
     assert "spike_run" in tools
 
-    # Assert instructions
+    # Build merged output for common-fragment checks.
+    captured_instructions = []
+
+    def fake_create(model, *, name, instructions, **kwargs):
+        captured_instructions.append(instructions)
+        return object()
+
+    monkeypatch.setattr("pydantic_deep.create_deep_agent", fake_create)
+    monkeypatch.setattr("cai.agents.loader._resolve_subagents", lambda c: [])
+    monkeypatch.setattr("cai.agents.loader.build_model", lambda c: None)
+    monkeypatch.setattr("cai.agents.loader.build_deep_agent_kwargs", lambda c: {})
+    monkeypatch.setattr("cai.agents.loader._prune_toolsets", lambda a, r: None)
+    build_deep_agent(config, instructions)
+    assert captured_instructions, "build_deep_agent did not call create_deep_agent"
+    merged = captured_instructions[0]
+
+    # Assert anti-hallucination blockquote via common: injection (issue #1639)
+    assert (
+        "`run` tool" in merged
+    ), "Anti-hallucination blockquote must list `run` among forbidden tools"
+    assert (
+        "You cannot run commands, tests, or scripts. Only the tools listed above are available to you."
+        in merged
+    ), "Anti-hallucination blockquote must include the restored 'cannot run commands' phrasing"
+
+    # Assert original BAD→GOOD anti-pattern pair via common: injection (issue #1639)
+    assert (
+        "`execute('git log')` or `bash('ls')`"
+        in merged
+    ), "Anti-pattern examples must include the original BAD example for execute/bash"
+    assert (
+        "use `read_file`, `grep`, `glob`, or `ls` to discover what changed"
+        in merged
+    ), "Anti-pattern examples must include the original GOOD example using read-only tools"
+
+    # Assert instructions (raw body)
     assert "web_search" in instructions
     assert "web_fetch" in instructions
     assert "API documentation" in instructions
@@ -50,25 +84,7 @@ def test_implement_agent_config():
         in instructions
     ), "Warning block must direct agent to spike_run for code verification"
 
-    # Assert anti-hallucination blockquote restored (issue #1639)
-    assert (
-        "`run` tool" in instructions
-    ), "Anti-hallucination blockquote must list `run` among forbidden tools"
-    assert (
-        "You cannot run commands, tests, or scripts. Only the tools listed above are available to you."
-        in instructions
-    ), "Anti-hallucination blockquote must include the restored 'cannot run commands' phrasing"
-
-    # Assert original BAD→GOOD anti-pattern pair is present and contiguous
-    # before the spike_run-specific pair (issue #1639)
-    assert (
-        "`execute('git log')` or `bash('ls')`"
-        in instructions
-    ), "Anti-pattern examples must include the original BAD example for execute/bash"
-    assert (
-        "use `read_file`, `grep`, `glob`, or `ls` to discover what changed"
-        in instructions
-    ), "Anti-pattern examples must include the original GOOD example using read-only tools"
+    # Assert agent-specific anti-pattern examples (spike_run-specific pair) still in body
     assert (
         "re-reading a file to verify an edit"
         in instructions

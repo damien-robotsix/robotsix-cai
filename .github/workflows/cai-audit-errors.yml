@@ -5,7 +5,7 @@ on:
     types: [labeled]
 
 concurrency:
-  group: cai-audit-errors
+  group: cai-audit-errors-${{ github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
