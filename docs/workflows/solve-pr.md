@@ -25,7 +25,9 @@ stateDiagram-v2
   TestNode --> DocsNode
   TestNode --> PRNode
   TestNode --> ImplementNode
-  PythonReviewNode --> TestSanityNode
+  PythonReviewNode --> GitHubWorkflowReviewNode
+  GitHubWorkflowReviewNode --> PydanticAIReviewNode
+  PydanticAIReviewNode --> TestSanityNode
   TestSanityNode --> DocsNode
   TestSanityNode --> PRNode
   TestSanityNode --> ImplementNode

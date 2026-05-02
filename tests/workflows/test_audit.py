@@ -95,12 +95,12 @@ def mock_dedupe_agent():
 
 
 def test_audit_agent_cache_fits_all_modes():
-    """The _audit_agent LRU cache (maxsize=4) must hold all four agent
+    """The _audit_agent LRU cache (maxsize=5) must hold all five agent
     names without eviction: audit, architecture_auditor, duplication_auditor,
-    security_auditor."""
+    security_auditor, deps_auditor."""
     # We can't actually build agents (needs OPENROUTER_API_KEY), but we can
-    # verify the cache info reports maxsize=4.
-    assert _audit_agent.cache_info().maxsize == 4
+    # verify the cache info reports maxsize=5.
+    assert _audit_agent.cache_info().maxsize == 5
 
 
 def test_audit_output_model():

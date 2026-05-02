@@ -5,12 +5,13 @@ short-circuits to End when the agent proposes nothing. CreateIssuesNode
 runs the issue-deduplicator agent per proposed item to decide whether to
 create a new issue, append a comment to an existing one, or discard.
 
-Five audit modes are supported:
+Six audit modes are supported:
   --mode cost          Audit the most costly session of the last 10 issue-solving runs.
   --mode errors        Audit the 10 most recent traces that contain error-level observations.
   --mode duplication   Audit copy-paste findings from jscpd against a fresh clone of the repo.
   --mode architecture  Clone the repo and audit structural health.
   --mode security      Clone the repo and audit for common vulnerability patterns.
+  --mode deps          Clone the repo and audit dependency freshness against PyPI.
 
 In every mode all signal context is pre-fetched into the prompt so the agent
 can spend its tokens on judgement rather than tool plumbing.
@@ -26,7 +27,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import typing
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -108,7 +112,7 @@ class AuditState:
     output: AuditOutput | None = field(default=None)
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=5)
 def _audit_agent(agent_name: str = "audit"):
     config, instructions = parse_agent_md(resolve_agent_path(agent_name))
     return build_deep_agent(config, instructions, output_type=AuditOutput)
@@ -603,6 +607,211 @@ def _build_security_prompt(
     return prompt
 
 
+# ---------------------------------------------------------------------------
+# Deps mode — clone the target repo, parse pyproject.toml dependencies,
+# query PyPI for upgrade-worthy versions, and feed the deps_auditor agent
+# pre-fetched changelog/usage context.
+# ---------------------------------------------------------------------------
+
+
+def _build_deps_prompt(
+    bot: CaiBot, repo: str, workspace: Path, unknown: list[str]
+) -> str:
+    """Clone ``repo``, audit its dependencies against PyPI, and build a prompt."""
+    print(f"Cloning {repo} into {workspace} for dependency audit...", file=sys.stderr)
+    _clone_repo_for_audit(bot, repo, workspace)
+
+    pyproject_path = workspace / "pyproject.toml"
+    if not pyproject_path.exists():
+        print("No pyproject.toml dependencies found.", file=sys.stderr)
+        sys.exit(0)
+
+    try:
+        pyproject = tomllib.loads(pyproject_path.read_text())
+    except (OSError, tomllib.TOMLDecodeError):
+        print("No pyproject.toml dependencies found.", file=sys.stderr)
+        sys.exit(0)
+
+    project = pyproject.get("project") or {}
+    raw_deps = project.get("dependencies") or []
+    if not raw_deps:
+        print("No pyproject.toml dependencies found.", file=sys.stderr)
+        sys.exit(0)
+
+    dep_re = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*>=\s*([0-9]+(?:\.[0-9]+)*)\s*$")
+    parsed: list[tuple[str, str]] = []
+    for entry in raw_deps:
+        if not isinstance(entry, str):
+            continue
+        match = dep_re.match(entry)
+        if match:
+            parsed.append((match.group(1), match.group(2)))
+
+    def _version_tuple(v: str) -> tuple[int, ...]:
+        try:
+            return tuple(int(part) for part in v.split("."))
+        except ValueError:
+            return ()
+
+    def _delta(lower_t: tuple[int, ...], latest_t: tuple[int, ...]) -> str:
+        width = max(len(lower_t), len(latest_t))
+        a = lower_t + (0,) * (width - len(lower_t))
+        b = latest_t + (0,) * (width - len(latest_t))
+        return ".".join(str(b[i] - a[i]) for i in range(width))
+
+    def _fetch_pypi(name: str) -> dict | None:
+        url = f"https://pypi.org/pypi/{name}/json"
+        try:
+            with urllib.request.urlopen(url, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            print(
+                f"Warning: PyPI HTTP {exc.code} for {name}: {exc.reason}",
+                file=sys.stderr,
+            )
+        except urllib.error.URLError as exc:
+            print(f"Warning: PyPI fetch failed for {name}: {exc.reason}", file=sys.stderr)
+        except json.JSONDecodeError as exc:
+            print(f"Warning: PyPI JSON decode failed for {name}: {exc}", file=sys.stderr)
+        return None
+
+    outdated: list[dict] = []
+    for name, lower in parsed:
+        info = _fetch_pypi(name)
+        if info is None:
+            continue
+        latest = (info.get("info") or {}).get("version")
+        if not latest:
+            continue
+        lower_t = _version_tuple(lower)
+        latest_t = _version_tuple(latest)
+        if not lower_t or not latest_t or latest_t <= lower_t:
+            continue
+        outdated.append({
+            "name": name,
+            "lower": lower,
+            "latest": latest,
+            "lower_t": lower_t,
+            "latest_t": latest_t,
+            "info": info.get("info") or {},
+            "releases": info.get("releases") or {},
+        })
+
+    if not outdated:
+        print("No outdated dependencies found.", file=sys.stderr)
+        sys.exit(0)
+
+    table_rows = [
+        f"{'Package':<25} {'Lower bound':<14} {'Latest':<14} {'Δ':<10}",
+        "-" * 65,
+    ]
+    for pkg in outdated:
+        table_rows.append(
+            f"{pkg['name']:<25} {pkg['lower']:<14} {pkg['latest']:<14} "
+            f"{_delta(pkg['lower_t'], pkg['latest_t']):<10}"
+        )
+    outdated_section = "\n".join(table_rows)
+
+    diff_blocks: list[str] = []
+    for pkg in outdated:
+        intermediate: list[tuple[tuple[int, ...], str]] = []
+        for ver in pkg["releases"]:
+            ver_t = _version_tuple(ver)
+            if not ver_t:
+                continue
+            if ver_t <= pkg["lower_t"] or ver_t > pkg["latest_t"]:
+                continue
+            # Major/minor only: patch component is 0, or fewer than 3 parts.
+            if len(ver_t) < 3 or ver_t[2] == 0:
+                intermediate.append((ver_t, ver))
+        intermediate.sort()
+        if len(intermediate) > 10:
+            intermediate = intermediate[-10:]
+
+        if intermediate:
+            version_lines = "\n".join(f"    - {v}" for _, v in intermediate)
+        else:
+            version_lines = "    (no intermediate major/minor releases found)"
+
+        project_urls = pkg["info"].get("project_urls") or {}
+        changelog_url: str | None = None
+        for key in ("Changelog", "Release notes", "Changes", "ChangeLog"):
+            if key in project_urls:
+                changelog_url = project_urls[key]
+                break
+        if changelog_url is None:
+            for key, value in project_urls.items():
+                if "changelog" in key.lower() or "release" in key.lower():
+                    changelog_url = value
+                    break
+
+        changelog_line = (
+            f"  changelog: {changelog_url}"
+            if changelog_url
+            else "  changelog: (no changelog URL declared in PyPI metadata)"
+        )
+
+        diff_blocks.append(
+            f"- {pkg['name']} {pkg['lower']} → {pkg['latest']}\n"
+            f"  intermediate major/minor releases:\n{version_lines}\n"
+            f"{changelog_line}"
+        )
+
+    usage_blocks: list[str] = []
+    for pkg in outdated:
+        names_to_search = [pkg["name"]]
+        underscore_variant = pkg["name"].replace("-", "_")
+        if underscore_variant != pkg["name"]:
+            names_to_search.append(underscore_variant)
+
+        hits: list[str] = []
+        for needle in names_to_search:
+            try:
+                result = subprocess.run(
+                    ["grep", "-rn", "--include=*.py", needle, "."],
+                    cwd=workspace,
+                    capture_output=True,
+                    text=True,
+                )
+            except OSError as exc:
+                print(f"Warning: grep failed for {needle}: {exc}", file=sys.stderr)
+                continue
+            for line in result.stdout.splitlines():
+                if line and line not in hits:
+                    hits.append(line)
+                    if len(hits) >= 3:
+                        break
+            if len(hits) >= 3:
+                break
+
+        if hits:
+            usage_lines = "\n".join(f"    {h}" for h in hits[:3])
+            usage_blocks.append(f"- {pkg['name']}:\n{usage_lines}")
+        else:
+            usage_blocks.append(f"- {pkg['name']}: No codebase usage found.")
+
+    prompt = (
+        f"Dependency audit of {repo}. The repository is checked out at the "
+        f"agent's filesystem root.\n\n"
+        f"## Outdated Dependencies\n\n"
+        + outdated_section
+        + "\n\n## Version Diffs\n\n"
+        + "\n\n".join(diff_blocks)
+        + "\n\n## Codebase Usage\n\n"
+        + "\n\n".join(usage_blocks)
+        + "\n\n## Instructions\n\n"
+        "Use `filesystem_read` to inspect specific files for deeper context, "
+        "`web_fetch` to read changelog URLs and release notes, and the "
+        "`explore` subagent for broad searches across the codebase. Return "
+        "an `AuditOutput` and be conservative — only propose upgrades that "
+        "materially impact the codebase (breaking changes, deprecations, "
+        "security fixes, or significant new capabilities)."
+    )
+    if unknown:
+        prompt += f"\n\nAdditional context: {' '.join(unknown)}"
+    return prompt
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="cai-audit",
@@ -615,7 +824,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["cost", "errors", "duplication", "architecture", "security"],
+        choices=["cost", "errors", "duplication", "architecture", "security", "deps"],
         default="cost",
         help=(
             "Audit mode: 'cost' analyses the most expensive of the last 10 "
@@ -623,7 +832,9 @@ def main() -> None:
             "traces that contain error-level observations; 'duplication' "
             "clones the repo and audits jscpd copy-paste findings; "
             "'architecture' clones the repo and audits structural health; "
-            "'security' clones the repo and audits for common vulnerability patterns."
+            "'security' clones the repo and audits for common vulnerability "
+            "patterns; 'deps' clones the repo, checks PyPI for outdated "
+            "dependencies, and audits upgrade-worthiness."
         ),
     )
     args, unknown = parser.parse_known_args()
@@ -650,6 +861,11 @@ def main() -> None:
             workspace = workspace_root / "repo"
             agent_name = "security_auditor"
             prompt = _build_security_prompt(bot, args.repo, workspace, unknown)
+        elif args.mode == "deps":
+            workspace_root = Path(tempfile.mkdtemp(prefix="cai-audit-deps-"))
+            workspace = workspace_root / "repo"
+            agent_name = "deps_auditor"
+            prompt = _build_deps_prompt(bot, args.repo, workspace, unknown)
         else:
             workspace_root = Path(tempfile.mkdtemp(prefix="cai-audit-dup-"))
             workspace = workspace_root / "repo"
