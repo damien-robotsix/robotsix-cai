@@ -979,6 +979,34 @@ def test_agent_prompt_includes_read_whole_guidance(agent_name):
 
 
 # ---------------------------------------------------------------------------
+# Avoid-re-reading guidance in agent system prompts
+# ---------------------------------------------------------------------------
+
+AVOID_REREADING_GUIDANCE_TEXTS: dict[str, str] = {
+    "implement": "**Check conversation history before re-reading:**",
+    "python_review": "**Avoid re-reading:**",
+    "test_writer": "**Avoid re-reading:**",
+    "refine": "**Avoid re-reading files you've already read.**",
+}
+
+
+@pytest.mark.parametrize(
+    "agent_name,expected_text",
+    [(name, text) for name, text in AVOID_REREADING_GUIDANCE_TEXTS.items()],
+)
+def test_agent_prompt_includes_avoid_rereading_guidance(
+    agent_name: str, expected_text: str
+):
+    """Ensure each agent's system prompt contains avoid-re-reading guidance."""
+    path = resolve_agent_path(agent_name)
+    _, system_prompt = parse_agent_md(path)
+    assert expected_text in system_prompt, (
+        f"Agent '{agent_name}' system prompt missing avoid-re-reading guidance.\n"
+        f"Expected text: {expected_text!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Anti-hallucination guard in agent system prompts
 # ---------------------------------------------------------------------------
 

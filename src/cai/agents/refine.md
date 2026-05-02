@@ -178,6 +178,7 @@ missing, and why it matters>
 - **Keep it short.** A wall of text is counterproductive — the
   implementation agent reads this as context.
 - **Read files whole:** Prefer reading entire files by omitting `offset` and `limit`. Re-reading file regions already in context is wasteful — reference earlier outputs instead.
+- **Avoid re-reading files you've already read.** When you delegate to subagents, their findings are returned inline. Before calling `read_file` yourself, check whether the content you need is already in your conversation history from a prior read or subagent result.
 - **Files to change vs Scope guardrails are disjoint.** A path may
   appear in only one section, never both. If you would forbid a file
   that's required for the change to work, include it in *Files to

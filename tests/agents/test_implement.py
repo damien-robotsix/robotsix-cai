@@ -123,3 +123,19 @@ def test_implement_agent_config():
         "reuse your previous `read_file` output"
         in instructions
     ), "Prompt must mention reusing previous read_file output when HistoryCompactor fires"
+
+
+def test_implement_prompt_includes_avoid_rereading_guidance():
+    """Verify implement.md contains check-conversation-history guidance."""
+    implement_file = resolve_agent_path("implement")
+    _, instructions = parse_agent_md(implement_file)
+
+    assert "**Check conversation history before re-reading:**" in instructions, (
+        "implement.md must contain 'Check conversation history before re-reading' guidance"
+    )
+    assert (
+        "before calling `read_file`, check whether you've already read that file"
+        in instructions
+    ), "implement.md must instruct agent to check conversation history before read_file"
+    assert "the full content is still in your conversation history" in instructions
+    assert "Only re-read when the file may have been modified by a prior edit" in instructions
