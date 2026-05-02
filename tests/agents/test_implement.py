@@ -78,6 +78,20 @@ def test_implement_agent_config():
         in instructions
     ), "Must include a GOOD example using spike_run for verification"
 
+    # Assert import-name verification anti-pattern pair (issue #1703)
+    assert (
+        "importing a class or function using the name from the plan text without verifying it exists"
+        in instructions
+    ), "Must include BAD example warning against importing unverified names from plan"
+    assert (
+        "before writing an import, verify the exact identifier by reading the module source"
+        in instructions
+    ), "Must include GOOD example directing agent to verify identifiers against source"
+    assert (
+        "trust the source, not the plan"
+        in instructions
+    ), "Must instruct agent to trust source over plan when they disagree"
+
     # Assert Verification with `spike_run` subsection (issue #1639)
     assert (
         "Verification with `spike_run`"
