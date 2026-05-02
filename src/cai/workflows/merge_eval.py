@@ -26,6 +26,7 @@ from cai.github.pr import (
     get_pr_diff,
     get_pr_node_id_and_review_requests,
 )
+from cai.log.observability import traced_agent_run
 from cai.workflows.state import IssueState, MergeEvaluationOutput
 
 _DIFF_CHAR_CAP = 80_000
@@ -98,8 +99,11 @@ class MergeEvaluationNode(BaseNode[IssueState, None, IssueMeta]):
         )
 
         try:
-            result = await _merge_evaluator_agent().run(
-                prompt, usage_limits=UsageLimits(request_limit=10)
+            result = await traced_agent_run(
+                "merge_evaluator",
+                _merge_evaluator_agent(),
+                prompt,
+                usage_limits=UsageLimits(request_limit=10),
             )
         except Exception as exc:
             print(f"[merge-eval] evaluator agent failed: {exc}", file=sys.stderr)

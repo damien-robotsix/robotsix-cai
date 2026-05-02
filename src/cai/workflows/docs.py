@@ -8,6 +8,7 @@ from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
+from cai.log.observability import traced_agent_run
 from cai.workflows.pr import PRNode
 from cai.workflows.state import DocsOutput, IssueState
 
@@ -53,7 +54,9 @@ class DocsNode(BaseNode[IssueState]):
             f"## Implementation commit message\n\n{state.implement_output.commit_message}"
         )
 
-        result = await _docs_agent().run(
+        result = await traced_agent_run(
+            "docs",
+            _docs_agent(),
             prompt,
             deps=_deps(state.repo_root),
             usage_limits=UsageLimits(request_limit=50),

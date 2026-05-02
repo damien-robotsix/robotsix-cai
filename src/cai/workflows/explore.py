@@ -6,7 +6,8 @@ from pydantic_ai.usage import UsageLimits
 from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
-from cai.log import langfuse_node_span, setup_langfuse
+from cai.log import setup_langfuse
+from cai.log.observability import traced_agent_run
 from cai.workflows._deps import repo_deps
 from cai.workflows.refine import RefineNode
 from cai.workflows.state import ExploreOutput, IssueState
@@ -34,12 +35,13 @@ class ExploreNode(BaseNode[IssueState]):
             f"## Issue metadata\n\n{state.meta_json}\n\n"
             f"## Issue body\n\n{state.body}"
         )
-        with langfuse_node_span("explore", metadata={"phase": "research"}):
-            result = await _explore_agent().run(
-                prompt,
-                deps=repo_deps(state.repo_root),
-                usage_limits=UsageLimits(request_limit=50),
-            )
+        result = await traced_agent_run(
+            "explore",
+            _explore_agent(),
+            prompt,
+            deps=repo_deps(state.repo_root),
+            usage_limits=UsageLimits(request_limit=50),
+        )
         state.findings = result.output
         state.reference_files = list(result.output.related_files)
         return RefineNode()

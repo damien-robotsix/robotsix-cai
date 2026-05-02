@@ -1,230 +1,248 @@
-"""Tests for the langfuse_node_span context manager in cai.log.observability."""
+"""Tests for traced_agent_run in cai.log.observability.
+
+traced_agent_run() wraps a pydantic-ai agent.run() call inside a
+Langfuse ``start_as_current_observation`` span when Langfuse has been
+initialised, and falls through to a plain ``await agent.run()`` when it
+has not.
+"""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytest.importorskip("genai_prices")
 
-class TestLangfuseNodeSpan:
-    """Tests for ``langfuse_node_span()`` — the per-node child-span context manager."""
-
-    # ── no-op path ────────────────────────────────────────────────────────
-
-    def test_noop_when_langfuse_not_configured(self):
-        """When setup_langfuse() returns False, the context manager yields without creating a span."""
-        with patch("cai.log.observability.setup_langfuse", return_value=False):
-            with patch("langfuse.get_client") as mock_get_client:
-                from cai.log.observability import langfuse_node_span
-
-                with langfuse_node_span("test-span"):
-                    pass  # should not raise
-
-                mock_get_client.assert_not_called()
-
-    def test_noop_does_not_import_langfuse_client(self):
-        """When langfuse is not configured, no langfuse imports occur inside the body."""
-        with patch("cai.log.observability.setup_langfuse", return_value=False):
-            # If langfuse.get_client were called it would fail without the package
-            with patch("langfuse.get_client") as mock_get_client:
-                from cai.log.observability import langfuse_node_span
-
-                with langfuse_node_span("any"):
-                    yield_value = 42
-
-                assert yield_value == 42
-                mock_get_client.assert_not_called()
-
-    # ── happy path ────────────────────────────────────────────────────────
-
-    def test_creates_child_span_with_as_type_span(self):
-        """When langfuse is configured, creates a child observation with as_type='span'."""
-        mock_client = MagicMock()
-        mock_observation_cm = MagicMock()
-        mock_client.start_as_current_observation.return_value = mock_observation_cm
-
-        with (
-            patch("cai.log.observability.setup_langfuse", return_value=True),
-            patch("langfuse.get_client", return_value=mock_client),
-        ):
-            from cai.log.observability import langfuse_node_span
-
-            with langfuse_node_span("explore-span"):
-                pass
-
-        mock_client.start_as_current_observation.assert_called_once_with(
-            name="explore-span",
-            as_type="span",
-            metadata=None,
-        )
-
-    def test_passes_metadata_to_span(self):
-        """Metadata dict is forwarded to start_as_current_observation."""
-        mock_client = MagicMock()
-        mock_client.start_as_current_observation.return_value = MagicMock()
-
-        metadata = {"phase": "research", "agent": "explore"}
-
-        with (
-            patch("cai.log.observability.setup_langfuse", return_value=True),
-            patch("langfuse.get_client", return_value=mock_client),
-        ):
-            from cai.log.observability import langfuse_node_span
-
-            with langfuse_node_span("explore", metadata=metadata):
-                pass
-
-        mock_client.start_as_current_observation.assert_called_once_with(
-            name="explore",
-            as_type="span",
-            metadata=metadata,
-        )
-
-    def test_metadata_is_optional_defaults_to_none(self):
-        """When metadata is not provided, it defaults to None."""
-        mock_client = MagicMock()
-        mock_client.start_as_current_observation.return_value = MagicMock()
-
-        with (
-            patch("cai.log.observability.setup_langfuse", return_value=True),
-            patch("langfuse.get_client", return_value=mock_client),
-        ):
-            from cai.log.observability import langfuse_node_span
-
-            with langfuse_node_span("no-meta"):
-                pass
-
-        mock_client.start_as_current_observation.assert_called_once_with(
-            name="no-meta",
-            as_type="span",
-            metadata=None,
-        )
-
-    def test_empty_metadata_is_passed_through(self):
-        """An empty metadata dict is forwarded as-is."""
-        mock_client = MagicMock()
-        mock_client.start_as_current_observation.return_value = MagicMock()
-
-        with (
-            patch("cai.log.observability.setup_langfuse", return_value=True),
-            patch("langfuse.get_client", return_value=mock_client),
-        ):
-            from cai.log.observability import langfuse_node_span
-
-            with langfuse_node_span("empty-meta", metadata={}):
-                pass
-
-        mock_client.start_as_current_observation.assert_called_once_with(
-            name="empty-meta",
-            as_type="span",
-            metadata={},
-        )
-
-    # ── body execution ────────────────────────────────────────────────────
-
-    def test_body_executes_within_span_context(self):
-        """Code inside the with-block executes before the span exits."""
-        mock_client = MagicMock()
-        mock_client.start_as_current_observation.return_value = MagicMock()
-
-        side_effects: list[str] = []
-
-        with (
-            patch("cai.log.observability.setup_langfuse", return_value=True),
-            patch("langfuse.get_client", return_value=mock_client),
-        ):
-            from cai.log.observability import langfuse_node_span
-
-            with langfuse_node_span("side-effects"):
-                side_effects.append("inside")
-
-        side_effects.append("outside")
-
-        assert side_effects == ["inside", "outside"]
-
-    def test_exception_in_body_propagates(self):
-        """Exceptions raised inside the span body propagate normally."""
-        mock_client = MagicMock()
-        mock_client.start_as_current_observation.return_value = MagicMock()
-
-        with (
-            patch("cai.log.observability.setup_langfuse", return_value=True),
-            patch("langfuse.get_client", return_value=mock_client),
-        ):
-            from cai.log.observability import langfuse_node_span
-
-            with pytest.raises(RuntimeError, match="inside-span"):
-                with langfuse_node_span("fail"):
-                    raise RuntimeError("inside-span")
-
-    # ── yield return value ────────────────────────────────────────────────
-
-    def test_yields_none(self):
-        """The context manager yields None (the body receives no value)."""
-        with patch("cai.log.observability.setup_langfuse", return_value=False):
-            from cai.log.observability import langfuse_node_span
-
-            with langfuse_node_span("test") as yielded:
-                assert yielded is None
+from cai.log.observability import traced_agent_run
 
 
-class TestLangfuseNodeSpanExport:
-    """Tests that langfuse_node_span is properly exported from cai.log."""
-
-    def test_importable_from_cai_log(self):
-        """langfuse_node_span is re-exported from cai.log."""
-        from cai.log import langfuse_node_span
-
-        assert callable(langfuse_node_span)
-
-    def test_importable_from_cai_log_observability(self):
-        """langfuse_node_span is defined in cai.log.observability."""
-        from cai.log.observability import langfuse_node_span
-
-        assert callable(langfuse_node_span)
-
-    def test_same_function_referenced(self):
-        """The cai.log export is the same function as the observability module's."""
-        from cai.log import langfuse_node_span as exported
-        from cai.log.observability import langfuse_node_span as defined
-
-        assert exported is defined
-
-    def test_included_in_all(self):
-        """langfuse_node_span is listed in cai.log.__all__."""
-        from cai.log import __all__
-
-        assert "langfuse_node_span" in __all__
-
-
-class TestLangfuseNodeSpanUsedInWorkflowNodes:
-    """Integration-style tests verifying langfuse_node_span wraps agent calls.
-
-    These verify that the import exists and the context manager is reachable
-    from each workflow node module, without executing the actual agent calls.
+class TestTracedAgentRunNotInitialized:
+    """traced_agent_run() when Langfuse has **not** been initialised
+    (``_initialized`` is ``False``, the default).
     """
 
-    def test_imported_in_explore_node(self):
-        """langfuse_node_span is imported in cai.workflows.explore."""
-        from cai.workflows.explore import langfuse_node_span as imported
+    def test_calls_agent_run_directly(self):
+        """agent.run(prompt) is called without any Langfuse wrapping."""
+        async def _run():
+            agent = AsyncMock()
+            result = await traced_agent_run("test", agent, "hello")
+            agent.run.assert_awaited_once_with("hello")
+            assert result is agent.run.return_value
 
-        from cai.log.observability import langfuse_node_span as defined
+        asyncio.run(_run())
 
-        assert imported is defined
+    def test_forwards_all_kwargs(self):
+        """All extra keyword arguments reach agent.run()."""
+        async def _run():
+            agent = AsyncMock()
+            await traced_agent_run("test", agent, "hi", deps="d", usage_limits="ul")
+            agent.run.assert_awaited_once_with("hi", deps="d", usage_limits="ul")
 
-    def test_imported_in_refine_node(self):
-        """langfuse_node_span is imported in cai.workflows.refine."""
-        from cai.workflows.refine import langfuse_node_span as imported
+        asyncio.run(_run())
 
-        from cai.log.observability import langfuse_node_span as defined
+    def test_returns_agent_result(self):
+        """The return value from agent.run() is passed through unchanged."""
+        async def _run():
+            agent = AsyncMock()
+            agent.run.return_value = {"output": "done"}
+            result = await traced_agent_run("test", agent, "hello")
+            assert result == {"output": "done"}
 
-        assert imported is defined
+        asyncio.run(_run())
 
-    def test_imported_in_implement_node(self):
-        """langfuse_node_span is imported in cai.workflows.implement."""
-        from cai.workflows.implement import langfuse_node_span as imported
+    def test_no_langfuse_import_error_on_uninitialized_path(self):
+        """The uninitialized path does not attempt to import langfuse or
+        create a span — if it did, the patch below would explode."""
+        async def _run():
+            agent = AsyncMock()
+            with patch("langfuse.get_client", side_effect=ImportError("not needed")):
+                # Even though get_client would raise, we never reach that code
+                # because _initialized is False.
+                result = await traced_agent_run("test", agent, "hello")
+                assert result is agent.run.return_value
 
-        from cai.log.observability import langfuse_node_span as defined
+        asyncio.run(_run())
 
-        assert imported is defined
+
+class TestTracedAgentRunInitialized:
+    """traced_agent_run() when Langfuse **is** initialised
+    (``_initialized`` is ``True``).
+    """
+
+    @staticmethod
+    def _mock_langfuse_env() -> MagicMock:
+        """Return a mock Langfuse client whose ``start_as_current_observation``
+        returns a usable context manager."""
+        mock_client = MagicMock()
+        mock_client.start_as_current_observation.return_value = MagicMock()
+        return mock_client
+
+    def test_creates_langfuse_span_with_name_type_and_input(self):
+        """agent.run() is wrapped in a ``start_as_current_observation`` span
+        with the correct name, as_type, and input."""
+        async def _run():
+            agent = AsyncMock()
+            mock_client = self._mock_langfuse_env()
+
+            with (
+                patch("cai.log.observability._initialized", True),
+                patch("langfuse.get_client", return_value=mock_client),
+            ):
+                result = await traced_agent_run("explore", agent, "investigate", deps="x")
+
+            mock_client.start_as_current_observation.assert_called_once_with(
+                name="explore",
+                as_type="span",
+                input="investigate",
+            )
+            agent.run.assert_awaited_once_with("investigate", deps="x")
+            assert result is agent.run.return_value
+
+        asyncio.run(_run())
+
+    def test_returns_agent_result(self):
+        """The return value from agent.run() is propagated out of the span."""
+        async def _run():
+            agent = AsyncMock()
+            agent.run.return_value = {"completed": True}
+            mock_client = self._mock_langfuse_env()
+
+            with (
+                patch("cai.log.observability._initialized", True),
+                patch("langfuse.get_client", return_value=mock_client),
+            ):
+                result = await traced_agent_run("test", agent, "prompt")
+
+            assert result == {"completed": True}
+
+        asyncio.run(_run())
+
+
+class TestIsLangfuseInitialized:
+    """Unit tests for the ``_is_langfuse_initialized()`` helper.
+
+    The helper looks up the ``_initialized`` flag from the module object
+    registered in ``sys.modules`` at call time, which is the mechanism
+    that makes ``traced_agent_run()`` survive module reload.
+    """
+
+    def test_true_when_initialized_is_true(self) -> None:
+        """Returns ``True`` when ``_initialized`` is truthy."""
+        from cai.log.observability import _is_langfuse_initialized
+
+        with patch("cai.log.observability._initialized", True):
+            assert _is_langfuse_initialized() is True
+
+    def test_false_when_initialized_is_false(self) -> None:
+        """Returns ``False`` when ``_initialized`` is ``False``."""
+        from cai.log.observability import _is_langfuse_initialized
+
+        with patch("cai.log.observability._initialized", False):
+            assert _is_langfuse_initialized() is False
+
+    def test_false_when_module_not_in_sys_modules(self) -> None:
+        """Returns ``False`` when the module isn't in ``sys.modules`` at all."""
+        import sys
+
+        from cai.log.observability import _is_langfuse_initialized
+
+        mod_name = "cai.log.observability"
+        saved = sys.modules.pop(mod_name)
+        try:
+            assert _is_langfuse_initialized() is False
+        finally:
+            sys.modules[mod_name] = saved
+
+
+class TestModuleReloadResilience:
+    """``traced_agent_run()`` survives a delete/re-import cycle.
+
+    When ``cai.log.observability`` is removed from ``sys.modules`` and
+    re-imported (as happens in test suites that use ``importlib.reload``
+    or manually delete cached modules), the old function object's
+    ``__globals__`` still references the *old* module.  The fix is that
+    ``_is_langfuse_initialized()`` looks up ``_initialized`` from
+    ``sys.modules[__name__]`` at call time rather than from the
+    closure-bound module dict, so it always sees the *current* module's
+    flag.
+    """
+
+    def test_uninitialized_path_after_reload(self) -> None:
+        """After a delete/re-import, ``traced_agent_run()`` correctly sees the
+        **new** module's ``_initialized=False`` and takes the fast path,
+        *even though* the function's ``__globals__`` still points to the old
+        module where ``_initialized`` was set to ``True``."""
+        import sys
+
+        mod_name = "cai.log.observability"
+        old_mod = sys.modules[mod_name]
+
+        # Set _initialized=True on the OLD module (what __globals__ sees)
+        old_mod._initialized = True
+
+        # Delete from sys.modules and re-import — creates a NEW module object
+        # whose _initialized is False (the module-level default).
+        del sys.modules[mod_name]
+        import cai.log.observability  # noqa: F811
+
+        try:
+            async def _run() -> None:
+                agent = AsyncMock(spec=["run"])
+                agent.run = AsyncMock(return_value="result")
+                # If the old function read from __globals__ it would see True
+                # and try to import Langfuse → ImportError.  The fix reads
+                # from sys.modules, so it sees False and takes the fast path.
+                with patch("langfuse.get_client", side_effect=ImportError("should not import")):
+                    result = await traced_agent_run("test", agent, "hello")
+                agent.run.assert_awaited_once_with("hello")
+                assert result is agent.run.return_value
+
+            asyncio.run(_run())
+        finally:
+            sys.modules[mod_name] = old_mod
+
+    def test_patched_initialized_after_reload(self) -> None:
+        """After a delete/re-import, patching the **new** module's
+        ``_initialized`` to ``True`` is visible to ``traced_agent_run``,
+        confirming the ``sys.modules`` lookup — not ``__globals__`` —
+        controls the flag."""
+        import sys
+
+        mod_name = "cai.log.observability"
+        old_mod = sys.modules[mod_name]
+
+        # Set _initialized=True on the OLD module (to contrast with the patch
+        # target on the new module)
+        old_mod._initialized = True
+
+        del sys.modules[mod_name]
+        import cai.log.observability  # noqa: F811
+
+        try:
+            async def _run() -> None:
+                agent = AsyncMock(spec=["run"])
+                agent.run = AsyncMock(return_value="result")
+                mock_client = MagicMock()
+                mock_client.start_as_current_observation.return_value.__enter__ = AsyncMock()
+                mock_client.start_as_current_observation.return_value.__exit__ = AsyncMock()
+
+                with (
+                    patch("cai.log.observability._initialized", True),
+                    patch("langfuse.get_client", return_value=mock_client),
+                ):
+                    result = await traced_agent_run("explore", agent, "investigate", deps="x")
+
+                # Confirm the Langfuse path was taken (initialized branch)
+                mock_client.start_as_current_observation.assert_called_once_with(
+                    name="explore",
+                    as_type="span",
+                    input="investigate",
+                )
+                agent.run.assert_awaited_once_with("investigate", deps="x")
+                assert result is agent.run.return_value
+
+            asyncio.run(_run())
+        finally:
+            sys.modules[mod_name] = old_mod
