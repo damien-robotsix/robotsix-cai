@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic_ai.usage import UsageLimits
 from pydantic_graph import End
 
 from cai.github.issues import IssueMeta
@@ -126,7 +127,7 @@ def test_only_first_sub_issue_gets_cai_raised(mock_agent_factory, mock_push, moc
         )
         return result
 
-    agent_instance.run = mock_run
+    agent_instance.run = MagicMock(side_effect=mock_run)
 
     # push returns an Issue-like object with an id
     def push_side_effect(bot, json_path):
@@ -195,7 +196,7 @@ def test_followup_sub_issues_drop_cai_raised_but_keep_other_labels(mock_agent_fa
         )
         return result
 
-    agent_instance.run = mock_run
+    agent_instance.run = MagicMock(side_effect=mock_run)
 
     def push_side_effect(bot, json_path):
         issue = MagicMock()
@@ -256,7 +257,7 @@ def test_sub_issues_inherit_no_labels_when_parent_has_none(mock_agent_factory, m
         )
         return result
 
-    agent_instance.run = mock_run
+    agent_instance.run = MagicMock(side_effect=mock_run)
 
     def push_side_effect(bot, json_path):
         issue = MagicMock()
@@ -299,7 +300,7 @@ def test_prompt_includes_session_id(mock_agent_factory, mock_push, mock_add_sub_
         )
         return result
 
-    agent_instance.run = mock_run
+    agent_instance.run = MagicMock(side_effect=mock_run)
 
     def push_side_effect(bot, json_path):
         issue = MagicMock()
@@ -350,7 +351,7 @@ def test_prompt_includes_reference_files_section_when_present(mock_agent_factory
         )
         return result
 
-    agent_instance.run = mock_run
+    agent_instance.run = MagicMock(side_effect=mock_run)
 
     def push_side_effect(bot, json_path):
         issue = MagicMock()
@@ -457,3 +458,47 @@ def test_solve_issue_applies_failed_label_when_refine_output_is_none(tmp_path):
     mock_gh.edit.assert_called_once()
     labels_arg = mock_gh.edit.call_args[1]["labels"]
     assert "cai:failed" in labels_arg
+
+
+# ---------------------------------------------------------------------------
+# RefineNode — request limit
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.workflows.refine.add_sub_issue")
+@patch("cai.workflows.refine.push")
+@patch("cai.workflows.refine.refine_agent")
+def test_refine_node_request_limit(mock_agent_factory, mock_push, mock_add_sub_issue, state, tmp_path):
+    """RefineNode passes UsageLimits with request_limit=100 to the refine agent."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        result = MagicMock()
+        result.output = RefineOutput(
+            title="Refined title",
+            reference_files=[],
+            sub_issues=[],
+        )
+        return result
+
+    agent_instance.run = MagicMock(side_effect=mock_run)
+
+    def push_side_effect(bot, json_path):
+        issue = MagicMock()
+        issue.id = 9001
+        issue.number = 90
+        meta_local = IssueMeta.model_validate_json(Path(json_path).read_text())
+        meta_local.number = 90
+        Path(json_path).write_text(meta_local.model_dump_json(indent=2) + "\n")
+        return issue
+
+    mock_push.side_effect = push_side_effect
+
+    _run(RefineNode(), state)
+
+    agent_instance.run.assert_called_once()
+    _, kwargs = agent_instance.run.call_args
+    assert "usage_limits" in kwargs
+    assert isinstance(kwargs["usage_limits"], UsageLimits)
+    assert kwargs["usage_limits"].request_limit == 100

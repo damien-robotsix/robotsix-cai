@@ -40,7 +40,7 @@ class ExploreNode(BaseNode[IssueState]):
             _explore_agent(),
             prompt,
             deps=repo_deps(state.repo_root),
-            usage_limits=UsageLimits(request_limit=50),
+            usage_limits=UsageLimits(request_limit=100),
         )
         state.findings = result.output
         state.reference_files = list(result.output.related_files)

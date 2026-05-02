@@ -238,7 +238,7 @@ def test_docs_node_sets_state_docs_output(mock_agent_factory, state):
 
 @patch("cai.workflows.docs._docs_agent")
 def test_docs_node_uses_request_limit(mock_agent_factory, state):
-    """The docs agent is called with UsageLimits(request_limit=50)."""
+    """The docs agent is called with UsageLimits(request_limit=100)."""
     agent_instance = MagicMock()
     mock_agent_factory.return_value = agent_instance
 
@@ -260,7 +260,7 @@ def test_docs_node_uses_request_limit(mock_agent_factory, state):
     _, kwargs = agent_instance.run.call_args
     assert "usage_limits" in kwargs
     assert isinstance(kwargs["usage_limits"], UsageLimits)
-    assert kwargs["usage_limits"].request_limit == 50
+    assert kwargs["usage_limits"].request_limit == 100
 
 
 # ---------------------------------------------------------------------------

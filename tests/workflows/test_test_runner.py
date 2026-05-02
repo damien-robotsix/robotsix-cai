@@ -66,7 +66,7 @@ def test_test_node_prompt_includes_findings_when_present(
 def test_test_node_request_limit(
     mock_agent, mock_run_tests, state,
 ):
-    """TestNode passes UsageLimits with request_limit=50 to the test_writer agent."""
+    """TestNode passes UsageLimits with request_limit=100 to the test_writer agent."""
     state.implement_output = ImplementOutput(
         summary="s", commit_message="c", required_checks=[], replies=[]
     )
@@ -87,7 +87,7 @@ def test_test_node_request_limit(
     _, kwargs = mock_agent_instance.run.call_args
     assert "usage_limits" in kwargs
     assert isinstance(kwargs["usage_limits"], UsageLimits)
-    assert kwargs["usage_limits"].request_limit == 50
+    assert kwargs["usage_limits"].request_limit == 100
 
 
 @patch("cai.workflows.test_runner._test_writer_agent")

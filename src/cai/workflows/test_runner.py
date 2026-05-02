@@ -102,7 +102,7 @@ class TestNode(BaseNode[IssueState]):
             _test_writer_agent(),
             prompt,
             deps=repo_deps(state.repo_root, write_dirs=[tests_dir]),
-            usage_limits=UsageLimits(request_limit=50),
+            usage_limits=UsageLimits(request_limit=100),
         )
         state.test_output = result.output
 

@@ -59,7 +59,7 @@ class DocsNode(BaseNode[IssueState]):
             _docs_agent(),
             prompt,
             deps=_deps(state.repo_root),
-            usage_limits=UsageLimits(request_limit=50),
+            usage_limits=UsageLimits(request_limit=100),
         )
         state.docs_output = result.output
         return PRNode()
