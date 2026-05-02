@@ -113,6 +113,20 @@ def test_determine_shape_push_with_other_events():
     assert _determine_shape(spec) == "gate"
 
 
+def test_determine_shape_ci_triage_is_resolve():
+    """ci-triage has only a workflow_run trigger, which maps to resolve shape.
+    This is why it must be in SKIP_SLUGS — the resolve template's
+    discover/matrix pattern does not fit its single-job structure."""
+    spec = _make_spec(events=[
+        GitHubTriggerEvent(
+            event="workflow_run",
+            workflows=["CI"],
+            types=["completed"],
+        ),
+    ])
+    assert _determine_shape(spec) == "resolve"
+
+
 # ── Template rendering: simple shape ────────────────────────────────────
 
 
@@ -510,6 +524,90 @@ def test_template_audit_errors_spec_does_not_have_failure_step():
 def test_skip_slugs_contains_audit_auto():
     """audit-auto is deliberately hand-written and skipped by the generator."""
     assert "audit-auto" in _gen_module.SKIP_SLUGS
+
+
+def test_skip_slugs_contains_ci_triage():
+    """ci-triage is hand-written because the resolve template's discover/matrix
+    pattern does not fit its single-job structure."""
+    assert "ci-triage" in _gen_module.SKIP_SLUGS
+
+
+def test_skip_slugs_contains_memory_audit():
+    """memory-audit has no GitHub Actions workflow yet."""
+    assert "memory-audit" in _gen_module.SKIP_SLUGS
+
+
+# ── main() SKIP_SLUGS iteration ────────────────────────────────────────
+
+
+def test_main_skips_ci_triage(tmp_path, monkeypatch):
+    """main() does not write a cai-ci-triage.yml because the slug is in SKIP_SLUGS."""
+    import pathlib
+
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(_gen_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(_gen_module, "WORKFLOWS_DIR", workflows_dir)
+    monkeypatch.setattr(_gen_module, "TEMPLATES_DIR", pathlib.Path("scripts/templates"))
+
+    ret = _gen_module.main()
+
+    assert ret == 1, "expected changed exit (files generated in empty dir)"
+    assert not (workflows_dir / "cai-ci-triage.yml").exists()
+
+
+def test_main_skips_audit_auto(tmp_path, monkeypatch):
+    """main() does not write cai-audit-auto.yml because the slug is in SKIP_SLUGS."""
+    import pathlib
+
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(_gen_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(_gen_module, "WORKFLOWS_DIR", workflows_dir)
+    monkeypatch.setattr(_gen_module, "TEMPLATES_DIR", pathlib.Path("scripts/templates"))
+
+    ret = _gen_module.main()
+
+    assert ret == 1, "expected changed exit (files generated in empty dir)"
+    assert not (workflows_dir / "cai-audit-auto.yml").exists()
+
+
+def test_main_skips_memory_audit(tmp_path, monkeypatch):
+    """main() does not write cai-memory-audit.yml because the slug is in SKIP_SLUGS."""
+    import pathlib
+
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(_gen_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(_gen_module, "WORKFLOWS_DIR", workflows_dir)
+    monkeypatch.setattr(_gen_module, "TEMPLATES_DIR", pathlib.Path("scripts/templates"))
+
+    ret = _gen_module.main()
+
+    assert ret == 1, "expected changed exit (files generated in empty dir)"
+    assert not (workflows_dir / "cai-memory-audit.yml").exists()
+
+
+def test_main_generates_solve_workflow(tmp_path, monkeypatch):
+    """main() generates cai-solve.yml for the solve spec which is not skipped."""
+    import pathlib
+
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(_gen_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(_gen_module, "WORKFLOWS_DIR", workflows_dir)
+    monkeypatch.setattr(_gen_module, "TEMPLATES_DIR", pathlib.Path("scripts/templates"))
+
+    ret = _gen_module.main()
+
+    assert ret == 1, "expected changed exit (files generated in empty dir)"
+    assert (workflows_dir / "cai-solve.yml").exists()
+    content = (workflows_dir / "cai-solve.yml").read_text()
+    assert "name: CAI Solve" in content
 
 
 # ── Template rendering: idempotency ─────────────────────────────────────

@@ -24,8 +24,10 @@ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 
 # Slugs without a generated workflow file. ``audit-auto`` is kept
-# hand-written; ``memory-audit`` has no GitHub Actions workflow yet.
-SKIP_SLUGS = {"audit-auto", "memory-audit"}
+# hand-written; ``memory-audit`` has no GitHub Actions workflow yet;
+# ``ci-triage`` is hand-written because the resolve template's
+# discover/matrix pattern does not fit its single-job structure.
+SKIP_SLUGS = {"audit-auto", "memory-audit", "ci-triage"}
 
 
 def _determine_shape(spec) -> str:
