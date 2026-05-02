@@ -43,7 +43,7 @@ def test_implement_node_request_limit(
     _, kwargs = mock_agent_instance.run.call_args
     assert "usage_limits" in kwargs
     assert isinstance(kwargs["usage_limits"], UsageLimits)
-    assert kwargs["usage_limits"].request_limit == 60
+    assert kwargs["usage_limits"].request_limit == 120
 
 
 @patch("cai.workflows.implement._implement_agent")

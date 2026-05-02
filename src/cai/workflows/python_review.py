@@ -48,7 +48,7 @@ class PythonReviewNode(BaseNode[IssueState]):
         result = await _python_review_agent().run(
             prompt,
             deps=_deps(state.repo_root),
-            usage_limits=UsageLimits(request_limit=50),
+            usage_limits=UsageLimits(request_limit=100),
         )
         state.python_review_output = result.output
         return GitHubWorkflowReviewNode()

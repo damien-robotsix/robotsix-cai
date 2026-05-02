@@ -56,7 +56,7 @@ class DocsNode(BaseNode[IssueState]):
         result = await _docs_agent().run(
             prompt,
             deps=_deps(state.repo_root),
-            usage_limits=UsageLimits(request_limit=50),
+            usage_limits=UsageLimits(request_limit=100),
         )
         state.docs_output = result.output
         return PRNode()

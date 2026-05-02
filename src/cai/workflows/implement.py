@@ -163,7 +163,7 @@ class ImplementNode(BaseNode[IssueState]):
         result = await _implement_agent().run(
             prompt,
             deps=_deps(state.repo_root),
-            usage_limits=UsageLimits(request_limit=60),
+            usage_limits=UsageLimits(request_limit=120),
         )
         state.implement_output = result.output
         return TestNode()
