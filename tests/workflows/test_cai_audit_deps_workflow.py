@@ -156,9 +156,11 @@ def test_docker_uses_correct_image(workflow: dict):
 # ── Structural properties that must NOT be present ──────────────────────
 
 
-def test_no_concurrency_block(workflow: dict):
-    """The workflow must not have a top-level concurrency block."""
-    assert "concurrency" not in workflow
+def test_concurrency_block(workflow: dict):
+    """The workflow must have a top-level concurrency block for the scheduled run."""
+    concurrency = workflow.get("concurrency", {})
+    assert concurrency.get("group") == "cai-audit-deps"
+    assert concurrency.get("cancel-in-progress") is True
 
 
 def test_no_gate_or_check_job(workflow: dict):

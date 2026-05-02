@@ -5,6 +5,10 @@ name: CAI Audit Deps
     - "cron": "0 0 1 * *"
   workflow_dispatch:
 
+concurrency:
+  group: cai-audit-deps
+  cancel-in-progress: true
+
 jobs:
   audit:
     "runs-on": ubuntu-latest
