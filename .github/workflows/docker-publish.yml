@@ -12,6 +12,10 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: docker-publish
+  cancel-in-progress: true
+
 jobs:
   publish:
     runs-on: ubuntu-latest
