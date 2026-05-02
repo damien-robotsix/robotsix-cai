@@ -4,11 +4,16 @@ on:
   issues:
     types: [closed]
 
+concurrency:
+  group: cai-parent-check-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
   parent-check:
     if: contains(github.event.issue.labels.*.name, 'cai:sub-issue')
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
 
     steps:

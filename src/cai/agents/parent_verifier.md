@@ -1,7 +1,7 @@
 ---
 name: parent-verifier
 description: Verify that a parent issue's requirements have been fulfilled by its closed sub-issues.
-model: google/gemini-2.5-flash
+model: deepseek/deepseek-v4-flash
 tools:
   - filesystem
   - subagents
