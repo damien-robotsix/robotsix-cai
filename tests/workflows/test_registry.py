@@ -20,6 +20,7 @@ from cai.workflows.registry import (
     GitHubTriggerEvent,
     WorkflowSpec,
     _audit_session_id,
+    _ci_triage_session_id,
     _conflicts_session_id,
     _memory_audit_session_id,
     _parent_check_session_id,
@@ -69,6 +70,7 @@ def test_registry_covers_user_facing_cli_scripts():
         "audit-errors": "cai-audit",
         "memory-audit": "cai-memory-audit",
         "parent-check": "cai-parent-check",
+        "ci-triage": "cai-ci-triage",
     }
     registered = {spec.slug for spec in WORKFLOWS}
     assert registered == set(expected), (
@@ -614,3 +616,47 @@ def test_conflicts_session_id_no_number():
 
     result = _conflicts_session_id(CliArgs(repo="a/b"))
     assert re.match(r"^conflicts-a-b-\d{8}-\d{4}$", result), f"unexpected format: {result!r}"
+
+
+def test_ci_triage_session_id_format():
+    """Returns a string matching ``ci-triage-YYYYMMDD-HHMMSS``."""
+    import re
+
+    sid = _ci_triage_session_id(CliArgs())
+    assert re.match(r"^ci-triage-\d{8}-\d{6}$", sid), f"unexpected format: {sid!r}"
+
+
+def test_ci_triage_spec_fields():
+    """ci-triage spec has the expected static fields."""
+    spec = by_slug("ci-triage")
+    assert spec.title == "cai-ci-triage"
+    assert spec.cli_entry == "cai.workflows.ci_triage:main"
+    assert spec.docker_command == (
+        'cai-ci-triage --repo "${{ github.repository }}" '
+        '--run-id "${{ github.event.workflow_run.id }}"'
+    )
+    assert spec.permissions == {"contents": "read", "issues": "write"}
+    assert spec.concurrency_group is None
+    assert spec.authorized_user_variant == "none"
+    assert callable(spec.session_id)
+
+
+def test_ci_triage_spec_trigger():
+    """ci-triage triggers on workflow_run of the CI workflow."""
+    spec = by_slug("ci-triage")
+    on = spec.github_trigger.on
+    assert len(on) == 1
+    event = on[0]
+    assert event.event == "workflow_run"
+    assert event.workflows == ["CI"]
+    assert event.types == ["completed"]
+
+
+def test_ci_triage_cli_entry_is_importable():
+    """ci-triage's cli_entry resolves to a callable."""
+    import importlib
+
+    module_path, _, attr = by_slug("ci-triage").cli_entry.partition(":")
+    mod = importlib.import_module(module_path)
+    target = getattr(mod, attr)
+    assert callable(target)

@@ -24,6 +24,7 @@ from cai.workflows.fsm import solve_graph
 from cai.workflows.sourcing import sourcing_graph
 from cai.workflows.memory_audit import memory_audit_graph
 from cai.workflows.parent_check import parent_check_graph
+from cai.workflows.ci_triage import ci_triage_graph
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,11 @@ def _conflicts_session_id(args: CliArgs) -> str:
     if args.number is not None:
         return f"conflicts-{repo_slug}#{args.number}"
     return f"conflicts-{repo_slug}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
+
+
+def _ci_triage_session_id(args: CliArgs) -> str:
+    """Return a timestamp-based session id matching the pattern in ``ci_triage.py``."""
+    return f"ci-triage-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
 
 WORKFLOWS: list[WorkflowSpec] = [
@@ -360,6 +366,31 @@ WORKFLOWS: list[WorkflowSpec] = [
         ),
         docker_command="cai-parent-check ${{ github.repository }}#${{ github.event.issue.number }}",
         permissions={"issues": "write"},
+        authorized_user_variant="none",
+    ),
+    WorkflowSpec(
+        slug="ci-triage",
+        title="cai-ci-triage",
+        nav_order=10,
+        blurb=(
+            "Triggered when the CI workflow completes. Fetches failed job logs, "
+            "triages the root cause with an LLM agent, and files a cai:raised "
+            "issue with findings."
+        ),
+        graph=ci_triage_graph,
+        cli_entry="cai.workflows.ci_triage:main",
+        session_id=_ci_triage_session_id,
+        github_trigger=GitHubTrigger(
+            on=[
+                GitHubTriggerEvent(
+                    event="workflow_run",
+                    workflows=["CI"],
+                    types=["completed"],
+                ),
+            ],
+        ),
+        docker_command='cai-ci-triage --repo "${{ github.repository }}" --run-id "${{ github.event.workflow_run.id }}"',
+        permissions={"contents": "read", "issues": "write"},
         authorized_user_variant="none",
     ),
 ]
