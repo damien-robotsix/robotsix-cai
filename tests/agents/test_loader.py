@@ -993,6 +993,7 @@ AGENTS_WITH_ANTI_HALLUCINATION = [
     "docs",
     "explore",
     "implement",
+    "parent_verifier",
     "python_review",
     "refine",
     "test_writer",
@@ -1064,6 +1065,7 @@ AGENTS_WITH_ANTIPATTERN_EXAMPLES = [
     "test_writer",
     "refine",
     "trace_analyst",
+    "parent_verifier",
 ]
 
 
@@ -1130,6 +1132,7 @@ FLASH_MODEL_AGENTS = [
     "resolve_step",
     "memory_audit",
     "test_writer",
+    "parent_verifier",
 ]
 
 
