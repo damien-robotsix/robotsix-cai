@@ -152,14 +152,24 @@ def _get_arg(args: Any, name: str) -> Any:
 
 
 class GrepGuardrailAsRetry(AbstractCapability):
-    """Break the model out of a repeated zero-result ``grep`` loop.
+    """Break the model out of repeated ``grep`` loops.
 
-    Models sometimes spiral on minor regex variations that all return
-    zero matches, burning context without progress. After
-    ``_THRESHOLD`` consecutive empty grep results, raise ``ModelRetry``
-    so the agent gets a recovery prompt telling it to stop searching
-    globally. Any non-empty grep result resets the counter, so a single
-    productive search clears the streak.
+    Two loop patterns are detected:
+
+    * **Zero-result loop** — the model spirals on minor regex variations
+      that all return zero matches, burning context without progress.
+      After ``_THRESHOLD`` consecutive empty grep results, raise
+      ``ModelRetry`` with a recovery prompt telling the agent to stop
+      searching globally and read files instead. A single non-empty
+      grep resets the counter.
+
+    * **Identical-argument non-empty loop** — pydantic_deep's grep tool
+      truncates output at 50–150 lines. Agents re-call ``grep .*`` with
+      the same arguments expecting pagination, but grep is idempotent
+      and returns the same truncated top-N lines every time. When two
+      consecutive non-empty grep calls share the same ``(pattern, path,
+      glob_pattern)``, raise ``ModelRetry`` with guidance to use
+      ``file_info`` and narrower patterns instead.
 
     State lives on the instance, but ``for_run`` returns a fresh
     instance per run so concurrent runs of the same agent don't share
@@ -173,6 +183,7 @@ class GrepGuardrailAsRetry(AbstractCapability):
         super().__init__()
         self._empty_grep_count = 0
         self._recently_removed: set[str] = set()
+        self._last_nonempty_grep: tuple | None = None
 
     async def for_run(self, ctx: Any) -> "GrepGuardrailAsRetry":
         return GrepGuardrailAsRetry()
@@ -192,6 +203,7 @@ class GrepGuardrailAsRetry(AbstractCapability):
             old_string = _get_arg(args, "old_string")
             if isinstance(old_string, str) and old_string:
                 self._recently_removed.add(old_string)
+            self._last_nonempty_grep = None
             return result
 
         if call.tool_name != "grep":
@@ -202,6 +214,30 @@ class GrepGuardrailAsRetry(AbstractCapability):
         is_empty = not stripped or stripped.startswith(self._NO_MATCH_PREFIX)
         if not is_empty:
             self._empty_grep_count = 0
+            # Detect identical-argument non-empty grep loops.
+            # pydantic_deep's grep tool truncates output at 50-150 lines
+            # with messages like "showing first 50 of 67 matches". Agents
+            # re-call with the same arguments expecting pagination, but
+            # grep output is idempotent — they get the same truncated
+            # lines every time. Catch that here.
+            current_key = (
+                _get_arg(args, "pattern"),
+                _get_arg(args, "path"),
+                _get_arg(args, "glob_pattern"),
+            )
+            if self._last_nonempty_grep == current_key:
+                self._last_nonempty_grep = None
+                raise ModelRetry(
+                    "You just called grep with the same arguments as your last "
+                    "non-empty grep call. grep output is truncated by the tool "
+                    "framework — calling grep with identical arguments returns "
+                    "the same truncated top-N lines, not paginated results. "
+                    "Instead, use file_info to discover the file's total line "
+                    "count, then use grep with a narrower pattern, or use "
+                    "read_file with specific offsets to get the content you "
+                    "need."
+                )
+            self._last_nonempty_grep = current_key
             return result
 
         # Exempt verification greps: when the grep pattern contains

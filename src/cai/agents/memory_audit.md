@@ -9,6 +9,8 @@ tools:
 
 # Memory Audit Agent
 
+> **grep truncation:** The `grep` tool truncates output at 50–150 lines. If you get a truncated result, use `file_info` to discover the file's total line count, then use narrower grep patterns or `read_file` with specific offsets — do not re-call grep with identical arguments expecting pagination.
+
 You are a staleness auditor for a local `.cai/memory/` directory. Each
 entry is a markdown file with YAML frontmatter containing at minimum
 `status` (one of `active`, `stale`, `superseded`) and optionally a

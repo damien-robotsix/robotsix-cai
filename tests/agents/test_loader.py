@@ -858,6 +858,188 @@ def test_grep_guardrail_no_exemption_when_recently_removed_empty():
 
 
 # ---------------------------------------------------------------------------
+# GrepGuardrailAsRetry — identical-argument non-empty grep loop detection
+# ---------------------------------------------------------------------------
+
+
+def test_grep_guardrail_identical_nonempty_grep_raises_modelretry():
+    """Two consecutive non-empty grep calls with identical (pattern, path,
+    glob_pattern) raise ModelRetry with truncation guidance."""
+    cap = GrepGuardrailAsRetry()
+    # First call — succeeds, stored as _last_nonempty_grep.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src"},
+        result="showing first 50 of 67 matches:\n  foo.py\n  bar.py\n...",
+    ))
+    # Second call with identical args — raises.
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None,
+            args={"pattern": ".*", "path": "src"},
+            result="showing first 50 of 67 matches:\n  foo.py\n  bar.py\n...",
+        ))
+    msg = str(exc.value)
+    assert "same arguments" in msg
+    assert "truncated" in msg
+    assert "file_info" in msg
+    assert "read_file" in msg
+
+
+def test_grep_guardrail_different_nonempty_grep_does_not_raise():
+    """Different (pattern, path, glob_pattern) on consecutive non-empty greps
+    does NOT raise ModelRetry — only identical arguments trigger the guard."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src"},
+        result="showing first 50 of 67 matches:\n  foo.py\n...",
+    ))
+    # Different pattern — should pass through.
+    result = _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "def test", "path": "src"},
+        result="showing first 10 of 30 matches:\n  test_foo.py\n...",
+    ))
+    assert "test_foo.py" in result
+    assert cap._empty_grep_count == 0
+
+
+def test_grep_guardrail_different_path_nonempty_does_not_raise():
+    """Same pattern but different path — no ModelRetry."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src"},
+        result="showing first 50 of 67 matches:\n  foo.py\n...",
+    ))
+    result = _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "tests"},
+        result="showing first 10 of 20 matches:\n  test_foo.py\n...",
+    ))
+    assert "test_foo.py" in result
+
+
+def test_grep_guardrail_different_glob_pattern_nonempty_does_not_raise():
+    """Same pattern and path but different glob_pattern — no ModelRetry."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src", "glob_pattern": "*.py"},
+        result="showing first 50 of 67 matches:\n  foo.py\n...",
+    ))
+    result = _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src", "glob_pattern": "*.md"},
+        result="showing first 5 of 10 matches:\n  README.md\n...",
+    ))
+    assert "README.md" in result
+
+
+def test_grep_guardrail_empty_grep_no_interference_with_identical_tracking():
+    """Empty grep followed by another empty grep with identical arguments
+    still goes through the zero-result path — the identical-argument
+    non-empty tracking does NOT interfere."""
+    cap = GrepGuardrailAsRetry()
+    # First empty grep.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "nonexistent", "path": "src"},
+        result="No matches for 'nonexistent'",
+    ))
+    assert cap._empty_grep_count == 1
+    # Second empty grep with identical args — should increment, not hit
+    # the non-empty identical-argument path.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "nonexistent", "path": "src"},
+        result="No matches for 'nonexistent'",
+    ))
+    assert cap._empty_grep_count == 2
+    # _last_nonempty_grep should still be None (never set).
+    assert cap._last_nonempty_grep is None
+
+
+def test_grep_guardrail_nonempty_then_empty_with_same_args():
+    """Non-empty grep followed by empty grep with same args: the empty
+    grep should NOT match the non-empty identical-arg check (only non-empty
+    greps are considered)."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src"},
+        result="showing first 50 of 67 matches:\n  foo.py\n...",
+    ))
+    # Empty grep with same args — should go to zero-result path.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src"},
+        result="No matches for '.*'",
+    ))
+    assert cap._empty_grep_count == 1
+
+
+def test_grep_guardrail_for_run_resets_last_nonempty_grep():
+    """for_run returns a fresh instance so _last_nonempty_grep is None."""
+    cap = GrepGuardrailAsRetry()
+    # Simulate a non-empty grep to set the tuple.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src"},
+        result="showing first 50 of 67 matches:\n  foo.py\n...",
+    ))
+    assert cap._last_nonempty_grep is not None
+    fresh = _run(cap.for_run(None))
+    assert fresh is not cap
+    assert fresh._last_nonempty_grep is None
+    assert fresh._empty_grep_count == 0
+    assert fresh._recently_removed == set()
+
+
+def test_grep_guardrail_edit_file_resets_last_nonempty_grep():
+    """An edit_file call resets _last_nonempty_grep, so a subsequent grep
+    with the same args as before the edit is not falsely blocked."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src"},
+        result="showing first 50 of 67 matches:\n  foo.py\n...",
+    ))
+    assert cap._last_nonempty_grep is not None
+    # Simulate an edit_file.
+    _run(cap.after_tool_execute(
+        None, call=SimpleNamespace(tool_name="edit_file"),
+        tool_def=None, args={"old_string": "foo"}, result="ok",
+    ))
+    assert cap._last_nonempty_grep is None
+    # Same grep again — should be allowed (starts a fresh tracking).
+    result = _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": ".*", "path": "src"},
+        result="showing first 50 of 67 matches:\n  foo.py\n...",
+    ))
+    assert "foo.py" in result
+
+
+def test_grep_guardrail_object_args_identical_nonempty_raises():
+    """Identical-argument detection works with object-style args too."""
+    cap = GrepGuardrailAsRetry()
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args=SimpleNamespace(pattern=".*", path="src", glob_pattern=None),
+        result="showing first 50 of 67 matches:\n  foo.py\n...",
+    ))
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None,
+            args=SimpleNamespace(pattern=".*", path="src", glob_pattern=None),
+            result="showing first 50 of 67 matches:\n  foo.py\n...",
+        ))
+    assert "truncated" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
 # parse_agent_md
 # ---------------------------------------------------------------------------
 

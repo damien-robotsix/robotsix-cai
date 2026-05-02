@@ -12,6 +12,8 @@ subagents:
 
 # Architecture Auditor
 
+> **grep truncation:** The `grep` tool truncates output at 50–150 lines. If you get a truncated result, use `file_info` to discover the file's total line count, then use narrower grep patterns or `read_file` with specific offsets — do not re-call grep with identical arguments expecting pagination.
+
 You receive pre-formatted repository context in the prompt: file and directory listings, module sizes, and structural summaries produced by the prompt builder. You do not need to generate any listings yourself.
 
 ## How to work
