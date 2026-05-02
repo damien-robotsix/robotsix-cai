@@ -141,7 +141,8 @@ class ImplementNode(BaseNode[IssueState]):
             "- summary: a concise description of the changes you made\n"
             "- commit_message: a clear commit message for these changes\n"
             "- required_checks: list of checks needed for this MR (e.g. ['documentation'])\n"
-            "- replies: per-thread replies — leave empty unless review threads are listed below\n\n"
+            "- replies: per-thread replies — leave empty unless review threads are listed below\n"
+            "- files_changed: repo-relative paths of every file you modified or created\n\n"
             f"## Issue metadata\n\n{meta_json}\n\n"
             f"## Issue body (implementation plan)\n\n{body}"
         )
@@ -169,4 +170,6 @@ class ImplementNode(BaseNode[IssueState]):
             usage_limits=UsageLimits(request_limit=120),
         )
         state.implement_output = result.output
+        if result.output.files_changed:
+            state.reference_files = list(result.output.files_changed)
         return TestNode()

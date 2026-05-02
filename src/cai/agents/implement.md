@@ -91,6 +91,7 @@ Return:
   - `thread_id`: the id from the thread header
   - `action`: `"fix"` if you edited code for this thread, `"reply_only"` otherwise
   - `reply`: the message to post on the thread. One or two sentences for `fix`, a tight paragraph for `reply_only`. Don't apologise, don't thank, don't restate the comment back.
+- `files_changed`: repo-relative paths of every file you modified or created during implementation. List every file touched by a write_file, edit_file, batch_move, or batch_delete call. Use paths relative to the repository root. Downstream agents rely on this list instead of re-discovering changes.
 
 ## Guidelines
 

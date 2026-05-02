@@ -53,6 +53,9 @@ class DocsNode(BaseNode[IssueState]):
             f"## Implementation summary\n\n{state.implement_output.summary}\n\n"
             f"## Implementation commit message\n\n{state.implement_output.commit_message}"
         )
+        reference_section = state.reference_files_section()
+        if reference_section:
+            prompt += "\n\n" + reference_section
 
         result = await traced_agent_run(
             "docs",

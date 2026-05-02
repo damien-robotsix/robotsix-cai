@@ -153,3 +153,91 @@ def test_findings_appear_between_body_and_reference_files(
     assert body_idx < findings_idx < ref_idx, (
         "Findings must appear after issue body and before reference files"
     )
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_prompt_includes_files_changed_instruction(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """The implement prompt instructs the agent to return files_changed."""
+    mock_conflicted_files.return_value = []
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        class MockResult:
+            output = MagicMock()
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    assert captured_prompt is not None
+    assert "files_changed" in captured_prompt, (
+        "Prompt should instruct the agent to return files_changed"
+    )
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_reference_files_refreshed_from_files_changed(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """When implement returns files_changed, state.reference_files is updated."""
+    mock_conflicted_files.return_value = []
+    state.reference_files = ["old_file.py"]
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        class MockResult:
+            output = MagicMock()
+        MockResult.output.files_changed = ["src/a.py", "src/b.py"]
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    assert state.reference_files == ["src/a.py", "src/b.py"], (
+        "state.reference_files should be replaced with files_changed from implement output"
+    )
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_reference_files_not_refreshed_when_files_changed_empty(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """When implement returns empty files_changed, state.reference_files is unchanged."""
+    mock_conflicted_files.return_value = []
+    original_refs = ["old_file.py"]
+    state.reference_files = list(original_refs)
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        class MockResult:
+            output = MagicMock()
+        MockResult.output.files_changed = []
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    assert state.reference_files == original_refs, (
+        "state.reference_files should NOT be updated when files_changed is empty"
+    )
