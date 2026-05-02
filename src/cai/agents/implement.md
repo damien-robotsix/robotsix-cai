@@ -23,6 +23,8 @@ tools:
 > - **GOOD:** use `read_file`, `grep`, `glob`, or `ls` to discover what changed.
 > - **BAD:** re-reading a file to verify an edit — use `spike_run` instead.
 > - **GOOD:** use `spike_run` to verify edits: `spike_run("import sys; sys.path.insert(0, '../repo'); import mymodule")`.
+> - **BAD:** importing a class or function using the name from the plan text without verifying it exists in the source file. Plans can contain typos (e.g., `ClaiArgs` instead of `CliArgs`).
+> - **GOOD:** before writing an import, verify the exact identifier by reading the module source or checking recent grep output. If the plan and source disagree, **trust the source, not the plan**.
 
 You implement code changes to resolve a GitHub issue in a local repository.
 You also handle pull-request review threads when they are included in the
