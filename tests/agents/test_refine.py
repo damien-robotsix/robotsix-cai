@@ -22,6 +22,7 @@ def test_refine_agent_config():
     assert "traces_solve_sessions" in tools
     assert "context_manager" in tools
     assert "history_archive" in tools
+    assert "spike_run" in tools
     
     # Assert subagents
     subagents = config.get("subagents", [])
@@ -45,6 +46,87 @@ def test_refine_agent_config():
     assert "Write intermediate research findings" in instructions
     assert "context_manager" in instructions
     assert "history_archive" in instructions
+
+
+def test_refine_prompt_includes_minimize_delegation_section():
+    """Verify refine.md contains the '## Minimize delegation' section."""
+    refine_file = resolve_agent_path("refine")
+    _, instructions = parse_agent_md(refine_file)
+
+    assert "## Minimize delegation" in instructions, (
+        "refine.md must contain '## Minimize delegation' section"
+    )
+
+
+def test_refine_prompt_includes_spike_run_as_direct_tool():
+    """Verify refine.md describes spike_run as a direct tool (not a subagent)
+    in the 'Choosing a subagent' section."""
+    refine_file = resolve_agent_path("refine")
+    _, instructions = parse_agent_md(refine_file)
+
+    assert "**spike_run** is a **direct tool** (not a subagent)" in instructions, (
+        "refine.md must describe spike_run as a direct tool in 'Choosing a subagent'"
+    )
+    assert "Prefer direct `spike_run` over delegating to the spike subagent" in instructions, (
+        "refine.md must instruct preferring direct spike_run over spike subagent"
+    )
+
+
+def test_refine_prompt_includes_use_direct_spike_run_in_minimize_delegation():
+    """The Minimize delegation section instructs using direct spike_run
+    for simple runtime facts."""
+    refine_file = resolve_agent_path("refine")
+    _, instructions = parse_agent_md(refine_file)
+
+    assert "**Use direct `spike_run` for simple runtime facts**" in instructions, (
+        "refine.md Minimize delegation must recommend direct spike_run for simple facts"
+    )
+    assert (
+        "one-liner import checks, return-type inspections, and exception-class probes"
+        in instructions
+    ), (
+        "refine.md Minimize delegation must list examples of simple spike_run uses"
+    )
+
+
+def test_refine_prompt_includes_read_files_directly_in_minimize_delegation():
+    """The Minimize delegation section instructs using read_file/grep/glob/ls
+    directly rather than delegating to explore subagent."""
+    refine_file = resolve_agent_path("refine")
+    _, instructions = parse_agent_md(refine_file)
+
+    assert "**Read files directly**" in instructions, (
+        "refine.md Minimize delegation must recommend reading files directly"
+    )
+
+
+def test_refine_prompt_includes_batch_related_questions_in_minimize_delegation():
+    """The Minimize delegation section instructs batching related questions
+    when delegation is truly needed."""
+    refine_file = resolve_agent_path("refine")
+    _, instructions = parse_agent_md(refine_file)
+
+    assert "**Batch related questions**" in instructions, (
+        "refine.md Minimize delegation must include batch related questions guidance"
+    )
+    assert "combine related questions into a single sub-agent call" in instructions
+
+
+def test_refine_prompt_stay_in_your_lane_mentions_spike_run():
+    """The 'Stay in your lane' section mentions using spike_run for verification
+    rather than editing repo files."""
+    refine_file = resolve_agent_path("refine")
+    _, instructions = parse_agent_md(refine_file)
+
+    assert "## Stay in your lane" in instructions
+    assert "spike_run" in instructions.split("## Stay in your lane")[1].split("## ")[0], (
+        "refine.md 'Stay in your lane' section must mention spike_run as the "
+        "verification alternative to write_file/edit_file"
+    )
+    assert (
+        "do **not** call `write_file`/`edit_file` on anything under `repo/`"
+        in instructions
+    ), "refine.md 'Stay in your lane' must forbid write_file/edit_file on repo files"
 
 
 def test_refine_prompt_includes_avoid_rereading_guidance():

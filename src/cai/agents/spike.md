@@ -58,8 +58,10 @@ without executing anything.
 
 ## Guidelines
 
-- **One fact per spike.** If you find yourself writing branches to
-  cover multiple questions, stop and ask the caller to split.
+- **One fact (or a small cluster of closely related facts) per spike.**
+  If you find yourself writing branches to cover unrelated questions,
+  stop and ask the caller to split. Batch related runtime facts that
+  share setup or target the same module into a single `spike_run` call.
 - **Short scripts.** Default `timeout` is 60s; bump it only if the
   script is genuinely slow (`pip_install` has its own bound).
 - **Failures are answers.** If the script raises, report the

@@ -538,3 +538,35 @@ def test_spike_md_pitfall_guardrail_messages():
 
     assert "guardrail" in content.lower()
     assert "not a match" in content.lower()
+
+
+def test_spike_md_one_fact_or_small_cluster_per_spike():
+    """spike.md's Guidelines section has the updated one-fact allowance
+    permitting a small cluster of closely related facts."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    assert "One fact (or a small cluster of closely related facts) per spike" in content, (
+        "spike.md must allow a small cluster of closely related facts per spike"
+    )
+
+
+def test_spike_md_batch_related_runtime_facts():
+    """spike.md instructs batching related runtime facts that share setup
+    or target the same module into a single spike_run call."""
+    import cai.agents
+
+    spike_md = Path(cai.agents.__file__).parent / "spike.md"
+    content = spike_md.read_text()
+
+    assert "Batch related runtime facts" in content, (
+        "spike.md must include batching guidance for related runtime facts"
+    )
+    assert "share setup or target the same module" in content, (
+        "spike.md batching guidance must mention shared setup or same module"
+    )
+    assert "single `spike_run` call" in content, (
+        "spike.md must reference single spike_run call in batching guidance"
+    )
