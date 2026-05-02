@@ -12,6 +12,7 @@ from cai.agents.loader import (
     GlobPatternSanitizer,
     ToolErrorAsRetry,
     GrepGuardrailAsRetry,
+    WriteFileGuardrailAsRetry,
     _get_arg,
     HistoryCompactorCapability,
     MicroReadGuardCapability,
@@ -367,6 +368,110 @@ def test_edit_file_guardrail_before_execute_object_args(tmp_path):
         None, call=_edit_call(), tool_def=None, args=args,
     ))
     assert result is args
+
+
+def _write_call(name="write_file"):
+    return SimpleNamespace(tool_name=name)
+
+
+# ---------------------------------------------------------------------------
+# WriteFileGuardrailAsRetry
+# ---------------------------------------------------------------------------
+
+
+def test_write_file_guardrail_passes_through_for_new_file(tmp_path):
+    """When the target file does not exist, write_file is allowed through."""
+    cap = WriteFileGuardrailAsRetry()
+    new_path = str(tmp_path / "nonexistent.py")
+    args = {"path": new_path, "content": "print('hello')\n"}
+    result = _run(cap.before_tool_execute(
+        None, call=_write_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_write_file_guardrail_passes_through_for_non_write_file():
+    """Non-write_file tools pass through without inspection."""
+    cap = WriteFileGuardrailAsRetry()
+    args = {"path": "somefile.py", "old_string": "x", "new_string": "y"}
+    result = _run(cap.before_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_write_file_guardrail_passes_through_missing_args():
+    """Missing path or content → pass through (let the real tool handle it)."""
+    cap = WriteFileGuardrailAsRetry()
+    result = _run(cap.before_tool_execute(
+        None, call=_write_call(), tool_def=None, args={"path": "f.py"},
+    ))
+    assert result is not None
+
+
+def test_write_file_guardrail_retries_high_similarity(tmp_path):
+    """When the proposed content is ≥80% identical to the existing file,
+    ModelRetry is raised telling the model to use edit_file instead."""
+    cap = WriteFileGuardrailAsRetry()
+    original = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n"
+    # Change one line — should be ~90% similar
+    modified = original.replace("line5\n", "CHANGED_LINE\n")
+    fpath = _tmp_file(tmp_path, "a.py", original)
+    args = {"path": fpath, "content": modified}
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.before_tool_execute(
+            None, call=_write_call(), tool_def=None, args=args,
+        ))
+    msg = str(exc.value)
+    assert fpath in msg
+    assert "edit_file" in msg
+    assert "%" in msg
+
+
+def test_write_file_guardrail_passes_through_low_similarity(tmp_path):
+    """When the proposed content is substantially different (<80%),
+    it passes through to the real tool."""
+    cap = WriteFileGuardrailAsRetry()
+    original = "line1\nline2\nline3\nline4\nline5\n"
+    # Replace most of the file — should be well below 80%
+    modified = "completely\ndifferent\nfile\ncontent\nhere\n"
+    fpath = _tmp_file(tmp_path, "a.py", original)
+    args = {"path": fpath, "content": modified}
+    result = _run(cap.before_tool_execute(
+        None, call=_write_call(), tool_def=None, args=args,
+    ))
+    assert result is args
+
+
+def test_write_file_guardrail_wired_into_build_deep_agent_capabilities(monkeypatch):
+    """WriteFileGuardrailAsRetry is registered after EditFileGuardrailAsRetry
+    and before UnknownToolRetry."""
+    import cai.agents.loader as loader
+
+    captured: dict = {}
+
+    def fake_create_deep_agent(model, **kwargs):
+        captured["capabilities"] = kwargs.get("capabilities")
+        return object()
+
+    monkeypatch.setattr(
+        "pydantic_deep.create_deep_agent", fake_create_deep_agent
+    )
+    monkeypatch.setattr(loader, "build_model", lambda config: object())
+    monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
+
+    config = {"name": "test-agent", "model": "deepseek/deepseek-v4-pro"}
+    loader.build_deep_agent(config, "instructions")
+
+    cap_types = [type(c).__name__ for c in captured["capabilities"]]
+    assert "WriteFileGuardrailAsRetry" in cap_types
+    write_idx = cap_types.index("WriteFileGuardrailAsRetry")
+    edit_idx = cap_types.index("EditFileGuardrailAsRetry")
+    unknown_idx = cap_types.index("UnknownToolRetry")
+    assert edit_idx < write_idx < unknown_idx, (
+        "WriteFileGuardrailAsRetry must be after EditFileGuardrailAsRetry "
+        "and before UnknownToolRetry"
+    )
 
 
 def test_grep_guardrail_passes_through_non_grep_tool():

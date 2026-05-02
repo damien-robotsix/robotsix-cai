@@ -25,6 +25,7 @@ __all__ = [
     "TOOL_FLAGS",
     "ToolErrorAsRetry",
     "UnknownToolRetry",
+    "WriteFileGuardrailAsRetry",
     "build_deep_agent",
     "build_deep_agent_kwargs",
     "build_model",
@@ -35,6 +36,7 @@ __all__ = [
 ]
 
 import dataclasses
+import difflib
 import json
 import os
 import re
@@ -46,7 +48,7 @@ import httpx
 import yaml
 from openai import AsyncOpenAI
 from pydantic_ai import Agent, NativeOutput, PromptedOutput, RunContext, TextOutput, ToolOutput
-from pydantic_ai.capabilities.abstract import AbstractCapability
+from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
 from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models import ModelRequestContext, ModelRequestParameters
@@ -349,6 +351,61 @@ class EditFileGuardrailAsRetry(AbstractCapability):
             f"one unique line above or below (e.g., a slug, title, or "
             f"function name) — to disambiguate the target location."
         )
+
+
+class WriteFileGuardrailAsRetry(AbstractCapability):
+    """Nudge the model away from ``write_file`` when a targeted ``edit_file`` would suffice.
+
+    Models sometimes rewrite entire files via ``write_file`` for small
+    fixes (e.g. a 2-line change in a 270-line file).  The full file
+    content lives in the ``ToolCallPart`` arguments and bloats
+    conversation context, forcing downstream LLM calls to process it
+    repeatedly.
+
+    This capability intercepts ``write_file`` calls in
+    :meth:`before_tool_execute`: when the target file already exists,
+    it reads the disk content and compares it against the proposed
+    ``content`` via ``difflib.SequenceMatcher.ratio()``.  If similarity
+    is at least 80 %, it raises ``ModelRetry`` telling the model to use
+    ``edit_file`` instead and explaining the context-cost impact.  When
+    the file doesn't exist, or the content differs substantially, the
+    call passes through unchanged.
+    """
+
+    _SIMILARITY_THRESHOLD = 0.80
+
+    async def before_tool_execute(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any,
+    ) -> Any:
+        if call.tool_name != "write_file":
+            return args
+        path = _get_arg(args, "path")
+        new_content = _get_arg(args, "content")
+        if not (isinstance(path, str) and path and isinstance(new_content, str)):
+            return args
+        try:
+            existing = Path(path).read_text()
+        except (FileNotFoundError, PermissionError, OSError):
+            # File doesn't exist — creating a new file is fine.
+            return args
+
+        # Count lines for a human-scale description in the retry message.
+        new_lines = new_content.count("\n") + (0 if new_content.endswith("\n") else 1)
+        existing_lines = existing.count("\n") + (0 if existing.endswith("\n") else 1)
+
+        similarity = difflib.SequenceMatcher(None, existing, new_content).ratio()
+        if similarity >= self._SIMILARITY_THRESHOLD:
+            raise ModelRetry(
+                f"write_file on {path!r} is {similarity:.0%} identical to the "
+                f"existing file ({existing_lines} lines).  The proposed content "
+                f"would replace {existing_lines} lines with {new_lines} — a "
+                f"near-duplicate rewrite that bloats conversation context "
+                f"(each write_file carries the full file content in "
+                f"ToolCallPart arguments) and inflates downstream costs.  Use "
+                f"edit_file instead with a targeted old_string/new_string pair "
+                f"to change only the lines that differ."
+            )
+        return args
 
 
 class UnknownToolRetry(AbstractCapability):
@@ -1094,6 +1151,7 @@ def build_deep_agent(
     extra["capabilities"] = [
         *(extra.get("capabilities") or []),
         EditFileGuardrailAsRetry(),
+        WriteFileGuardrailAsRetry(),
         UnknownToolRetry(),
         GlobPatternSanitizer(),
         ToolErrorAsRetry(),

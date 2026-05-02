@@ -138,6 +138,34 @@ def test_implement_agent_config():
         in instructions
     ), "Prompt must mention reusing previous read_file output when HistoryCompactor fires"
 
+    # Assert trust-successful-edits guidance (issue #1602)
+    assert (
+        "reuse your previous `read_file` output"
+        in instructions
+    ), "Prompt must mention reusing previous read_file output when HistoryCompactor fires"
+
+    # Assert explicit edit_file preference and write_file threshold (issue #1700)
+    assert (
+        "Prefer `edit_file` for targeted changes"
+        in instructions
+    ), "Prompt must include explicit edit_file preference"
+    assert (
+        "write_file` only when creating new files or rewriting more than 50%"
+        in instructions
+    ), "Prompt must include concrete write_file threshold (>50% of lines)"
+    assert (
+        "2-line fix in a 270-line file should use `edit_file`"
+        in instructions
+    ), "Prompt must include concrete anti-example for write_file on small fixes"
+    assert (
+        "bloats conversation context"
+        in instructions
+    ), "Prompt must explain the context-bloat cost of write_file"
+    assert (
+        "When in doubt, choose `edit_file`"
+        in instructions
+    ), "Prompt must close with a decisive edit_file default"
+
 
 def test_implement_prompt_includes_avoid_rereading_guidance():
     """Verify implement.md contains check-conversation-history guidance."""
