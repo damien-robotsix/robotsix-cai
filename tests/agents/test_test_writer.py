@@ -44,3 +44,21 @@ def test_test_writer_model_is_not_pro():
     assert config["model"] != "deepseek/deepseek-v4-pro", (
         "test_writer should use deepseek-v4-flash, not the expensive pro reasoning model"
     )
+
+
+def test_test_writer_prompt_includes_avoid_rereading_guidance():
+    """Verify test_writer.md contains avoid-re-reading guidance."""
+    tw_file = resolve_agent_path("test_writer")
+    _, instructions = parse_agent_md(tw_file)
+
+    assert "**Avoid re-reading:**" in instructions, (
+        "test_writer.md must contain 'Avoid re-reading' guidance"
+    )
+    assert (
+        "before calling `read_file`, check your conversation history"
+        in instructions
+    ), "test_writer.md must instruct agent to check conversation history before read_file"
+    assert (
+        "Only re-read when you need data from an unread range or the file may have changed"
+        in instructions
+    )

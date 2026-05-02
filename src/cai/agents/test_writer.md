@@ -35,6 +35,8 @@ You write pytest unit tests for code changes made by the implementation agent.
 5. Leave `commit_message` empty if you made no changes to test files
 6. **Paginate large files:** For files >200 lines, use `offset` and `limit`. First scan with `limit=100` to understand structure, then read targeted sections.
 
+- **Avoid re-reading:** before calling `read_file`, check your conversation history. File contents from earlier reads are still in context. Only re-read when you need data from an unread range or the file may have changed.
+
 ## Test requirements
 
 - **No LLM calls**: never import or instantiate `anthropic`, `openai`, `pydantic_ai`, or any API client

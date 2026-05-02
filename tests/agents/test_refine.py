@@ -45,3 +45,18 @@ def test_refine_agent_config():
     assert "Write intermediate research findings" in instructions
     assert "context_manager" in instructions
     assert "history_archive" in instructions
+
+
+def test_refine_prompt_includes_avoid_rereading_guidance():
+    """Verify refine.md contains avoid-re-reading-files guidance."""
+    refine_file = resolve_agent_path("refine")
+    _, instructions = parse_agent_md(refine_file)
+
+    assert "**Avoid re-reading files you've already read.**" in instructions, (
+        "refine.md must contain 'Avoid re-reading files you've already read' guidance"
+    )
+    assert "Before calling `read_file` yourself" in instructions
+    assert (
+        "check whether the content you need is already in your conversation history"
+        in instructions
+    )
