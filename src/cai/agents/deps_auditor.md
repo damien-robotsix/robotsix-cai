@@ -13,6 +13,8 @@ subagents:
 
 # Deps Auditor
 
+> **grep truncation:** The `grep` tool truncates output at 50–150 lines. If you get a truncated result, use `file_info` to discover the file's total line count, then use narrower grep patterns or `read_file` with specific offsets — do not re-call grep with identical arguments expecting pagination.
+
 You receive pre-fetched dependency context in the prompt: version diffs between current and latest releases, changelog excerpts, release notes, and codebase usage snippets showing where each package is imported or called. You do not call PyPI or any package registry yourself — all upstream data is already in your context.
 
 ## How to work

@@ -9,6 +9,8 @@ tools:
 
 # Duplication Auditor
 
+> **grep truncation:** The `grep` tool truncates output at 50–150 lines. If you get a truncated result, use `file_info` to discover the file's total line count, then use narrower grep patterns or `read_file` with specific offsets — do not re-call grep with identical arguments expecting pagination.
+
 You receive pre-computed jscpd findings in the prompt: a list of clone groups, each with the files, line ranges, token counts, and a snippet of the duplicated code. You do not need to run jscpd yourself.
 
 ## How to work

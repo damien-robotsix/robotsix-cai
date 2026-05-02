@@ -25,6 +25,8 @@ tools:
 > - **GOOD:** use `spike_run` to verify edits: `spike_run("import sys; sys.path.insert(0, '../repo'); import mymodule")`.
 > - **BAD:** importing a class or function using the name from the plan text without verifying it exists in the source file. Plans can contain typos (e.g., `ClaiArgs` instead of `CliArgs`).
 > - **GOOD:** before writing an import, verify the exact identifier by reading the module source or checking recent grep output. If the plan and source disagree, **trust the source, not the plan**.
+>
+> **grep truncation:** The `grep` tool truncates output at 50–150 lines. If you get a truncated result, use `file_info` to discover the file's total line count, then use narrower grep patterns or `read_file` with specific offsets — do not re-call grep with identical arguments expecting pagination.
 
 You implement code changes to resolve a GitHub issue in a local repository.
 You also handle pull-request review threads when they are included in the

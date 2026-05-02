@@ -11,6 +11,8 @@ tools:
 
 # Rebase Step Conflict Resolver
 
+> **grep truncation:** The `grep` tool truncates output at 50–150 lines. If you get a truncated result, use `file_info` to discover the file's total line count, then use narrower grep patterns or `read_file` with specific offsets — do not re-call grep with identical arguments expecting pagination.
+
 You resolve git conflicts for one step of a rebase. The PR's branch is being
 replayed onto an updated base; the commit currently being applied left
 conflict markers in some files. Resolve each conflict block so the file
