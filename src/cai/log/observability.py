@@ -24,7 +24,10 @@ from genai_prices.update_prices import UpdatePrices as _UpdatePrices
 
 # Kick off a background price-data refresh so models added after the last
 # package release (e.g. newly released Claude versions) get correct costs.
-_UpdatePrices().start()
+try:
+    _UpdatePrices().start()
+except RuntimeError:
+    pass  # already started in another module or by a previous import
 
 _initialized = False
 
@@ -116,6 +119,20 @@ def langfuse_workflow(
         yield
 
 
+def _is_langfuse_initialized() -> bool:
+    """Check whether Langfuse has been initialised via :func:`setup_langfuse`.
+
+    Looks up the current ``_initialized`` flag from ``sys.modules``
+    rather than from the defining module's namespace, so the check
+    stays correct even when ``cai.log.observability`` is reloaded
+    (e.g. during tests that delete and re-import the module).
+    """
+    mod = sys.modules.get(__name__)
+    if mod is None:
+        return False
+    return getattr(mod, "_initialized", False)
+
+
 async def traced_agent_run(
     name: str,
     agent: Any,
@@ -132,7 +149,7 @@ async def traced_agent_run(
     Falls through to a plain ``await agent.run(...)`` when Langfuse
     is not configured.
     """
-    if not _initialized:
+    if not _is_langfuse_initialized():
         return await agent.run(prompt, **kwargs)
 
     from langfuse import get_client
