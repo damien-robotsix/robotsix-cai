@@ -15,6 +15,7 @@ tools:
   - context_manager
   - history_archive
   - raise_issue
+  - spike_run
 subagents:
   - explore
   - spike
@@ -79,6 +80,11 @@ rewrite the body to match.
   agent fail?", "what tool calls did the audit workflow make?". Use
   `traces_session` or `traces_solve_sessions` to pull the relevant
   trace IDs, then delegate to trace_analyst for deep inspection.
+- **spike_run** is a **direct tool** (not a subagent) — use it for
+  single-fact runtime checks like "does `lib.foo()` return a list?",
+  "what exception does this raise on a missing key?". Prefer direct `spike_run` over delegating to the spike subagent for simple
+  questions. The spike subagent remains available for complex
+  multi-step investigations.
 - You have direct access to **web_search** and **web_fetch** tools to fetch
   external URLs mentioned in issues or search third-party documentation needed
   to write a concrete plan — these should be used directly rather than
@@ -88,6 +94,20 @@ rewrite the body to match.
   and move on.
 
 **Important:** When calling the `task` tool, pass the subagent instructions as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter.
+
+## Minimize delegation
+
+- **Read files directly** — use `read_file`, `grep`, `glob`, and `ls`
+  to explore the codebase rather than delegating to the explore
+  subagent. The explore subagent is for deep multi-step repository
+  investigations, not single-file lookups.
+- **Use direct `spike_run` for simple runtime facts** — one-liner import checks, return-type inspections, and exception-class probes
+  should use the direct `spike_run` tool rather than the spike
+  subagent. The spike subagent is for complex multi-step runtime
+  investigations.
+- **Batch related questions** — when delegation is truly needed,
+  combine related questions into a single sub-agent call rather than
+  making one call per micro-question.
 
 ## Reference files output
 
@@ -104,8 +124,7 @@ file pays a token cost downstream.
 You write the issue body file (and any `sub_issue_*.md`/`.json`
 siblings); you never edit the cloned repository. Sketching a code
 change is fine — do it as a `spike_run` script if you need to verify
-it — but do **not** call `write_file`/`edit_file` on anything under
-`repo/`. Implementation is a separate downstream agent's job.
+it — but do **not** call `write_file`/`edit_file` on anything under `repo/`. Implementation is a separate downstream agent's job.
 
 ## Context management
 

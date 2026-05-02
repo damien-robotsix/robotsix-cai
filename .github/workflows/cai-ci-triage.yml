@@ -5,6 +5,10 @@ on:
     workflows: ["CI"]
     types: [completed]
 
+concurrency:
+  group: cai-ci-triage-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
 jobs:
   triage:
     if: github.event.workflow_run.conclusion == 'failure'
