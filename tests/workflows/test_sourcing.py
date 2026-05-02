@@ -9,7 +9,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pydantic_graph import Graph
+from pydantic_graph import End, Graph, GraphRunContext
 
 from cai.workflows.audit import DedupeOutput, ProposedIssue
 from cai.workflows.sourcing import (
@@ -190,8 +190,6 @@ def test_sourcing_graph_is_graph_instance():
 def test_run_sourcing_node_produces_output():
     """RunSourcingNode calls the sourcing agent and returns CreateIssuesNode
     when issues are proposed."""
-    from pydantic_graph import GraphRunContext
-
     fake_agent = MagicMock()
     fake_agent.run = AsyncMock(return_value=MagicMock(
         output=_SourcingInnerOutput(issues=[
@@ -216,7 +214,6 @@ def test_run_sourcing_node_produces_output():
 
 def test_run_sourcing_node_no_issues_returns_end():
     """RunSourcingNode returns End when the agent proposes no issues."""
-    from pydantic_graph import End, GraphRunContext
 
     fake_agent = MagicMock()
     fake_agent.run = AsyncMock(return_value=MagicMock(
@@ -236,10 +233,23 @@ def test_run_sourcing_node_no_issues_returns_end():
 
 # ── CreateIssuesNode ─────────────────────────────────────────────────
 
+def _run_create_issues_node(
+    bot: MagicMock,
+    output: SourcingOutput,
+    fake_dedupe: MagicMock,
+) -> End[SourcingOutput]:
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        ctx = GraphRunContext(
+            state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
+            deps=None,
+        )
+        node = CreateIssuesNode()
+        result = asyncio.run(node.run(ctx))
+    assert isinstance(result, End)
+    return result
 
 def test_create_issues_node_new_issue():
     """CreateIssuesNode creates a new issue when dedupe says 'new'."""
-    from pydantic_graph import End, GraphRunContext
 
     fake_dedupe = MagicMock()
     fake_dedupe.run = AsyncMock(return_value=MagicMock(
@@ -259,15 +269,7 @@ def test_create_issues_node_new_issue():
         ProposedIssue(title="Tool A", body="Body A", confidence=9),
     ])
 
-    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
-        ctx = GraphRunContext(
-            state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
-            deps=None,
-        )
-        node = CreateIssuesNode()
-        result = asyncio.run(node.run(ctx))
-
-    assert isinstance(result, End)
+    result = _run_create_issues_node(bot, output, fake_dedupe)
     repo_mock.create_issue.assert_called_once_with(
         title="Tool A",
         body="Body A",
@@ -277,7 +279,6 @@ def test_create_issues_node_new_issue():
 
 def test_create_issues_node_discard():
     """CreateIssuesNode skips issue creation when dedupe says 'discard'."""
-    from pydantic_graph import End, GraphRunContext
 
     fake_dedupe = MagicMock()
     fake_dedupe.run = AsyncMock(return_value=MagicMock(
@@ -294,21 +295,12 @@ def test_create_issues_node_discard():
         ProposedIssue(title="Tool A", body="Body A", confidence=5),
     ])
 
-    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
-        ctx = GraphRunContext(
-            state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
-            deps=None,
-        )
-        node = CreateIssuesNode()
-        result = asyncio.run(node.run(ctx))
-
-    assert isinstance(result, End)
+    result = _run_create_issues_node(bot, output, fake_dedupe)
     repo_mock.create_issue.assert_not_called()
 
 
 def test_create_issues_node_append():
     """CreateIssuesNode appends to existing issue when dedupe says 'append'."""
-    from pydantic_graph import End, GraphRunContext
 
     fake_dedupe = MagicMock()
     fake_dedupe.run = AsyncMock(return_value=MagicMock(
@@ -330,15 +322,7 @@ def test_create_issues_node_append():
         ProposedIssue(title="Tool B", body="Body B details", confidence=7),
     ])
 
-    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
-        ctx = GraphRunContext(
-            state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
-            deps=None,
-        )
-        node = CreateIssuesNode()
-        result = asyncio.run(node.run(ctx))
-
-    assert isinstance(result, End)
+    result = _run_create_issues_node(bot, output, fake_dedupe)
     repo_mock.create_issue.assert_not_called()
     existing_issue.create_comment.assert_called_once_with(
         "**Additional proposed issue details:**\n\n**Title**: Tool B\n\n**Body**:\nBody B details"
@@ -348,7 +332,6 @@ def test_create_issues_node_append():
 def test_create_issues_node_append_no_target_falls_back():
     """When dedupe says 'append' but provides no target_issue_number,
     CreateIssuesNode falls back to creating a new issue."""
-    from pydantic_graph import End, GraphRunContext
 
     fake_dedupe = MagicMock()
     fake_dedupe.run = AsyncMock(return_value=MagicMock(
@@ -368,15 +351,7 @@ def test_create_issues_node_append_no_target_falls_back():
         ProposedIssue(title="Tool C", body="Body C", confidence=8),
     ])
 
-    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
-        ctx = GraphRunContext(
-            state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
-            deps=None,
-        )
-        node = CreateIssuesNode()
-        result = asyncio.run(node.run(ctx))
-
-    assert isinstance(result, End)
+    result = _run_create_issues_node(bot, output, fake_dedupe)
     repo_mock.create_issue.assert_called_once_with(
         title="Tool C",
         body="Body C",
@@ -386,7 +361,6 @@ def test_create_issues_node_append_no_target_falls_back():
 
 def test_create_issues_node_multiple_issues():
     """CreateIssuesNode processes multiple issues with mixed dedupe outcomes."""
-    from pydantic_graph import End, GraphRunContext
 
     fake_dedupe = MagicMock()
     fake_dedupe.run = AsyncMock(side_effect=[
@@ -413,15 +387,7 @@ def test_create_issues_node_multiple_issues():
         ProposedIssue(title="Issue 3", body="Body 3", confidence=10),
     ])
 
-    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
-        ctx = GraphRunContext(
-            state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
-            deps=None,
-        )
-        node = CreateIssuesNode()
-        result = asyncio.run(node.run(ctx))
-
-    assert isinstance(result, End)
+    result = _run_create_issues_node(bot, output, fake_dedupe)
     assert repo_mock.create_issue.call_count == 2
     # First call — confidence 9 → cai:raised
     assert repo_mock.create_issue.call_args_list[0][1] == {
@@ -437,7 +403,6 @@ def test_create_issues_node_multiple_issues():
 
 def test_create_issues_node_low_confidence_uses_human_review():
     """Issues with confidence < 9 get cai:human-review label."""
-    from pydantic_graph import End, GraphRunContext
 
     fake_dedupe = MagicMock()
     fake_dedupe.run = AsyncMock(return_value=MagicMock(
@@ -457,14 +422,7 @@ def test_create_issues_node_low_confidence_uses_human_review():
         ProposedIssue(title="Low Conf", body="Body", confidence=3),
     ])
 
-    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
-        ctx = GraphRunContext(
-            state=SourcingState(bot=bot, repo="owner/repo", prompt="p", output=output),
-            deps=None,
-        )
-        node = CreateIssuesNode()
-        asyncio.run(node.run(ctx))
-
+    _run_create_issues_node(bot, output, fake_dedupe)
     repo_mock.create_issue.assert_called_once_with(
         title="Low Conf",
         body="Body",
