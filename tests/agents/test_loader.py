@@ -2499,3 +2499,114 @@ def test_edit_file_guardrail_before_execute_non_overlapping_count_only(tmp_path)
         None, call=_edit_call(), tool_def=None, args=args,
     ))
     assert result is args
+
+
+# ---------------------------------------------------------------------------
+# Explore agent — Search-then-read strategy prompt sections
+# ---------------------------------------------------------------------------
+
+
+SEARCH_THEN_READ_HEADING = "## Search then read"
+
+PHASE_1_TEXT = "- **Phase 1 — Search:** Before any `read_file`, extract key symbols, function names, file paths, and patterns from the issue. Run `grep` and `glob` for those patterns **in parallel** in a single round-trip. Cast a wide net: search for class names, function definitions, import paths, and distinctive strings mentioned in the issue."
+
+PHASE_2_TEXT = "- **Phase 2 — Read:** Only after search results come back, `read_file` on files that matched. Read only the files that had hits — skip files with zero matches."
+
+STOP_AT_RELEVANCE_TEXT = "- **Stop at relevance:** Do not chase transitive imports, call sites, or infrastructure files (`loader.py`, `state.py`, `refine.py`, `solve.py`, etc.) unless a grep result directly implicates them. If a file you read does not answer the question, stop exploring that direction."
+
+NEVER_RE_READ_TEXT = "**Never re-read a file you have already read.**"
+
+RELEVANCE_GATE_TEXT = "- **Relevance gate:** After reading a file, verify it answered the specific question from the issue. If it did not, stop exploring that direction. Do not follow imports or call sites transitively unless they appear in a grep match for the issue's key symbols."
+
+HOW_TO_WORK_HEADING = "## How to work"
+
+READ_FILES_WHOLE_BULLET = "- **Read files whole:** Prefer reading entire files by omitting `offset` and `limit`."
+
+
+def test_explore_agent_prompt_includes_search_then_read_section():
+    """The explore agent's system prompt must contain the '## Search then read'
+    section heading."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    assert SEARCH_THEN_READ_HEADING in system_prompt, (
+        "Explore agent missing '## Search then read' heading."
+    )
+
+
+def test_explore_agent_prompt_includes_phase_1_search():
+    """Phase 1 — Search bullet must be present under Search then read."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    assert PHASE_1_TEXT in system_prompt, (
+        "Explore agent missing Phase 1 — Search bullet."
+    )
+
+
+def test_explore_agent_prompt_includes_phase_2_read():
+    """Phase 2 — Read bullet must be present under Search then read."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    assert PHASE_2_TEXT in system_prompt, (
+        "Explore agent missing Phase 2 — Read bullet."
+    )
+
+
+def test_explore_agent_prompt_includes_stop_at_relevance_bullet():
+    """Stop at relevance bullet must be present under Search then read."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    assert STOP_AT_RELEVANCE_TEXT in system_prompt, (
+        "Explore agent missing 'Stop at relevance' bullet."
+    )
+
+
+def test_explore_agent_prompt_includes_never_re_read_directive():
+    """The strengthened 'Never re-read a file you have already read' directive
+    must be present under the Read files whole bullet."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    assert NEVER_RE_READ_TEXT in system_prompt, (
+        "Explore agent missing 'Never re-read a file you have already read' directive."
+    )
+
+
+def test_explore_agent_prompt_includes_relevance_gate_bullet():
+    """Relevance gate bullet must be present under How to work."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    assert RELEVANCE_GATE_TEXT in system_prompt, (
+        "Explore agent missing 'Relevance gate' bullet."
+    )
+
+
+def test_explore_agent_search_then_read_before_how_to_work():
+    """The Search then read section must appear before the How to work section
+    in the explore agent's system prompt."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    search_idx = system_prompt.index(SEARCH_THEN_READ_HEADING)
+    how_to_idx = system_prompt.index(HOW_TO_WORK_HEADING)
+    assert search_idx < how_to_idx, (
+        "Search then read section must appear before How to work section."
+    )
+
+
+def test_explore_agent_never_re_read_under_read_files_whole():
+    """The 'Never re-read' directive must appear on the same line or within the
+    Read files whole bullet, not as a standalone bullet."""
+    path = resolve_agent_path("explore")
+    _, system_prompt = parse_agent_md(path)
+    never_idx = system_prompt.index(NEVER_RE_READ_TEXT)
+    # The Read files whole bullet should appear before (on the same bullet line
+    # or very close to) the never-re-read text.
+    read_whole_idx = system_prompt.index(READ_FILES_WHOLE_BULLET)
+    assert read_whole_idx < never_idx, (
+        "Never re-read directive must appear after the Read files whole bullet."
+    )
+    # The gap between the bullet start and the directive should be within
+    # reasonable proximity (same or next line).
+    gap = never_idx - (read_whole_idx + len(READ_FILES_WHOLE_BULLET))
+    assert 0 <= gap < 120, (
+        f"Never re-read directive is too far from the Read files whole bullet "
+        f"(gap={gap} chars). It should be part of that bullet."
+    )
