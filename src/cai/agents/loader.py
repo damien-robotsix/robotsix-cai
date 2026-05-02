@@ -514,12 +514,14 @@ class HistoryCompactorCapability(AbstractCapability):
 
         current_args = call.args_as_dict()
 
-        # Scan ctx.messages backward for a prior identical read_file call.
+        # Scan ctx.messages backward for a prior read_file call whose range
+        # contains (or exactly matches) the current call's range.
         # Skip the current call itself: the latest ModelResponse already
         # contains this ToolCallPart by the time wrap_tool_execute fires,
         # and parallel read_file calls share that ModelResponse.
         prior_msg_idx: int | None = None
-        prior_call_id: str | None = None
+        matched_prior_args: dict | None = None
+        matched_by_overlap = False
         for i in range(len(ctx.messages) - 1, -1, -1):
             msg = ctx.messages[i]
             if not isinstance(msg, ModelResponse):
@@ -531,9 +533,41 @@ class HistoryCompactorCapability(AbstractCapability):
                     continue
                 if part.tool_call_id == call.tool_call_id:
                     continue
-                if part.args_as_dict() == current_args:
+                prior_args = part.args_as_dict()
+                # Different path → not a match.
+                if prior_args.get("path") != current_args.get("path"):
+                    continue
+                # Check whether the prior range fully contains the
+                # current range.
+                prior_offset = prior_args.get("offset", 0)
+                current_offset = current_args.get("offset", 0)
+                prior_limit = prior_args.get("limit")
+                current_limit = current_args.get("limit")
+                if prior_limit is None:
+                    # Prior read covered from prior_offset to EOF — any
+                    # current_offset >= prior_offset is fully contained.
+                    if current_offset >= prior_offset:
+                        prior_msg_idx = i
+                        matched_prior_args = prior_args
+                        matched_by_overlap = True
+                        break
+                elif current_limit is not None:
+                    # Both have explicit limits — compare end positions.
+                    prior_end = prior_offset + prior_limit
+                    current_end = current_offset + current_limit
+                    if prior_offset <= current_offset and prior_end >= current_end:
+                        prior_msg_idx = i
+                        matched_prior_args = prior_args
+                        matched_by_overlap = True
+                        break
+                # current_limit is None but prior_limit is not None:
+                # we can't confirm the prior range covers to EOF →
+                # fall through to exact-args below.
+                # Exact-args fast-path: catches identical calls the
+                # overlap logic above also covers; kept as a safety net.
+                if prior_args == current_args:
                     prior_msg_idx = i
-                    prior_call_id = part.tool_call_id
+                    matched_prior_args = prior_args
                     break
             if prior_msg_idx is not None:
                 break
@@ -552,28 +586,30 @@ class HistoryCompactorCapability(AbstractCapability):
                 if part.tool_name in self._FILE_MODIFYING_TOOLS:
                     return await handler(args)
 
-        # Find the matching ToolReturnPart by scanning forward from the
-        # prior ModelResponse for a ModelRequest whose ToolReturnPart
-        # carries the same tool_call_id.
-        if prior_call_id is not None:
-            for i in range(prior_msg_idx + 1, len(ctx.messages)):
-                msg = ctx.messages[i]
-                if not isinstance(msg, ModelRequest):
-                    continue
-                for part in msg.parts:
-                    if isinstance(part, ToolReturnPart) and part.tool_call_id == prior_call_id:
-                        return part.content
-
-        # Defensive fallback: include the file path so different files
-        # produce different strings, preventing pydantic-ai's global
-        # "same result 3 times" counter from blocking genuinely new reads.
+        # No intervening file-modifying tool found — short-circuit to a
+        # warning so the model doesn't waste a round-trip re-reading.
         path = current_args.get("path", "unknown")
-        return (
-            f"[Warning: identical read_file({path!r}) requested without "
-            f"intervening file edits. The file content has not changed — "
-            f"reuse your previous read_file output instead of re-reading "
-            f"or trying different offsets.]"
-        )
+        if matched_by_overlap:
+            current_offset = current_args.get("offset", 0)
+            current_limit = current_args.get("limit")
+            prior_offset = matched_prior_args.get("offset", 0)
+            prior_limit = matched_prior_args.get("limit")
+            current_limit_str = f", limit={current_limit}" if current_limit is not None else ""
+            prior_limit_str = f", limit={prior_limit}" if prior_limit is not None else ", limit=EOF"
+            warning = (
+                f"Warning: read_file({path!r}, offset={current_offset}"
+                f"{current_limit_str}) is covered by a prior "
+                f"read_file({path!r}, offset={prior_offset}{prior_limit_str}) "
+                f"at message index {prior_msg_idx} — file content has "
+                f"not changed; review your previous messages for the content."
+            )
+        else:
+            warning = (
+                f"Warning: identical read_file({path!r}) call at message "
+                f"index {prior_msg_idx} — file content has not changed; "
+                f"review your previous messages for the content."
+            )
+        return warning
 
 
 class MicroReadGuardCapability(AbstractCapability):
