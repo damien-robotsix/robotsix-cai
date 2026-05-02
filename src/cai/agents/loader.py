@@ -152,31 +152,22 @@ def _get_arg(args: Any, name: str) -> Any:
 
 
 class GrepGuardrailAsRetry(AbstractCapability):
-    """Break the model out of repeated ``grep`` loops.
+    """Nudge the model away from repeated zero-result ``grep`` queries.
 
-    Two loop patterns are detected:
-
-    * **Zero-result loop** — the model spirals on minor regex variations
-      that all return zero matches, burning context without progress.
-      After ``_THRESHOLD`` consecutive empty grep results, raise
-      ``ModelRetry`` with a recovery prompt telling the agent to stop
-      searching globally and read files instead. A single non-empty
-      grep resets the counter.
-
-    * **Identical-argument non-empty loop** — pydantic_deep's grep tool
-      truncates output at 50–150 lines. Agents re-call ``grep .*`` with
-      the same arguments expecting pagination, but grep is idempotent
-      and returns the same truncated top-N lines every time. When two
-      consecutive non-empty grep calls share the same ``(pattern, path,
-      glob_pattern)``, raise ``ModelRetry`` with guidance to use
-      ``file_info`` and narrower patterns instead.
+    Models sometimes spiral on minor regex variations that all return
+    zero matches, burning context without progress. After
+    ``_THRESHOLD`` consecutive empty grep results, the result is
+    returned prefixed with a warning suggesting ``read_file()``
+    instead of raising ``ModelRetry`` — the grep runs normally and
+    its output is preserved. Any non-empty grep result resets the
+    counter, so a single productive search clears the streak.
 
     State lives on the instance, but ``for_run`` returns a fresh
     instance per run so concurrent runs of the same agent don't share
     the counter.
     """
 
-    _THRESHOLD = 3
+    _THRESHOLD = 8
     _NO_MATCH_PREFIX = "No matches for"
 
     def __init__(self) -> None:
@@ -267,10 +258,11 @@ class GrepGuardrailAsRetry(AbstractCapability):
         self._empty_grep_count += 1
         if self._empty_grep_count >= self._THRESHOLD:
             self._empty_grep_count = 0
-            raise ModelRetry(
-                "Multiple zero-result grep queries in a row. "
-                "Stop searching with grep. Instead, read the file(s) you're interested in directly with read_file, "
-                "or use ls/glob to explore the directory structure."
+            return (
+                f"Warning: you have made {self._THRESHOLD} consecutive zero-result grep queries. "
+                f"Consider switching to read_file() instead. "
+                f"(The grep was executed normally — results below.)\n\n"
+                f"{text}"
             )
         return result
 
