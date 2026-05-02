@@ -4,8 +4,9 @@ Instead of writing an entire file from scratch (error-prone) or using
 edit_file with exact conflict-marker strings (brittle), these tools let
 the agent work block-by-block:
 
-  conflict_list  — show every conflict block in a file with an index
+  conflict_list   — show every conflict block in a file with an index
   conflict_resolve — replace one block with "ours", "theirs", or custom text
+  conflict_cleanup — remove dead code debris left outside resolved markers
 """
 from __future__ import annotations
 
@@ -164,5 +165,49 @@ async def conflict_resolve(
     return f"Resolved conflict {index} in {path!r} ({label}){suffix}"
 
 
+async def conflict_cleanup(
+    ctx: RunContext,
+    path: str,
+    remove_lines: list[tuple[int, int]],
+) -> str:
+    """Remove dead code debris left outside resolved conflict markers.
+
+    Args:
+        path: File path relative to the repository root.
+        remove_lines: List of (start, end) line ranges to delete,
+            1-based inclusive. Ranges are processed in reverse order
+            so earlier line numbers stay valid across multiple ranges.
+    """
+    full = _resolve_path(ctx, path)
+    if full is None:
+        return f"Permission denied: {path!r} escapes repository root"
+    if not full.exists():
+        return f"File not found: {path!r}"
+
+    lines = full.read_text(errors="ignore").splitlines(keepends=True)
+    total_lines = len(lines)
+
+    # Validate all ranges before making any changes.
+    for start, end in remove_lines:
+        if start < 1 or end > total_lines or start > end:
+            return (
+                f"Invalid range ({start}, {end}) — file {path!r} has "
+                f"{total_lines} lines (1-based). Ranges must satisfy "
+                f"1 <= start <= end <= {total_lines}."
+            )
+
+    # Process in reverse so earlier line numbers stay valid.
+    for start, end in sorted(remove_lines, reverse=True):
+        del lines[start - 1 : end]
+
+    full.write_text("".join(lines))
+    total_removed = sum(end - start + 1 for start, end in remove_lines)
+    return (
+        f"Removed {total_removed} line(s) across "
+        f"{len(remove_lines)} range(s) in {path!r}"
+    )
+
+
 CONFLICT_LIST_TOOL = Tool(conflict_list)
 CONFLICT_RESOLVE_TOOL = Tool(conflict_resolve)
+CONFLICT_CLEANUP_TOOL = Tool(conflict_cleanup)

@@ -6,6 +6,7 @@ tools:
   - filesystem_read
   - conflict_list
   - conflict_resolve
+  - conflict_cleanup
 ---
 
 # Rebase Step Conflict Resolver
@@ -36,8 +37,11 @@ For each conflicted file:
    - `"theirs"` — take the incoming side as-is
    - any other string — your custom merged content (no markers, just code)
 3. Repeat until `conflict_resolve` reports the file is clean.
-4. Do not touch any file not in the conflicted-files list.
-5. Do not invent unrelated changes — this step is one commit's resolution,
+4. Re-read each resolved file and call `conflict_cleanup(path, remove_lines)`
+   to remove any orphaned code (unmatched parentheses, vestigial assignments,
+   single merge-side survivors) that sits outside the former conflict markers.
+5. Do not touch any file not in the conflicted-files list.
+6. Do not invent unrelated changes — this step is one commit's resolution,
    not a refactor.
 
 ## Output

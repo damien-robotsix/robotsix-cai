@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cai.agents.conflict_tools import _load_file_conflicts, _parse_conflicts, conflict_list, conflict_resolve
+from cai.agents.conflict_tools import _load_file_conflicts, _parse_conflicts, conflict_cleanup, conflict_list, conflict_resolve
 
 
 # ---------------------------------------------------------------------------
@@ -222,3 +222,144 @@ def test_resolve_out_of_range(tmp_path):
     f.write_text(SIMPLE)
     out = run(conflict_resolve(_make_ctx(tmp_path), "a.py", 5, "ours"))
     assert "out of range" in out
+
+
+# ---------------------------------------------------------------------------
+# conflict_cleanup
+# ---------------------------------------------------------------------------
+
+DEBRIS_FILE = """\
+def foo():
+    x = 1
+    matched_prior_args = prior_args
+    y = 2
+    return x + y
+"""
+
+
+def test_conflict_cleanup_removes_single_range(tmp_path):
+    f = tmp_path / "a.py"
+    f.write_text(DEBRIS_FILE)
+    out = run(conflict_cleanup(_make_ctx(tmp_path), "a.py", [(3, 3)]))
+    assert "Removed 1 line" in out
+    result = f.read_text()
+    assert "matched_prior_args" not in result
+    assert "def foo():" in result
+    assert "y = 2" in result
+
+
+def test_conflict_cleanup_removes_multiple_ranges(tmp_path):
+    f = tmp_path / "a.py"
+    f.write_text(DEBRIS_FILE)
+    out = run(conflict_cleanup(_make_ctx(tmp_path), "a.py", [(3, 3), (5, 5)]))
+    assert "Removed 2 line" in out
+    result = f.read_text()
+    assert "matched_prior_args" not in result
+    assert "return x + y" not in result
+    assert "def foo():" in result
+    assert "x = 1" in result
+    assert "y = 2" in result
+
+
+def test_conflict_cleanup_preserves_surrounding_content(tmp_path):
+    f = tmp_path / "a.py"
+    original = "line1\nline2\nline3\nline4\nline5\n"
+    f.write_text(original)
+    run(conflict_cleanup(_make_ctx(tmp_path), "a.py", [(2, 3)]))
+    result = f.read_text()
+    assert result == "line1\nline4\nline5\n"
+
+
+def test_conflict_cleanup_reports_lines_removed(tmp_path):
+    f = tmp_path / "a.py"
+    f.write_text(DEBRIS_FILE)
+    out = run(conflict_cleanup(_make_ctx(tmp_path), "a.py", [(1, 2), (4, 5)]))
+    assert "Removed 4 line" in out
+    assert "2 range" in out
+    assert "a.py" in out
+
+
+def test_conflict_cleanup_out_of_range_is_error(tmp_path):
+    f = tmp_path / "a.py"
+    f.write_text(DEBRIS_FILE)
+    out = run(conflict_cleanup(_make_ctx(tmp_path), "a.py", [(10, 20)]))
+    assert "Invalid range" in out
+    # File must not be modified.
+    assert f.read_text() == DEBRIS_FILE
+
+
+def test_conflict_cleanup_path_escape_is_denied(tmp_path):
+    ctx = _make_ctx(tmp_path)
+    out = run(conflict_cleanup(ctx, "../outside.py", [(1, 1)]))
+    assert "Permission denied" in out
+
+
+def test_conflict_cleanup_empty_ranges_is_noop(tmp_path):
+    """An empty remove_lines list must not modify the file and should report 0."""
+    f = tmp_path / "a.py"
+    f.write_text(DEBRIS_FILE)
+    out = run(conflict_cleanup(_make_ctx(tmp_path), "a.py", []))
+    assert "Removed 0 line" in out
+    assert "0 range" in out
+    assert f.read_text() == DEBRIS_FILE
+
+
+def test_conflict_cleanup_reverse_processing(tmp_path):
+    """Ranges are processed in reverse order so earlier line numbers stay valid.
+
+    File (5 lines)::
+
+      1: a
+      2: b
+      3: c
+      4: d
+      5: e
+
+    Remove ranges (4, 5) then (2, 3). If processed in order, removing (2,3)
+    first would shift lines 4-5 up and break the second range.  Reverse
+    processing deletes lines 4-5 first, then lines 2-3 in the *original*
+    numbering — both ranges still match their intended lines.
+    """
+    f = tmp_path / "a.py"
+    f.write_text("a\nb\nc\nd\ne\n")
+    out = run(conflict_cleanup(_make_ctx(tmp_path), "a.py", [(2, 3), (4, 5)]))
+    assert "Removed 4 line" in out
+    assert "2 range" in out
+    result = f.read_text()
+    assert result == "a\n"
+
+
+def test_conflict_cleanup_remove_entire_file(tmp_path):
+    """Removing every line in the file produces an empty file."""
+    f = tmp_path / "a.py"
+    f.write_text("line1\nline2\nline3\n")
+    out = run(conflict_cleanup(_make_ctx(tmp_path), "a.py", [(1, 3)]))
+    assert "Removed 3 line" in out
+    assert f.read_text() == ""
+
+
+def test_conflict_cleanup_remove_first_line(tmp_path):
+    """Removing the very first line (range 1,1) is a valid boundary case."""
+    f = tmp_path / "a.py"
+    f.write_text("first\nsecond\nthird\n")
+    out = run(conflict_cleanup(_make_ctx(tmp_path), "a.py", [(1, 1)]))
+    assert "Removed 1 line" in out
+    assert "first" not in f.read_text()
+    assert f.read_text() == "second\nthird\n"
+
+
+def test_conflict_cleanup_remove_last_line(tmp_path):
+    """Removing the very last line (range N,N) is a valid boundary case."""
+    f = tmp_path / "a.py"
+    f.write_text("first\nsecond\nthird\n")
+    out = run(conflict_cleanup(_make_ctx(tmp_path), "a.py", [(3, 3)]))
+    assert "Removed 1 line" in out
+    assert "third" not in f.read_text()
+    assert f.read_text() == "first\nsecond\n"
+
+
+def test_conflict_cleanup_non_existent_file(tmp_path):
+    """A non-existent file must produce a 'not found' error."""
+    ctx = _make_ctx(tmp_path)
+    out = run(conflict_cleanup(ctx, "missing.py", [(1, 1)]))
+    assert "not found" in out.lower()
