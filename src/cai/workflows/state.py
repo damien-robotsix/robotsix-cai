@@ -181,6 +181,15 @@ class GitHubWorkflowReviewOutput(BaseModel):
     )
 
 
+class PydanticAIReviewOutput(BaseModel):
+    summary: str = Field(
+        description="Bulleted list of issues found and fixed per file related to pydantic-ai usage, or 'No issues found.' if nothing changed."
+    )
+    commit_message: str = Field(
+        description="Git commit message for the pydantic-ai review fixes, or empty string if nothing changed."
+    )
+
+
 class MergeEvaluationOutput(BaseModel):
     auto_merge: bool = Field(
         description=(
@@ -214,6 +223,7 @@ class IssueState:
     test_retry_count: int = field(default=0)
     python_review_output: PythonReviewOutput | None = field(default=None)
     github_workflow_review_output: GitHubWorkflowReviewOutput | None = field(default=None)
+    pydantic_ai_review_output: PydanticAIReviewOutput | None = field(default=None)
     docs_output: DocsOutput | None = field(default=None)
     merge_evaluation: MergeEvaluationOutput | None = field(default=None)
     auto_merge_enabled: bool = field(default=False)
