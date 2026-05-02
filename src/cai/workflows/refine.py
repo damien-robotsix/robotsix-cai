@@ -8,6 +8,7 @@ from pydantic_graph import BaseNode, End, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.github.issues import IssueMeta, add_sub_issue, push
+from cai.log import langfuse_node_span
 from cai.workflows._deps import repo_deps
 from cai.workflows.implement import ImplementNode
 from cai.workflows.state import IssueState, RefineOutput
@@ -47,17 +48,18 @@ class RefineNode(BaseNode[IssueState]):
         # siblings) — nothing else. Globbing top-level files in the
         # issue dir excludes the cloned ``repo/`` and the spike scratch
         # dir, both of which sit under the same parent.
-        result = await refine_agent().run(
-            prompt,
-            deps=repo_deps(
-                state.repo_root,
-                write_globs=[
-                    f"{issue_dir}/*.md",
-                    f"{issue_dir}/*.json",
-                ],
-            ),
-            usage_limits=UsageLimits(request_limit=50),
-        )
+        with langfuse_node_span("refine", metadata={"phase": "planning"}):
+            result = await refine_agent().run(
+                prompt,
+                deps=repo_deps(
+                    state.repo_root,
+                    write_globs=[
+                        f"{issue_dir}/*.md",
+                        f"{issue_dir}/*.json",
+                    ],
+                ),
+                usage_limits=UsageLimits(request_limit=50),
+            )
         out: RefineOutput = result.output
         new_meta = state.meta.model_copy(update={"title": out.title})
         state.new_meta = new_meta

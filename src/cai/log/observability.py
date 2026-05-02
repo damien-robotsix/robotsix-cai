@@ -114,3 +114,30 @@ def langfuse_workflow(
             attrs["session_id"] = session_id
         stack.enter_context(propagate_attributes(**attrs))
         yield
+
+
+@contextmanager
+def langfuse_node_span(
+    name: str,
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> Generator[None, None, None]:
+    """Create a child observation span under the current parent observation.
+
+    Thin wrapper around ``client.start_as_current_observation()`` with
+    ``as_type="span"`` so the orchestrator trace can show per-node latency
+    and metadata. Falls through silently when Langfuse is not configured.
+    """
+    if not setup_langfuse():
+        yield
+        return
+
+    from langfuse import get_client
+
+    client = get_client()
+    with client.start_as_current_observation(
+        name=name,
+        as_type="span",
+        metadata=metadata,
+    ):
+        yield
