@@ -8,6 +8,7 @@ from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
+from cai.log.observability import traced_agent_run
 from cai.workflows.state import IssueState, PydanticAIReviewOutput
 
 
@@ -47,7 +48,9 @@ class PydanticAIReviewNode(BaseNode[IssueState]):
             f"## Implementation commit message\n\n{state.implement_output.commit_message}"
         )
 
-        result = await _pydantic_ai_review_agent().run(
+        result = await traced_agent_run(
+            "pydantic_ai_review",
+            _pydantic_ai_review_agent(),
             prompt,
             deps=_deps(state.repo_root),
             usage_limits=UsageLimits(request_limit=50),

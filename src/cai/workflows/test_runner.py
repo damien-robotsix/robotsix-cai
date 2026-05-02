@@ -10,6 +10,7 @@ from pydantic_ai.usage import UsageLimits
 from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
+from cai.log.observability import traced_agent_run
 from cai.workflows._deps import repo_deps
 from cai.workflows.state import IssueState, TestOutput
 
@@ -96,7 +97,9 @@ class TestNode(BaseNode[IssueState]):
             prompt += "\n\n" + reference_section
 
         tests_dir = state.repo_root / "tests"
-        result = await _test_writer_agent().run(
+        result = await traced_agent_run(
+            "test_writer",
+            _test_writer_agent(),
             prompt,
             deps=repo_deps(state.repo_root, write_dirs=[tests_dir]),
             usage_limits=UsageLimits(request_limit=50),

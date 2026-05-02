@@ -13,7 +13,7 @@ from pydantic_graph import BaseNode, GraphRunContext
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.git import checkout_branch
 from cai.github.pr import ReviewThread
-from cai.log import langfuse_node_span
+from cai.log.observability import traced_agent_run
 from cai.workflows.state import ImplementOutput, IssueState
 
 
@@ -161,11 +161,12 @@ class ImplementNode(BaseNode[IssueState]):
                 "Fix the code so these tests pass:\n\n"
                 f"```\n{state.test_failure_details}\n```"
             )
-        with langfuse_node_span("implement", metadata={"phase": "implementation"}):
-            result = await _implement_agent().run(
-                prompt,
-                deps=_deps(state.repo_root),
-                usage_limits=UsageLimits(request_limit=60),
-            )
+        result = await traced_agent_run(
+            "implement",
+            _implement_agent(),
+            prompt,
+            deps=_deps(state.repo_root),
+            usage_limits=UsageLimits(request_limit=60),
+        )
         state.implement_output = result.output
         return TestNode()

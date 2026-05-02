@@ -116,21 +116,24 @@ def langfuse_workflow(
         yield
 
 
-@contextmanager
-def langfuse_node_span(
+async def traced_agent_run(
     name: str,
-    *,
-    metadata: dict[str, Any] | None = None,
-) -> Generator[None, None, None]:
-    """Create a child observation span under the current parent observation.
+    agent: Any,
+    prompt: str,
+    **kwargs: Any,
+) -> Any:
+    """Run an agent inside a named Langfuse span (type=span).
 
-    Thin wrapper around ``client.start_as_current_observation()`` with
-    ``as_type="span"`` so the orchestrator trace can show per-node latency
-    and metadata. Falls through silently when Langfuse is not configured.
+    When Langfuse is configured, the span nests under the active
+    parent observation set up by :func:`langfuse_workflow`, so every
+    sub-agent appears as a child in the root trace rather than as a
+    separate top-level trace.
+
+    Falls through to a plain ``await agent.run(...)`` when Langfuse
+    is not configured.
     """
-    if not setup_langfuse():
-        yield
-        return
+    if not _initialized:
+        return await agent.run(prompt, **kwargs)
 
     from langfuse import get_client
 
@@ -138,6 +141,6 @@ def langfuse_node_span(
     with client.start_as_current_observation(
         name=name,
         as_type="span",
-        metadata=metadata,
+        input=prompt,
     ):
-        yield
+        return await agent.run(prompt, **kwargs)
