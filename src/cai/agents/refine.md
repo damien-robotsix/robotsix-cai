@@ -124,8 +124,7 @@ file pays a token cost downstream.
 You write the issue body file (and any `sub_issue_*.md`/`.json`
 siblings); you never edit the cloned repository. Sketching a code
 change is fine — do it as a `spike_run` script if you need to verify
-it — but do **not** call `write_file`/`edit_file` on anything under
-`repo/`. Implementation is a separate downstream agent's job.
+it — but do **not** call `write_file`/`edit_file` on anything under `repo/`. Implementation is a separate downstream agent's job.
 
 ## Context management
 
