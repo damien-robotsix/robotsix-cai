@@ -71,6 +71,7 @@ def _assert_ensure_labels_called(mock_ensure_labels, mock_bot):
 
 @pytest.mark.parametrize("trigger_label", [
     "cai:raised", "cai:audit", "cai:pr-ready", "cai:failed", "cai:human-review",
+    "cai:sub-issue", "cai:trace-investigation",
 ])
 def test_push_ensure_labels_called_for_cai_labels(push_mocks, tmp_path, trigger_label):
     mock_caibot_class, mock_ensure_labels, mock_resolve = push_mocks

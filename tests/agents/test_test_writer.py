@@ -62,3 +62,29 @@ def test_test_writer_prompt_includes_avoid_rereading_guidance():
         "Only re-read when you need data from an unread range or the file may have changed"
         in instructions
     )
+
+
+def test_test_writer_prompt_includes_editing_strategy():
+    """Verify test_writer.md contains the editing strategy section with
+    edit_file disambiguation guidance."""
+    tw_file = resolve_agent_path("test_writer")
+    _, instructions = parse_agent_md(tw_file)
+
+    assert "## Editing strategy" in instructions, (
+        "test_writer.md must contain an 'Editing strategy' section"
+    )
+    assert "Read files before editing" in instructions, (
+        "test_writer.md must instruct agents to read files before editing"
+    )
+    assert "Copy the exact target lines" in instructions, (
+        "test_writer.md must instruct agents to copy exact lines into old_string"
+    )
+    assert "Disambiguate" in instructions, (
+        "test_writer.md must include disambiguation guidance for old_string"
+    )
+    assert "above AND below" in instructions, (
+        "test_writer.md must require surrounding context above AND below the target"
+    )
+    assert "batch all edits" in instructions, (
+        "test_writer.md must encourage batching multiple edits in a single response"
+    )
