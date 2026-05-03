@@ -169,6 +169,14 @@ class DocsOutput(BaseModel):
     commit_message: str = Field(
         description="Git commit message for the docs changes, or empty string if nothing changed."
     )
+    files_changed: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Repo-relative paths of every file modified or created during "
+            "documentation updates. Populate this accurately — downstream agents "
+            "rely on it instead of re-discovering changes."
+        ),
+    )
 
 
 class PythonReviewOutput(BaseModel):
