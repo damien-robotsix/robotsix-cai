@@ -20,6 +20,8 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
+from pydantic_ai.exceptions import UsageLimitExceeded
+
 from genai_prices.update_prices import UpdatePrices as _UpdatePrices
 
 # Kick off a background price-data refresh so models added after the last
@@ -133,6 +135,27 @@ def _is_langfuse_initialized() -> bool:
     return getattr(mod, "_initialized", False)
 
 
+async def _do_run(
+    name: str,
+    agent: Any,
+    prompt: str,
+    **kwargs: Any,
+) -> Any:
+    """Core implementation: run an agent inside a named Langfuse span."""
+    if not _is_langfuse_initialized():
+        return await agent.run(prompt, **kwargs)
+
+    from langfuse import get_client
+
+    client = get_client()
+    with client.start_as_current_observation(
+        name=name,
+        as_type="span",
+        input=prompt,
+    ):
+        return await agent.run(prompt, **kwargs)
+
+
 async def traced_agent_run(
     name: str,
     agent: Any,
@@ -148,16 +171,21 @@ async def traced_agent_run(
 
     Falls through to a plain ``await agent.run(...)`` when Langfuse
     is not configured.
+
+    If ``UsageLimitExceeded`` is raised, the ``request_limit`` is
+    bumped by 50% for a one-shot soft retry.  The second failure
+    bubbles up so the workflow fails as it does today.
     """
-    if not _is_langfuse_initialized():
-        return await agent.run(prompt, **kwargs)
-
-    from langfuse import get_client
-
-    client = get_client()
-    with client.start_as_current_observation(
-        name=name,
-        as_type="span",
-        input=prompt,
-    ):
-        return await agent.run(prompt, **kwargs)
+    try:
+        return await _do_run(name, agent, prompt, **kwargs)
+    except UsageLimitExceeded:
+        ul = kwargs.get("usage_limits")
+        if ul is not None:
+            import dataclasses
+            kwargs["usage_limits"] = dataclasses.replace(
+                ul, request_limit=int(ul.request_limit * 1.5)
+            )
+        if _is_langfuse_initialized():
+            from langfuse import get_client
+            get_client().update_current_span(metadata={"soft_retry": True})
+        return await _do_run(name, agent, prompt, **kwargs)
