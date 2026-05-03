@@ -239,7 +239,6 @@ class GrepGuardrailAsRetry(AbstractCapability):
         is_empty = not stripped or stripped.startswith(self._NO_MATCH_PREFIX)
         if not is_empty:
             self._empty_grep_count = 0
-            self._empty_grep_count = 0
             self._guardrail_fire_count = 0
             self._last_empty_grep_key = None
             self._same_filter_count = 0
@@ -338,6 +337,10 @@ class GrepGuardrailAsRetry(AbstractCapability):
         else:
             # First zero-result grep ever, or glob_pattern changed.
             self._same_filter_count = 1
+            if self._last_empty_glob_pattern is not None:
+                # glob_pattern actually changed — reset the empty streak
+                # so the model gets a fresh _THRESHOLD on the new filter.
+                self._empty_grep_count = 0
         self._last_empty_pattern = pattern
         self._last_empty_glob_pattern = glob_pattern
 

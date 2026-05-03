@@ -1570,7 +1570,8 @@ def test_grep_guardrail_same_filter_warns_after_three():
 
 def test_grep_guardrail_same_filter_resets_on_glob_pattern_change():
     """Same-filter counter resets when glob_pattern changes between
-    consecutive zero-result greps."""
+    consecutive zero-result greps, and _empty_grep_count is also reset
+    so the ModelRetry threshold restarts on the new filter."""
     cap = GrepGuardrailAsRetry()
     # Two zero-result greps with glob_pattern='*.py'.
     _run(cap.after_tool_execute(
@@ -1578,11 +1579,13 @@ def test_grep_guardrail_same_filter_resets_on_glob_pattern_change():
         args={"pattern": "foo", "glob_pattern": "*.py"},
         result="No matches for 'foo'",
     ))
+    assert cap._empty_grep_count == 1, "incremented from 0 after first empty grep"
     _run(cap.after_tool_execute(
         None, call=_grep_call(), tool_def=None,
         args={"pattern": "bar", "glob_pattern": "*.py"},
         result="No matches for 'bar'",
     ))
+    assert cap._empty_grep_count == 2, "climbed to 2 on same filter"
     assert cap._same_filter_count == 2
     # Third zero-result grep with a different glob_pattern — resets counter.
     _run(cap.after_tool_execute(
@@ -1590,6 +1593,64 @@ def test_grep_guardrail_same_filter_resets_on_glob_pattern_change():
         args={"pattern": "baz", "glob_pattern": "*.md"},
         result="No matches for 'baz'",
     ))
+    assert cap._empty_grep_count == 1, "reset to 0 then incremented by 1"
+    assert cap._same_filter_count == 1
+
+
+def test_grep_guardrail_empty_grep_count_resets_on_glob_pattern_change():
+    """_empty_grep_count resets to 0 when glob_pattern changes between
+    consecutive zero-result greps (but NOT on the first-ever call, so the
+    first zero-result grep on a fresh instance always starts at 1)."""
+    cap = GrepGuardrailAsRetry()
+    assert cap._empty_grep_count == 0  # fresh instance
+
+    # Call 1: first-ever zero-result grep with '*.py'.
+    # _last_empty_glob_pattern is None → no reset of _empty_grep_count.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "foo", "glob_pattern": "*.py"},
+        result="No matches for 'foo'",
+    ))
+    assert cap._empty_grep_count == 1, "incremented from 0, not reset"
+    assert cap._same_filter_count == 1
+    assert cap._last_empty_glob_pattern == "*.py"
+
+    # Call 2: same glob_pattern, different pattern.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "bar", "glob_pattern": "*.py"},
+        result="No matches for 'bar'",
+    ))
+    assert cap._empty_grep_count == 2, "climbs on same filter"
+    assert cap._same_filter_count == 2
+
+    # Call 3: different glob_pattern — both counters reset.
+    # _last_empty_glob_pattern = "*.py", which differs from "*.md".
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "baz", "glob_pattern": "*.md"},
+        result="No matches for 'baz'",
+    ))
+    assert cap._empty_grep_count == 1, "reset to 0 then +1"
+    assert cap._same_filter_count == 1
+    assert cap._last_empty_glob_pattern == "*.md"
+
+    # Call 4: another with '*.md' — amounts climb on the new filter.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "qux", "glob_pattern": "*.md"},
+        result="No matches for 'qux'",
+    ))
+    assert cap._empty_grep_count == 2, "climbs on same filter again"
+    assert cap._same_filter_count == 2
+
+    # Call 5: yet another different glob_pattern — resets again.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "xyzzy", "glob_pattern": "*.toml"},
+        result="No matches for 'xyzzy'",
+    ))
+    assert cap._empty_grep_count == 1, "reset to 0 on filter change"
     assert cap._same_filter_count == 1
 
 
@@ -1614,6 +1675,7 @@ def test_grep_guardrail_same_filter_resets_on_nonempty_grep():
         args={"pattern": "real_match", "glob_pattern": "*.py"},
         result="showing first 5 of 10 matches:\n  real.py\n...",
     ))
+    assert cap._empty_grep_count == 0
     assert cap._same_filter_count == 0
     assert cap._last_empty_pattern is None
     assert cap._last_empty_glob_pattern is None
@@ -1655,6 +1717,7 @@ def test_grep_guardrail_for_run_resets_same_filter_state():
     fresh = _run(cap.for_run(None))
     assert fresh is not cap
     assert fresh._same_filter_count == 0
+    assert fresh._empty_grep_count == 0
     assert fresh._last_empty_pattern is None
     assert fresh._last_empty_glob_pattern is None
 
