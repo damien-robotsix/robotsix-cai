@@ -4,13 +4,12 @@ to the next open sibling so the solve workflow picks it up.
 
 from __future__ import annotations
 
-import argparse
 import sys
 
 from cai.github.bot import CaiBot
 from cai.github.issues import get_parent_issue, list_sub_issues
 from cai.github.labels import set_label
-from cai.github.repo import parse_issue_ref
+from cai.github.repo import parse_ref_and_bot
 
 
 def orchestrate(bot: CaiBot, repo: str, closed_number: int) -> str | None:
@@ -37,26 +36,12 @@ def orchestrate(bot: CaiBot, repo: str, closed_number: int) -> str | None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        prog="cai-chain-sub-issue",
-        description=(
-            "When a sub-issue is closed on GitHub, locate its parent, "
-            "find the next open sibling, and apply cai:raised so the "
-            "cai-solve workflow picks it up automatically."
-        ),
+    bot, repo, number = parse_ref_and_bot(
+        "cai-chain-sub-issue",
+        "When a sub-issue is closed on GitHub, locate its parent, "
+        "find the next open sibling, and apply cai:raised so the "
+        "cai-solve workflow picks it up automatically.",
     )
-    parser.add_argument(
-        "ref",
-        help="Issue reference, formatted as owner/repo#number.",
-    )
-    args = parser.parse_args()
-
-    parsed = parse_issue_ref(args.ref)
-    if parsed is None:
-        parser.error(f"expected owner/repo#number, got {args.ref!r}")
-    repo, number = parsed
-
-    bot = CaiBot()
     result = orchestrate(bot, repo, number)
     if result is not None:
         print(result)

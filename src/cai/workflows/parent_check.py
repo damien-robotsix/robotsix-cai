@@ -1,7 +1,6 @@
 """Parent-check workflow — runs when a sub-issue is closed and checks parent completion."""
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import sys
@@ -25,7 +24,7 @@ from cai.github.issues import (
     push,
 )
 from cai.github.labels import set_label
-from cai.github.repo import parse_issue_ref
+from cai.github.repo import parse_ref_and_bot
 from cai.log.observability import langfuse_workflow
 from cai.workflows.state import _inline_refs
 
@@ -189,26 +188,12 @@ parent_check_graph = Graph(nodes=[FetchParentNode, VerifyParentNode])
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        prog="cai-parent-check",
-        description=(
-            "Check whether a parent issue's requirements have been "
-            "fulfilled by its closed sub-issues, closing the parent or "
-            "creating new sub-issues as needed."
-        ),
+    bot, repo, number = parse_ref_and_bot(
+        "cai-parent-check",
+        "Check whether a parent issue's requirements have been "
+        "fulfilled by its closed sub-issues, closing the parent or "
+        "creating new sub-issues as needed.",
     )
-    parser.add_argument(
-        "ref",
-        help="Issue reference, formatted as owner/repo#number.",
-    )
-    args = parser.parse_args()
-
-    parsed = parse_issue_ref(args.ref)
-    if parsed is None:
-        parser.error(f"expected owner/repo#number, got {args.ref!r}")
-    repo, number = parsed
-
-    bot = CaiBot()
     state = ParentCheckState(bot=bot, repo=repo, sub_issue_number=number)
 
     from cai.workflows.registry import CliArgs, by_slug  # local — avoids circular import
@@ -220,7 +205,7 @@ def main() -> None:
     with langfuse_workflow(
         "cai-parent-check",
         session_id=session_id,
-        input={"ref": args.ref},
+        input={"ref": f"{repo}#{number}"},
     ):
         asyncio.run(parent_check_graph.run(FetchParentNode(), state=state))
 

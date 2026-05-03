@@ -18,6 +18,7 @@ directory as-is so in-progress agent work is preserved.
 """
 from __future__ import annotations
 
+import argparse
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,34 @@ def parse_issue_ref(text: str) -> tuple[str, int] | None:
     if not match:
         return None
     return match["repo"], int(match["number"])
+
+
+def parse_ref_and_bot(
+    prog: str,
+    description: str,
+    ref_help: str = "Issue reference, formatted as owner/repo#number.",
+) -> tuple[CaiBot, str, int]:
+    """Parse ``owner/repo#number`` from CLI args and return (bot, repo, number).
+
+    Wraps argparse, parse_issue_ref validation, and CaiBot instantiation.
+    Calls ``parser.error(...)`` (which exits) on an unparseable ref.
+    """
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description=description,
+    )
+    parser.add_argument(
+        "ref",
+        help=ref_help,
+    )
+    args = parser.parse_args()
+
+    parsed = parse_issue_ref(args.ref)
+    if parsed is None:
+        parser.error(f"expected owner/repo#number, got {args.ref!r}")
+    repo, number = parsed
+
+    return CaiBot(), repo, number
 
 
 # Same wire format as an issue ref (``owner/repo#N``); aliased so callers

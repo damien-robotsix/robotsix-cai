@@ -142,14 +142,19 @@ def test_orchestrate_closed_number_matches_open_sibling():
 def test_main_valid_ref():
     """A valid ref is parsed and orchestrate() is called."""
     with (
-        patch("cai.workflows.chain.CaiBot") as mock_bot_cls,
+        patch("cai.workflows.chain.parse_ref_and_bot", return_value=(MagicMock(), "owner/repo", 42)) as mock_parse,
         patch("cai.workflows.chain.orchestrate", return_value="applied cai:raised to owner/repo#43") as mock_orch,
         pytest.raises(SystemExit) as exc,
     ):
         main()
 
     assert exc.value.code == 0
-    mock_bot_cls.assert_called_once()
+    mock_parse.assert_called_once_with(
+        "cai-chain-sub-issue",
+        "When a sub-issue is closed on GitHub, locate its parent, "
+        "find the next open sibling, and apply cai:raised so the "
+        "cai-solve workflow picks it up automatically.",
+    )
     mock_orch.assert_called_once()
     args = mock_orch.call_args
     assert isinstance(args[0][0], MagicMock)  # CaiBot instance
@@ -161,7 +166,7 @@ def test_main_valid_ref():
 def test_main_prints_summary(capsys):
     """When orchestrate() returns a summary, it is printed to stdout."""
     with (
-        patch("cai.workflows.chain.CaiBot"),
+        patch("cai.workflows.chain.parse_ref_and_bot", return_value=(MagicMock(), "owner/repo", 42)),
         patch("cai.workflows.chain.orchestrate", return_value="applied cai:raised to owner/repo#43"),
         pytest.raises(SystemExit) as exc,
     ):
@@ -176,7 +181,7 @@ def test_main_prints_summary(capsys):
 def test_main_no_next_sub_issue(capsys):
     """When orchestrate() returns None, 'no next sub-issue' is printed."""
     with (
-        patch("cai.workflows.chain.CaiBot"),
+        patch("cai.workflows.chain.parse_ref_and_bot", return_value=(MagicMock(), "owner/repo", 42)),
         patch("cai.workflows.chain.orchestrate", return_value=None),
         pytest.raises(SystemExit) as exc,
     ):
@@ -191,7 +196,7 @@ def test_main_no_next_sub_issue(capsys):
 def test_main_invalid_ref():
     """An unparsable ref exits with an error message to stderr."""
     with (
-        patch("cai.workflows.chain.parse_issue_ref", return_value=None),
+        patch("cai.workflows.chain.parse_ref_and_bot", side_effect=SystemExit(2)),
         pytest.raises(SystemExit) as exc,
     ):
         main()
@@ -203,7 +208,7 @@ def test_main_invalid_ref():
 def test_main_always_exits_zero(capsys):
     """main() always exits with code 0, even when there is no next sub-issue."""
     with (
-        patch("cai.workflows.chain.CaiBot"),
+        patch("cai.workflows.chain.parse_ref_and_bot", return_value=(MagicMock(), "owner/repo", 42)),
         patch("cai.workflows.chain.orchestrate", return_value=None),
         pytest.raises(SystemExit) as exc,
     ):
@@ -218,7 +223,7 @@ def test_main_always_exits_zero(capsys):
 def test_main_exits_zero_on_success():
     """main() exits with code 0 on success."""
     with (
-        patch("cai.workflows.chain.CaiBot"),
+        patch("cai.workflows.chain.parse_ref_and_bot", return_value=(MagicMock(), "owner/repo", 42)),
         patch("cai.workflows.chain.orchestrate", return_value="applied cai:raised to owner/repo#43"),
         pytest.raises(SystemExit) as exc,
     ):

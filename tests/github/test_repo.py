@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import io
 import pytest
 
 from cai.github.repo import (
@@ -14,6 +15,7 @@ from cai.github.repo import (
     PR_WORKSPACE_ROOT,
     parse_issue_ref,
     parse_pr_ref,
+    parse_ref_and_bot,
     issue_workspace,
     pr_workspace,
     prepare_workspace,
@@ -51,6 +53,73 @@ class TestParsePrRef:
 
     def test_valid(self) -> None:
         assert parse_pr_ref("owner/repo#123") == ("owner/repo", 123)
+
+
+class TestParseRefAndBot:
+    """Tests for ``parse_ref_and_bot()`` — the shared CLI bootstrap."""
+
+    def test_valid_ref_returns_bot_repo_number(self) -> None:
+        """A valid ref returns (bot, repo, number)."""
+        mock_bot = MagicMock()
+        with (
+            patch("sys.argv", ["cai-test", "owner/repo#42"]),
+            patch("cai.github.repo.CaiBot", return_value=mock_bot),
+        ):
+            bot, repo, number = parse_ref_and_bot(
+                "cai-test",
+                "Test description.",
+            )
+
+        assert bot is mock_bot
+        assert repo == "owner/repo"
+        assert number == 42
+
+    def test_invalid_ref_exits(self) -> None:
+        """An unparsable ref causes sys.exit(2)."""
+        with (
+            patch("sys.argv", ["cai-test", "not-a-ref"]),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            pytest.raises(SystemExit) as exc,
+        ):
+            parse_ref_and_bot("cai-test", "Test description.")
+
+        assert exc.value.code == 2
+        assert "expected owner/repo#number" in mock_stderr.getvalue()
+
+    def test_ref_help_flows_to_parser(self) -> None:
+        """The *ref_help* parameter is accepted and the function works."""
+        mock_bot = MagicMock()
+
+        with (
+            patch("sys.argv", ["cai-test", "owner/repo#1"]),
+            patch("cai.github.repo.CaiBot", return_value=mock_bot),
+        ):
+            bot, repo, number = parse_ref_and_bot(
+                "cai-test",
+                "Test description.",
+                ref_help="Custom help text.",
+            )
+
+        assert bot is mock_bot
+        assert repo == "owner/repo"
+        assert number == 1
+
+    def test_prog_and_description_set_on_parser(self) -> None:
+        """*prog* and *description* are accepted and the function works."""
+        mock_bot = MagicMock()
+
+        with (
+            patch("sys.argv", ["my-prog", "owner/repo#1"]),
+            patch("cai.github.repo.CaiBot", return_value=mock_bot),
+        ):
+            bot, repo, number = parse_ref_and_bot(
+                "my-prog",
+                "My custom description.",
+            )
+
+        assert bot is mock_bot
+        assert repo == "owner/repo"
+        assert number == 1
 
 
 class TestIssueWorkspace:
