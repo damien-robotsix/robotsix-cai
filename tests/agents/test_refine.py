@@ -39,7 +39,7 @@ def test_refine_agent_config():
     
     # Assert verification template updates
     assert "grep for Y" not in instructions
-    assert "check that modified file Z looks like" in instructions
+    assert "exact subheading names, ordering, and presence" in instructions
 
     # Assert context management instructions
     assert "## Context management" in instructions
@@ -129,6 +129,28 @@ def test_refine_prompt_stay_in_your_lane_mentions_spike_run():
     ), "refine.md 'Stay in your lane' must forbid write_file/edit_file on repo files"
 
 
+def test_refine_prompt_relaxed_body_format():
+    """Verify the body format section requires only ## Refined Issue,
+    a description section, and a plan section — no rigid subheading
+    list, exact names left to the model's judgment."""
+    refine_file = resolve_agent_path("refine")
+    _, instructions = parse_agent_md(refine_file)
+
+    assert "## Body format" in instructions
+    assert "`## Refined Issue`" in instructions, (
+        "Body must start with ## Refined Issue"
+    )
+    assert "must contain at minimum a description section and a plan section" in instructions, (
+        "Only description and plan are required sections"
+    )
+    assert "exact subheading names, ordering, and presence" in instructions, (
+        "Subheading names should not be rigidly prescribed"
+    )
+    assert "left to your judgment" in instructions, (
+        "Model should have discretion over section headings"
+    )
+
+
 def test_refine_prompt_includes_avoid_rereading_guidance():
     """Verify refine.md contains avoid-re-reading-files guidance."""
     refine_file = resolve_agent_path("refine")
@@ -138,7 +160,20 @@ def test_refine_prompt_includes_avoid_rereading_guidance():
         "refine.md must contain 'Avoid re-reading files you've already read' guidance"
     )
     assert "Before calling `read_file` yourself" in instructions
+
+
+def test_refine_prompt_softened_scope_guardrails_guideline():
+    """The Files-to-change-vs-Scope-guardrails guideline uses conditional wording."""
+    refine_file = resolve_agent_path("refine")
+    config, instructions = parse_agent_md(refine_file)
+
     assert (
-        "check whether the content you need is already in your conversation history"
-        in instructions
-    )
+        "Files to change vs Scope guardrails are disjoint" in instructions
+    ), "The guideline header must still be present"
+    assert (
+        "If both" in instructions and "are present" in instructions
+    ), "The guideline must use conditional ('If both ... are present') wording"
+    assert (
+        "a path should appear in only one" in instructions
+    ), "The softened rule must still say paths should not overlap"
+
