@@ -10,6 +10,7 @@ from pydantic_graph import BaseNode, GraphRunContext
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.log.observability import traced_agent_run
 from cai.workflows.pr import PRNode
+from cai.workflows.pre_push_validate import PrePushValidationNode
 from cai.workflows.state import DocsOutput, IssueState
 
 
@@ -20,7 +21,7 @@ def _docs_agent():
 
 
 class DocsNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> PRNode:
+    async def run(self, ctx: GraphRunContext[IssueState]) -> PrePushValidationNode:
         state = ctx.state
         assert state.new_meta is not None
         assert state.implement_output is not None
@@ -59,4 +60,4 @@ class DocsNode(BaseNode[IssueState]):
             usage_limits=UsageLimits(request_limit=100),
         )
         state.docs_output = result.output
-        return PRNode()
+        return PrePushValidationNode()

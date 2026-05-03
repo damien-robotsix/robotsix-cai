@@ -153,6 +153,13 @@ class ImplementNode(BaseNode[IssueState]):
                 "Fix the code so these tests pass:\n\n"
                 f"```\n{state.test_failure_details}\n```"
             )
+        if state.push_validation_failure:
+            prompt += (
+                "\n\n## Pre-push validation failures to fix\n\n"
+                "The previous implementation attempt failed pre-push validation. "
+                "Fix the issues described below:\n\n"
+                f"{state.push_validation_failure}"
+            )
         if state.session_state is not None and state.session_state.known_corruptions:
             warning_lines = "\n".join(
                 f"  - {c}" for c in state.session_state.known_corruptions
