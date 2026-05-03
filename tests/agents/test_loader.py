@@ -3184,6 +3184,87 @@ def test_inject_common_fragments_blank_lines_around_insertion():
     )
 
 
+# ── _BATCH_TOOL_CALLS_FRAGMENT auto-injection with filesystem tools ──
+
+
+def test_inject_common_fragments_batch_tool_calls_with_filesystem():
+    """_BATCH_TOOL_CALLS_FRAGMENT is injected when filesystem is in tools."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nDo stuff."
+    config = {"name": "test", "tools": ["filesystem"]}
+    result = _inject_common_fragments(config, instructions)
+    assert "Batch independent tool calls" in result
+    assert "do them all in a single response" in result
+
+
+def test_inject_common_fragments_batch_tool_calls_with_filesystem_read():
+    """_BATCH_TOOL_CALLS_FRAGMENT is injected when filesystem_read is in tools."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nDo stuff."
+    config = {"name": "test", "tools": ["filesystem_read"]}
+    result = _inject_common_fragments(config, instructions)
+    assert "Batch independent tool calls" in result
+
+
+def test_inject_common_fragments_batch_tool_calls_with_filesystem_write():
+    """_BATCH_TOOL_CALLS_FRAGMENT is injected when filesystem_write is in tools."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nDo stuff."
+    config = {"name": "test", "tools": ["filesystem_write"]}
+    result = _inject_common_fragments(config, instructions)
+    assert "Batch independent tool calls" in result
+
+
+def test_inject_common_fragments_no_batch_tool_calls_without_filesystem():
+    """_BATCH_TOOL_CALLS_FRAGMENT is NOT injected when no filesystem tools."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nDo stuff."
+    config = {"name": "test", "tools": ["web_search", "web_fetch"]}
+    result = _inject_common_fragments(config, instructions)
+    assert "Batch independent tool calls" not in result
+
+
+def test_inject_common_fragments_batch_and_task_tool_notes_together():
+    """Both _BATCH_TOOL_CALLS_FRAGMENT and _TASK_TOOL_NOTE when both relevant."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nDo stuff."
+    config = {"name": "test", "tools": ["filesystem", "subagents"]}
+    result = _inject_common_fragments(config, instructions)
+    assert "Batch independent tool calls" in result
+    assert "description=" in result
+    assert "`task` tool has no `prompt` parameter" in result
+
+
+def test_inject_common_fragments_batch_tool_calls_sits_after_task_tool_note():
+    """_BATCH_TOOL_CALLS_FRAGMENT is appended after _TASK_TOOL_NOTE when both present."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nDo stuff."
+    config = {"name": "test", "tools": ["filesystem", "subagents"]}
+    result = _inject_common_fragments(config, instructions)
+    assert result.index("description=") < result.index("Batch independent tool calls")
+
+
+def test_inject_common_fragments_batch_tool_calls_with_common_fragments():
+    """_BATCH_TOOL_CALLS_FRAGMENT works alongside common: fragments."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nDo stuff."
+    config = {
+        "name": "test",
+        "tools": ["filesystem"],
+        "common": ["anti_hallucination_guard"],
+    }
+    result = _inject_common_fragments(config, instructions)
+    assert "Parameter bleed warning" in result
+    assert "Batch independent tool calls" in result
+
+
 # ---------------------------------------------------------------------------
 # EditFileGuardrailAsRetry — multi-match detection edge cases
 # ---------------------------------------------------------------------------

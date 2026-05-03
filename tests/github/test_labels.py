@@ -123,7 +123,7 @@ class TestCAILabelSpecs:
         ("cai:trace-investigation", "d93f0b", "Symptom seen in agent traces — confirm by inspecting the listed traces before acting"),
     ]
 
-    def test_is_list_of_five(self):
+    def test_is_list_of_seven(self):
         assert isinstance(CAI_LABEL_SPECS, list)
         assert len(CAI_LABEL_SPECS) == 7
 
@@ -163,7 +163,7 @@ class TestCAILabelSpecs:
         assert re_exported is CAI_LABEL_SPECS
 
     def test_passed_to_ensure_labels_creates_all(self):
-        """The constant integrates with ensure_labels: all five labels are created."""
+        """The constant integrates with ensure_labels: all seven labels are created."""
         mock_bot = Mock()
         mock_repo = Mock()
         mock_bot.repo.return_value = mock_repo
