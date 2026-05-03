@@ -64,6 +64,8 @@ class ProposedIssue(WithConfidence):
     title: str
     body: str
     last_detected_at: str | None = None  # ISO timestamp of the most recent relevant trace
+    trace_ids: list[str] = []  # Langfuse trace IDs that motivated the issue; non-empty marks it as needing human trace investigation and disables auto-raise
+    trace_filter: str | None = None  # Free-form hint describing which kind of yesterday's traces matter for the daily follow-up (e.g. "tool errors in Bash", "cai-solve traces where DeepSeek emits prose instead of a final tool call")
 
 
 class DedupeOutput(BaseModel):
@@ -125,6 +127,40 @@ def _dedupe_agent():
     )
 
 
+def _trace_section(
+    trace_ids: list[str],
+    first_observed: str | None = None,
+    trace_filter: str | None = None,
+) -> str:
+    """Render trace IDs as a markdown section to splice into an issue body or comment.
+
+    ``first_observed`` and ``trace_filter`` are rendered as metadata lines
+    above the bullets so the daily follow-up workflow can read them back
+    from the issue body.
+    """
+    bullets = "\n".join(f"- `{tid}`" for tid in trace_ids)
+    metadata_lines: list[str] = []
+    if first_observed:
+        metadata_lines.append(f"**First observed**: {first_observed}")
+    if trace_filter:
+        metadata_lines.append(f"**Trace filter**: {trace_filter}")
+    metadata = "\n".join(metadata_lines) + "\n\n" if metadata_lines else ""
+    return (
+        "## Relevant Traces\n\n"
+        "Symptom drawn from the following Langfuse traces. "
+        "Inspect them (`traces_show <id>`) to confirm the issue is real before acting.\n\n"
+        f"{metadata}{bullets}\n"
+    )
+
+
+def _labels_for_trace_investigation(labels: list[str]) -> list[str]:
+    """Force human review and tag as trace-investigation for issues backed by trace IDs."""
+    out = ["cai:human-review" if lbl == "cai:raised" else lbl for lbl in labels]
+    if "cai:trace-investigation" not in out:
+        out.append("cai:trace-investigation")
+    return out
+
+
 async def _create_issues_from_proposals(
     bot: CaiBot,
     repo_name: str,
@@ -170,11 +206,18 @@ async def _create_issues_from_proposals(
                 f"Appending issue '{issue.title}' to "
                 f"#{target_issue.number}: {dedupe_decision.reason}"
             )
-            target_issue.create_comment(
+            comment = (
                 "**Additional proposed issue details:**\n\n"
                 f"**Title**: {issue.title}\n\n"
                 f"**Body**:\n{issue.body}"
             )
+            if issue.trace_ids:
+                comment += "\n\n" + _trace_section(
+                    issue.trace_ids,
+                    first_observed=issue.last_detected_at,
+                    trace_filter=issue.trace_filter,
+                )
+            target_issue.create_comment(comment)
             continue
 
         if dedupe_decision.action == "append":
@@ -187,9 +230,17 @@ async def _create_issues_from_proposals(
             )
 
         labels = labels_for_confidence(issue.confidence)
+        body = issue.body
+        if issue.trace_ids:
+            labels = _labels_for_trace_investigation(labels)
+            body = body.rstrip() + "\n\n" + _trace_section(
+                issue.trace_ids,
+                first_observed=issue.last_detected_at,
+                trace_filter=issue.trace_filter,
+            )
         created = repo_obj.create_issue(
             title=issue.title,
-            body=issue.body,
+            body=body,
             labels=labels,
         )
         print(f"Created (confidence={issue.confidence}, labels={labels}): {created.html_url}")
@@ -298,7 +349,9 @@ def _build_cost_prompt(unknown: list[str]) -> str:
         + "\n".join(rows)
         + "\n\nDelegate deep inspection of interesting traces to trace_analyst. "
         "Draft improvements as proposed issues. "
-        "Set last_detected_at to the ISO timestamp of the relevant trace for each issue."
+        "Set last_detected_at to the ISO timestamp of the relevant trace for each issue. "
+        "Populate trace_ids with every trace ID that supports the issue — this routes "
+        "it to a human for trace-level confirmation and disables auto-raise."
     )
     if unknown:
         prompt += f"\n\nAdditional context: {' '.join(unknown)}"
@@ -325,7 +378,9 @@ def _build_errors_prompt(unknown: list[str]) -> str:
         + "\n\nDelegate deep inspection of specific traces to trace_analyst. "
         "Draft improvements as proposed issues. "
         "Set last_detected_at to the ISO timestamp of the most recent relevant "
-        "failure for each issue."
+        "failure for each issue. "
+        "Populate trace_ids with every trace ID that supports the issue — this routes "
+        "it to a human for trace-level confirmation and disables auto-raise."
     )
     if unknown:
         prompt += f"\n\nAdditional context: {' '.join(unknown)}"

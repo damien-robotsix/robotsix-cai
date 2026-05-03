@@ -1,19 +1,25 @@
-name: CAI Audit Errors
+name: CAI Trace Follow-up
 
 on:
-  issues:
-    types: [labeled]
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Target GitHub repository (owner/repo)"
+        required: true
+        default: damien-robotsix/robotsix-cai
 
 concurrency:
-  group: cai-audit-errors
+  group: cai-trace-followup
   cancel-in-progress: true
 
 jobs:
-  audit-errors:
-    if: github.event.label.name == 'cai:failed' && !contains(github.event.issue.labels.*.name, 'cai:audit')
+  trace-followup:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
 
     steps:
       - name: Checkout repository
@@ -25,7 +31,7 @@ jobs:
           cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
           cai_app_env: ${{ secrets.CAI_APP_ENV }}
 
-      - name: Run CAI Audit Errors
+      - name: Run CAI Trace Follow-up
         run: |
           docker run --rm \
             -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
@@ -34,4 +40,4 @@ jobs:
             -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
             -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
             docker.io/robotsix/cai:latest \
-            cai-audit --repo "${{ github.repository }}" --mode errors
+            cai-trace-followup --repo "${{ github.event.inputs.repo || 'damien-robotsix/robotsix-cai' }}"

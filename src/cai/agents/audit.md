@@ -23,7 +23,13 @@ You receive pre-fetched Langfuse trace data in the prompt — either a full sess
    - Handoff gaps between workflow steps
    - Missing tool coverage that forces agents into retry loops
 4. **Draft improvements**: Return specific, actionable proposed issues in GitHub issue format. For each issue, set `last_detected_at` to the ISO timestamp of the most recent trace where you observed the problem.
-5. **Score confidence per issue**: For every `ProposedIssue`, set `confidence` (1-10) using the rubric below. Downstream automation may auto-dispatch high-confidence issues directly to the solve workflow, so be honest — over-rating produces wasted solve runs, under-rating buries good fixes.
+5. **Populate `trace_ids` and `trace_filter` for trace-derived issues**: For every issue whose evidence lives in agent traces (cost spikes, repeated tool calls, hallucinations, retry loops — i.e. anything that needs a human to look at the trace to confirm it's a real bug rather than expected agent behavior), set `trace_ids` to the list of Langfuse trace IDs you used to draw the conclusion. Also set `trace_filter` to a short, free-form hint describing which kind of yesterday's traces would reproduce the symptom (the daily follow-up workflow uses it to scope its trace pull). Examples:
+   - `trace_filter: "tool errors in the Bash tool from cai-solve"` → follow-up will fetch yesterday's failure-level traces filtered to that tool.
+   - `trace_filter: "trace_analyst agent runs that hit retry loops"` → follow-up will scan recent trace_analyst delegations.
+   - `trace_filter: "any cai-solve trace where DeepSeek emits prose instead of the final tool call"` → follow-up will scan recent cai-solve traces for the pattern.
+
+   The pipeline will append a "Relevant Traces" section to the issue body (with the trace IDs, the first-observed timestamp, and the filter hint), force the `cai:human-review` route regardless of confidence, and add the `cai:trace-investigation` label. Leave `trace_ids` empty only when the issue is independent of trace inspection (e.g. a missing tool or a clear data-format bug visible without traces).
+6. **Score confidence per issue**: For every `ProposedIssue`, set `confidence` (1-10) using the rubric below. Downstream automation may auto-dispatch high-confidence issues directly to the solve workflow, so be honest — over-rating produces wasted solve runs, under-rating buries good fixes. Note: trace-investigation issues are never auto-dispatched even at confidence 9-10; the rubric still matters for prioritization.
 
 ## Confidence rubric (trace-based audits)
 

@@ -130,6 +130,23 @@ it — but do **not** call `write_file`/`edit_file` on anything under `repo/`. I
 - The `history_archive` tool can persist important findings so they
   survive context truncation
 
+## Refinement budget
+
+You are expected to produce the refined output in at most three passes:
+
+- **Phase 1 — Gather**: Collect all needed context in one pass. Read files,
+  grep, delegate to subagents — batch related work into a single pass
+  rather than drip-feeding tool calls.
+- **Phase 2 — Draft**: Write the refined output. Format the body, populate
+  `reference_files`, decide on `sub_issues`. Get the plan down.
+- **Phase 3 — Verify**: One final review pass. Check that plan steps are
+  concrete, verify any remaining claims against the codebase, then emit
+  the structured output.
+
+If you find yourself nearing a fourth pass, **stop and emit** — produce the
+best output you have and note any remaining uncertainties in *Description*
+rather than iterating further. Marginal polish is not worth extra rounds.
+
 ## Decomposition
 
 **Actively look for decomposition opportunities** before deciding to keep

@@ -83,6 +83,65 @@ def test_docs_node_prompt_includes_implement_output(mock_agent_factory, state):
 
 
 @patch("cai.workflows.docs._docs_agent")
+def test_docs_node_prompt_includes_edit_instruction(mock_agent_factory, state):
+    """The runtime prompt instructs the model to use write_file or
+    edit_file to make actual documentation changes before returning JSON."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    state.implement_output = ImplementOutput(
+        summary="Changes.",
+        commit_message="fix: changes",
+    )
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        result = MagicMock()
+        result.output = DocsOutput(summary="Updated docs.", commit_message="docs: update")
+        return result
+
+    agent_instance.run = mock_run
+
+    _run(DocsNode(), state)
+
+    assert captured_prompt is not None
+    assert "Use write_file or edit_file to make the actual documentation changes" in captured_prompt
+    assert "before returning your JSON response" in captured_prompt
+
+
+@patch("cai.workflows.docs._docs_agent")
+def test_docs_node_prompt_includes_files_changed_in_return(mock_agent_factory, state):
+    """The runtime prompt lists files_changed as a return value."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    state.implement_output = ImplementOutput(
+        summary="Changes.",
+        commit_message="fix: changes",
+    )
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        result = MagicMock()
+        result.output = DocsOutput(summary="Updated docs.", commit_message="docs: update")
+        return result
+
+    agent_instance.run = mock_run
+
+    _run(DocsNode(), state)
+
+    assert captured_prompt is not None
+    assert "files_changed" in captured_prompt
+    assert "- files_changed" in captured_prompt or "- `files_changed`" in captured_prompt
+
+
+@patch("cai.workflows.docs._docs_agent")
 def test_docs_node_prompt_includes_issue_metadata(mock_agent_factory, state):
     """The prompt includes the refined issue metadata as JSON."""
     agent_instance = MagicMock()
@@ -220,6 +279,7 @@ def test_docs_node_sets_state_docs_output(mock_agent_factory, state):
     expected_output = DocsOutput(
         summary="Updated docs/cli.md to cover the new `--timeout` flag.",
         commit_message="docs: document --timeout flag in cli.md",
+        files_changed=["docs/cli.md"],
     )
 
     async def mock_run(prompt, *args, **kwargs):
@@ -234,6 +294,7 @@ def test_docs_node_sets_state_docs_output(mock_agent_factory, state):
     assert state.docs_output is not None
     assert state.docs_output.summary == expected_output.summary
     assert state.docs_output.commit_message == expected_output.commit_message
+    assert state.docs_output.files_changed == ["docs/cli.md"]
 
 
 @patch("cai.workflows.docs._docs_agent")

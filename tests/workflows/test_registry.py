@@ -71,6 +71,7 @@ def test_registry_covers_user_facing_cli_scripts():
         "memory-audit": "cai-memory-audit",
         "parent-check": "cai-parent-check",
         "ci-triage": "cai-ci-triage",
+        "trace-followup": "cai-trace-followup",
     }
     registered = {spec.slug for spec in WORKFLOWS}
     assert registered == set(expected), (

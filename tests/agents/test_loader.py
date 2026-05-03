@@ -1481,7 +1481,12 @@ def test_agent_prompt_includes_avoid_rereading_guidance(
 ANTI_HALLUCINATION_TEXT = (
     "> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. "
     "You cannot run commands, tests, or scripts. "
-    "Only the tools listed above are available to you.**"
+    "Only the tools listed above are available to you.**\n"
+    ">\n"
+    "> **Parameter bleed warning:** Each tool accepts only its own documented "
+    "parameters. Do not carry a parameter from one tool (e.g., `limit` from "
+    "`read_file`) to another tool (e.g., `grep`). If a parameter isn't listed "
+    "in the tool's documentation, it won't be accepted."
 )
 
 
@@ -3063,6 +3068,7 @@ def test_inject_common_fragments_anti_hallucination_only():
 
     assert "anti_hallucination_guard" not in result  # not the key name
     assert "You do NOT have an `execute`, `bash`, `shell`, or `run` tool." in result
+    assert "Parameter bleed warning" in result
     assert "# Test Agent" in result
     # Fragment should be after the title heading
     parts = result.split("# Test Agent")
@@ -3079,6 +3085,7 @@ def test_inject_common_fragments_both_fragments():
     result = _inject_common_fragments(config, instructions)
 
     assert "run` tool" in result
+    assert "Parameter bleed warning" in result
     assert "Anti-pattern examples" in result
     # anti-hallucination guard should come first, then antipattern examples
     assert result.index("run` tool") < result.index("Anti-pattern")
@@ -3093,6 +3100,7 @@ def test_inject_common_fragments_no_heading():
     result = _inject_common_fragments(config, instructions)
 
     assert "You do NOT have an `execute`" in result
+    assert "Parameter bleed warning" in result
     # Original text should still be present
     assert "without a title heading" in result
 
@@ -3133,6 +3141,7 @@ def test_inject_common_fragments_fragments_and_task_tool_note():
     result = _inject_common_fragments(config, instructions)
 
     assert "execute" in result
+    assert "Parameter bleed warning" in result
     assert "Anti-pattern examples" in result
     assert "description=" in result
 

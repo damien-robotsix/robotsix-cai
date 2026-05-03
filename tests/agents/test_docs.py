@@ -17,46 +17,34 @@ def test_docs_agent_config():
     assert "filesystem" in tools
 
 
-def test_docs_agent_prompt_includes_output_format_section():
-    """The system prompt must include a dedicated ## Output format section."""
+def test_docs_agent_prompt_includes_edit_instructions():
+    """The system prompt instructs the model to use write_file or edit_file
+    to make actual documentation changes."""
     docs_file = resolve_agent_path("docs")
     _, system_prompt = parse_agent_md(docs_file)
 
-    assert "## Output format" in system_prompt
+    assert "write_file" in system_prompt
+    assert "edit_file" in system_prompt
+    assert "Editing strategy" in system_prompt
 
 
-def test_docs_agent_prompt_includes_raw_json_instruction():
-    """The system prompt instructs the model to return only a raw JSON object
-    with no markdown fences."""
+def test_docs_agent_prompt_includes_files_changed():
+    """The system prompt lists files_changed as a return field."""
     docs_file = resolve_agent_path("docs")
     _, system_prompt = parse_agent_md(docs_file)
 
-    assert "no markdown fences" in system_prompt
-    assert "raw JSON object" in system_prompt
-
-
-def test_docs_agent_prompt_includes_json_example():
-    """The system prompt includes a JSON code block showing an example
-    of the exact summary + commit_message shape the model must return."""
-    docs_file = resolve_agent_path("docs")
-    _, system_prompt = parse_agent_md(docs_file)
-
-    # The JSON example block uses a ```json fence and contains both
-    # fields with realistic-looking values.
-    assert "```json" in system_prompt
-    assert '"summary"' in system_prompt
-    assert '"commit_message"' in system_prompt
-    assert "langfuse-server" in system_prompt
-    assert "--timeout" in system_prompt
+    assert "files_changed" in system_prompt
 
 
 def test_docs_agent_prompt_states_return_fields():
-    """The system prompt explicitly lists summary and commit_message as return values."""
+    """The system prompt explicitly lists summary, commit_message, and
+    files_changed as return values."""
     docs_file = resolve_agent_path("docs")
     _, system_prompt = parse_agent_md(docs_file)
 
     assert "- `summary`" in system_prompt
     assert "- `commit_message`" in system_prompt
+    assert "- `files_changed`" in system_prompt
 
 
 def test_docs_agent_prompt_includes_guidelines():
@@ -67,3 +55,32 @@ def test_docs_agent_prompt_includes_guidelines():
     assert "## Guidelines" in system_prompt
     assert "Focus purely on the `docs/` folder" in system_prompt
     assert "Prefer extending an existing page" in system_prompt
+
+
+def test_docs_agent_prompt_what_you_receive_includes_reference_files():
+    """The system prompt's 'What you receive' section mentions reference
+    files."""
+    docs_file = resolve_agent_path("docs")
+    _, system_prompt = parse_agent_md(docs_file)
+
+    assert "## What you receive" in system_prompt
+    assert "Reference files" in system_prompt
+    assert "refine agent flagged as required reading" in system_prompt
+
+
+def test_docs_agent_prompt_how_to_work_step3_names_tools():
+    """Step 3 of 'How to work' explicitly names write_file and edit_file."""
+    docs_file = resolve_agent_path("docs")
+    _, system_prompt = parse_agent_md(docs_file)
+
+    assert "3. Use `write_file` or `edit_file`" in system_prompt
+
+
+def test_docs_agent_prompt_has_output_section():
+    """The system prompt has an ## Output section with return fields, not
+    an 'Output format' section."""
+    docs_file = resolve_agent_path("docs")
+    _, system_prompt = parse_agent_md(docs_file)
+
+    assert "## Output" in system_prompt
+    assert "## Output format" not in system_prompt
