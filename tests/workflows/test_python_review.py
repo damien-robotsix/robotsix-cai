@@ -36,6 +36,7 @@ def test_python_review_node_request_limit(mock_agent_factory, state):
     state.implement_output = MagicMock()
     state.implement_output.summary = "changes"
     state.implement_output.commit_message = "fix: changes"
+    state.implement_output.files_changed = []
 
     _run(PythonReviewNode(), state)
 
@@ -56,6 +57,7 @@ def test_python_review_node_stores_output(mock_agent_factory, state):
     state.implement_output = MagicMock()
     state.implement_output.summary = "changes"
     state.implement_output.commit_message = "fix: changes"
+    state.implement_output.files_changed = []
 
     expected_output = MagicMock()
     expected_output.summary = "- Fixed import ordering in solver.py"
@@ -86,6 +88,7 @@ def test_python_review_node_prompt_includes_meta_summary_and_message(mock_agent_
     state.implement_output = MagicMock()
     state.implement_output.summary = "Refactored auth module."
     state.implement_output.commit_message = "refactor: clean up auth module"
+    state.implement_output.files_changed = []
 
     captured_prompt = None
 
@@ -120,6 +123,7 @@ def test_python_review_node_prompt_includes_reference_files_section(
     state.implement_output = MagicMock()
     state.implement_output.summary = "changes"
     state.implement_output.commit_message = "fix: changes"
+    state.implement_output.files_changed = []
 
     # Create a real reference file
     ref_file = tmp_path / "src" / "auth.py"
@@ -157,6 +161,7 @@ def test_python_review_node_prompt_omits_reference_files_section_when_empty(
     state.implement_output = MagicMock()
     state.implement_output.summary = "changes"
     state.implement_output.commit_message = "fix: changes"
+    state.implement_output.files_changed = []
     state.reference_files = []
 
     captured_prompt = None
@@ -193,3 +198,65 @@ def test_python_review_node_asserts_implement_output(mock_agent_factory, state):
 
     with pytest.raises(AssertionError):
         _run(PythonReviewNode(), state)
+
+
+@patch("cai.workflows.python_review._python_review_agent")
+def test_python_review_node_prompt_includes_files_changed(mock_agent_factory, state):
+    """When implement_output.files_changed is populated, the prompt includes a
+    'Files changed by implement' section listing every file."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    state.implement_output = MagicMock()
+    state.implement_output.summary = "changes"
+    state.implement_output.commit_message = "fix: changes"
+    state.implement_output.files_changed = ["src/x.py", "tests/test_x.py"]
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        result = MagicMock()
+        result.output = MagicMock()
+        return result
+
+    agent_instance.run = MagicMock(side_effect=mock_run)
+
+    _run(PythonReviewNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Files changed by implement" in captured_prompt
+    assert "- src/x.py" in captured_prompt
+    assert "- tests/test_x.py" in captured_prompt
+
+
+@patch("cai.workflows.python_review._python_review_agent")
+def test_python_review_node_prompt_omits_files_changed_when_empty(
+    mock_agent_factory, state,
+):
+    """PythonReviewNode prompt does NOT include a 'Files changed by implement'
+    section when files_changed is empty."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    state.implement_output = MagicMock()
+    state.implement_output.summary = "changes"
+    state.implement_output.commit_message = "fix: changes"
+    state.implement_output.files_changed = []
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        result = MagicMock()
+        result.output = MagicMock()
+        return result
+
+    agent_instance.run = MagicMock(side_effect=mock_run)
+
+    _run(PythonReviewNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Files changed by implement" not in captured_prompt

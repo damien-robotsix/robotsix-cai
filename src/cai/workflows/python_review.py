@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic_ai.usage import UsageLimits
-from cai.workflows._deps import repo_deps
 from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.log.observability import traced_agent_run
+from cai.workflows._deps import repo_deps
 from cai.workflows.state import IssueState, PythonReviewOutput
 
 
@@ -36,6 +35,9 @@ class PythonReviewNode(BaseNode[IssueState]):
             f"## Implementation summary\n\n{state.implement_output.summary}\n\n"
             f"## Implementation commit message\n\n{state.implement_output.commit_message}"
         )
+        if state.implement_output.files_changed:
+            files_list = "\n".join(f"- {f}" for f in state.implement_output.files_changed)
+            prompt += f"\n\n## Files changed by implement\n\n{files_list}"
         reference_section = state.reference_files_section()
         if reference_section:
             prompt += "\n\n" + reference_section
