@@ -3702,16 +3702,28 @@ def test_micro_step_guard_single_tool_below_threshold():
 
 
 def test_micro_step_guard_triggers_at_threshold():
-    """before_model_request raises ModelRetry after 3 consecutive single-tool turns."""
+    """before_model_request appends a system reminder after 3 consecutive
+    single-tool turns and resets the counter (it does NOT raise — pydantic-ai
+    does not catch ModelRetry from before_model_request, so a raise would
+    crash the workflow)."""
     cap = MicroStepGuardCapability()
     part = ToolCallPart(tool_name="read_file", args={"path": "foo"})
     msg = ModelResponse(parts=[part])
     rc = _make_ctx(messages=[msg])
     _run(cap.before_model_request(None, rc))  # count = 1
     _run(cap.before_model_request(None, rc))  # count = 2
-    with pytest.raises(ModelRetry) as exc:
-        _run(cap.before_model_request(None, rc))  # count = 3 → raise
-    assert "3 consecutive LLM calls" in str(exc.value)
+    initial_msg_count = len(rc.messages)
+    _run(cap.before_model_request(None, rc))  # count = 3 → reminder + reset
+
+    # Counter resets so the next 3-streak fires again instead of crashing.
+    assert cap._consecutive_single_count == 0
+    # A reminder ModelRequest is appended (the "in-band" delivery).
+    from pydantic_ai.messages import ModelRequest, SystemPromptPart
+    assert len(rc.messages) == initial_msg_count + 1
+    reminder = rc.messages[-1]
+    assert isinstance(reminder, ModelRequest)
+    assert any(isinstance(p, SystemPromptPart) and "[micro-step-guard]" in p.content
+               for p in reminder.parts)
 
 
 def test_micro_step_guard_resets_on_multi_tool():
@@ -3767,22 +3779,26 @@ def test_micro_step_guard_only_model_request_in_messages():
     assert cap._consecutive_single_count == 0
 
 
-def test_micro_step_guard_error_message_content():
-    """before_model_request error message includes batching guidance and tool-name examples."""
+def test_micro_step_guard_reminder_message_content():
+    """The injected reminder includes batching guidance and tool-name examples."""
     cap = MicroStepGuardCapability()
     part = ToolCallPart(tool_name="read_file", args={"path": "foo"})
     msg = ModelResponse(parts=[part])
     rc = _make_ctx(messages=[msg])
     _run(cap.before_model_request(None, rc))  # count = 1
     _run(cap.before_model_request(None, rc))  # count = 2
-    with pytest.raises(ModelRetry) as exc:
-        _run(cap.before_model_request(None, rc))  # count = 3 → raise
-    msg_text = str(exc.value)
-    assert "Batch your next tool calls" in msg_text
-    assert "read_file" in msg_text
-    assert "grep" in msg_text
-    assert "edit_file" in msg_text
-    assert "spike_run" in msg_text
+    _run(cap.before_model_request(None, rc))  # count = 3 → reminder + reset
+
+    from pydantic_ai.messages import ModelRequest, SystemPromptPart
+    reminder = rc.messages[-1]
+    assert isinstance(reminder, ModelRequest)
+    text = next(p.content for p in reminder.parts
+                if isinstance(p, SystemPromptPart))
+    assert "Batch your next tool calls" in text
+    assert "read_file" in text
+    assert "grep" in text
+    assert "edit_file" in text
+    assert "spike_run" in text
 
 
 # ── _inject_common_fragments ─────────────────────────────────────────

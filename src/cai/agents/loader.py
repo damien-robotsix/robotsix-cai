@@ -1159,14 +1159,30 @@ class MicroStepGuardCapability(AbstractCapability):
                 elif tool_count == 1:
                     self._consecutive_single_count += 1
                     if self._consecutive_single_count >= self._THRESHOLD:
-                        raise ModelRetry(
-                            f"You have made {self._consecutive_single_count} "
-                            f"consecutive LLM calls with only a single tool "
-                            f"call each. Batch your next tool calls — emit "
-                            f"multiple read_file, grep, spike_run, or "
-                            f"edit_file calls in a single response instead "
-                            f"of making one per turn."
+                        # Reset and inject a system reminder so the model sees
+                        # the batching nudge without crashing the workflow.
+                        # Raising ``ModelRetry`` here is unsafe — pydantic-ai
+                        # only catches ``ModelRetry`` from the tool-execution
+                        # path (per-tool ``max_retries``), so a raise from
+                        # ``before_model_request`` propagates up and aborts
+                        # the entire run. Instead, prepend a reminder
+                        # ``ModelRequest`` to the next outgoing batch.
+                        self._consecutive_single_count = 0
+                        from pydantic_ai.messages import (
+                            ModelRequest, SystemPromptPart,
                         )
+                        reminder = ModelRequest(parts=[SystemPromptPart(
+                            content=(
+                                f"[micro-step-guard] You have made "
+                                f"{self._THRESHOLD} consecutive LLM calls "
+                                f"with only a single tool call each. Batch "
+                                f"your next tool calls — emit multiple "
+                                f"read_file, grep, spike_run, or edit_file "
+                                f"calls in a single response instead of "
+                                f"making one per turn."
+                            ),
+                        )])
+                        request_context.messages.append(reminder)
                 else:
                     self._consecutive_single_count = 0
                 break
