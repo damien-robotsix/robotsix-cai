@@ -189,7 +189,7 @@ WORKFLOWS: list[WorkflowSpec] = [
                             "required": True,
                             "default": "cost",
                             "type": "choice",
-                            "options": ["cost", "errors", "architecture"],
+                            "options": ["cost", "errors", "architecture", "tools"],
                         },
                         "repo": {
                             "description": "Target GitHub repository for issues (owner/repo)",

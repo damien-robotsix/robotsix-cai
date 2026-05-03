@@ -5,13 +5,14 @@ short-circuits to End when the agent proposes nothing. CreateIssuesNode
 runs the issue-deduplicator agent per proposed item to decide whether to
 create a new issue, append a comment to an existing one, or discard.
 
-Six audit modes are supported:
+Seven audit modes are supported:
   --mode cost          Audit the most costly session of the last 10 issue-solving runs.
   --mode errors        Audit the 10 most recent traces that contain error-level observations.
   --mode duplication   Audit copy-paste findings from jscpd against a fresh clone of the repo.
   --mode architecture  Clone the repo and audit structural health.
   --mode security      Clone the repo and audit for common vulnerability patterns.
   --mode deps          Clone the repo and audit dependency freshness against PyPI.
+  --mode tools         Audit per-agent tool usage against declared tools across recent traces.
 
 In every mode all signal context is pre-fetched into the prompt so the agent
 can spend its tokens on judgement rather than tool plumbing.
@@ -42,7 +43,7 @@ from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 
 from pydantic_deep import create_default_deps
 
-from cai.agents.loader import build_deep_agent, load_agent_from_md, parse_agent_md, resolve_agent_path
+from cai.agents.loader import AGENT_DIR, build_deep_agent, load_agent_from_md, parse_agent_md, resolve_agent_path
 from cai.git import clone as git_clone
 from cai.github.bot import CaiBot
 from cai.log.observability import langfuse_workflow, setup_langfuse
@@ -381,6 +382,93 @@ def _build_errors_prompt(unknown: list[str]) -> str:
         "failure for each issue. "
         "Populate trace_ids with every trace ID that supports the issue — this routes "
         "it to a human for trace-level confirmation and disables auto-raise."
+    )
+    if unknown:
+        prompt += f"\n\nAdditional context: {' '.join(unknown)}"
+    return prompt
+
+
+def _build_tools_prompt(unknown: list[str]) -> str:
+    """Prompt for --mode tools: per-agent declared tools vs. actual usage."""
+    sessions = _TRACES.list_solve_sessions(limit=10)
+    if not sessions:
+        print("No issue-solving sessions found in Langfuse.", file=sys.stderr)
+        sys.exit(1)
+
+    # Collect tool_counts from the first trace of each session
+    session_tool_counts: list[dict] = []
+    for session in sessions:
+        trace_ids = session.get("trace_ids", [])
+        if trace_ids:
+            trace_id = trace_ids[0]
+            trace_data = _TRACES.show_trace(trace_id, analyze=True)
+            session_tool_counts.append({
+                "session_id": session["session_id"],
+                "trace_id": trace_id,
+                "tool_counts": trace_data.get("tool_counts", {}),
+            })
+
+    # Collect per-agent declared tools from agent .md files
+    agent_tools: list[dict] = []
+    for md_path in sorted(Path(AGENT_DIR).glob("*.md"), key=str):
+        config, _instructions = parse_agent_md(md_path)
+        agent_tools.append({
+            "name": config.get("name", md_path.stem),
+            "tools": config.get("tools", []),
+            "subagents": config.get("subagents", []),
+        })
+
+    # Build prompt
+    lines = [
+        "Audit per-agent tool usage across the last 10 issue-solving sessions.\n",
+        "## Agent Tool Declarations\n",
+    ]
+
+    for agent in agent_tools:
+        tools_str = ", ".join(agent["tools"]) if agent["tools"] else "(none)"
+        subagents_str = ", ".join(agent["subagents"]) if agent["subagents"] else "(none)"
+        lines.append(
+            f"- **{agent['name']}**: tools=[{tools_str}], subagents=[{subagents_str}]"
+        )
+
+    lines.append("\n## Observed Tool Usage (per session, first trace)\n")
+
+    for entry in session_tool_counts:
+        lines.append(
+            f"### Session {entry['session_id']} (trace: `{entry['trace_id']}`)"
+        )
+        tc = entry["tool_counts"]
+        if tc:
+            for tool_name, count in sorted(tc.items(), key=lambda x: -x[1]):
+                lines.append(f"  {count:>4}  {tool_name}")
+        else:
+            lines.append("  (no tool counts)")
+        lines.append("")
+
+    # Identify declared tools never observed across all sampled traces
+    all_observed: set[str] = set()
+    for entry in session_tool_counts:
+        all_observed.update(entry["tool_counts"].keys())
+
+    lines.append("## Declared Tools Never Observed\n")
+    any_missing = False
+    for agent in agent_tools:
+        missing = [t for t in agent["tools"] if t not in all_observed]
+        if missing:
+            any_missing = True
+            lines.append(f"- **{agent['name']}**: {', '.join(missing)}")
+    if not any_missing:
+        lines.append(
+            "(all declared tools were observed in at least one sampled trace)"
+        )
+
+    prompt = (
+        "\n".join(lines)
+        + "\n\nDelegate deep inspection of interesting traces to trace_analyst. "
+        "Identify: (1) tools declared but never used — candidates for removal, "
+        "(2) tools used heavily that could shift to skills or bash, "
+        "(3) tools an agent needs but doesn't declare. "
+        "Draft findings as proposed issues."
     )
     if unknown:
         prompt += f"\n\nAdditional context: {' '.join(unknown)}"
@@ -879,7 +967,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["cost", "errors", "duplication", "architecture", "security", "deps"],
+        choices=["cost", "errors", "duplication", "architecture", "security", "deps", "tools"],
         default="cost",
         help=(
             "Audit mode: 'cost' analyses the most expensive of the last 10 "
@@ -889,7 +977,8 @@ def main() -> None:
             "'architecture' clones the repo and audits structural health; "
             "'security' clones the repo and audits for common vulnerability "
             "patterns; 'deps' clones the repo, checks PyPI for outdated "
-            "dependencies, and audits upgrade-worthiness."
+            "dependencies, and audits upgrade-worthiness; 'tools' analyses "
+            "per-agent tool usage against declared tools across recent traces."
         ),
     )
     args, unknown = parser.parse_known_args()
@@ -906,6 +995,8 @@ def main() -> None:
             prompt = _build_cost_prompt(unknown)
         elif args.mode == "errors":
             prompt = _build_errors_prompt(unknown)
+        elif args.mode == "tools":
+            prompt = _build_tools_prompt(unknown)
         elif args.mode == "architecture":
             workspace_root = Path(tempfile.mkdtemp(prefix="cai-audit-arch-"))
             workspace = workspace_root / "repo"
