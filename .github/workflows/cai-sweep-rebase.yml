@@ -1,0 +1,124 @@
+name: CAI Sweep Rebase
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cai-sweep-rebase
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      prs: ${{ steps.list.outputs.prs }}
+    steps:
+      - name: Discover stale cai-bot PRs
+        id: list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # List cai-bot PRs targeting main, then filter for BEHIND/DIRTY
+          # and cai/solve-* branch names.
+          json=$(gh pr list \
+            --repo "$REPO" \
+            --base main \
+            --state open \
+            --author "cai-bot[bot]" \
+            --json number,mergeable,headRefName \
+            --limit 100)
+
+          candidates=$(echo "$json" | jq -c '[.[] | select(
+            (.mergeable == "BEHIND" or .mergeable == "DIRTY") and
+            (.headRefName | startswith("cai/solve-"))
+          )]')
+
+          # Filter out PRs that have human-authored review threads — a
+          # rebase would invalidate line comments, so skip those PRs.
+          owner="${REPO%/*}"
+          name="${REPO#*/}"
+          prs="["
+          first=true
+          while IFS= read -r num; do
+            # Check for unresolved, non-outdated review threads whose head
+            # comment author is NOT a bot account.
+            human_count=$(gh api graphql \
+              -f query='
+                query($owner:String!,$name:String!,$num:Int!) {
+                  repository(owner:$owner,name:$name) {
+                    pullRequest(number:$num) {
+                      reviewThreads(first:50) {
+                        nodes {
+                          isResolved
+                          isOutdated
+                          comments(first:1) {
+                            nodes { author { login } }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }' \
+              -f owner="$owner" -f name="$name" -F num="$num" \
+              --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
+                     | select(.isResolved == false and .isOutdated == false)
+                     | .comments.nodes[0].author.login
+                     | select(endswith("[bot]") | not)]
+                    | length' 2>/dev/null || echo 0)
+
+            if [ "$human_count" -eq 0 ]; then
+              if [ "$first" = true ]; then first=false; else prs="${prs},"; fi
+              prs="${prs}${num}"
+            fi
+          done < <(echo "$candidates" | jq -r '.[].number')
+
+          prs="${prs}]"
+          echo "prs=$prs" >> "$GITHUB_OUTPUT"
+          echo "Found PRs to rebase: $prs"
+
+  resolve:
+    needs: discover
+    if: needs.discover.outputs.prs != '[]' && needs.discover.outputs.prs != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        pr: ${{ fromJSON(needs.discover.outputs.prs) }}
+    concurrency:
+      group: cai-sweep-rebase-${{ matrix.pr }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Stage cai config for container
+        uses: ./.github/actions/setup-cai
+        with:
+          cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
+          cai_app_env: ${{ secrets.CAI_APP_ENV }}
+
+      - name: Run CAI Resolve Conflicts (PR #${{ matrix.pr }})
+        run: |
+          docker run --rm \
+            -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
+            -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            -e LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}" \
+            -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
+            -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
+            docker.io/robotsix/cai:latest \
+            cai-resolve-conflicts ${{ github.repository }}#${{ matrix.pr }}

@@ -25,6 +25,11 @@ def clone(
     return Repo.clone_from(url, str(dest), **kwargs)
 
 
+def fetch(repo_root: Path, remote: str = "origin") -> None:
+    """Run ``git fetch <remote>``."""
+    Repo(str(repo_root)).git.fetch(remote)
+
+
 def checkout_branch(repo_root: Path, branch_name: str) -> None:
     """Create and check out a new branch at HEAD."""
     Repo(str(repo_root)).git.checkout("-b", branch_name)

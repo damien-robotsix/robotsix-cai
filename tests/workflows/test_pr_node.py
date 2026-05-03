@@ -35,9 +35,11 @@ def _run(node, state):
 @patch("cai.workflows.pr.push_branch")
 @patch("cai.workflows.pr._has_staged_changes", return_value=True)
 @patch("cai.workflows.pr.commit")
+@patch("cai.workflows.pr.rebase_onto", return_value=True)
+@patch("cai.workflows.pr.fetch")
 @patch("cai.workflows.pr.stage_all")
 def test_pr_node_existing_pr_skips_create(
-    mock_stage, mock_commit, mock_dirty, mock_push, mock_create, state
+    mock_stage, mock_fetch, mock_rebase, mock_commit, mock_dirty, mock_push, mock_create, state
 ):
     # PR-mode conflict resolution: pr_number set, no review threads.
     state.pr_number = 99
@@ -53,9 +55,11 @@ def test_pr_node_existing_pr_skips_create(
 @patch("cai.workflows.pr.push_branch")
 @patch("cai.workflows.pr._has_staged_changes", return_value=True)
 @patch("cai.workflows.pr.commit")
+@patch("cai.workflows.pr.rebase_onto", return_value=True)
+@patch("cai.workflows.pr.fetch")
 @patch("cai.workflows.pr.stage_all")
 def test_pr_node_issue_mode_creates_pr(
-    mock_stage, mock_commit, mock_dirty, mock_push, mock_create, state
+    mock_stage, mock_fetch, mock_rebase, mock_commit, mock_dirty, mock_push, mock_create, state
 ):
     # Issue mode: no pr_number, no threads -> opens a new PR.
     result = _run(PRNode(), state)
@@ -71,9 +75,11 @@ def test_pr_node_issue_mode_creates_pr(
 @patch("cai.workflows.pr.push_branch")
 @patch("cai.workflows.pr._has_staged_changes", return_value=False)
 @patch("cai.workflows.pr.commit")
+@patch("cai.workflows.pr.rebase_onto", return_value=True)
+@patch("cai.workflows.pr.fetch")
 @patch("cai.workflows.pr.stage_all")
 def test_pr_node_issue_mode_no_changes_closes_issue_as_not_planned(
-    mock_stage, mock_commit, mock_dirty, mock_push, mock_create, state
+    mock_stage, mock_fetch, mock_rebase, mock_commit, mock_dirty, mock_push, mock_create, state
 ):
     # Issue mode where the implement agent decided no code change was
     # needed: nothing is staged, so pushing an empty branch and creating a
@@ -214,3 +220,82 @@ def test_bundled_commit_message_skips_empty_pydantic_ai_review(state):
     result = _bundled_commit_message(state)
 
     assert result == "feat: add feature"
+
+
+# ---------------------------------------------------------------------------
+# Pre-push rebase paths
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.workflows.pr.create_pull_request", return_value=("https://pr/1", 1))
+@patch("cai.workflows.pr.push_branch")
+@patch("cai.workflows.pr.stage_all")
+@patch("cai.workflows.conflicts._rebase_loop")
+@patch("cai.workflows.pr.rebase_onto")
+@patch("cai.workflows.pr.fetch")
+@patch("cai.workflows.pr._has_staged_changes", return_value=True)
+@patch("cai.workflows.pr.commit")
+def test_pr_node_clean_rebase_proceeds_to_push(
+    mock_commit, mock_dirty, mock_fetch, mock_rebase_onto,
+    mock_rebase_loop, mock_stage, mock_push, mock_create, state,
+):
+    """When rebase_onto returns True (clean), push and PR creation proceed."""
+    mock_rebase_onto.return_value = True
+
+    result = _run(PRNode(), state)
+
+    assert isinstance(result, MergeEvaluationNode)
+    mock_fetch.assert_called_once_with(state.repo_root)
+    mock_rebase_onto.assert_called_once_with(state.repo_root, "origin/main")
+    mock_rebase_loop.assert_not_called()
+    mock_push.assert_called_once()
+    mock_create.assert_called_once()
+
+
+@patch("cai.workflows.pr.create_pull_request", return_value=("https://pr/2", 2))
+@patch("cai.workflows.pr.push_branch")
+@patch("cai.workflows.pr.stage_all")
+@patch("cai.workflows.conflicts._rebase_loop")
+@patch("cai.workflows.pr.rebase_onto")
+@patch("cai.workflows.pr.fetch")
+@patch("cai.workflows.pr._has_staged_changes", return_value=True)
+@patch("cai.workflows.pr.commit")
+def test_pr_node_conflict_resolved_proceeds_to_push(
+    mock_commit, mock_dirty, mock_fetch, mock_rebase_onto,
+    mock_rebase_loop, mock_stage, mock_push, mock_create, state,
+):
+    """When rebase_onto returns False but _rebase_loop resolves, push proceeds."""
+    mock_rebase_onto.return_value = False
+    mock_rebase_loop.return_value = (True, ["a.py"])
+
+    result = _run(PRNode(), state)
+
+    assert isinstance(result, MergeEvaluationNode)
+    mock_fetch.assert_called_once_with(state.repo_root)
+    mock_rebase_onto.assert_called_once_with(state.repo_root, "origin/main")
+    mock_rebase_loop.assert_called_once()
+    mock_push.assert_called_once()
+    mock_create.assert_called_once()
+
+
+@patch("cai.workflows.pr.create_pull_request")
+@patch("cai.workflows.pr.push_branch")
+@patch("cai.workflows.pr.stage_all")
+@patch("cai.workflows.conflicts._rebase_loop")
+@patch("cai.workflows.pr.rebase_onto")
+@patch("cai.workflows.pr.fetch")
+@patch("cai.workflows.pr._has_staged_changes", return_value=True)
+@patch("cai.workflows.pr.commit")
+def test_pr_node_conflict_fail_aborts_and_raises(
+    mock_commit, mock_dirty, mock_fetch, mock_rebase_onto,
+    mock_rebase_loop, mock_stage, mock_push, mock_create, state,
+):
+    """When _rebase_loop returns False, abort the rebase and raise."""
+    mock_rebase_onto.return_value = False
+    mock_rebase_loop.return_value = (False, [])
+
+    with pytest.raises(RuntimeError, match="Rebase of .* failed"):
+        _run(PRNode(), state)
+
+    mock_push.assert_not_called()
+    mock_create.assert_not_called()

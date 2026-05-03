@@ -5,7 +5,7 @@ from pathlib import Path
 from git import Repo
 from pydantic_graph import BaseNode, GraphRunContext
 
-from cai.git import commit, push_branch, stage_all
+from cai.git import commit, fetch, push_branch, rebase_abort, rebase_onto, stage_all
 from cai.github.pr import (
     create_pull_request,
     reply_to_review_comment,
@@ -61,6 +61,35 @@ class PRNode(BaseNode[IssueState]):
         remote_url = (
             f"https://x-access-token:{token}@github.com/{state.new_meta.repo}.git"
         )
+
+        # Fetch latest main and rebase this branch onto it.
+        fetch(state.repo_root)
+        finished = rebase_onto(state.repo_root, "origin/main")
+        if not finished:
+            # Late imports to avoid circular dependency at module level.
+            from cai.github.repo import PRWorkspace
+            from cai.workflows.conflicts import _rebase_loop
+
+            # Construct a minimal PRWorkspace for _rebase_loop (it only uses
+            # repo_root, base_branch, title, body).
+            ws = PRWorkspace(
+                root=state.repo_root.parent,
+                repo_root=state.repo_root,
+                body_path=state.body_path,
+                repo=state.new_meta.repo,
+                number=0,
+                head_branch=state.branch_name,
+                base_branch="main",
+                title=state.new_meta.title,
+                body=state.body_path.read_text(),
+            )
+            ok, _touched = _rebase_loop(ws)
+            if not ok:
+                rebase_abort(state.repo_root)
+                raise RuntimeError(
+                    f"Rebase of {state.branch_name} onto origin/main failed. "
+                    "The resolve_step agent could not clear all conflict markers."
+                )
 
         if state.review_threads:
             if committed:

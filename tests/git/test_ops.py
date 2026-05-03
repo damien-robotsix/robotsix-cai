@@ -15,6 +15,7 @@ from cai.git import (
     commit,
     conflicted_paths,
     current_rebase_step,
+    fetch,
     index_matches_head,
     merge_no_commit,
     rebase_abort,
@@ -284,8 +285,32 @@ def test_index_matches_head(tmp_path):
     assert index_matches_head(repo_root) is False
 
 
-def test_fetch_not_in_ops_module():
-    """The unused fetch() function was removed; it must not be importable."""
+def test_fetch_in_ops_module():
+    """fetch() must be importable from ops.py."""
     import cai.git.ops as ops_mod
 
-    assert not hasattr(ops_mod, "fetch"), "fetch() was removed from ops.py"
+    assert hasattr(ops_mod, "fetch"), "fetch() is available in ops.py"
+
+def test_fetch_pulls_remote_ref(tmp_path: Path):
+    """fetch() pulls new commits from the remote so origin/main is reachable."""
+    # Create a "remote" repo.
+    remote_root = tmp_path / "remote"
+    remote_repo = _init(remote_root)
+
+    # Clone it as a local repo.
+    local_root = tmp_path / "local"
+    local_repo = remote_repo.clone(str(local_root))
+
+    # Add a new commit to the remote.
+    _commit_on_branch(remote_repo, "main", "x.txt", "remote\n", "add x on remote")
+
+    # Before fetch, origin/main in the local repo is NOT at the remote's tip.
+    local_main_before = local_repo.git.rev_parse("origin/main")
+
+    # Fetch.
+    fetch(local_root)
+
+    # After fetch, origin/main is updated.
+    local_main_after = local_repo.git.rev_parse("origin/main")
+    assert local_main_after != local_main_before
+    assert local_main_after == remote_repo.head.commit.hexsha
