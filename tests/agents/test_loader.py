@@ -8,6 +8,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, Tool
 from pydantic_ai.models import ModelRequestContext
 
 from cai.agents.loader import (
+    ConsecutiveFailureGuardrail,
     EditFileGuardrailAsRetry,
     GlobPatternSanitizer,
     ToolErrorAsRetry,
@@ -3407,6 +3408,7 @@ def test_explore_agent_prompt_includes_relevance_gate_bullet():
     )
 
 
+
 def test_explore_agent_search_then_read_before_how_to_work():
     """The Search then read section must appear before the How to work section
     in the explore agent's system prompt."""
@@ -3438,22 +3440,136 @@ def test_explore_agent_never_re_read_under_read_files_whole():
         f"Never re-read directive is too far from the Read files whole bullet "
         f"(gap={gap} chars). It should be part of that bullet."
     )
-def test_explore_agent_never_re_read_under_read_files_whole():
-    """The 'Never re-read' directive must appear on the same line or within the
-    Read files whole bullet, not as a standalone bullet."""
-    path = resolve_agent_path("explore")
-    _, system_prompt = parse_agent_md(path)
-    never_idx = system_prompt.index(NEVER_RE_READ_TEXT)
-    # The Read files whole bullet should appear before (on the same bullet line
-    # or very close to) the never-re-read text.
-    read_whole_idx = system_prompt.index(READ_FILES_WHOLE_BULLET)
-    assert read_whole_idx < never_idx, (
-        "Never re-read directive must appear after the Read files whole bullet."
+
+
+def test_consecutive_failure_guardrail_raises_after_5_errors():
+    """5 consecutive on_tool_execute_error calls for the same tool raise ModelRetry."""
+    cap = ConsecutiveFailureGuardrail()
+    call = SimpleNamespace(tool_name="read_file")
+    error = ValueError("test error")
+
+    # 4 errors should not raise
+    for _ in range(4):
+        _run(cap.on_tool_execute_error(
+            None, call=call, tool_def=None, args=None, error=error,
+        ))
+
+    # 5th error should raise ModelRetry naming the tool
+    with pytest.raises(ModelRetry, match="'read_file'"):
+        _run(cap.on_tool_execute_error(
+            None, call=call, tool_def=None, args=None, error=error,
+        ))
+
+
+def test_consecutive_failure_guardrail_success_resets_counter():
+    """A successful after_tool_execute resets the counter so next error starts fresh."""
+    cap = ConsecutiveFailureGuardrail()
+    call = SimpleNamespace(tool_name="read_file")
+    error = ValueError("test error")
+
+    # 4 errors
+    for _ in range(4):
+        _run(cap.on_tool_execute_error(
+            None, call=call, tool_def=None, args=None, error=error,
+        ))
+
+    # A successful execution resets
+    _run(cap.after_tool_execute(
+        None, call=call, tool_def=None, args=None, result="some content",
+    ))
+
+    # The next 4 errors should NOT raise (streak was reset)
+    for _ in range(4):
+        _run(cap.on_tool_execute_error(
+            None, call=call, tool_def=None, args=None, error=error,
+        ))
+    # 5th of this new streak should raise
+    with pytest.raises(ModelRetry, match="'read_file'"):
+        _run(cap.on_tool_execute_error(
+            None, call=call, tool_def=None, args=None, error=error,
+        ))
+
+
+def test_consecutive_failure_guardrail_independent_tool_counters():
+    """Different tools have independent error counters."""
+    cap = ConsecutiveFailureGuardrail()
+    call_a = SimpleNamespace(tool_name="grep")
+    call_b = SimpleNamespace(tool_name="read_file")
+    error = ValueError("test error")
+
+    # Interleave errors: grep, read_file, grep, read_file, ..., up to 4 each
+    for _ in range(4):
+        _run(cap.on_tool_execute_error(
+            None, call=call_a, tool_def=None, args=None, error=error,
+        ))
+        _run(cap.on_tool_execute_error(
+            None, call=call_b, tool_def=None, args=None, error=error,
+        ))
+
+    # 5th error on grep should raise (but not on read_file yet)
+    with pytest.raises(ModelRetry, match="'grep'"):
+        _run(cap.on_tool_execute_error(
+            None, call=call_a, tool_def=None, args=None, error=error,
+        ))
+
+
+def test_consecutive_failure_guardrail_warnings_at_threshold():
+    """5 consecutive warning results in after_tool_execute raise ModelRetry."""
+    cap = ConsecutiveFailureGuardrail()
+    call = SimpleNamespace(tool_name="read_file")
+
+    for _ in range(4):
+        _run(cap.after_tool_execute(
+            None, call=call, tool_def=None, args=None,
+            result="Warning: identical read_file call — file content has not changed",
+        ))
+
+    with pytest.raises(ModelRetry, match="'read_file'"):
+        _run(cap.after_tool_execute(
+            None, call=call, tool_def=None, args=None,
+            result="Warning: read_file is covered by a prior call",
+        ))
+
+
+def test_consecutive_failure_guardrail_for_run_fresh_instance():
+    """for_run returns a fresh instance with zeroed counters."""
+    import asyncio
+
+    cap = ConsecutiveFailureGuardrail()
+    call = SimpleNamespace(tool_name="read_file")
+
+    # Accumulate some errors
+    for _ in range(4):
+        _run(cap.on_tool_execute_error(
+            None, call=call, tool_def=None, args=None,
+            error=ValueError("test error"),
+        ))
+
+    fresh = asyncio.new_event_loop().run_until_complete(cap.for_run(None))
+    assert fresh._error_count == {}
+    assert fresh._warning_count == {}
+
+
+def test_consecutive_failure_guardrail_wired_into_build_deep_agent_capabilities(
+    monkeypatch,
+):
+    """ConsecutiveFailureGuardrail is registered in the build_deep_agent capabilities list."""
+    import cai.agents.loader as loader
+
+    captured: dict = {}
+
+    def fake_create_deep_agent(model, **kwargs):
+        captured["capabilities"] = kwargs.get("capabilities")
+        return object()
+
+    monkeypatch.setattr(
+        "pydantic_deep.create_deep_agent", fake_create_deep_agent
     )
-    # The gap between the bullet start and the directive should be within
-    # reasonable proximity (same or next line).
-    gap = never_idx - (read_whole_idx + len(READ_FILES_WHOLE_BULLET))
-    assert 0 <= gap < 120, (
-        f"Never re-read directive is too far from the Read files whole bullet "
-        f"(gap={gap} chars). It should be part of that bullet."
-    )
+    monkeypatch.setattr(loader, "build_model", lambda config: object())
+    monkeypatch.setattr(loader, "_prune_toolsets", lambda agent, requested: None)
+
+    config = {"name": "test-agent", "model": "deepseek/deepseek-v4-pro"}
+    loader.build_deep_agent(config, "instructions")
+
+    cap_types = [type(c).__name__ for c in captured["capabilities"]]
+    assert "ConsecutiveFailureGuardrail" in cap_types

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 __all__ = [
     "AGENT_DIR",
+    "ConsecutiveFailureGuardrail",
     "EditFileGuardrailAsRetry",
     "GlobPatternSanitizer",
     "GrepGuardrailAsRetry",
@@ -850,6 +851,79 @@ class MicroReadGuardCapability(AbstractCapability):
         return args
 
 
+class ConsecutiveFailureGuardrail(AbstractCapability):
+    """Detect persistent tool failure across parameter variations.
+
+    When the same tool produces errors or warnings 5 consecutive times
+    (across any parameter variations), this guardrail raises
+    ``ModelRetry`` naming the failing tool and instructing the agent to
+    abandon it entirely. A successful tool execution resets the counter.
+
+    This catches the pattern that individual tool-specific guardrails
+    miss: the model retrying the same tool over and over with slightly
+    tweaked parameters, never recognizing the tool is blocked.
+
+    State lives on the instance, but ``for_run`` returns a fresh
+    instance per run so concurrent sessions don't share the counter.
+    """
+
+    _THRESHOLD = 5
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._error_count: dict[str, int] = {}
+        self._warning_count: dict[str, int] = {}
+
+    async def for_run(self, ctx: Any) -> "ConsecutiveFailureGuardrail":
+        return ConsecutiveFailureGuardrail()
+
+    async def on_tool_execute_error(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
+    ) -> None:
+        tool_name = call.tool_name
+        count = self._error_count.get(tool_name, 0) + 1
+        self._error_count[tool_name] = count
+        if count >= self._THRESHOLD:
+            self._error_count[tool_name] = 0
+            raise ModelRetry(
+                f"Tool {tool_name!r} has failed {count} consecutive times "
+                f"with varying arguments. Stop using {tool_name!r} entirely "
+                f"and switch to a fundamentally different approach — "
+                f"e.g. read a file instead of grepping, use glob instead "
+                f"of ls, or report partial findings rather than burning "
+                f"more calls."
+            )
+
+    async def after_tool_execute(
+        self,
+        ctx: Any,
+        *,
+        call: Any,
+        tool_def: Any,
+        args: Any,
+        result: Any,
+    ) -> Any:
+        tool_name = call.tool_name
+        if isinstance(result, str) and result.startswith("Warning:"):
+            count = self._warning_count.get(tool_name, 0) + 1
+            self._warning_count[tool_name] = count
+            if count >= self._THRESHOLD:
+                self._warning_count[tool_name] = 0
+                raise ModelRetry(
+                    f"Tool {tool_name!r} has produced {count} consecutive "
+                    f"warning results with varying arguments. Stop using "
+                    f"{tool_name!r} entirely and switch to a fundamentally "
+                    f"different approach — e.g. read a file instead of "
+                    f"grepping, use glob instead of ls, or report partial "
+                    f"findings rather than burning more calls."
+                )
+        else:
+            # Successful tool execution resets counters for that tool.
+            self._error_count.pop(tool_name, None)
+            self._warning_count.pop(tool_name, None)
+        return result
+
+
 # httpx defaults read/write/pool to None (infinite). Without these, a silently
 # dropped OpenRouter request will hang the agent indefinitely instead of
 # surfacing as a retryable error.
@@ -1345,6 +1419,7 @@ def build_deep_agent(
         ToolErrorAsRetry(),
         ModelRequestErrorAsRetry(),
         GrepGuardrailAsRetry(),
+        ConsecutiveFailureGuardrail(),
         MicroReadGuardCapability(),
         HistoryCompactorCapability(),
     ]

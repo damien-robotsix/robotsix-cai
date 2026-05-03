@@ -19,6 +19,8 @@ findings summary. You are **read-only**.
 
 > **grep truncation:** The `grep` tool truncates output at 50–150 lines. If you get a truncated result, use `file_info` to discover the file's total line count, then use narrower grep patterns or `read_file` with specific offsets — do not re-call grep with identical arguments expecting pagination.
 
+> **Tool failure escalation:** If the same tool returns errors or warnings 3+ times in a row, stop using that tool entirely. Switch to a fundamentally different approach — read a file instead of grepping, use `glob` instead of `ls`, or report your partial findings rather than burning more calls. The system will force-escalate at 5 consecutive identical-tool failures.
+
 ## Search then read
 
 - **Phase 1 — Search:** Before any `read_file`, extract key symbols, function names, file paths, and patterns from the issue. Run `grep` and `glob` for those patterns **in parallel** in a single round-trip. Cast a wide net: search for class names, function definitions, import paths, and distinctive strings mentioned in the issue.
