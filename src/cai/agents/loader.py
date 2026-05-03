@@ -1813,9 +1813,23 @@ def build_deep_agent(
     # a provider that silently ignores unknown parameters can receive the request,
     # produce a response that doesn't match the schema, and trigger output-
     # validation retries.
+    #
+    # Skip DeepSeek's direct backend: their pay-per-use upstream account
+    # is currently out of credit ("Insufficient Balance" 402), so any
+    # request OpenRouter routes there fails. Other providers
+    # (SiliconFlow, DeepInfra, Novita, Fireworks, …) route fine. Remove
+    # the ignore once DeepSeek tops up. See traces around 2026-05-03 19:36 UTC.
     settings = settings or {}
     existing_extra_body = settings.get("extra_body") or {}
-    settings["extra_body"] = {"provider": {"require_parameters": True}, **existing_extra_body}
+    existing_provider = (existing_extra_body.get("provider") if isinstance(existing_extra_body, dict) else None) or {}
+    settings["extra_body"] = {
+        **existing_extra_body,
+        "provider": {
+            "require_parameters": True,
+            "ignore": ["DeepSeek"],
+            **existing_provider,
+        },
+    }
 
     # Google AI Studio requires tool_config.include_server_side_tool_invocations=True
     # whenever built-in tools (web search, grounding, thinking on pro models, etc.)
@@ -1891,7 +1905,15 @@ def load_agent_from_md(
         kwargs["deps_type"] = deps_type
     settings = build_model_settings(config) or {}
     existing_extra_body = settings.get("extra_body") or {}
-    settings["extra_body"] = {"provider": {"require_parameters": True}, **existing_extra_body}
+    existing_provider = (existing_extra_body.get("provider") if isinstance(existing_extra_body, dict) else None) or {}
+    settings["extra_body"] = {
+        **existing_extra_body,
+        "provider": {
+            "require_parameters": True,
+            "ignore": ["DeepSeek"],
+            **existing_provider,
+        },
+    }
     kwargs["model_settings"] = settings
     kwargs["capabilities"] = _default_capabilities()
     return Agent(build_model(config), **kwargs)

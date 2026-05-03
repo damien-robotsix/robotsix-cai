@@ -12,6 +12,7 @@ on:
           - cost
           - errors
           - architecture
+          - tools
       repo:
         description: "Target GitHub repository for issues (owner/repo)"
         required: true

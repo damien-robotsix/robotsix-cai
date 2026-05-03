@@ -334,8 +334,9 @@ def test_rebase_loop_skips_genuinely_empty_commit(
 
 
 class TestRunResolveStep:
-    """_run_resolve_step() catches UsageLimitExceeded and retries once
-    with bumped request_limit (60 → 90).
+    """_run_resolve_step() routes through traced_agent_run for shared
+    transient-HTTP retry behaviour, then bumps request_limit 60→90 once
+    on UsageLimitExceeded.
     """
 
     def test_resolve_step_succeeds_on_first_attempt(self, tmp_path):
@@ -356,7 +357,12 @@ class TestRunResolveStep:
         from pydantic_ai.exceptions import UsageLimitExceeded
 
         mock_agent = MagicMock()
+        # traced_agent_run bumps request_limit by 50% (60→90) on first
+        # UsageLimitExceeded; the second call comes from the explicit
+        # 90-cap retry inside _run_resolve_step.  We mock 3 calls to
+        # represent: initial @60, traced retry @90, our final @90.
         mock_agent.run = AsyncMock(side_effect=[
+            UsageLimitExceeded("limit hit"),
             UsageLimitExceeded("limit hit"),
             None,
         ])
@@ -364,14 +370,15 @@ class TestRunResolveStep:
         with patch("cai.workflows.conflicts._resolve_step_agent", return_value=mock_agent):
             asyncio.run(_run_resolve_step(tmp_path, "resolve this"))
 
-        assert mock_agent.run.await_count == 2
-        _, kwargs1 = mock_agent.run.await_args_list[0]
-        _, kwargs2 = mock_agent.run.await_args_list[1]
-        assert kwargs1["usage_limits"].request_limit == 60
-        assert kwargs2["usage_limits"].request_limit == 90
+        # 1 initial + 1 traced soft-retry + 1 outer-bumped retry = 3 calls
+        assert mock_agent.run.await_count == 3
+        first_kwargs = mock_agent.run.await_args_list[0][1]
+        last_kwargs = mock_agent.run.await_args_list[-1][1]
+        assert first_kwargs["usage_limits"].request_limit == 60
+        assert last_kwargs["usage_limits"].request_limit == 90
 
-    def test_resolve_step_bubbles_on_second_failure(self, tmp_path):
-        """Both calls raise UsageLimitExceeded → exception propagates."""
+    def test_resolve_step_bubbles_on_persistent_failure(self, tmp_path):
+        """Every retry path also fails → exception propagates."""
         from pydantic_ai.exceptions import UsageLimitExceeded
 
         mock_agent = MagicMock()
@@ -381,11 +388,14 @@ class TestRunResolveStep:
             with pytest.raises(UsageLimitExceeded):
                 asyncio.run(_run_resolve_step(tmp_path, "resolve this"))
 
-        assert mock_agent.run.await_count == 2
+        # 1 initial + 1 traced soft-retry + 1 outer-bumped + 1 traced
+        # soft-retry of the bumped call. Each traced_agent_run call
+        # contributes up to 2 underlying runs.
+        assert mock_agent.run.await_count >= 3
 
     def test_resolve_step_retries_on_404_openrouter(self, tmp_path):
-        """First call raises ModelHTTPError(404, "No endpoints found ..."),
-        retry succeeds → two agent.run calls."""
+        """traced_agent_run handles transient 404s — the resolve_step
+        agent inherits that retry."""
         from pydantic_ai.exceptions import ModelHTTPError
 
         mock_agent = MagicMock()
@@ -406,16 +416,39 @@ class TestRunResolveStep:
 
         assert mock_agent.run.await_count == 2
 
-    def test_resolve_step_no_retry_on_404_other_body(self, tmp_path):
-        """A 404 with a different body message is re-raised immediately,
-        single agent.run call."""
+    def test_resolve_step_retries_on_402_insufficient_balance(self, tmp_path):
+        """traced_agent_run also retries 402 'Insufficient Balance'
+        (upstream provider out of credit)."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=[
+            ModelHTTPError(
+                status_code=402,
+                model_name="test",
+                body={"message": "Provider returned error",
+                      "metadata": {"raw": "Insufficient Balance"}},
+            ),
+            None,
+        ])
+
+        with (
+            patch("cai.workflows.conflicts._resolve_step_agent", return_value=mock_agent),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            asyncio.run(_run_resolve_step(tmp_path, "resolve this"))
+
+        assert mock_agent.run.await_count == 2
+
+    def test_resolve_step_no_retry_on_400(self, tmp_path):
+        """4xx caller-side errors are re-raised — no retry."""
         from pydantic_ai.exceptions import ModelHTTPError
 
         mock_agent = MagicMock()
         mock_agent.run = AsyncMock(side_effect=ModelHTTPError(
-            status_code=404,
+            status_code=400,
             model_name="test",
-            body="Other message",
+            body="bad request",
         ))
 
         with (

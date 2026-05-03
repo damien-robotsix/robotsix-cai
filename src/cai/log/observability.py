@@ -178,10 +178,14 @@ async def traced_agent_run(
     bumped by 50% for a one-shot soft retry.  The second failure
     bubbles up so the workflow fails as it does today.
 
-    If ``ModelHTTPError`` with status 404 and a body containing
-    ``"No endpoints found"`` (an OpenRouter transient routing flake)
-    is raised, sleeps 30 s and retries exactly once.  Other
-    ``ModelHTTPError`` instances are re-raised immediately.
+    On a transient ``ModelHTTPError`` — provider-routing flakes (404
+    "No endpoints found"), upstream provider credit/billing failures
+    (402 "Insufficient Balance"; the *upstream* provider's account ran
+    out, our OpenRouter wallet is fine), rate limits (429), and
+    upstream timeouts/5xx — sleeps with exponential backoff and retries
+    up to ``_TRANSIENT_RETRY_ATTEMPTS`` times. OpenRouter routes each
+    retry afresh, so a different provider is likely picked. Other
+    ``ModelHTTPError`` instances re-raise immediately.
     """
     try:
         return await _do_run(name, agent, prompt, **kwargs)
@@ -197,13 +201,78 @@ async def traced_agent_run(
             get_client().update_current_span(metadata={"soft_retry": True})
         return await _do_run(name, agent, prompt, **kwargs)
     except ModelHTTPError as exc:
-        if exc.status_code != 404 or "No endpoints found" not in str(exc.body or ""):
+        if not _is_transient_http_error(exc):
             raise
-        # Provider routing flake — wait briefly and retry once.
-        await asyncio.sleep(30)
+        return await _retry_transient(name, agent, prompt, exc, **kwargs)
+
+
+# Retry policy for transient ModelHTTPErrors.  Each attempt is preceded by
+# an exponential-backoff sleep with jitter; the first retry waits ~5 s,
+# the last ~40 s.  Three retries cover the vast majority of provider-routing
+# blips without holding the workflow hostage.
+_TRANSIENT_RETRY_ATTEMPTS = 3
+_TRANSIENT_RETRY_BASE_SECONDS = 5.0
+
+
+def _is_transient_http_error(exc: "ModelHTTPError") -> bool:
+    """Return True for HTTP errors a soft retry is likely to clear.
+
+    Categories:
+
+    * 404 "No endpoints found" — OpenRouter routing flake (no provider
+      currently advertises support for the request shape).
+    * 402 "Insufficient Balance" — the *upstream* provider's account
+      (e.g. DeepSeek's direct backend) ran out; OpenRouter routes each
+      retry afresh and another provider may pick up.
+    * 429 — rate limit; backoff usually clears it.
+    * 5xx (>=500, <600) — upstream timeout / server error.
+
+    Caller-side errors (auth, invalid request) are not retried.
+    """
+    status = exc.status_code
+    body = str(exc.body or "")
+    if status == 404 and "No endpoints found" in body:
+        return True
+    if status == 402 and "Insufficient" in body:
+        return True
+    if status == 429:
+        return True
+    if 500 <= status < 600:
+        return True
+    return False
+
+
+async def _retry_transient(
+    name: str,
+    agent: Any,
+    prompt: str,
+    first_exc: "ModelHTTPError",
+    **kwargs: Any,
+) -> Any:
+    """Re-run ``agent`` with exponential-backoff sleeps between attempts.
+
+    Re-raises the *last* exception if every attempt fails.
+    """
+    import random
+
+    last_exc: BaseException = first_exc
+    for attempt in range(1, _TRANSIENT_RETRY_ATTEMPTS + 1):
+        wait = _TRANSIENT_RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+        wait += random.uniform(0, wait * 0.25)  # ±25% jitter to avoid thundering herd
+        await asyncio.sleep(wait)
         if _is_langfuse_initialized():
             from langfuse import get_client
             get_client().update_current_span(
-                metadata={"soft_retry": "provider_404"},
+                metadata={
+                    "soft_retry": f"transient_http_{last_exc.status_code}",
+                    "attempt": attempt,
+                    "wait_seconds": round(wait, 2),
+                },
             )
-        return await _do_run(name, agent, prompt, **kwargs)
+        try:
+            return await _do_run(name, agent, prompt, **kwargs)
+        except ModelHTTPError as exc:
+            if not _is_transient_http_error(exc):
+                raise
+            last_exc = exc
+    raise last_exc

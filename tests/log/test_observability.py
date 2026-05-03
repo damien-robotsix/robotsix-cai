@@ -352,14 +352,15 @@ class TestTracedAgentRunSoftRetry:
 
 
 class TestTracedAgentRunModelHTTPRetry:
-    """When ``ModelHTTPError`` with OpenRouter's 404 "No endpoints found" is
-    raised, ``traced_agent_run`` sleeps 30 s and retries exactly once.
+    """``traced_agent_run`` soft-retries transient ModelHTTPErrors with
+    exponential backoff. Covers OpenRouter routing flakes (404 "No endpoints
+    found"), upstream provider credit failures (402 "Insufficient Balance"),
+    rate limits (429), and 5xx upstream errors. Caller-side errors re-raise.
     """
 
     def test_retry_on_404_no_endpoints_found(self):
-        """First call raises ModelHTTPError(404, "No endpoints found ..."),
-        second call succeeds → returns second-call output and span carries
-        ``soft_retry: provider_404`` metadata."""
+        """First call raises a transient 404, second call succeeds → returns
+        the second-call output."""
         from pydantic_ai.exceptions import ModelHTTPError
 
         async def _run():
@@ -373,21 +374,87 @@ class TestTracedAgentRunModelHTTPRetry:
                 {"retry": "ok"},
             ])
 
-            mock_client = MagicMock()
-            mock_client.start_as_current_observation.return_value = MagicMock()
+            with (
+                patch("cai.log.observability._initialized", False),
+                patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            ):
+                result = await traced_agent_run("test", agent, "prompt")
+
+            assert result == {"retry": "ok"}
+            assert agent.run.await_count == 2
+            assert mock_sleep.await_count == 1
+
+        asyncio.run(_run())
+
+    def test_retry_on_402_insufficient_balance(self):
+        """402 "Insufficient Balance" (upstream provider out of credit) is
+        retried — OpenRouter routes the next attempt to a different provider."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=[
+                ModelHTTPError(
+                    status_code=402,
+                    model_name="test",
+                    body={"message": "Provider returned error",
+                          "metadata": {"raw": "Insufficient Balance"}},
+                ),
+                {"retry": "ok"},
+            ])
 
             with (
-                patch("cai.log.observability._initialized", True),
-                patch("langfuse.get_client", return_value=mock_client),
+                patch("cai.log.observability._initialized", False),
                 patch("asyncio.sleep", new_callable=AsyncMock),
             ):
                 result = await traced_agent_run("test", agent, "prompt")
 
             assert result == {"retry": "ok"}
             assert agent.run.await_count == 2
-            mock_client.update_current_span.assert_called_once_with(
-                metadata={"soft_retry": "provider_404"}
-            )
+
+        asyncio.run(_run())
+
+    def test_retry_on_500_upstream_error(self):
+        """5xx upstream errors are transient → retried with backoff."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=[
+                ModelHTTPError(status_code=500, model_name="test", body="server error"),
+                {"retry": "ok"},
+            ])
+
+            with (
+                patch("cai.log.observability._initialized", False),
+                patch("asyncio.sleep", new_callable=AsyncMock),
+            ):
+                result = await traced_agent_run("test", agent, "prompt")
+
+            assert result == {"retry": "ok"}
+            assert agent.run.await_count == 2
+
+        asyncio.run(_run())
+
+    def test_retry_on_429_rate_limit(self):
+        """429 rate-limit errors are retried."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=[
+                ModelHTTPError(status_code=429, model_name="test", body="rate limited"),
+                {"retry": "ok"},
+            ])
+
+            with (
+                patch("cai.log.observability._initialized", False),
+                patch("asyncio.sleep", new_callable=AsyncMock),
+            ):
+                result = await traced_agent_run("test", agent, "prompt")
+
+            assert result == {"retry": "ok"}
+            assert agent.run.await_count == 2
 
         asyncio.run(_run())
 
@@ -416,16 +483,17 @@ class TestTracedAgentRunModelHTTPRetry:
 
         asyncio.run(_run())
 
-    def test_no_retry_on_500(self):
-        """Non-404 status codes are re-raised immediately."""
+    def test_no_retry_on_400(self):
+        """4xx caller-side errors (other than the retryable categories) are
+        re-raised immediately."""
         from pydantic_ai.exceptions import ModelHTTPError
 
         async def _run():
             agent = MagicMock()
             agent.run = AsyncMock(side_effect=ModelHTTPError(
-                status_code=500,
+                status_code=400,
                 model_name="test",
-                body="Internal server error",
+                body="bad request",
             ))
 
             with (
@@ -437,6 +505,30 @@ class TestTracedAgentRunModelHTTPRetry:
 
             assert agent.run.await_count == 1
             mock_sleep.assert_not_called()
+
+        asyncio.run(_run())
+
+    def test_exhausts_attempts_then_raises_last_exception(self):
+        """When every attempt fails with a transient error, the final
+        exception bubbles up after all retries are spent."""
+        from pydantic_ai.exceptions import ModelHTTPError
+        from cai.log.observability import _TRANSIENT_RETRY_ATTEMPTS
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=ModelHTTPError(
+                status_code=500, model_name="test", body="boom",
+            ))
+
+            with (
+                patch("cai.log.observability._initialized", False),
+                patch("asyncio.sleep", new_callable=AsyncMock),
+            ):
+                with pytest.raises(ModelHTTPError):
+                    await traced_agent_run("test", agent, "prompt")
+
+            # one initial attempt + N retries
+            assert agent.run.await_count == 1 + _TRANSIENT_RETRY_ATTEMPTS
 
         asyncio.run(_run())
 

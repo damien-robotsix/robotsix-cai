@@ -23,15 +23,17 @@ stateDiagram-v2
   ImplementNode --> TestNode
   TestNode --> PythonReviewNode
   TestNode --> DocsNode
-  TestNode --> PRNode
+  TestNode --> PrePushValidationNode
   TestNode --> ImplementNode
   PythonReviewNode --> GitHubWorkflowReviewNode
   GitHubWorkflowReviewNode --> PydanticAIReviewNode
   PydanticAIReviewNode --> TestSanityNode
   TestSanityNode --> DocsNode
-  TestSanityNode --> PRNode
+  TestSanityNode --> PrePushValidationNode
   TestSanityNode --> ImplementNode
-  DocsNode --> PRNode
+  DocsNode --> PrePushValidationNode
+  PrePushValidationNode --> PRNode
+  PrePushValidationNode --> ImplementNode
   PRNode --> MergeEvaluationNode
   MergeEvaluationNode --> [*]
 ```

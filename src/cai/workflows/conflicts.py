@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
@@ -153,26 +153,32 @@ def _strip_orphaned_markers(repo_root: Path, paths: list[str]) -> None:
 
 
 async def _run_resolve_step(repo_root: Path, prompt: str) -> None:
+    """Drive the resolve_step agent with the shared retry policy.
+
+    Routing through ``traced_agent_run`` gets us the same
+    transient-HTTP soft-retry as the rest of the workflows
+    (404/402/429/5xx) plus the existing UsageLimitExceeded bump.
+    """
+    from cai.log.observability import traced_agent_run
+
     try:
-        await _resolve_step_agent().run(
+        await traced_agent_run(
+            "resolve_step",
+            _resolve_step_agent(),
             prompt,
             deps=_resolve_step_deps(repo_root),
             usage_limits=UsageLimits(request_limit=60),
         )
     except UsageLimitExceeded:
-        await _resolve_step_agent().run(
+        # traced_agent_run only bumps the limit *once*; if a single
+        # bump still wasn't enough, give resolve_step one more shot
+        # at 90 requests before giving up.
+        await traced_agent_run(
+            "resolve_step",
+            _resolve_step_agent(),
             prompt,
             deps=_resolve_step_deps(repo_root),
             usage_limits=UsageLimits(request_limit=90),
-        )
-    except ModelHTTPError as exc:
-        if exc.status_code != 404 or "No endpoints found" not in str(exc.body or ""):
-            raise
-        await asyncio.sleep(30)
-        await _resolve_step_agent().run(
-            prompt,
-            deps=_resolve_step_deps(repo_root),
-            usage_limits=UsageLimits(request_limit=60),
         )
 
 
