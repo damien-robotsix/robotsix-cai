@@ -7,6 +7,7 @@ import pytest
 from pydantic_ai.usage import UsageLimits
 
 from cai.workflows.docs import DocsNode, _docs_agent
+from cai.workflows.pre_push_validate import PrePushValidationNode
 from cai.workflows.pr import PRNode
 from cai.workflows.state import DocsOutput, ImplementOutput
 
@@ -242,8 +243,8 @@ def test_docs_node_prompt_contains_sections_in_order(mock_agent_factory, state):
 
 
 @patch("cai.workflows.docs._docs_agent")
-def test_docs_node_returns_pr_node(mock_agent_factory, state):
-    """DocsNode.run() must return a PRNode on success."""
+def test_docs_node_returns_pre_push_validation_node(mock_agent_factory, state):
+    """DocsNode.run() must return a PrePushValidationNode on success."""
     agent_instance = MagicMock()
     mock_agent_factory.return_value = agent_instance
 
@@ -261,7 +262,7 @@ def test_docs_node_returns_pr_node(mock_agent_factory, state):
 
     result = _run(DocsNode(), state)
 
-    assert isinstance(result, PRNode)
+    assert isinstance(result, PrePushValidationNode)
 
 
 @patch("cai.workflows.docs._docs_agent")

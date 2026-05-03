@@ -299,10 +299,10 @@ def test_test_node_transitions_to_docs_when_documentation_check(
 
 @patch("cai.workflows.test_runner._run_tests", return_value=(True, ""))
 @patch("cai.workflows.test_runner._test_writer_agent")
-def test_test_node_transitions_to_pr_when_no_checks(
+def test_test_node_transitions_to_pre_push_validation_when_no_checks(
     mock_agent, mock_run_tests, state,
 ):
-    """When required_checks is empty, TestNode transitions to PRNode."""
+    """When required_checks is empty, TestNode transitions to PrePushValidationNode."""
     state.implement_output = ImplementOutput(
         summary="s", commit_message="c", required_checks=[], replies=[]
     )
@@ -317,9 +317,9 @@ def test_test_node_transitions_to_pr_when_no_checks(
 
     mock_agent_instance.run.side_effect = mock_run
 
-    from cai.workflows.pr import PRNode
+    from cai.workflows.pre_push_validate import PrePushValidationNode
     result = _run(TestNode(), state)
-    assert isinstance(result, PRNode)
+    assert isinstance(result, PrePushValidationNode)
 
 
 @patch("cai.workflows.test_runner._run_tests", return_value=(False, "FAILURE"))
@@ -621,16 +621,16 @@ def test_sanity_does_not_retry_when_at_max_retries(
     mock_run_tests, state,
 ):
     """When tests fail but retry_count >= 2, TestSanityNode does NOT retry
-    via ImplementNode — it moves on to DocsNode/PRNode."""
+    via ImplementNode — it moves on to DocsNode/PrePushValidationNode."""
     state.implement_output = ImplementOutput(
         summary="s", commit_message="c", required_checks=[], replies=[],
     )
     state.test_retry_count = 2
 
-    from cai.workflows.pr import PRNode
+    from cai.workflows.pre_push_validate import PrePushValidationNode
     result = _run(TestSanityNode(), state)
 
-    assert isinstance(result, PRNode)
+    assert isinstance(result, PrePushValidationNode)
     # retry_count should NOT have been incremented
     assert state.test_retry_count == 2
     assert state.tests_passed is False
@@ -656,20 +656,20 @@ def test_sanity_transitions_to_docs_when_documentation_check(
 
 
 @patch("cai.workflows.test_runner._run_tests", return_value=(True, ""))
-def test_sanity_transitions_to_pr_when_no_checks(
+def test_sanity_transitions_to_pre_push_validation_when_no_checks(
     mock_run_tests, state,
 ):
     """When tests pass and required_checks is empty, TestSanityNode
-    transitions to PRNode."""
+    transitions to PrePushValidationNode."""
     state.implement_output = ImplementOutput(
         summary="s", commit_message="c", required_checks=[], replies=[],
     )
     state.test_retry_count = 2
 
-    from cai.workflows.pr import PRNode
+    from cai.workflows.pre_push_validate import PrePushValidationNode
     result = _run(TestSanityNode(), state)
 
-    assert isinstance(result, PRNode)
+    assert isinstance(result, PrePushValidationNode)
     assert state.tests_passed is True
 
 

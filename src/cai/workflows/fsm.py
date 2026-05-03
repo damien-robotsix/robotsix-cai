@@ -16,6 +16,7 @@ from cai.workflows.explore import ExploreNode
 from cai.workflows.implement import ImplementNode
 from cai.workflows.merge_eval import MergeEvaluationNode
 from cai.workflows.pr import PRNode
+from cai.workflows.pre_push_validate import PrePushValidationNode
 from cai.workflows.python_review import PythonReviewNode
 from cai.workflows.github_workflow_review import GitHubWorkflowReviewNode
 from cai.workflows.pydantic_ai_review import PydanticAIReviewNode
@@ -24,7 +25,7 @@ from cai.workflows.state import IssueState, load_session_state
 from cai.workflows.test_runner import TestNode, TestSanityNode
 
 solve_graph: Graph[IssueState, None, IssueMeta] = Graph(
-    nodes=[ExploreNode, RefineNode, ImplementNode, TestNode, PythonReviewNode, GitHubWorkflowReviewNode, PydanticAIReviewNode, TestSanityNode, DocsNode, PRNode, MergeEvaluationNode]
+    nodes=[ExploreNode, RefineNode, ImplementNode, TestNode, PythonReviewNode, GitHubWorkflowReviewNode, PydanticAIReviewNode, TestSanityNode, DocsNode, PrePushValidationNode, PRNode, MergeEvaluationNode]
 )
 
 

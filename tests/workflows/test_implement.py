@@ -426,3 +426,70 @@ def test_attempt_count_not_incremented_when_no_session_state(
 
     mock_save.assert_not_called()
 
+
+# ---------------------------------------------------------------------------
+# ImplementNode — pre-push validation failure injection into prompt
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_prompt_includes_pre_push_validation_failure_when_present(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """When state.push_validation_failure is set, the prompt includes a
+    'Pre-push validation failures to fix' section."""
+    mock_conflicted_files.return_value = []
+    state.push_validation_failure = "Pre-push validation failed: empty scratch file(s) detected."
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        class MockResult:
+            output = MagicMock()
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Pre-push validation failures to fix" in captured_prompt
+    assert "empty scratch file(s) detected" in captured_prompt
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_prompt_omits_pre_push_validation_failure_when_empty(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """When state.push_validation_failure is empty, no pre-push validation section appears."""
+    mock_conflicted_files.return_value = []
+    state.push_validation_failure = ""
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        class MockResult:
+            output = MagicMock()
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Pre-push validation failures to fix" not in captured_prompt
+
