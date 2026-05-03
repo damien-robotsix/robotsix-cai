@@ -18,7 +18,9 @@ from cai.workflows.audit import (
     _create_issues_node_run,
     _dedupe_agent,
     _labels_for_confidence,
+    _labels_for_trace_investigation,
     _recent_commits_since,
+    _trace_section,
     main,
 )
 from cai.workflows.audit import AuditState
@@ -126,6 +128,51 @@ def test_proposed_issue_confidence_bounds():
         ProposedIssue(title="t", body="b", confidence=0)
     with pytest.raises(pydantic.ValidationError):
         ProposedIssue(title="t", body="b", confidence=11)
+
+
+def test_proposed_issue_trace_ids_default_empty():
+    issue = ProposedIssue(title="t", body="b", confidence=5)
+    assert issue.trace_ids == []
+
+
+def test_proposed_issue_trace_ids_accepted():
+    issue = ProposedIssue(
+        title="t", body="b", confidence=5, trace_ids=["abc-123", "def-456"]
+    )
+    assert issue.trace_ids == ["abc-123", "def-456"]
+
+
+def test_trace_section_renders_bullets():
+    section = _trace_section(["abc", "def"])
+    assert "## Relevant Traces" in section
+    assert "- `abc`" in section
+    assert "- `def`" in section
+    assert "traces_show" in section
+
+
+@pytest.mark.parametrize(
+    "input_labels,expected",
+    [
+        (
+            ["cai:audit", "cai:raised"],
+            ["cai:audit", "cai:human-review", "cai:trace-investigation"],
+        ),
+        (
+            ["cai:audit", "cai:human-review"],
+            ["cai:audit", "cai:human-review", "cai:trace-investigation"],
+        ),
+        (
+            ["cai:sourcing", "cai:raised"],
+            ["cai:sourcing", "cai:human-review", "cai:trace-investigation"],
+        ),
+        (
+            ["cai:audit", "cai:human-review", "cai:trace-investigation"],
+            ["cai:audit", "cai:human-review", "cai:trace-investigation"],
+        ),
+    ],
+)
+def test_labels_for_trace_investigation(input_labels, expected):
+    assert _labels_for_trace_investigation(input_labels) == expected
 
 
 @pytest.mark.parametrize(
@@ -1233,6 +1280,163 @@ def test_create_issues_from_proposals_recent_commits_in_prompt():
     assert "Commits merged after" in prompt
     assert "abc123de" in prompt
     assert "fix: resolve the bug" in prompt
+
+
+def test_create_issues_from_proposals_new_with_trace_ids_augments_body_and_labels():
+    """trace_ids on a new issue: body gets the section, labels gain
+    trace-investigation, and cai:raised is downgraded to cai:human-review."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(
+        title="Trace-derived issue",
+        body="Original body content.",
+        confidence=10,  # would normally auto-raise
+        trace_ids=["trace-abc", "trace-def"],
+    )
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=_labels_for_confidence,
+        ))
+
+    repo_mock.create_issue.assert_called_once()
+    kwargs = repo_mock.create_issue.call_args.kwargs
+    assert kwargs["title"] == "Trace-derived issue"
+    # Body keeps original content and gains the trace section
+    assert kwargs["body"].startswith("Original body content.")
+    assert "## Relevant Traces" in kwargs["body"]
+    assert "- `trace-abc`" in kwargs["body"]
+    assert "- `trace-def`" in kwargs["body"]
+    # Labels: cai:raised replaced by cai:human-review, plus cai:trace-investigation
+    assert kwargs["labels"] == [
+        "cai:audit", "cai:human-review", "cai:trace-investigation",
+    ]
+
+
+def test_create_issues_from_proposals_dedupe_prompt_uses_unaugmented_body():
+    """The dedupe agent must see the agent's original body, not the
+    trace-augmented one — the section is appended only at create time."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(
+        title="T", body="Original.", confidence=7, trace_ids=["t-1"]
+    )
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=_labels_for_confidence,
+        ))
+
+    dedupe_prompt = fake_dedupe.run.call_args[0][0]
+    assert "Proposed issue body: Original." in dedupe_prompt
+    assert "## Relevant Traces" not in dedupe_prompt
+
+
+def test_create_issues_from_proposals_append_with_trace_ids_includes_section():
+    """Append path: the comment includes the trace section when trace_ids set."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="append", target_issue_number=42, reason="Same")
+    ))
+
+    existing = MagicMock()
+    existing.number = 42
+    existing.title = "Existing"
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = [existing]
+    repo_mock.get_issue.return_value = existing
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(
+        title="T", body="More evidence.", confidence=8,
+        trace_ids=["new-trace-1"],
+    )
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=_labels_for_confidence,
+        ))
+
+    repo_mock.create_issue.assert_not_called()
+    existing.create_comment.assert_called_once()
+    comment = existing.create_comment.call_args[0][0]
+    assert "**Title**: T" in comment
+    assert "**Body**:\nMore evidence." in comment
+    assert "## Relevant Traces" in comment
+    assert "- `new-trace-1`" in comment
+
+
+def test_create_issues_from_proposals_empty_trace_ids_unchanged_behavior():
+    """When trace_ids is empty, body and labels are unchanged."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(title="T", body="Body.", confidence=10)  # trace_ids=[]
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=_labels_for_confidence,
+        ))
+
+    repo_mock.create_issue.assert_called_once_with(
+        title="T",
+        body="Body.",
+        labels=["cai:audit", "cai:raised"],
+    )
 
 
 def test_create_issues_from_proposals_no_open_issues_message():
