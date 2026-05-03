@@ -12,9 +12,12 @@ def test_docs_agent_config():
         "Reviews implementation changes and updates documentation in the docs/ folder."
     )
 
-    # Assert expected tools
+    # Assert expected tools — docs agent edits docs/ in place and
+    # returns DocsOutput; it must NOT have raise_issue (would file
+    # spurious "no docs changes needed" GitHub issues, see #1763).
     tools = config.get("tools", [])
     assert "filesystem" in tools
+    assert "raise_issue" not in tools
 
 
 def test_docs_agent_prompt_includes_edit_instructions():

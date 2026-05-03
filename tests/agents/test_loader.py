@@ -2105,19 +2105,26 @@ def test_antipattern_examples_absent_from_explore():
 # raise_issue tool in agent frontmatter
 # ---------------------------------------------------------------------------
 
-PRO_MODEL_AGENTS = [
-    "docs",
+PRO_MODEL_AGENTS_WITH_RAISE_ISSUE = [
     "spike",
     "duplication_auditor",
     "audit",
     "implement",
-    "python_review",
     "architecture_auditor",
     "refine",
     "deps_auditor",
     "security_auditor",
     "sourcing",
     "explore",
+]
+
+# Pro-model agents that intentionally do NOT have raise_issue: they are
+# reviewers that fix in place or return structured output, and have a
+# history of filing spurious "no issues found" / "no docs changes
+# needed" GitHub issues when given the tool (#1740, #1763).
+REVIEW_AGENTS_NO_RAISE_ISSUE = [
+    "docs",
+    "python_review",
 ]
 
 FLASH_MODEL_AGENTS = [
@@ -2131,16 +2138,32 @@ FLASH_MODEL_AGENTS = [
 ]
 
 
-@pytest.mark.parametrize("agent_name", PRO_MODEL_AGENTS)
+@pytest.mark.parametrize("agent_name", PRO_MODEL_AGENTS_WITH_RAISE_ISSUE)
 def test_pro_model_agent_has_raise_issue_tool(agent_name: str):
-    """Every pro-model agent definition should list ``raise_issue`` in
-    its YAML frontmatter ``tools`` list."""
+    """Every pro-model agent that's expected to file blockers as issues
+    should list ``raise_issue`` in its YAML frontmatter ``tools`` list."""
     path = resolve_agent_path(agent_name)
     config, _ = parse_agent_md(path)
     tools = config.get("tools", [])
     assert "raise_issue" in tools, (
-        f"{agent_name}.md is a pro-model agent but its frontmatter "
-        f"tools list does not include 'raise_issue'. Found: {tools}"
+        f"{agent_name}.md is a pro-model blocker-filing agent but its "
+        f"frontmatter tools list does not include 'raise_issue'. "
+        f"Found: {tools}"
+    )
+
+
+@pytest.mark.parametrize("agent_name", REVIEW_AGENTS_NO_RAISE_ISSUE)
+def test_review_agent_does_not_have_raise_issue(agent_name: str):
+    """Review-style agents (docs, python_review) must not have
+    raise_issue: their job is to fix in place or return structured
+    output, not to file GitHub issues — empirically they file
+    spurious 'no issues found' reports when given the tool."""
+    path = resolve_agent_path(agent_name)
+    config, _ = parse_agent_md(path)
+    tools = config.get("tools", [])
+    assert "raise_issue" not in tools, (
+        f"{agent_name}.md is a review agent and must not have "
+        f"'raise_issue' in its tools list: {tools}"
     )
 
 

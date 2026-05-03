@@ -4,7 +4,6 @@ description: Reviews changed Python files for quality, correctness, and Pythonic
 model: deepseek/deepseek-v4-pro
 tools:
   - filesystem
-  - raise_issue
 common: [anti_hallucination_guard, antipattern_examples]
 ---
 

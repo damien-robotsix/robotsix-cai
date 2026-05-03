@@ -18,6 +18,9 @@ from cai.github.bot import CaiBot
 from cai.github.issues import IssueMeta, push
 
 
+_AGENT_RAISED_LABEL = "cai:agent-raised"
+
+
 async def raise_issue(
     ctx: RunContext,
     repo: str,
@@ -33,14 +36,20 @@ async def raise_issue(
         body: Issue body (markdown).
         labels: Labels to apply. Defaults to ``["cai:human-review"]``.
 
+    The ``cai:agent-raised`` label is always added to the final label
+    set so issue provenance is grep-able from the GitHub UI/CLI.
+
     Returns:
         Confirmation string with the new issue number and URL.
     """
     bot = CaiBot()
+    final_labels = list(labels) if labels else ["cai:human-review"]
+    if _AGENT_RAISED_LABEL not in final_labels:
+        final_labels.append(_AGENT_RAISED_LABEL)
     meta = IssueMeta(
         repo=repo,
         title=title,
-        labels=labels or ["cai:human-review"],
+        labels=final_labels,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:

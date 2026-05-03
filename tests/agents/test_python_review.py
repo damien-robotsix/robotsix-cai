@@ -13,10 +13,12 @@ def test_python_review_agent_config():
     # Model
     assert config["model"] == "deepseek/deepseek-v4-pro"
 
-    # Tools
+    # Tools — review agent fixes in place / returns structured output;
+    # it must NOT have raise_issue (would file spurious "no issues found"
+    # GitHub issues, see #1740).
     tools = config.get("tools", [])
     assert "filesystem" in tools
-    assert "raise_issue" in tools
+    assert "raise_issue" not in tools
 
     # Description
     assert "description" in config

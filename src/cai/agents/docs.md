@@ -4,7 +4,6 @@ description: Reviews implementation changes and updates documentation in the doc
 model: deepseek/deepseek-v4-pro
 tools:
   - filesystem
-  - raise_issue
 common: [anti_hallucination_guard, antipattern_examples]
 ---
 
