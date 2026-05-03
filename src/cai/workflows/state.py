@@ -134,6 +134,14 @@ class ImplementOutput(BaseModel):
             "in the prompt — one entry per thread. Leave empty otherwise."
         ),
     )
+    files_changed: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Repo-relative paths of every file modified or created during "
+            "implementation. Populate this accurately — downstream agents "
+            "rely on it instead of re-discovering changes."
+        ),
+    )
 
     @classmethod
     def model_json_schema(cls, **kwargs: object) -> dict:

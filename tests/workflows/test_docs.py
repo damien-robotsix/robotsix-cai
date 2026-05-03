@@ -302,3 +302,73 @@ def test_docs_node_raises_without_implement_output(state):
 
     with pytest.raises(AssertionError):
         _run(DocsNode(), state)
+
+
+@patch("cai.workflows.docs._docs_agent")
+def test_docs_node_prompt_includes_reference_files_section(
+    mock_agent_factory, state, tmp_path,
+):
+    """DocsNode prompt includes the reference files section when reference_files
+    is populated and the files exist on disk."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    state.implement_output = ImplementOutput(
+        summary="Changes.",
+        commit_message="fix: changes",
+    )
+
+    # Create a real reference file so reference_files_section() returns content
+    ref_file = tmp_path / "src" / "doc_ref.py"
+    ref_file.parent.mkdir(parents=True, exist_ok=True)
+    ref_file.write_text("# reference content")
+    state.reference_files = ["src/doc_ref.py"]
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        result = MagicMock()
+        result.output = DocsOutput(summary="Updated docs.", commit_message="docs: update")
+        return result
+
+    agent_instance.run = mock_run
+
+    _run(DocsNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Reference files" in captured_prompt
+    assert "### src/doc_ref.py" in captured_prompt
+
+
+@patch("cai.workflows.docs._docs_agent")
+def test_docs_node_prompt_omits_reference_files_section_when_empty(
+    mock_agent_factory, state,
+):
+    """DocsNode prompt does NOT include a reference files section when
+    reference_files is empty."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    state.implement_output = ImplementOutput(
+        summary="Changes.",
+        commit_message="fix: changes",
+    )
+    state.reference_files = []
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        result = MagicMock()
+        result.output = DocsOutput(summary="Updated docs.", commit_message="docs: update")
+        return result
+
+    agent_instance.run = mock_run
+
+    _run(DocsNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Reference files" not in captured_prompt

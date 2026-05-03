@@ -690,3 +690,73 @@ def test_sanity_sets_tests_passed_and_no_failure_details(
     assert state.tests_passed is True
     # test_failure_details should now be empty since run_tests returned ("", True)
     assert state.test_failure_details == ""
+
+
+@patch("cai.workflows.test_runner._test_writer_agent")
+def test_test_node_prompt_includes_files_changed_section(
+    mock_agent, state,
+):
+    """When implement_output.files_changed is populated, the TestNode prompt
+    includes a '## Files changed by implement' section."""
+    state.implement_output = ImplementOutput(
+        summary="Added order service.",
+        commit_message="feat: add order service",
+    )
+    state.implement_output.files_changed = ["src/a.py", "src/b.py"]
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+
+        class MockResult:
+            output = MagicMock()
+
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(TestNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Files changed by implement" in captured_prompt
+    assert "- src/a.py" in captured_prompt
+    assert "- src/b.py" in captured_prompt
+
+
+@patch("cai.workflows.test_runner._test_writer_agent")
+def test_test_node_prompt_omits_files_changed_section_when_empty(
+    mock_agent, state,
+):
+    """When implement_output.files_changed is empty, the TestNode prompt
+    does NOT include a '## Files changed by implement' section."""
+    state.implement_output = ImplementOutput(
+        summary="Added order service.",
+        commit_message="feat: add order service",
+    )
+    state.implement_output.files_changed = []
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+
+        class MockResult:
+            output = MagicMock()
+
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(TestNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Files changed by implement" not in captured_prompt

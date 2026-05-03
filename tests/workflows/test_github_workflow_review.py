@@ -229,3 +229,85 @@ def test_github_workflow_review_node_asserts_implement_output(mock_agent, state)
 
     with pytest.raises(AssertionError):
         _run(GitHubWorkflowReviewNode(), state)
+
+
+@patch("cai.workflows.github_workflow_review._github_workflow_review_agent")
+def test_github_workflow_review_node_prompt_includes_reference_files_section(
+    mock_agent, state, tmp_path,
+):
+    """GitHubWorkflowReviewNode prompt includes the reference files section
+    when reference_files is populated and files exist on disk."""
+    state.implement_output = ImplementOutput(
+        summary="Updated deploy workflow.",
+        commit_message="fix: update deploy workflow",
+        required_checks=[],
+        replies=[],
+    )
+
+    # Create a real reference file
+    ref_file = tmp_path / ".github" / "workflows" / "deploy.yml"
+    ref_file.parent.mkdir(parents=True, exist_ok=True)
+    ref_file.write_text("name: Deploy\n")
+    state.reference_files = [".github/workflows/deploy.yml"]
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+
+        class MockResult:
+            output = GitHubWorkflowReviewOutput(
+                summary="No issues found.",
+                commit_message="",
+            )
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(GitHubWorkflowReviewNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Reference files" in captured_prompt
+    assert "### .github/workflows/deploy.yml" in captured_prompt
+
+
+@patch("cai.workflows.github_workflow_review._github_workflow_review_agent")
+def test_github_workflow_review_node_prompt_omits_reference_files_section_when_empty(
+    mock_agent, state,
+):
+    """GitHubWorkflowReviewNode prompt does NOT include a reference files
+    section when reference_files is empty."""
+    state.implement_output = ImplementOutput(
+        summary="Updated deploy workflow.",
+        commit_message="fix: update deploy workflow",
+        required_checks=[],
+        replies=[],
+    )
+    state.reference_files = []
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+
+        class MockResult:
+            output = GitHubWorkflowReviewOutput(
+                summary="No issues found.",
+                commit_message="",
+            )
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(GitHubWorkflowReviewNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Reference files" not in captured_prompt
