@@ -77,6 +77,7 @@ class WorkflowSpec:
     permissions: dict[str, str]
     concurrency_group: str | None = None
     authorized_user_variant: str = "standard"
+    timeout_minutes: int | None = None
 
 
 def _solve_session_id(args: CliArgs) -> str:
@@ -157,6 +158,7 @@ WORKFLOWS: list[WorkflowSpec] = [
         # not cancel an in-flight cai:raised solve on the same issue.
         concurrency_group="cai-solve-${{ github.event.issue.number }}-${{ github.event.label.name }}",
         authorized_user_variant="standard",
+        timeout_minutes=90,
     ),
     WorkflowSpec(
         slug="audit",
@@ -305,6 +307,7 @@ WORKFLOWS: list[WorkflowSpec] = [
         permissions={"contents": "write", "pull-requests": "write"},
         concurrency_group="cai-solve-pr-${{ github.event.pull_request.number }}",
         authorized_user_variant="skip_bots",
+        timeout_minutes=90,
     ),
     WorkflowSpec(
         slug="audit-duplication",

@@ -369,6 +369,7 @@ def test_workflow_spec_construction():
     assert spec.permissions == {"contents": "read"}
     assert spec.concurrency_group is None
     assert spec.authorized_user_variant == "standard"
+    assert spec.timeout_minutes is None
 
 
 # ── _solve_session_id helper ───────────────────────────────────────────
@@ -467,6 +468,7 @@ def test_solve_spec_fields():
         "cai-solve-${{ github.event.issue.number }}-${{ github.event.label.name }}"
     )
     assert spec.authorized_user_variant == "standard"
+    assert spec.timeout_minutes == 90
 
 
 def test_audit_spec_fields():
@@ -502,6 +504,20 @@ def test_solve_pr_spec_fields():
     assert spec.docker_command == "cai-solve ${{ github.repository }}#${{ github.event.pull_request.number }}"
     assert spec.permissions == {"contents": "write", "pull-requests": "write"}
     assert spec.authorized_user_variant == "skip_bots"
+    assert spec.timeout_minutes == 90
+
+
+def test_timeout_minutes_only_on_solve_workflows():
+    """Only solve and solve-pr specs set timeout_minutes=90; all others are None."""
+    for spec in WORKFLOWS:
+        if spec.slug in ("solve", "solve-pr"):
+            assert spec.timeout_minutes == 90, (
+                f"{spec.slug}: expected timeout_minutes=90, got {spec.timeout_minutes}"
+            )
+        else:
+            assert spec.timeout_minutes is None, (
+                f"{spec.slug}: expected timeout_minutes=None, got {spec.timeout_minutes}"
+            )
 
 
 def test_audit_duplication_spec_trigger():

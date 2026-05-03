@@ -66,6 +66,9 @@ jobs:
     if: <% spec.github_trigger.job_if %>
 {% endif %}
     runs-on: ubuntu-latest
+{% if spec.timeout_minutes %}
+    timeout-minutes: <% spec.timeout_minutes %>
+{% endif %}
     permissions:
 {% for perm, level in spec.permissions.items() %}
       <% perm %>: <% level %>
