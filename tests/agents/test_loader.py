@@ -3257,6 +3257,69 @@ def test_edit_file_guardrail_non_overlapping_count_only(tmp_path):
     assert calls == [args]
 
 
+def test_edit_file_guardrail_closest_match_hint(tmp_path):
+    """When old_string differs by one blank line, the ModelRetry message
+    includes a closest-match hint with line numbers and similarity ratio."""
+    cap = EditFileGuardrailAsRetry()
+    content = "def foo():\n    pass\n\n\ndef bar():\n    pass\n"
+    fpath = _tmp_file(tmp_path, "a.py", content)
+    # One blank line instead of two — differs from "    pass\n\n\ndef bar():"
+    args = {"path": fpath, "old_string": "    pass\n\ndef bar():", "new_string": "x"}
+    handler, _ = _passthrough_handler()
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+    msg = str(exc.value)
+    assert "old_string not found" in msg
+    assert "Closest match at lines" in msg
+    assert "% similar" in msg
+    assert "Diff:" in msg
+
+
+def test_edit_file_guardrail_no_closest_match_for_short_string(tmp_path):
+    """1-line old_string skips the closest-match hint entirely."""
+    cap = EditFileGuardrailAsRetry()
+    fpath = _tmp_file(tmp_path, "a.py", "line1\nline2\n")
+    args = {"path": fpath, "old_string": "missing", "new_string": "x"}
+    handler, _ = _passthrough_handler()
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+    msg = str(exc.value)
+    assert "old_string not found" in msg
+    assert "Closest match" not in msg
+
+
+def test_load_agent_from_md_includes_capabilities(monkeypatch):
+    """load_agent_from_md wires EditFileGuardrailAsRetry and other capabilities
+    into the returned Agent."""
+    import cai.agents.loader as loader
+
+    captured_caps = None
+
+    class FakeAgent:
+        def __init__(self, model, **kwargs):
+            nonlocal captured_caps
+            captured_caps = kwargs.get("capabilities")
+
+    monkeypatch.setattr(loader, "Agent", FakeAgent)
+    monkeypatch.setattr(loader, "build_model", lambda config: object())
+    monkeypatch.setattr(loader, "parse_agent_md", lambda path: (
+        {"name": "test", "model": "x"}, "instructions"
+    ))
+
+    loader.load_agent_from_md("dummy.md")
+
+    assert captured_caps is not None
+    cap_types = [type(c).__name__ for c in captured_caps]
+    assert "EditFileGuardrailAsRetry" in cap_types
+    assert "ToolErrorAsRetry" in cap_types
+    assert "WriteFileGuardrailAsRetry" in cap_types
+    assert "HistoryCompactorCapability" in cap_types
+
+
 # ---------------------------------------------------------------------------
 # Explore agent — Search-then-read strategy prompt sections
 # ---------------------------------------------------------------------------
