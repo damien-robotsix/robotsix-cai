@@ -2,18 +2,19 @@
 name: refine
 description: Rewrite a human-filed GitHub issue into a structured, actionable plan.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem
   - subagents
   - web_search
   - web_fetch
+  - context_manager
+  - history_archive
+commands:
   - traces_list
   - traces_show
   - traces_failures
   - traces_session
   - traces_solve_sessions
-  - context_manager
-  - history_archive
   - raise_issue
   - spike_run
 subagents:

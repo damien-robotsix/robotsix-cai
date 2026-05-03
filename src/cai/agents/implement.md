@@ -2,14 +2,15 @@
 name: implement
 description: Implements code changes to resolve a GitHub issue or address PR review threads in a local repository.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem
+  - web_search
+  - web_fetch
+commands:
   - move_file
   - delete_file
   - batch_move
   - batch_delete
-  - web_search
-  - web_fetch
   - raise_issue
   - spike_run
   - block_edit

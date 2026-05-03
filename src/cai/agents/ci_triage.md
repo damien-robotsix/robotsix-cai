@@ -2,11 +2,12 @@
 name: ci_triage
 description: Investigates CI failures by analyzing job logs and filing a cai:raised issue with findings.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem_read
-  - raise_issue
   - web_fetch
   - subagents
+commands:
+  - raise_issue
   - traces_show
   - traces_failures
 subagents:
@@ -39,6 +40,8 @@ failed GitHub Actions jobs and determine the root cause.
    errors, reasoning steps), delegate to the `trace_analyst` subagent with the
    specific trace ID. Keep your own context use minimal — do not inline large
    trace outputs.
+   **Important:** When calling the `task` tool, pass the subagent instructions
+   as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter.
 6. Call `raise_issue` with `labels=["cai:raised"]` and a structured body that
    describes:
    - The failed job and step

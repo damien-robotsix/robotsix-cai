@@ -13,10 +13,11 @@ def test_python_review_agent_config():
     # Model
     assert config["model"] == "deepseek/deepseek-v4-pro"
 
-    # Tools
-    tools = config.get("tools", [])
-    assert "filesystem" in tools
-    assert "raise_issue" in tools
+    # Skills (TOOL_FLAGS) and commands (TOOL_FACTORIES)
+    skills = config.get("skills", [])
+    assert "filesystem" in skills
+    commands = config.get("commands", [])
+    assert "raise_issue" in commands
 
     # Description
     assert "description" in config

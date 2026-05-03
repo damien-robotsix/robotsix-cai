@@ -12,9 +12,9 @@ def test_docs_agent_config():
         "Reviews implementation changes and updates documentation in the docs/ folder."
     )
 
-    # Assert expected tools
-    tools = config.get("tools", [])
-    assert "filesystem" in tools
+    # Assert expected skills (TOOL_FLAGS)
+    skills = config.get("skills", [])
+    assert "filesystem" in skills
 
 
 def test_docs_agent_prompt_includes_edit_instructions():

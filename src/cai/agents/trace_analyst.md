@@ -2,8 +2,9 @@
 name: trace_analyst
 description: Deeply analyzes specific Langfuse traces, identifying root causes of failures, reasoning flaws, and optimization opportunities. Works in tandem with the audit agent to understand the 'why' behind trace behavior. Cannot list or filter traces directly.
 model: deepseek/deepseek-v4-flash
-tools:
+skills:
   - filesystem_read
+commands:
   - traces_show
   - file_info
 common: [anti_hallucination_guard, antipattern_examples]

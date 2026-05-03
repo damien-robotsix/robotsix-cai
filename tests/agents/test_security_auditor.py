@@ -12,10 +12,10 @@ def test_security_auditor_agent_config():
     assert config["name"] == "security_auditor"
     assert config["model"] == "deepseek/deepseek-v4-pro"
 
-    # Assert expected tools
-    tools = config.get("tools", [])
-    assert "filesystem_read" in tools
-    assert "subagents" in tools
+    # Assert expected skills (TOOL_FLAGS)
+    skills = config.get("skills", [])
+    assert "filesystem_read" in skills
+    assert "subagents" in skills
 
     # Assert subagents
     subagents = config.get("subagents", [])

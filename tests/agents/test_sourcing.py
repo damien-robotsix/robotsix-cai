@@ -12,10 +12,10 @@ def test_sourcing_agent_config():
     assert config["name"] == "sourcing"
     assert config["model"] == "deepseek/deepseek-v4-pro"
 
-    # Assert expected tools
-    tools = config.get("tools", [])
-    assert "web_search" in tools
-    assert "web_fetch" in tools
+    # Assert expected skills (TOOL_FLAGS)
+    skills = config.get("skills", [])
+    assert "web_search" in skills
+    assert "web_fetch" in skills
 
     # Assert subagents
     subagents = config.get("subagents", [])

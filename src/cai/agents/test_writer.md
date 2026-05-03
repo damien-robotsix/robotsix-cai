@@ -2,7 +2,7 @@
 name: test_writer
 description: Writes and updates pytest unit tests for features implemented in a local repository. Tests must never call LLM APIs or require external services.
 model: deepseek/deepseek-v4-flash
-tools:
+skills:
   - filesystem
 common: [anti_hallucination_guard, antipattern_examples]
 ---

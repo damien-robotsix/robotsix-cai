@@ -1010,22 +1010,22 @@ def test_import_factory_resolves_block_edit_tool():
 
 
 def test_explore_agent_includes_block_overview():
-    """The explore agent markdown lists block_overview in its tools."""
+    """The explore agent markdown lists block_overview in its commands."""
     from cai.agents.loader import parse_agent_md, resolve_agent_path
 
     explore_file = resolve_agent_path("explore")
     config, _ = parse_agent_md(explore_file)
 
-    tools = config.get("tools", [])
-    assert "block_overview" in tools, "explore.md must include block_overview in its tools list"
+    commands = config.get("commands", [])
+    assert "block_overview" in commands, "explore.md must include block_overview in its commands list"
 
 
 def test_implement_agent_includes_block_edit():
-    """The implement agent markdown lists block_edit in its tools."""
+    """The implement agent markdown lists block_edit in its commands."""
     from cai.agents.loader import parse_agent_md, resolve_agent_path
 
     implement_file = resolve_agent_path("implement")
     config, _ = parse_agent_md(implement_file)
 
-    tools = config.get("tools", [])
-    assert "block_edit" in tools, "implement.md must include block_edit in its tools list"
+    commands = config.get("commands", [])
+    assert "block_edit" in commands, "implement.md must include block_edit in its commands list"

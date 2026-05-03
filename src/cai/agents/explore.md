@@ -2,8 +2,9 @@
 name: explore
 description: Read-only explorer of files tracked in this repository's working tree. Answers questions whose answer is literally present in the repo's source — "where is X defined?", "what does function Y do?", "list call sites of Z", "which files import module W?", "what does the config in path/to/file say?" — and returns a concise findings summary with file:line citations. Can also inspect git history (log, diff, blame, show) to discover recent changes related to an issue. Cannot read third-party / installed package source, cannot fetch URLs or docs, cannot execute code, run tests, or evaluate snippets, and cannot write or edit files. If the answer requires any of those, do not delegate — note it as an assumption instead.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem_read
+commands:
   - git_log
   - git_diff
   - git_blame

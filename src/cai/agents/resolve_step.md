@@ -2,8 +2,9 @@
 name: resolve_step
 description: Resolves the conflicts of a single rebase step using the picked commit's diff and PR context.
 model: deepseek/deepseek-v4-flash
-tools:
+skills:
   - filesystem_read
+commands:
   - conflict_list
   - conflict_resolve
   - conflict_cleanup

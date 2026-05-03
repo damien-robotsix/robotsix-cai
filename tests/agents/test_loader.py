@@ -1996,9 +1996,9 @@ def test_agents_without_execute_tool_dont_declare_it(agent_name):
     bash, shell, or run in their frontmatter tools."""
     path = resolve_agent_path(agent_name)
     config, _ = parse_agent_md(path)
-    tools = config.get("tools", [])
+    all_tools = config.get("skills", []) + config.get("commands", [])
     forbidden = {"execute", "bash", "shell", "run"}
-    intersection = set(tools) & forbidden
+    intersection = set(all_tools) & forbidden
     assert not intersection, (
         f"Agent '{agent_name}' declares {sorted(intersection)} in tools "
         f"but also carries the anti-hallucination guard — remove the guard "
@@ -2137,10 +2137,10 @@ def test_pro_model_agent_has_raise_issue_tool(agent_name: str):
     its YAML frontmatter ``tools`` list."""
     path = resolve_agent_path(agent_name)
     config, _ = parse_agent_md(path)
-    tools = config.get("tools", [])
-    assert "raise_issue" in tools, (
+    commands = config.get("commands", [])
+    assert "raise_issue" in commands, (
         f"{agent_name}.md is a pro-model agent but its frontmatter "
-        f"tools list does not include 'raise_issue'. Found: {tools}"
+        f"commands list does not include 'raise_issue'. Found: {commands}"
     )
 
 
@@ -2150,10 +2150,10 @@ def test_flash_model_agent_does_not_have_raise_issue(agent_name: str):
     frontmatter ``tools`` list — only pro-model agents get it."""
     path = resolve_agent_path(agent_name)
     config, _ = parse_agent_md(path)
-    tools = config.get("tools", [])
-    assert "raise_issue" not in tools, (
+    commands = config.get("commands", [])
+    assert "raise_issue" not in commands, (
         f"{agent_name}.md is a flash-model agent but unexpectedly "
-        f"has 'raise_issue' in its tools list: {tools}"
+        f"has 'raise_issue' in its commands list: {commands}"
     )
 
 
@@ -2187,12 +2187,16 @@ def test_agent_prompt_includes_task_tool_parameter_note(agent_name: str, monkeyp
     path = resolve_agent_path(agent_name)
     config, body = parse_agent_md(path)
 
-    # The config must have subagents in tools: for auto-inclusion.
-    tools = config.get("tools", [])
-    assert "subagents" in tools, (
-        f"Agent '{agent_name}' expected to have 'subagents' in tools: "
+    # The config must have subagents in skills: for auto-inclusion.
+    skills = config.get("skills", [])
+    assert "subagents" in skills, (
+        f"Agent '{agent_name}' expected to have 'subagents' in skills: "
         f"for task-tool-note auto-inclusion."
     )
+
+    # Bridge: _inject_common_fragments still reads config.get("tools", [])
+    # for backward compatibility until loader.py is updated.
+    config["tools"] = list(skills)
 
     # Verify the merged build_deep_agent output includes the note.
     fake_agent = object()

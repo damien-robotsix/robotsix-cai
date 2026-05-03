@@ -2,10 +2,11 @@
 name: deps_auditor
 description: Analyses dependency version diffs, changelogs, and codebase usage to propose upgrades worth acting on.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem_read
   - web_fetch
   - subagents
+commands:
   - raise_issue
 subagents:
   - explore

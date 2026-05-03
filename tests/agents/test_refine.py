@@ -9,20 +9,21 @@ def test_refine_agent_config():
     assert config["name"] == "refine"
     assert config["model"] == "deepseek/deepseek-v4-pro"
     
-    # Assert expected tools
-    tools = config.get("tools", [])
-    assert "filesystem" in tools
-    assert "subagents" in tools
-    assert "web_search" in tools
-    assert "web_fetch" in tools
-    assert "traces_list" in tools
-    assert "traces_show" in tools
-    assert "traces_failures" in tools
-    assert "traces_session" in tools
-    assert "traces_solve_sessions" in tools
-    assert "context_manager" in tools
-    assert "history_archive" in tools
-    assert "spike_run" in tools
+    # Assert expected skills (TOOL_FLAGS) and commands (TOOL_FACTORIES)
+    skills = config.get("skills", [])
+    assert "filesystem" in skills
+    assert "subagents" in skills
+    assert "web_search" in skills
+    assert "web_fetch" in skills
+    assert "context_manager" in skills
+    assert "history_archive" in skills
+    commands = config.get("commands", [])
+    assert "traces_list" in commands
+    assert "traces_show" in commands
+    assert "traces_failures" in commands
+    assert "traces_session" in commands
+    assert "traces_solve_sessions" in commands
+    assert "spike_run" in commands
     
     # Assert subagents
     subagents = config.get("subagents", [])

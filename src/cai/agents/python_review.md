@@ -2,8 +2,9 @@
 name: python_review
 description: Reviews changed Python files for quality, correctness, and Pythonic standards. Fixes issues in place and commits the result.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem
+commands:
   - raise_issue
 common: [anti_hallucination_guard, antipattern_examples]
 ---

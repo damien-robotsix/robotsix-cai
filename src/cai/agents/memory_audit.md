@@ -2,7 +2,7 @@
 name: memory_audit
 description: Scans `.cai/memory/` entries, verifies their claims against the current codebase, and marks stale or superseded entries by updating their YAML frontmatter status fields. Read-heavy with minimal writes — only touches frontmatter in `.cai/memory/`.
 model: deepseek/deepseek-v4-flash
-tools:
+skills:
   - filesystem_read
   - filesystem_write
 ---

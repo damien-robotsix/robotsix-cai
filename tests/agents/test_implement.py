@@ -10,13 +10,14 @@ def test_implement_agent_config(monkeypatch):
     assert config["name"] == "implement"
     assert config["model"] == "deepseek/deepseek-v4-pro"
 
-    # Assert expected tools
-    tools = config.get("tools", [])
-    assert "filesystem" in tools
-    assert "web_search" in tools
-    assert "web_fetch" in tools
-    assert "spike_run" in tools
-    assert "block_edit" in tools
+    # Assert expected skills (TOOL_FLAGS) and commands (TOOL_FACTORIES)
+    skills = config.get("skills", [])
+    assert "filesystem" in skills
+    assert "web_search" in skills
+    assert "web_fetch" in skills
+    commands = config.get("commands", [])
+    assert "spike_run" in commands
+    assert "block_edit" in commands
 
     # Build merged output for common-fragment checks.
     captured_instructions = []

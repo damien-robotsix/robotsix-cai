@@ -13,9 +13,9 @@ def test_test_writer_agent_config():
     # Model — must be the flash (non-reasoning) variant, not the expensive pro
     assert config["model"] == "deepseek/deepseek-v4-flash"
 
-    # Tools
-    tools = config.get("tools", [])
-    assert "filesystem" in tools
+    # Skills (TOOL_FLAGS) — test_writer has no commands
+    skills = config.get("skills", [])
+    assert "filesystem" in skills
 
     # Description
     assert "description" in config

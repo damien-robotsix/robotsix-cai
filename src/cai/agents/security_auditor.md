@@ -2,9 +2,10 @@
 name: security_auditor
 description: Scans the repository for common vulnerability patterns and proposes GitHub issues for findings worth fixing.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem_read
   - subagents
+commands:
   - raise_issue
 subagents:
   - explore

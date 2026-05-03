@@ -20,15 +20,18 @@ def test_ci_triage_agent_config():
     assert "failure" in desc.lower()
     assert "issue" in desc.lower()
 
-    # Assert expected tools
-    tools = config.get("tools", [])
-    assert "filesystem_read" in tools
-    assert "raise_issue" in tools
-    assert "web_fetch" in tools
-    assert "traces_show" in tools, (
+    # Assert expected skills (TOOL_FLAGS — read-only skill tools)
+    skills = config.get("skills", [])
+    assert "filesystem_read" in skills
+    assert "web_fetch" in skills
+
+    # Assert expected commands (TOOL_FACTORIES — code-registered command tools)
+    commands = config.get("commands", [])
+    assert "raise_issue" in commands
+    assert "traces_show" in commands, (
         "ci_triage must list traces_show to investigate prior CAI runs"
     )
-    assert "traces_failures" in tools, (
+    assert "traces_failures" in commands, (
         "ci_triage must list traces_failures to find failed CAI traces"
     )
 
@@ -72,11 +75,13 @@ def test_ci_triage_no_execute_tools():
     """The agent must not have write or execute tools."""
     path = resolve_agent_path("ci_triage")
     config, instructions = parse_agent_md(path)
-    tools = config.get("tools", [])
+    skills = config.get("skills", [])
+    commands = config.get("commands", [])
+    all_tools = skills + commands
 
     # The agent reads files and files issues — no filesystem write
-    assert "filesystem_write" not in tools
-    assert "filesystem" not in tools  # explicit read-only variant used instead
+    assert "filesystem_write" not in all_tools
+    assert "filesystem" not in all_tools  # explicit read-only variant used instead
     assert "execute" not in instructions.lower() or "Do not execute" in instructions
 
 
@@ -98,9 +103,9 @@ def test_ci_triage_has_subagents_tool():
     """ci_triage must list 'subagents' in its tools to enable subagent dispatch."""
     path = resolve_agent_path("ci_triage")
     config, _instructions = parse_agent_md(path)
-    tools = config.get("tools", [])
-    assert "subagents" in tools, (
-        "ci_triage must list subagents in tools to delegate to trace_analyst"
+    skills = config.get("skills", [])
+    assert "subagents" in skills, (
+        "ci_triage must list subagents in skills to delegate to trace_analyst"
     )
 
 
@@ -129,7 +134,21 @@ def test_ci_triage_trace_analyst_instructions(monkeypatch):
         "Instructions must mention passing a specific trace ID to the subagent"
     )
 
-    # Task-tool-note is auto-injected by build_deep_agent — verify via merged output.
+    # The task-tool-note must be present directly in the raw instructions
+    # (no longer relying solely on auto-injection by build_deep_agent).
+    assert "task" in instructions.lower(), (
+        "Instructions must reference the task tool for subagent delegation"
+    )
+    assert "description=" in instructions or "description =" in instructions, (
+        "Raw instructions must contain the task-tool-note about passing "
+        "description=, not prompt="
+    )
+    assert "no `prompt` parameter" in instructions.lower(), (
+        "Instructions must clarify that the task tool has no prompt parameter"
+    )
+
+    # Also verify the note flows through to the final merged instructions
+    # when build_deep_agent is called.
     captured_instructions = []
 
     def fake_create(model, *, name, instructions, **kwargs):

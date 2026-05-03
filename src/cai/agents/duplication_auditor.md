@@ -2,8 +2,9 @@
 name: duplication_auditor
 description: Reviews jscpd copy-paste findings and proposes GitHub issues for duplications worth refactoring.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem_read
+commands:
   - raise_issue
 ---
 

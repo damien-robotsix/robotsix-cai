@@ -2,8 +2,9 @@
 name: docs
 description: Reviews implementation changes and updates documentation in the docs/ folder.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem
+commands:
   - raise_issue
 common: [anti_hallucination_guard, antipattern_examples]
 ---
