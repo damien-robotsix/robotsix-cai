@@ -1275,13 +1275,15 @@ def build_model_settings(config: dict) -> dict[str, Any] | None:
     cost proportional to how often the token has already appeared, making it
     mathematically harder for the model to cycle forever.
 
-    ``reasoning: false`` opts out of OpenRouter's extended-reasoning
+    ``reasoning`` accepts either a bool or a dict.  A bool (e.g.
+    ``reasoning: false``) opts out of OpenRouter's extended-reasoning
     pass-through for models like ``moonshotai/kimi-k2.6`` that emit a
-    long invisible reasoning stream by default. The stream bills as
-    output tokens but isn't surfaced as a visible message part, so it
-    silently eats the response budget and triggers
-    ``UnexpectedModelBehavior`` when ``finish_reason=length`` lands
-    before any tool call or text is emitted.
+    long invisible reasoning stream by default; it is stored as
+    ``extra_body.reasoning.enabled``.  A dict (e.g.
+    ``reasoning: {effort: high}``) is passed directly as a top-level
+    ``reasoning`` key — use this for models that support reasoning
+    effort levels such as ``deepseek/deepseek-v4-pro``.  The bool form
+    exists for backward compatibility with OpenRouter's API shape.
     """
     settings: dict[str, Any] = {}
 
@@ -1308,9 +1310,12 @@ def build_model_settings(config: dict) -> dict[str, Any] | None:
 
     reasoning = config.get("reasoning")
     if reasoning is not None:
-        if not isinstance(reasoning, bool):
-            raise ValueError(f"'reasoning' must be a bool, got {reasoning!r}")
-        settings["extra_body"] = {"reasoning": {"enabled": reasoning}}
+        if isinstance(reasoning, bool):
+            settings["extra_body"] = {"reasoning": {"enabled": reasoning}}
+        elif isinstance(reasoning, dict):
+            settings["reasoning"] = reasoning
+        else:
+            raise ValueError(f"'reasoning' must be a bool or dict, got {reasoning!r}")
 
     return settings or None
 

@@ -8,6 +8,7 @@ def test_refine_agent_config():
     # Assert basics
     assert config["name"] == "refine"
     assert config["model"] == "deepseek/deepseek-v4-pro"
+    assert config["max_tokens"] == 16000
     
     # Assert expected tools
     tools = config.get("tools", [])

@@ -10,6 +10,10 @@ on:
         required: true
         default: damien-robotsix/robotsix-cai
 
+concurrency:
+  group: cai-sourcing
+  cancel-in-progress: true
+
 jobs:
   sourcing:
     runs-on: ubuntu-latest
