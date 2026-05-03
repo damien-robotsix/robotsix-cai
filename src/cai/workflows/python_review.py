@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic_ai.usage import UsageLimits
-from pydantic_deep import DeepAgentDeps, LocalBackend
+from cai.workflows._deps import repo_deps
 from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
@@ -16,15 +16,6 @@ from cai.workflows.state import IssueState, PythonReviewOutput
 def _python_review_agent():
     config, instructions = parse_agent_md(resolve_agent_path("python_review"))
     return build_deep_agent(config, instructions, output_type=PythonReviewOutput)
-
-
-def _deps(repo_root: Path) -> DeepAgentDeps:
-    return DeepAgentDeps(
-        backend=LocalBackend(
-            root_dir=str(repo_root),
-            allowed_directories=[str(repo_root)],
-        )
-    )
 
 
 class PythonReviewNode(BaseNode[IssueState]):
@@ -53,7 +44,7 @@ class PythonReviewNode(BaseNode[IssueState]):
             "python_review",
             _python_review_agent(),
             prompt,
-            deps=_deps(state.repo_root),
+            deps=repo_deps(state.repo_root, write_dirs=[state.repo_root]),
             usage_limits=UsageLimits(request_limit=100),
         )
         state.python_review_output = result.output

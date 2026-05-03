@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic_ai.usage import UsageLimits
 
-from cai.workflows.github_workflow_review import GitHubWorkflowReviewNode, _deps, _github_workflow_review_agent
+from cai.workflows.github_workflow_review import GitHubWorkflowReviewNode, _github_workflow_review_agent
 from cai.workflows.state import GitHubWorkflowReviewOutput, ImplementOutput
 
 
@@ -30,19 +30,6 @@ def test_github_workflow_review_agent_cache(mock_parse, mock_build):
     agent1 = _github_workflow_review_agent()
     agent2 = _github_workflow_review_agent()
     assert agent1 is agent2
-
-
-# ---------------------------------------------------------------------------
-# _deps
-# ---------------------------------------------------------------------------
-
-
-def test_deps_builds_deep_agent_deps(tmp_path):
-    """_deps creates a DeepAgentDeps with LocalBackend rooted at the given path."""
-    deps = _deps(tmp_path)
-    assert deps.backend is not None
-    assert str(deps.backend.root_dir) == str(tmp_path)
-    assert str(tmp_path) in [str(d) for d in deps.backend._allowed_directories]
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +168,7 @@ def test_github_workflow_review_node_uses_request_limit_20(mock_agent, state):
 
 @patch("cai.workflows.github_workflow_review._github_workflow_review_agent")
 def test_github_workflow_review_node_uses_deps(mock_agent, state):
-    """GitHubWorkflowReviewNode passes deps from _deps(state.repo_root) to the agent."""
+    """GitHubWorkflowReviewNode passes deps from repo_deps(state.repo_root, write_dirs=[state.repo_root]) to the agent."""
     state.implement_output = ImplementOutput(
         summary="Updated deploy workflow.",
         commit_message="fix: update deploy workflow",

@@ -8,7 +8,6 @@ from pydantic_ai.usage import UsageLimits
 
 from cai.workflows.pydantic_ai_review import (
     PydanticAIReviewNode,
-    _deps,
     _pydantic_ai_review_agent,
 )
 from cai.workflows.state import ImplementOutput, PydanticAIReviewOutput
@@ -34,19 +33,6 @@ def test_pydantic_ai_review_agent_cache(mock_parse, mock_build):
     agent1 = _pydantic_ai_review_agent()
     agent2 = _pydantic_ai_review_agent()
     assert agent1 is agent2
-
-
-# ---------------------------------------------------------------------------
-# _deps
-# ---------------------------------------------------------------------------
-
-
-def test_deps_builds_deep_agent_deps(tmp_path):
-    """_deps creates a DeepAgentDeps with LocalBackend rooted at the given path."""
-    deps = _deps(tmp_path)
-    assert deps.backend is not None
-    assert str(deps.backend.root_dir) == str(tmp_path)
-    assert str(tmp_path) in [str(d) for d in deps.backend._allowed_directories]
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +171,7 @@ def test_pydantic_ai_review_node_uses_request_limit_50(mock_agent, state):
 
 @patch("cai.workflows.pydantic_ai_review._pydantic_ai_review_agent")
 def test_pydantic_ai_review_node_uses_deps(mock_agent, state):
-    """PydanticAIReviewNode passes deps from _deps(state.repo_root) to the agent."""
+    """PydanticAIReviewNode passes deps from repo_deps(state.repo_root, write_dirs=[state.repo_root]) to the agent."""
     state.implement_output = ImplementOutput(
         summary="Added pydantic-ai usage to solver.",
         commit_message="feat: use pydantic-ai agent",

@@ -325,22 +325,6 @@ def test_docs_node_uses_request_limit(mock_agent_factory, state):
 
 
 # ---------------------------------------------------------------------------
-# _deps helper
-# ---------------------------------------------------------------------------
-
-
-def test_deps_creates_deep_agent_deps_with_local_backend(tmp_path):
-    """_deps() returns a DeepAgentDeps using a LocalBackend pointed at the
-    given repo root."""
-    from cai.workflows.docs import _deps
-
-    deps = _deps(tmp_path)
-    assert deps.backend is not None
-    assert str(deps.backend.root_dir) == str(tmp_path)
-    assert tmp_path in deps.backend._allowed_directories
-
-
-# ---------------------------------------------------------------------------
 # State assertions — _docs_agent raises without required state fields
 # ---------------------------------------------------------------------------
 
