@@ -2360,7 +2360,7 @@ def test_history_compactor_wrap_tool_execute_short_circuit():
     assert "Warning: read_file" in result
     assert "is covered by a prior read_file" in result
     assert "file content has not changed" in result
-    assert "review your previous messages" in result
+    assert "DO NOT re-read this range" in result
 
 
 def test_history_compactor_wrap_tool_execute_non_matching():
@@ -2671,7 +2671,7 @@ def test_history_compactor_wrap_tool_execute_non_edit_tools_preserve_short_circu
     assert "Warning: read_file" in result
     assert "is covered by a prior read_file" in result
     assert "file content has not changed" in result
-    assert "review your previous messages" in result
+    assert "DO NOT re-read this range" in result
 
 
 def test_history_compactor_wrap_tool_execute_no_prior_matching_read():
@@ -2827,8 +2827,8 @@ def test_history_compactor_wrap_tool_execute_partial_overlap_passes_through():
 
 
 def test_history_compactor_wrap_tool_execute_prior_no_limit_contains_any():
-    """Prior read with no offset/limit (whole-file) contains any same-file
-    subsequent read → short-circuit."""
+    """Prior read with no offset/limit (whole-file) does NOT block a bounded
+    same-file read — only unbounded re-reads are blocked."""
     cap = HistoryCompactorCapability()
     handler_called = False
 
@@ -2851,11 +2851,38 @@ def test_history_compactor_wrap_tool_execute_prior_no_limit_contains_any():
 
     result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
 
+    assert handler_called
+    assert result == "file content"
+
+
+def test_history_compactor_wrap_tool_execute_prior_no_limit_blocks_unbounded_re_read():
+    """Prior whole-file read (no limit) still blocks a subsequent unbounded
+    re-read (also no limit) on the same file."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "file content"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py"}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="whole file", tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="read_file", args={"path": "x.py"}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
+
     assert not handler_called
     assert "Warning: read_file" in result
-    assert "is covered by a prior read_file" in result
-    assert "offset=100, limit=50" in result
-    assert "offset=0, limit=EOF" in result
+    assert "covered by a prior read_file" in result
 
 
 def test_history_compactor_wrap_tool_execute_current_no_limit_not_short_circuited():
@@ -2985,7 +3012,7 @@ def test_history_compactor_wrap_tool_execute_three_different_cached_files():
         assert "Warning: read_file" in r
         assert "is covered by a prior read_file" in r
         assert "file content has not changed" in r
-        assert "review your previous messages" in r
+        assert "DO NOT re-read this range" in r
 
 
 def test_history_compactor_wrap_tool_execute_warning_fallback_when_no_tool_return():
@@ -3021,8 +3048,8 @@ def test_history_compactor_wrap_tool_execute_warning_fallback_when_no_tool_retur
 
 
 def test_history_compactor_wrap_tool_execute_prior_offset_no_limit_covers_subset():
-    """Prior read with offset=100 and no limit (reads to EOF) fully contains
-    current read offset=200 limit=100 → short-circuit returns overlap warning."""
+    """Prior read with offset=100 and no limit (reads to EOF) does NOT block a
+    bounded read at offset=200 limit=100 — only unbounded re-reads are blocked."""
     cap = HistoryCompactorCapability()
     handler_called = False
 
@@ -3045,11 +3072,8 @@ def test_history_compactor_wrap_tool_execute_prior_offset_no_limit_covers_subset
 
     result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={}, handler=handler))
 
-    assert not handler_called
-    assert "Warning: read_file" in result
-    assert "is covered by a prior read_file" in result
-    assert "offset=200, limit=100" in result
-    assert "offset=100, limit=EOF" in result
+    assert handler_called
+    assert result == "file content"
 
 
 def test_history_compactor_wrap_tool_execute_prior_offset_no_limit_not_covering_start():
