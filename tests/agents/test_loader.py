@@ -17,6 +17,7 @@ from cai.agents.loader import (
     _get_arg,
     HistoryCompactorCapability,
     MicroReadGuardCapability,
+    MicroStepGuardCapability,
     UnknownToolRetry,
     build_deep_agent,
     parse_agent_md,
@@ -3584,6 +3585,171 @@ def test_micro_read_guard_wired_into_build_deep_agent_capabilities(monkeypatch):
     hist_idx = cap_types.index("HistoryCompactorCapability")
     assert micro_idx < hist_idx, (
         "MicroReadGuardCapability must be before HistoryCompactorCapability"
+    )
+
+
+# ---------------------------------------------------------------------------
+# MicroStepGuardCapability
+# ---------------------------------------------------------------------------
+
+
+def test_micro_step_guard_three_consecutive_single_calls_raises_modelretry():
+    """After 3 consecutive single-tool ModelResponses, ModelRetry is raised."""
+    cap = MicroStepGuardCapability()
+
+    # Build 3 consecutive single-tool responses
+    tcs = [
+        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="t1"),
+        ToolCallPart(tool_name="read_file", args={"path": "bar.py"}, tool_call_id="t2"),
+        ToolCallPart(tool_name="read_file", args={"path": "baz.py"}, tool_call_id="t3"),
+    ]
+
+    # Turn 1: single tool call → count=1
+    rc1 = _make_request_context(messages=[ModelResponse(parts=[tcs[0]])])
+    _run(cap.before_model_request(None, rc1))
+    assert cap._consecutive_single_count == 1
+
+    # Turn 2: single tool call → count=2
+    rc2 = _make_request_context(messages=[ModelResponse(parts=[tcs[1]])])
+    _run(cap.before_model_request(None, rc2))
+    assert cap._consecutive_single_count == 2
+
+    # Turn 3: single tool call → count=3 → raises ModelRetry
+    rc3 = _make_request_context(messages=[ModelResponse(parts=[tcs[2]])])
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.before_model_request(None, rc3))
+    msg = str(exc.value)
+    assert "3 consecutive" in msg
+    assert "LLM calls with only a single tool call each" in msg
+    assert "Batch your next tool calls" in msg
+    assert "read_file" in msg
+    assert "grep" in msg
+    assert "spike_run" in msg
+
+
+def test_micro_step_guard_batched_response_resets_counter():
+    """A ModelResponse with 2+ tool calls resets the counter to 0."""
+    cap = MicroStepGuardCapability()
+
+    tcs = [
+        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="t1"),
+        ToolCallPart(tool_name="grep", args={"pattern": "x"}, tool_call_id="t2"),
+        ToolCallPart(tool_name="read_file", args={"path": "bar.py"}, tool_call_id="t3"),
+    ]
+
+    # Two single-tool turns first
+    rc1 = _make_request_context(messages=[ModelResponse(parts=[tcs[0]])])
+    _run(cap.before_model_request(None, rc1))
+    assert cap._consecutive_single_count == 1
+
+    rc2 = _make_request_context(messages=[ModelResponse(parts=[tcs[0]])])
+    _run(cap.before_model_request(None, rc2))
+    assert cap._consecutive_single_count == 2
+
+    # Batched turn: 2 tool calls → reset counter
+    rc_batch = _make_request_context(messages=[ModelResponse(parts=[tcs[0], tcs[1]])])
+    _run(cap.before_model_request(None, rc_batch))
+    assert cap._consecutive_single_count == 0
+
+    # Another single-tool turn → count=1 (not 3)
+    rc3 = _make_request_context(messages=[ModelResponse(parts=[tcs[2]])])
+    _run(cap.before_model_request(None, rc3))
+    assert cap._consecutive_single_count == 1
+
+
+def test_micro_step_guard_no_tool_calls_resets_counter():
+    """A ModelResponse with 0 tool calls (text output) resets the counter."""
+    cap = MicroStepGuardCapability()
+
+    tcs = [
+        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="t1"),
+    ]
+
+    # Two single-tool turns first
+    rc1 = _make_request_context(messages=[ModelResponse(parts=[tcs[0]])])
+    _run(cap.before_model_request(None, rc1))
+    assert cap._consecutive_single_count == 1
+
+    rc2 = _make_request_context(messages=[ModelResponse(parts=[tcs[0]])])
+    _run(cap.before_model_request(None, rc2))
+    assert cap._consecutive_single_count == 2
+
+    # Text output with no tool calls → reset
+    rc_text = _make_request_context(messages=[ModelResponse(parts=[])])
+    _run(cap.before_model_request(None, rc_text))
+    assert cap._consecutive_single_count == 0
+
+    # Another single-tool turn → count=1 (not 3)
+    rc3 = _make_request_context(messages=[ModelResponse(parts=[tcs[0]])])
+    _run(cap.before_model_request(None, rc3))
+    assert cap._consecutive_single_count == 1
+
+
+def test_micro_step_guard_for_run_returns_fresh_instance():
+    """for_run returns a new MicroStepGuardCapability with reset counter."""
+    cap = MicroStepGuardCapability()
+
+    tcs = [
+        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="t1"),
+    ]
+
+    # Advance the counter to 2
+    rc1 = _make_request_context(messages=[ModelResponse(parts=[tcs[0]])])
+    _run(cap.before_model_request(None, rc1))
+    rc2 = _make_request_context(messages=[ModelResponse(parts=[tcs[0]])])
+    _run(cap.before_model_request(None, rc2))
+    assert cap._consecutive_single_count == 2
+
+    fresh = _run(cap.for_run(None))
+    assert fresh is not cap
+    assert fresh._consecutive_single_count == 0
+    assert cap._consecutive_single_count == 2  # original unaffected
+
+
+def test_micro_step_guard_messages_with_prior_tool_returns():
+    """The guard scans backward for the most recent ModelResponse,
+    skipping ModelRequest messages (tool returns)."""
+    cap = MicroStepGuardCapability()
+
+    tcs = [
+        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="t1"),
+        ToolCallPart(tool_name="read_file", args={"path": "bar.py"}, tool_call_id="t2"),
+    ]
+
+    # Messages: ModelResponse(1 tool call), ModelRequest(tool returns), ModelResponse(1 tool call)
+    messages = [
+        ModelResponse(parts=[tcs[0]]),
+        ModelRequest(parts=[ToolReturnPart(tool_name="read_file", tool_call_id="t1", content="content")]),
+        ModelResponse(parts=[tcs[1]]),
+    ]
+
+    # Count the most recent ModelResponse only
+    rc = _make_request_context(messages=messages)
+    _run(cap.before_model_request(None, rc))
+    assert cap._consecutive_single_count == 1  # Only the last ModelResponse counts
+
+
+def test_micro_step_guard_wired_into_default_capabilities():
+    """MicroStepGuardCapability is registered in _default_capabilities()."""
+    from cai.agents.loader import _default_capabilities
+    caps = _default_capabilities()
+    cap_types = [type(c).__name__ for c in caps]
+    assert "MicroStepGuardCapability" in cap_types
+
+
+def test_micro_step_guard_ordering_before_history_compactor():
+    """MicroStepGuardCapability is registered after MicroReadGuardCapability
+    and before HistoryCompactorCapability."""
+    from cai.agents.loader import _default_capabilities
+    caps = _default_capabilities()
+    cap_types = [type(c).__name__ for c in caps]
+    micro_read_idx = cap_types.index("MicroReadGuardCapability")
+    micro_step_idx = cap_types.index("MicroStepGuardCapability")
+    hist_idx = cap_types.index("HistoryCompactorCapability")
+    assert micro_read_idx < micro_step_idx < hist_idx, (
+        f"Expected MicroReadGuardCapability ({micro_read_idx}) < "
+        f"MicroStepGuardCapability ({micro_step_idx}) < "
+        f"HistoryCompactorCapability ({hist_idx})"
     )
 
 

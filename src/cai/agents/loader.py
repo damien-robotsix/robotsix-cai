@@ -21,6 +21,7 @@ __all__ = [
     "GrepGuardrailAsRetry",
     "HistoryCompactorCapability",
     "MicroReadGuardCapability",
+    "MicroStepGuardCapability",
     "ModelRequestErrorAsRetry",
     "TOOL_FACTORIES",
     "TOOL_FLAGS",
@@ -1068,6 +1069,67 @@ class MicroReadGuardCapability(AbstractCapability):
         return args
 
 
+class MicroStepGuardCapability(AbstractCapability):
+    """Detect and break single-tool-call-per-LLM-turn micro-step loops.
+
+    Agents sometimes ignore batching instructions and emit only one tool
+    call per LLM response — e.g. 8 consecutive ``spike_run`` calls each
+    in its own turn.  This capability detects the structural pattern of
+    consecutive single-tool turns and raises ``ModelRetry`` telling the
+    model to batch its next actions.
+
+    A turn with 2+ tool calls resets the counter.  A turn with no tool
+    calls (text output) also resets — the agent is not in a micro-step
+    loop if it's producing output.
+
+    State lives on the instance, but ``for_run`` returns a fresh
+    instance per run so concurrent sessions don't share the counter.
+    """
+
+    _THRESHOLD = 3
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._consecutive_single_count = 0
+
+    async def for_run(self, ctx: Any) -> "MicroStepGuardCapability":
+        return MicroStepGuardCapability()
+
+    async def before_model_request(
+        self, ctx: RunContext, request_context: ModelRequestContext,
+    ) -> ModelRequestContext:
+        # Scan backward for the most recent ModelResponse.
+        for msg in reversed(request_context.messages):
+            if not isinstance(msg, ModelResponse):
+                continue
+
+            tool_calls = [p for p in msg.parts if isinstance(p, ToolCallPart)]
+            num_tool_calls = len(tool_calls)
+
+            if num_tool_calls >= 2:
+                self._consecutive_single_count = 0
+                return request_context
+
+            if num_tool_calls == 0:
+                # No tool calls — final output turn, not a micro-step.
+                self._consecutive_single_count = 0
+                return request_context
+
+            # Exactly 1 tool call.
+            self._consecutive_single_count += 1
+            if self._consecutive_single_count >= self._THRESHOLD:
+                raise ModelRetry(
+                    f"You have made {self._consecutive_single_count} consecutive "
+                    f"LLM calls with only a single tool call each. Batch your "
+                    f"next tool calls — emit multiple read_file, grep, spike_run, "
+                    f"or edit_file calls in a single response instead of making "
+                    f"one per turn."
+                )
+            return request_context
+
+        return request_context
+
+
 class ConsecutiveFailureGuardrail(AbstractCapability):
     """Detect persistent tool failure across parameter variations.
 
@@ -1439,7 +1501,8 @@ _BATCH_TOOL_CALLS_FRAGMENT = (
     "independent tool calls (reading several files, running multiple "
     "searches), do them all in a single response rather than making one "
     "call per LLM turn. Each unnecessary round-trip costs ~$0.003–$0.007 "
-    "and 5–40s of latency."
+    "and 5–40s of latency. The system will flag 3+ consecutive single-tool "
+    "LLM turns as wasteful."
 )
 
 
@@ -1592,6 +1655,7 @@ def _default_capabilities() -> list[AbstractCapability]:
         GrepGuardrailAsRetry(),
         ConsecutiveFailureGuardrail(),
         MicroReadGuardCapability(),
+        MicroStepGuardCapability(),
         HistoryCompactorCapability(),
     ]
 

@@ -79,6 +79,7 @@ prompt — both modes share this single agent.
   - **Targeted tests:** ``spike_run("import subprocess, sys; subprocess.run([sys.executable, '-m', 'pytest', 'tests/path/to/test.py', '-q'], cwd='../repo')")``
   - Keep scripts short — one verification per `spike_run` call
   - Prefer one `spike_run` verification over a `read_file` + LLM reasoning cycle
+  - **Batch verification `spike_run` calls:** when you have multiple independent verifications to run, emit them all in a single response rather than one per turn. Each unnecessary round-trip costs ~$0.003–$0.007 and 5–40s of latency.
 - When fixing a review thread, **propagate the same fix** wherever the
   same logic applies — anchored on one line ≠ scoped to one line.
 
