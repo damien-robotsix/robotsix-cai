@@ -471,7 +471,8 @@ class TestMain:
                 "cai.workflows.parent_check.asyncio.run"
             ) as mock_run,
             patch(
-                "cai.workflows.parent_check.CaiBot"
+                "cai.workflows.parent_check.parse_ref_and_bot",
+                return_value=(MagicMock(), "owner/repo", 99),
             ),
             patch(
                 "cai.workflows.parent_check.langfuse_workflow"

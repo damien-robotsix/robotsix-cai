@@ -26,7 +26,6 @@ Prints a JSON summary on stdout.
 """
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import sys
@@ -60,7 +59,7 @@ from cai.github.labels import LabelSpec, ensure_labels, set_label
 from cai.github.repo import (
     PRWorkspace,
     is_pull_request,
-    parse_pr_ref,
+    parse_ref_and_bot,
     prepare_pr_workspace,
 )
 from cai.log import langfuse_workflow
@@ -484,30 +483,18 @@ def solve_conflicts(bot: CaiBot, workspace: PRWorkspace) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        prog="cai-resolve-conflicts",
-        description=(
-            "Rebase a pull request onto its base branch with the "
-            "resolve_step agent handling each conflicting step, run a "
-            "sanity test pass, then force-push. If the sanity tests fail, "
-            "hand off to the implement agent (via solve_graph) to fix the "
-            "rebased tree before pushing. Prints a JSON summary on stdout."
-        ),
+    bot, repo, number = parse_ref_and_bot(
+        "cai-resolve-conflicts",
+        "Rebase a pull request onto its base branch with the "
+        "resolve_step agent handling each conflicting step, run a "
+        "sanity test pass, then force-push. If the sanity tests fail, "
+        "hand off to the implement agent (via solve_graph) to fix the "
+        "rebased tree before pushing. Prints a JSON summary on stdout.",
+        ref_help="PR reference, formatted as owner/repo#number.",
     )
-    parser.add_argument(
-        "ref",
-        help="PR reference, formatted as owner/repo#number.",
-    )
-    args = parser.parse_args()
-
-    parsed = parse_pr_ref(args.ref)
-    if parsed is None:
-        parser.error(f"expected owner/repo#number, got {args.ref!r}")
-    repo, number = parsed
-
-    bot = CaiBot()
     if not is_pull_request(bot, repo, number):
-        parser.error(f"{args.ref} is not a pull request")
+        print(f"cai-resolve-conflicts: error: {repo}#{number} is not a pull request", file=sys.stderr)
+        sys.exit(2)
 
     workspace = prepare_pr_workspace(bot, repo, number)
     result = solve_conflicts(bot, workspace)
