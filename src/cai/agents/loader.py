@@ -1508,6 +1508,21 @@ def _resolve_subagents(config: dict) -> list[dict[str, Any]]:
     return configs
 
 
+def _default_capabilities() -> list[AbstractCapability]:
+    return [
+        EditFileGuardrailAsRetry(),
+        WriteFileGuardrailAsRetry(),
+        UnknownToolRetry(),
+        GlobPatternSanitizer(),
+        ToolErrorAsRetry(),
+        ModelRequestErrorAsRetry(),
+        GrepGuardrailAsRetry(),
+        ConsecutiveFailureGuardrail(),
+        MicroReadGuardCapability(),
+        HistoryCompactorCapability(),
+    ]
+
+
 def build_deep_agent(
     config: dict,
     instructions: str,
@@ -1571,19 +1586,7 @@ def build_deep_agent(
     # Tool implementations sometimes raise on bad model inputs (invalid
     # glob, malformed regex). Without this capability such a single-call
     # failure aborts the whole run.
-    extra["capabilities"] = [
-        *(extra.get("capabilities") or []),
-        EditFileGuardrailAsRetry(),
-        WriteFileGuardrailAsRetry(),
-        UnknownToolRetry(),
-        GlobPatternSanitizer(),
-        ToolErrorAsRetry(),
-        ModelRequestErrorAsRetry(),
-        GrepGuardrailAsRetry(),
-        ConsecutiveFailureGuardrail(),
-        MicroReadGuardCapability(),
-        HistoryCompactorCapability(),
-    ]
+    extra["capabilities"] = [*(extra.get("capabilities") or []), *_default_capabilities()]
 
     agent = create_deep_agent(
         build_model(config),
@@ -1628,16 +1631,5 @@ def load_agent_from_md(
     existing_extra_body = settings.get("extra_body") or {}
     settings["extra_body"] = {"provider": {"require_parameters": True}, **existing_extra_body}
     kwargs["model_settings"] = settings
-    kwargs["capabilities"] = [
-        EditFileGuardrailAsRetry(),
-        WriteFileGuardrailAsRetry(),
-        UnknownToolRetry(),
-        GlobPatternSanitizer(),
-        ToolErrorAsRetry(),
-        ModelRequestErrorAsRetry(),
-        GrepGuardrailAsRetry(),
-        ConsecutiveFailureGuardrail(),
-        MicroReadGuardCapability(),
-        HistoryCompactorCapability(),
-    ]
+    kwargs["capabilities"] = _default_capabilities()
     return Agent(build_model(config), **kwargs)

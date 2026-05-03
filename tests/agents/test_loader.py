@@ -3808,6 +3808,50 @@ def test_load_agent_from_md_includes_capabilities(monkeypatch):
     assert "HistoryCompactorCapability" in cap_types
 
 
+def test_default_capabilities_match_between_load_and_build_deep(monkeypatch):
+    """The two construction paths (load_agent_from_md, build_deep_agent)
+    inject identical capability type-name sets."""
+    import cai.agents.loader as loader
+
+    # ── capture load_agent_from_md capabilities ──────────────────────
+    caps_from_load = None
+
+    class FakeAgent:
+        def __init__(self, model, **kwargs):
+            nonlocal caps_from_load
+            caps_from_load = kwargs.get("capabilities")
+
+    monkeypatch.setattr(loader, "Agent", FakeAgent)
+    monkeypatch.setattr(loader, "build_model", lambda config: object())
+    monkeypatch.setattr(loader, "parse_agent_md", lambda path: (
+        {"name": "test", "model": "x"}, "instructions",
+    ))
+
+    loader.load_agent_from_md("dummy.md")
+    load_cap_names = [type(c).__name__ for c in caps_from_load]
+
+    # ── capture build_deep_agent capabilities ───────────────────────
+    caps_from_build = None
+
+    def fake_create_deep_agent(model, **kwargs):
+        nonlocal caps_from_build
+        caps_from_build = kwargs.get("capabilities")
+        return object()
+
+    monkeypatch.setattr(
+        "pydantic_deep.create_deep_agent", fake_create_deep_agent,
+    )
+
+    build_deep_agent({"name": "test", "model": "x"}, "instructions")
+    build_cap_names = [type(c).__name__ for c in (caps_from_build or [])]
+
+    assert load_cap_names == build_cap_names, (
+        f"Capability lists differ:\n"
+        f"  load_agent_from_md: {load_cap_names}\n"
+        f"  build_deep_agent:   {build_cap_names}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Explore agent — Search-then-read strategy prompt sections
 # ---------------------------------------------------------------------------
