@@ -11,6 +11,7 @@ from cai.agents.loader import (
     ConsecutiveFailureGuardrail,
     EditFileGuardrailAsRetry,
     GlobPatternSanitizer,
+    GrepExtraParamFilter,
     ToolErrorAsRetry,
     GrepGuardrailAsRetry,
     WriteFileGuardrailAsRetry,
@@ -4635,3 +4636,100 @@ def test_history_compactor_grep_short_circuit_on_offset_full_read():
     assert not handler_called
     assert "Warning: grep" in result
     assert "already read in full" in result
+
+
+# GrepExtraParamFilter
+def test_grep_extra_param_filter_strips_limit():
+    """GrepExtraParamFilter strips hallucinated 'limit' param from grep args."""
+    cap = GrepExtraParamFilter()
+    args = {"pattern": "test", "path": ".", "limit": 80}
+    result = _run(cap.before_tool_validate(None, call=_grep_call("grep"), tool_def=None, args=args))
+    assert "limit" not in result
+    assert result["pattern"] == "test"
+    assert result["path"] == "."
+
+
+def test_grep_extra_param_filter_strips_context():
+    """GrepExtraParamFilter strips hallucinated 'context' param from grep args."""
+    cap = GrepExtraParamFilter()
+    args = {"pattern": "test", "context": 5}
+    result = _run(cap.before_tool_validate(None, call=_grep_call("grep"), tool_def=None, args=args))
+    assert "context" not in result
+    assert result["pattern"] == "test"
+
+
+def test_grep_extra_param_filter_strips_all_unknown():
+    """GrepExtraParamFilter strips multiple hallucinated params at once."""
+    cap = GrepExtraParamFilter()
+    args = {"pattern": "test", "limit": 80, "context": 5, "max_count": 100}
+    result = _run(cap.before_tool_validate(None, call=_grep_call("grep"), tool_def=None, args=args))
+    assert "limit" not in result
+    assert "context" not in result
+    assert "max_count" not in result
+    assert result == {"pattern": "test"}
+
+
+def test_grep_extra_param_filter_passes_valid_params():
+    """GrepExtraParamFilter leaves known grep parameters unchanged."""
+    cap = GrepExtraParamFilter()
+    args = {"pattern": "test", "path": ".", "glob_pattern": "*.py", "output_mode": "content", "ignore_hidden": True}
+    result = _run(cap.before_tool_validate(None, call=_grep_call("grep"), tool_def=None, args=args))
+    assert result == args
+
+
+def test_grep_extra_param_filter_no_extra_params():
+    """GrepExtraParamFilter returns unmodified dict when no extra params."""
+    cap = GrepExtraParamFilter()
+    args = {"pattern": "test"}
+    result = _run(cap.before_tool_validate(None, call=_grep_call("grep"), tool_def=None, args=args))
+    assert result is args
+
+
+def test_grep_extra_param_filter_non_grep_tool():
+    """GrepExtraParamFilter passes through non-grep tool calls unchanged."""
+    cap = GrepExtraParamFilter()
+    args = {"path": "test.py", "limit": 80}
+    result = _run(cap.before_tool_validate(None, call=_grep_call("read_file"), tool_def=None, args=args))
+    assert result is args
+    assert "limit" in result
+
+
+def test_grep_extra_param_filter_non_dict_args():
+    """GrepExtraParamFilter passes through non-dict args unchanged."""
+    cap = GrepExtraParamFilter()
+
+    class Args:
+        pass
+
+    args = Args()
+    args.limit = 80
+    result = _run(cap.before_tool_validate(None, call=_grep_call("grep"), tool_def=None, args=args))
+    assert result is args
+    assert result.limit == 80
+
+
+def test_grep_extra_param_filter_empty_dict():
+    """GrepExtraParamFilter handles empty dict without error."""
+    cap = GrepExtraParamFilter()
+    args = {}
+    result = _run(cap.before_tool_validate(None, call=_grep_call("grep"), tool_def=None, args=args))
+    assert result == {}
+
+
+def test_grep_extra_param_filter_present_in_default_capabilities():
+    """GrepExtraParamFilter is registered in the build_deep_agent capabilities list."""
+    from cai.agents.loader import _default_capabilities
+    cap_types = [type(c).__name__ for c in _default_capabilities()]
+    assert "GrepExtraParamFilter" in cap_types
+
+
+def test_grep_extra_param_filter_ordering_in_default_capabilities():
+    """GrepExtraParamFilter appears before GlobPatternSanitizer in default capabilities."""
+    from cai.agents.loader import _default_capabilities
+    cap_types = [type(c).__name__ for c in _default_capabilities()]
+    gref_idx = cap_types.index("GrepExtraParamFilter")
+    glob_idx = cap_types.index("GlobPatternSanitizer")
+    assert gref_idx < glob_idx, (
+        "GrepExtraParamFilter must be registered before GlobPatternSanitizer "
+        "so param filtering happens before downstream hooks"
+    )

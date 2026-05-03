@@ -18,6 +18,7 @@ __all__ = [
     "ConsecutiveFailureGuardrail",
     "EditFileGuardrailAsRetry",
     "GlobPatternSanitizer",
+    "GrepExtraParamFilter",
     "GrepGuardrailAsRetry",
     "HistoryCompactorCapability",
     "MicroReadGuardCapability",
@@ -144,6 +145,35 @@ class GlobPatternSanitizer(AbstractCapability):
                 fixed = self._sanitize(glob_pattern)
                 if fixed != glob_pattern:
                     args["glob_pattern"] = fixed
+        return args
+
+
+class GrepExtraParamFilter(AbstractCapability):
+    """Strip hallucinated parameters from ``grep`` tool calls before pydantic validation.
+
+    Agents (particularly the Test Writer Agent) hallucinate CLI-grep-style
+    parameters that don't exist in the ``grep`` tool schema — ``limit``
+    (bleeding from ``read_file``) and ``context`` (analogous to ``grep -A``).
+    The ``grep`` tool accepts only: ``pattern``, ``path``, ``glob_pattern``,
+    ``output_mode``, ``ignore_hidden``. Its pydantic validator has
+    ``extra_behavior: Forbid``, so any extra key triggers a validation error
+    before execution.  Each hallucination wastes a tool round-trip.
+
+    ``before_tool_validate`` fires before pydantic validation, so silently
+    stripping unknown keys here prevents the error entirely.
+    """
+
+    _KNOWN_GREP_PARAMS: frozenset[str] = frozenset({
+        "pattern", "path", "glob_pattern", "output_mode", "ignore_hidden",
+    })
+
+    async def before_tool_validate(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any,
+    ) -> Any:
+        if call.tool_name == "grep" and isinstance(args, dict):
+            extra = [k for k in args if k not in self._KNOWN_GREP_PARAMS]
+            if extra:
+                return {k: v for k, v in args.items() if k in self._KNOWN_GREP_PARAMS}
         return args
 
 
@@ -1586,6 +1616,7 @@ def _default_capabilities() -> list[AbstractCapability]:
         EditFileGuardrailAsRetry(),
         WriteFileGuardrailAsRetry(),
         UnknownToolRetry(),
+        GrepExtraParamFilter(),
         GlobPatternSanitizer(),
         ToolErrorAsRetry(),
         ModelRequestErrorAsRetry(),
