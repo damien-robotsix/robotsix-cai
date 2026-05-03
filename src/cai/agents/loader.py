@@ -1141,6 +1141,72 @@ class ConsecutiveFailureGuardrail(AbstractCapability):
         return result
 
 
+class PostEditVerificationGuardrail(AbstractCapability):
+    """Block excessive ``spike_run`` verification when no edits have been made.
+
+    After the implement agent's changes are verified (e.g. tests pass via
+    ``spike_run``), it sometimes loops re-running tests and import checks
+    without making any further edits. This capability counts consecutive
+    ``spike_run`` calls since the last file-modifying operation and blocks
+    further calls after a threshold.
+
+    The counter resets on any file-modifying tool call (write_file,
+    edit_file, batch_move, batch_delete, move_file, delete_file,
+    block_edit).
+
+    State lives on the instance, but ``for_run`` returns a fresh
+    instance per run so concurrent sessions don't share the counter.
+    """
+
+    _THRESHOLD = 3  # block on the 3rd consecutive spike_run w/o edits
+
+    _FILE_MODIFYING_TOOLS = frozenset({
+        "write_file", "edit_file", "move_file", "delete_file",
+        "batch_move", "batch_delete", "block_edit",
+    })
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._spike_count = 0
+        self._warned = False
+
+    async def for_run(self, ctx: Any) -> "PostEditVerificationGuardrail":
+        return PostEditVerificationGuardrail()
+
+    async def wrap_tool_execute(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any, handler: Any,
+    ) -> Any:
+        # Reset counter on any file-modifying operation.
+        if call.tool_name in self._FILE_MODIFYING_TOOLS:
+            self._spike_count = 0
+            self._warned = False
+            return await handler(args)
+
+        if call.tool_name != "spike_run":
+            return await handler(args)
+
+        self._spike_count += 1
+
+        if self._warned:
+            raise ModelRetry(
+                f"You have made {self._spike_count} consecutive spike_run "
+                f"calls without any edits since your last change. Your "
+                f"implementation is complete — return your ImplementOutput "
+                f"now. Do not call spike_run again."
+            )
+
+        if self._spike_count >= self._THRESHOLD:
+            self._warned = True
+            return (
+                f"Warning: {self._spike_count} consecutive spike_run "
+                f"verification calls without any intervening edits. "
+                f"Your implementation has been verified. Return your "
+                f"ImplementOutput now — do not call spike_run again."
+            )
+
+        return await handler(args)
+
+
 # httpx defaults read/write/pool to None (infinite). Without these, a silently
 # dropped OpenRouter request will hang the agent indefinitely instead of
 # surfacing as a retryable error.
@@ -1590,6 +1656,7 @@ def _default_capabilities() -> list[AbstractCapability]:
         ToolErrorAsRetry(),
         ModelRequestErrorAsRetry(),
         GrepGuardrailAsRetry(),
+        PostEditVerificationGuardrail(),
         ConsecutiveFailureGuardrail(),
         MicroReadGuardCapability(),
         HistoryCompactorCapability(),

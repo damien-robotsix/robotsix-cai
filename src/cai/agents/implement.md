@@ -79,6 +79,7 @@ prompt — both modes share this single agent.
   - **Targeted tests:** ``spike_run("import subprocess, sys; subprocess.run([sys.executable, '-m', 'pytest', 'tests/path/to/test.py', '-q'], cwd='../repo')")``
   - Keep scripts short — one verification per `spike_run` call
   - Prefer one `spike_run` verification over a `read_file` + LLM reasoning cycle
+  - A guardrail blocks `spike_run` after 3 consecutive calls without edits — if you see a warning about excessive verification, return your output
 - When fixing a review thread, **propagate the same fix** wherever the
   same logic applies — anchored on one line ≠ scoped to one line.
 
