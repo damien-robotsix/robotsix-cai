@@ -352,12 +352,15 @@ class EditFileGuardrailAsRetry(AbstractCapability):
 
         if not_found:
             if count < self._ESCALATE_AT:
+                hint = self._closest_match_hint(old_string, content)
                 raise ModelRetry(
                     f"old_string not found in {path}. "
                     f"Re-read the file with read_file and copy the exact target "
                     f"lines — including all whitespace, blank lines, and surrounding "
                     f"content — into old_string. Do not reconstruct from memory."
+                    + (f"\n\n{hint}" if hint else "")
                 )
+            hint = self._closest_match_hint(old_string, content)
             preview = self._render_preview(path, content)
             return (
                 f"Warning: edit_file failed {count} consecutive times on {path} "
@@ -365,7 +368,9 @@ class EditFileGuardrailAsRetry(AbstractCapability):
                 f"old_string from memory across retries instead of re-reading the "
                 f"file. The actual file content is included below — copy your "
                 f"old_string verbatim from this text (preserving every space, tab, "
-                f"and blank line) before calling edit_file again.\n\n{preview}"
+                f"and blank line) before calling edit_file again.\n\n"
+                + (f"{hint}\n\n" if hint else "")
+                + f"{preview}"
             )
 
         # ambiguous (match_count > 1)
@@ -400,6 +405,53 @@ class EditFileGuardrailAsRetry(AbstractCapability):
                 f"to inspect later regions.]"
             )
         return f"--- {path} ---\n{body}{footer}"
+
+    @staticmethod
+    def _closest_match_hint(old_string: str, content: str) -> str:
+        """Find the closest-matching window in *content* for *old_string*.
+
+        Returns a hint string with line numbers, similarity ratio, and a
+        unified diff, or an empty string when no close match is found.
+        Searches are skipped when *old_string* has <= 1 line or the file
+        exceeds 20 000 lines.
+        """
+        old_lines = old_string.splitlines(keepends=True)
+        if len(old_lines) <= 1:
+            return ""
+
+        file_lines = content.splitlines(keepends=True)
+        if len(file_lines) > 20000:
+            return ""
+
+        n = len(old_lines)
+        best_ratio = 0.0
+        best_start = 0
+
+        for i in range(len(file_lines) - n + 1):
+            window = "".join(file_lines[i : i + n])
+            ratio = difflib.SequenceMatcher(None, old_string, window).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_start = i
+
+        if best_ratio < 0.5:
+            return ""
+
+        closest = "".join(file_lines[best_start : best_start + n])
+        diff = "".join(
+            difflib.unified_diff(
+                closest.splitlines(keepends=True),
+                old_string.splitlines(keepends=True),
+                fromfile=f"file lines {best_start + 1}-{best_start + n}",
+                tofile="old_string",
+                lineterm="",
+            )
+        )
+
+        return (
+            f"Closest match at lines {best_start + 1}-{best_start + n} "
+            f"({best_ratio:.0%} similar). Diff:\n{diff}"
+        )
 
     async def on_tool_execute_error(
         self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
@@ -1340,4 +1392,15 @@ def load_agent_from_md(
     existing_extra_body = settings.get("extra_body") or {}
     settings["extra_body"] = {"provider": {"require_parameters": True}, **existing_extra_body}
     kwargs["model_settings"] = settings
+    kwargs["capabilities"] = [
+        EditFileGuardrailAsRetry(),
+        WriteFileGuardrailAsRetry(),
+        UnknownToolRetry(),
+        GlobPatternSanitizer(),
+        ToolErrorAsRetry(),
+        ModelRequestErrorAsRetry(),
+        GrepGuardrailAsRetry(),
+        MicroReadGuardCapability(),
+        HistoryCompactorCapability(),
+    ]
     return Agent(build_model(config), **kwargs)
