@@ -16,11 +16,13 @@ import atexit
 import os
 import re
 import sys
+
+import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 
 from genai_prices.update_prices import UpdatePrices as _UpdatePrices
 
@@ -175,6 +177,11 @@ async def traced_agent_run(
     If ``UsageLimitExceeded`` is raised, the ``request_limit`` is
     bumped by 50% for a one-shot soft retry.  The second failure
     bubbles up so the workflow fails as it does today.
+
+    If ``ModelHTTPError`` with status 404 and a body containing
+    ``"No endpoints found"`` (an OpenRouter transient routing flake)
+    is raised, sleeps 30 s and retries exactly once.  Other
+    ``ModelHTTPError`` instances are re-raised immediately.
     """
     try:
         return await _do_run(name, agent, prompt, **kwargs)
@@ -188,4 +195,15 @@ async def traced_agent_run(
         if _is_langfuse_initialized():
             from langfuse import get_client
             get_client().update_current_span(metadata={"soft_retry": True})
+        return await _do_run(name, agent, prompt, **kwargs)
+    except ModelHTTPError as exc:
+        if exc.status_code != 404 or "No endpoints found" not in str(exc.body or ""):
+            raise
+        # Provider routing flake — wait briefly and retry once.
+        await asyncio.sleep(30)
+        if _is_langfuse_initialized():
+            from langfuse import get_client
+            get_client().update_current_span(
+                metadata={"soft_retry": "provider_404"},
+            )
         return await _do_run(name, agent, prompt, **kwargs)

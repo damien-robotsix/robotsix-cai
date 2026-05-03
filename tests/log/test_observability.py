@@ -349,3 +349,118 @@ class TestTracedAgentRunSoftRetry:
             )
 
         asyncio.run(_run())
+
+
+class TestTracedAgentRunModelHTTPRetry:
+    """When ``ModelHTTPError`` with OpenRouter's 404 "No endpoints found" is
+    raised, ``traced_agent_run`` sleeps 30 s and retries exactly once.
+    """
+
+    def test_retry_on_404_no_endpoints_found(self):
+        """First call raises ModelHTTPError(404, "No endpoints found ..."),
+        second call succeeds → returns second-call output and span carries
+        ``soft_retry: provider_404`` metadata."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=[
+                ModelHTTPError(
+                    status_code=404,
+                    model_name="test",
+                    body="No endpoints found that can handle the requested parameters",
+                ),
+                {"retry": "ok"},
+            ])
+
+            mock_client = MagicMock()
+            mock_client.start_as_current_observation.return_value = MagicMock()
+
+            with (
+                patch("cai.log.observability._initialized", True),
+                patch("langfuse.get_client", return_value=mock_client),
+                patch("asyncio.sleep", new_callable=AsyncMock),
+            ):
+                result = await traced_agent_run("test", agent, "prompt")
+
+            assert result == {"retry": "ok"}
+            assert agent.run.await_count == 2
+            mock_client.update_current_span.assert_called_once_with(
+                metadata={"soft_retry": "provider_404"}
+            )
+
+        asyncio.run(_run())
+
+    def test_no_retry_on_404_different_body(self):
+        """A 404 with a different body message is re-raised immediately
+        — not every 404 is an OpenRouter routing flake."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=ModelHTTPError(
+                status_code=404,
+                model_name="test",
+                body="Some other 404 message",
+            ))
+
+            with (
+                patch("cai.log.observability._initialized", False),
+                patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            ):
+                with pytest.raises(ModelHTTPError):
+                    await traced_agent_run("test", agent, "prompt")
+
+            assert agent.run.await_count == 1
+            mock_sleep.assert_not_called()
+
+        asyncio.run(_run())
+
+    def test_no_retry_on_500(self):
+        """Non-404 status codes are re-raised immediately."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=ModelHTTPError(
+                status_code=500,
+                model_name="test",
+                body="Internal server error",
+            ))
+
+            with (
+                patch("cai.log.observability._initialized", False),
+                patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            ):
+                with pytest.raises(ModelHTTPError):
+                    await traced_agent_run("test", agent, "prompt")
+
+            assert agent.run.await_count == 1
+            mock_sleep.assert_not_called()
+
+        asyncio.run(_run())
+
+    def test_no_retry_on_404_none_body(self):
+        """A 404 with a None body does not match the "No endpoints found"
+        pattern → re-raised immediately."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=ModelHTTPError(
+                status_code=404,
+                model_name="test",
+                body=None,
+            ))
+
+            with (
+                patch("cai.log.observability._initialized", False),
+                patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            ):
+                with pytest.raises(ModelHTTPError):
+                    await traced_agent_run("test", agent, "prompt")
+
+            assert agent.run.await_count == 1
+            mock_sleep.assert_not_called()
+
+        asyncio.run(_run())

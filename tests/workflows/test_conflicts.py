@@ -383,6 +383,51 @@ class TestRunResolveStep:
 
         assert mock_agent.run.await_count == 2
 
+    def test_resolve_step_retries_on_404_openrouter(self, tmp_path):
+        """First call raises ModelHTTPError(404, "No endpoints found ..."),
+        retry succeeds → two agent.run calls."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=[
+            ModelHTTPError(
+                status_code=404,
+                model_name="test",
+                body="No endpoints found that can handle the requested parameters",
+            ),
+            None,
+        ])
+
+        with (
+            patch("cai.workflows.conflicts._resolve_step_agent", return_value=mock_agent),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            asyncio.run(_run_resolve_step(tmp_path, "resolve this"))
+
+        assert mock_agent.run.await_count == 2
+
+    def test_resolve_step_no_retry_on_404_other_body(self, tmp_path):
+        """A 404 with a different body message is re-raised immediately,
+        single agent.run call."""
+        from pydantic_ai.exceptions import ModelHTTPError
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=ModelHTTPError(
+            status_code=404,
+            model_name="test",
+            body="Other message",
+        ))
+
+        with (
+            patch("cai.workflows.conflicts._resolve_step_agent", return_value=mock_agent),
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            with pytest.raises(ModelHTTPError):
+                asyncio.run(_run_resolve_step(tmp_path, "resolve this"))
+
+        assert mock_agent.run.await_count == 1
+        mock_sleep.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # _rebase_loop cross-context (PRNode constructs PRWorkspace with number=0)
