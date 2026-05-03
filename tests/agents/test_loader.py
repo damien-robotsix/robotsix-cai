@@ -2939,6 +2939,143 @@ def test_history_compactor_for_run_returns_fresh_instance():
 
 
 # ---------------------------------------------------------------------------
+# HistoryCompactorCapability — grep short-circuit
+
+
+def test_history_compactor_grep_short_circuit_on_full_read():
+    """grep on a file that was fully read earlier (no limit) with no
+    intervening edit returns a warning instead of executing."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "grep results"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py"}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="full file content here", tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="grep", args={"path": "x.py", "pattern": "content"}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={"path": "x.py", "pattern": "content"}, handler=handler))
+
+    assert not handler_called
+    assert "Warning: grep" in result
+    assert "x.py" in result
+    assert "already read in full" in result
+    assert "message index 0" in result
+    assert "mentally" in result
+
+
+def test_history_compactor_grep_on_partial_read_passthrough():
+    """grep on a file that was only partially read (had a limit) executes
+    normally since the full content is not in history."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "grep results"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py", "limit": 100}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="first 100 lines only", tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="grep", args={"path": "x.py", "pattern": "content"}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={"path": "x.py", "pattern": "content"}, handler=handler))
+
+    assert handler_called
+    assert result == "grep results"
+
+
+def test_history_compactor_grep_with_intervening_edit_passthrough():
+    """grep on a file that was fully read but an edit_file happened since
+    executes normally because the content may have changed."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "grep results after edit"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py"}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="old content", tool_call_id="c1")
+    edit_tc = ToolCallPart(tool_name="edit_file", args={"path": "x.py", "old_string": "old", "new_string": "new"}, tool_call_id="c2")
+    edit_tr = ToolReturnPart(tool_name="edit_file", content="Edited file", tool_call_id="c2")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+            ModelResponse(parts=[edit_tc]),
+            ModelRequest(parts=[edit_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="grep", args={"path": "x.py", "pattern": "content"}, tool_call_id="c3")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={"path": "x.py", "pattern": "content"}, handler=handler))
+
+    assert handler_called
+    assert result == "grep results after edit"
+
+
+def test_history_compactor_grep_no_path_passthrough():
+    """grep with no path arg (glob_pattern only) executes normally."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "glob-only grep results"
+
+    ctx = _make_ctx(messages=[])
+    call = ToolCallPart(tool_name="grep", args={"pattern": "def test", "glob_pattern": "*.py"}, tool_call_id="c1")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={"pattern": "def test", "glob_pattern": "*.py"}, handler=handler))
+
+    assert handler_called
+    assert result == "glob-only grep results"
+
+
+def test_history_compactor_grep_empty_path_passthrough():
+    """grep with empty string path executes normally."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "empty path grep results"
+
+    ctx = _make_ctx(messages=[])
+    call = ToolCallPart(tool_name="grep", args={"path": "", "pattern": "def"}, tool_call_id="c1")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={"path": "", "pattern": "def"}, handler=handler))
+
+    assert handler_called
+    assert result == "empty path grep results"
+
+
+# ---------------------------------------------------------------------------
 # GlobPatternSanitizer
 # ---------------------------------------------------------------------------
 
@@ -3914,3 +4051,71 @@ def test_consecutive_failure_guardrail_wired_into_build_deep_agent_capabilities(
 
     cap_types = [type(c).__name__ for c in captured["capabilities"]]
     assert "ConsecutiveFailureGuardrail" in cap_types
+
+
+def test_history_compactor_grep_non_modifying_tools_preserve_short_circuit():
+    """Non-file-modifying tools (ls, glob, another grep) between
+    a full read_file and a grep on that same file do not block the
+    short-circuit — only file-modifying tools should."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "grep results"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py"}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="full content", tool_call_id="c1")
+    ls_tc = ToolCallPart(tool_name="ls", args={"path": "."}, tool_call_id="c2")
+    ls_tr = ToolReturnPart(tool_name="ls", content="foo.py  bar.py", tool_call_id="c2")
+    glob_tc = ToolCallPart(tool_name="glob", args={"pattern": "*.py"}, tool_call_id="c3")
+    glob_tr = ToolReturnPart(tool_name="glob", content="x.py", tool_call_id="c3")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+            ModelResponse(parts=[ls_tc, glob_tc]),
+            ModelRequest(parts=[ls_tr, glob_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="grep", args={"path": "x.py", "pattern": "content"}, tool_call_id="c4")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={"path": "x.py", "pattern": "content"}, handler=handler))
+
+    assert not handler_called
+    assert "Warning: grep" in result
+    assert "already read in full" in result
+
+
+def test_history_compactor_grep_short_circuit_on_offset_full_read():
+    """Prior read_file with offset=100 but no limit is a full read
+    (reads to EOF), so a subsequent grep on the same path
+    short-circuits even though the prior read had an offset."""
+    cap = HistoryCompactorCapability()
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return "grep results"
+
+    prior_tc = ToolCallPart(tool_name="read_file", args={"path": "x.py", "offset": 100}, tool_call_id="c1")
+    prior_tr = ToolReturnPart(tool_name="read_file", content="remaining content", tool_call_id="c1")
+
+    ctx = _make_ctx(
+        messages=[
+            ModelResponse(parts=[prior_tc]),
+            ModelRequest(parts=[prior_tr]),
+        ],
+    )
+
+    call = ToolCallPart(tool_name="grep", args={"path": "x.py", "pattern": "content"}, tool_call_id="c2")
+
+    result = _run(cap.wrap_tool_execute(ctx, call=call, tool_def=None, args={"path": "x.py", "pattern": "content"}, handler=handler))
+
+    assert not handler_called
+    assert "Warning: grep" in result
+    assert "already read in full" in result

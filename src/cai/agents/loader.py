@@ -689,13 +689,16 @@ class ModelRequestErrorAsRetry(AbstractCapability):
 
 class HistoryCompactorCapability(AbstractCapability):
     """Replace stale tool outputs in message history before each model request,
-    and short-circuit duplicate ``read_file`` calls at execute time.
+    short-circuit duplicate ``read_file`` calls, and block ``grep`` on
+    already-fully-read files at execute time.
 
     Repeated ``read_file`` on large files and ``ls`` / ``glob`` / ``grep``
     produce stale outputs that stay in the message history and are re-sent
     to the model every turn, causing quadratic cost growth.  Identical
     sequential ``read_file`` calls without intervening edits waste both
-    latency and tokens.
+    latency and tokens.  Agents also waste calls by grepping files whose
+    entire content is already in conversation history from a prior
+    ``read_file``.
 
     This capability:
 
@@ -704,6 +707,8 @@ class HistoryCompactorCapability(AbstractCapability):
     * Short-circuits duplicate ``read_file`` calls in
       :meth:`wrap_tool_execute` when no filesystem edits have occurred
       since the prior identical call.
+    * Blocks ``grep`` calls on files that were already read in full
+      (no ``limit``) when no filesystem edit has intervened.
     """
 
     _COMPACTABLE_TOOLS = frozenset({"read_file", "ls", "glob", "grep"})
@@ -811,13 +816,61 @@ class HistoryCompactorCapability(AbstractCapability):
         return ""
 
     # ------------------------------------------------------------------
-    # wrap_tool_execute — short-circuit duplicate read_file
+    # wrap_tool_execute — short-circuit duplicate read_file and redundant grep
     # ------------------------------------------------------------------
 
     async def wrap_tool_execute(
         self, ctx: RunContext, *, call: ToolCallPart, tool_def: Any, args: Any, handler: Any,
     ) -> Any:
-        if call.tool_name != "read_file":
+        if call.tool_name == "grep":
+            path = _get_arg(args, "path")
+            if not (isinstance(path, str) and path):
+                return await handler(args)
+
+            # Scan backward for a prior full-file read_file on the same path.
+            prior_msg_idx: int | None = None
+            for i in range(len(ctx.messages) - 1, -1, -1):
+                msg = ctx.messages[i]
+                if not isinstance(msg, ModelResponse):
+                    continue
+                for part in msg.parts:
+                    if not isinstance(part, ToolCallPart):
+                        continue
+                    if part.tool_name != "read_file":
+                        continue
+                    if part.tool_call_id == call.tool_call_id:
+                        continue
+                    prior_args = part.args_as_dict()
+                    if prior_args.get("path") != path:
+                        continue
+                    # Full file read: no limit arg.
+                    if prior_args.get("limit") is None:
+                        prior_msg_idx = i
+                        break
+                if prior_msg_idx is not None:
+                    break
+
+            if prior_msg_idx is None:
+                return await handler(args)
+
+            # Scan forward for any file-modifying tool calls since that read.
+            for i in range(prior_msg_idx + 1, len(ctx.messages)):
+                msg = ctx.messages[i]
+                if not isinstance(msg, ModelResponse):
+                    continue
+                for part in msg.parts:
+                    if not isinstance(part, ToolCallPart):
+                        continue
+                    if part.tool_name in self._FILE_MODIFYING_TOOLS:
+                        return await handler(args)
+
+            return (
+                f"Warning: grep on {path!r} is redundant — the file was "
+                f"already read in full at message index {prior_msg_idx}. "
+                f"The content is in your conversation history; search it "
+                f"mentally instead of calling grep."
+            )
+        elif call.tool_name != "read_file":
             return await handler(args)
 
         current_args = call.args_as_dict()
