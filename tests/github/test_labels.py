@@ -1,3 +1,5 @@
+import re
+from dataclasses import FrozenInstanceError
 from unittest.mock import Mock
 
 import pytest
@@ -18,7 +20,7 @@ class TestLabelSpec:
 
     def test_is_frozen(self):
         spec = LabelSpec(name="cai:raised", color="0e8a16")
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             spec.name = "cai:audit"  # type: ignore[misc]
 
     def test_equality(self):
@@ -149,7 +151,6 @@ class TestCAILabelSpecs:
             assert spec.name.startswith("cai:"), f"{spec.name} should start with 'cai:'"
 
     def test_all_colors_are_six_char_hex(self):
-        import re
         hex_color = re.compile(r"^[0-9a-fA-F]{6}$")
         for spec in CAI_LABEL_SPECS:
             assert hex_color.match(spec.color), f"{spec.color} is not 6-char hex"
