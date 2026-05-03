@@ -227,148 +227,327 @@ def _tmp_file(tmp_path, name, content):
     return str(f)
 
 
-def test_edit_file_guardrail_before_execute_old_string_found(tmp_path):
-    """old_string found in file → args returned unchanged, no ModelRetry."""
+def _passthrough_handler(sentinel="__edit_called__"):
+    """Return an async handler that records invocation and returns *sentinel*.
+
+    Used to verify that wrap_tool_execute either calls the inner handler
+    (and forwards its return value) or short-circuits without calling it.
+    """
+    calls: list = []
+
+    async def handler(args):
+        calls.append(args)
+        return sentinel
+
+    return handler, calls
+
+
+def test_edit_file_guardrail_old_string_found_runs_handler(tmp_path):
+    """old_string found in file → handler is called and its result returned."""
     cap = EditFileGuardrailAsRetry()
     fpath = _tmp_file(tmp_path, "a.py", "line1\nline2\nline3\n")
     args = {"path": fpath, "old_string": "line2", "new_string": "replacement"}
-    result = _run(cap.before_tool_execute(
-        None, call=_edit_call(), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
-def test_edit_file_guardrail_before_execute_old_string_ambiguous(tmp_path):
-    """old_string matches multiple locations → ModelRetry with match count."""
+def test_edit_file_guardrail_old_string_ambiguous_first_attempt_retries(tmp_path):
+    """First failure: ambiguous old_string → ModelRetry with match count."""
     cap = EditFileGuardrailAsRetry()
     content = "line A\nduplicate line\nline B\nduplicate line\nline C\n"
     fpath = _tmp_file(tmp_path, "a.py", content)
     args = {"path": fpath, "old_string": "duplicate line\n", "new_string": "replacement"}
+    handler, calls = _passthrough_handler()
     with pytest.raises(ModelRetry) as exc:
-        _run(cap.before_tool_execute(
-            None, call=_edit_call(), tool_def=None, args=args,
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
         ))
     msg = str(exc.value)
     assert "appears 2 times" in msg
     assert fpath in msg
     assert "above AND below" in msg
     assert "disambiguate" in msg
+    assert calls == []
 
 
-def test_edit_file_guardrail_before_execute_old_string_unique(tmp_path):
-    """Single-match old_string passes through normally (different shape than _found test)."""
+def test_edit_file_guardrail_old_string_unique_runs_handler(tmp_path):
+    """Single-match old_string → handler runs (different shape than _found test)."""
     cap = EditFileGuardrailAsRetry()
     content = "header\nunique middle line\nfooter\nheader2\nunique middle other\nfooter2\n"
     fpath = _tmp_file(tmp_path, "b.py", content)
     args = {"path": fpath, "old_string": "unique middle line", "new_string": "replacement"}
-    result = _run(cap.before_tool_execute(
-        None, call=_edit_call(), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
-def test_edit_file_guardrail_before_execute_old_string_not_found(tmp_path):
-    """old_string NOT in file → ModelRetry with path and diagnostic message."""
+def test_edit_file_guardrail_old_string_not_found_first_attempt_retries(tmp_path):
+    """First failure: old_string NOT in file → ModelRetry with path/diagnostic."""
     cap = EditFileGuardrailAsRetry()
     fpath = _tmp_file(tmp_path, "a.py", "line1\nline2\n")
     args = {"path": fpath, "old_string": "missing_line", "new_string": "replacement"}
+    handler, calls = _passthrough_handler()
     with pytest.raises(ModelRetry) as exc:
-        _run(cap.before_tool_execute(
-            None, call=_edit_call(), tool_def=None, args=args,
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
         ))
     msg = str(exc.value)
     assert "old_string not found" in msg
     assert fpath in msg
     assert "read_file" in msg
     assert "Do not reconstruct from memory" in msg
+    assert calls == []
 
 
-def test_edit_file_guardrail_before_execute_old_string_with_blank_lines(tmp_path):
+def test_edit_file_guardrail_not_found_escalates_after_repeats(tmp_path):
+    """2nd consecutive not-found failure → warning string with file content,
+    no ModelRetry (so pydantic-ai's max_retries cap is not consumed)."""
+    cap = EditFileGuardrailAsRetry()
+    file_content = "actual line one\nactual line two\nactual line three\n"
+    fpath = _tmp_file(tmp_path, "a.py", file_content)
+    args = {"path": fpath, "old_string": "fake reconstruction", "new_string": "x"}
+    handler, calls = _passthrough_handler()
+
+    # 1st failure: standard ModelRetry
+    with pytest.raises(ModelRetry):
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+
+    # 2nd failure on same path: warning string (no raise)
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+    ))
+    assert isinstance(result, str)
+    assert "consecutive" in result
+    assert "old_string was not found" in result
+    assert file_content in result  # actual file content embedded
+    assert calls == []  # handler never invoked on either failure
+
+
+def test_edit_file_guardrail_ambiguous_escalates_after_repeats(tmp_path):
+    """2nd consecutive ambiguous failure → warning string with file content."""
+    cap = EditFileGuardrailAsRetry()
+    file_content = "X\nrepeat\nY\nrepeat\nZ\n"
+    fpath = _tmp_file(tmp_path, "a.py", file_content)
+    args = {"path": fpath, "old_string": "repeat\n", "new_string": "x"}
+    handler, calls = _passthrough_handler()
+
+    with pytest.raises(ModelRetry):
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+    ))
+    assert isinstance(result, str)
+    assert "consecutive" in result
+    assert "matches 2 locations" in result
+    assert file_content in result
+    assert calls == []
+
+
+def test_edit_file_guardrail_success_resets_failure_counter(tmp_path):
+    """A successful edit on a path clears the failure counter so the next
+    failure starts a fresh streak (raise ModelRetry, not warning string)."""
+    cap = EditFileGuardrailAsRetry()
+    file_content = "alpha\nbeta\ngamma\n"
+    fpath = _tmp_file(tmp_path, "a.py", file_content)
+    handler, _ = _passthrough_handler()
+
+    # Failure 1 (raise)
+    with pytest.raises(ModelRetry):
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None,
+            args={"path": fpath, "old_string": "missing", "new_string": "x"},
+            handler=handler,
+        ))
+    # Successful edit on the same path
+    _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None,
+        args={"path": fpath, "old_string": "beta", "new_string": "BETA"},
+        handler=handler,
+    ))
+    # Next failure on the same path should raise ModelRetry again, not return warning
+    with pytest.raises(ModelRetry):
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None,
+            args={"path": fpath, "old_string": "still missing", "new_string": "x"},
+            handler=handler,
+        ))
+
+
+def test_edit_file_guardrail_failure_counter_is_per_path(tmp_path):
+    """Failures on path A do not escalate failures on path B."""
+    cap = EditFileGuardrailAsRetry()
+    fa = _tmp_file(tmp_path, "a.py", "content A\n")
+    fb = _tmp_file(tmp_path, "b.py", "content B\n")
+    handler, _ = _passthrough_handler()
+
+    # Failure on path A
+    with pytest.raises(ModelRetry):
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None,
+            args={"path": fa, "old_string": "missing", "new_string": "x"},
+            handler=handler,
+        ))
+    # First failure on path B should still be ModelRetry, not warning
+    with pytest.raises(ModelRetry):
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None,
+            args={"path": fb, "old_string": "also missing", "new_string": "x"},
+            handler=handler,
+        ))
+
+
+def test_edit_file_guardrail_for_run_returns_fresh_state(tmp_path):
+    """for_run returns a new instance with zeroed counter so concurrent runs
+    don't share escalation state."""
+    cap = EditFileGuardrailAsRetry()
+    fpath = _tmp_file(tmp_path, "a.py", "content\n")
+    handler, _ = _passthrough_handler()
+    args = {"path": fpath, "old_string": "missing", "new_string": "x"}
+    with pytest.raises(ModelRetry):
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+
+    fresh = _run(cap.for_run(None))
+    assert fresh is not cap
+    # Fresh instance: 1st failure must raise, not return warning
+    with pytest.raises(ModelRetry):
+        _run(fresh.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+
+
+def test_edit_file_guardrail_preview_truncates_large_files(tmp_path):
+    """File content >8000 chars is truncated in the preview to keep the
+    warning readable in conversation history."""
+    cap = EditFileGuardrailAsRetry()
+    huge = "x" * 12000 + "\n"
+    fpath = _tmp_file(tmp_path, "huge.py", huge)
+    args = {"path": fpath, "old_string": "missing", "new_string": "x"}
+    handler, _ = _passthrough_handler()
+    with pytest.raises(ModelRetry):
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+    ))
+    assert isinstance(result, str)
+    assert "file truncated" in result
+    assert "8000" in result
+    assert "12001" in result  # total chars (12000 + newline)
+
+
+def test_edit_file_guardrail_with_blank_lines_runs_handler(tmp_path):
     """old_string with exact blank-line count must match when file has them."""
     cap = EditFileGuardrailAsRetry()
     content = "def foo():\n    pass\n\n\ndef bar():\n    pass\n"
     fpath = _tmp_file(tmp_path, "a.py", content)
-    # Exact substring — two blank lines before def bar.
     args = {"path": fpath, "old_string": "    pass\n\n\ndef bar():", "new_string": "x"}
-    result = _run(cap.before_tool_execute(
-        None, call=_edit_call(), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
-def test_edit_file_guardrail_before_execute_wrong_blank_line_count(tmp_path):
+def test_edit_file_guardrail_wrong_blank_line_count_first_attempt_retries(tmp_path):
     """One blank line instead of two → ModelRetry (doesn't match file content)."""
     cap = EditFileGuardrailAsRetry()
     content = "def foo():\n    pass\n\n\ndef bar():\n    pass\n"
     fpath = _tmp_file(tmp_path, "a.py", content)
-    # Wrong: only one blank line where file has two.
     args = {"path": fpath, "old_string": "    pass\n\ndef bar():", "new_string": "x"}
+    handler, _ = _passthrough_handler()
     with pytest.raises(ModelRetry) as exc:
-        _run(cap.before_tool_execute(
-            None, call=_edit_call(), tool_def=None, args=args,
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
         ))
     assert "old_string not found" in str(exc.value)
 
 
-def test_edit_file_guardrail_before_execute_non_edit_file_passthrough():
-    """Non-edit_file tools pass through without reading anything."""
+def test_edit_file_guardrail_non_edit_file_passthrough():
+    """Non-edit_file tools pass through to the handler unchanged."""
     cap = EditFileGuardrailAsRetry()
     args = {"pattern": "something"}
-    result = _run(cap.before_tool_execute(
-        None, call=_grep_call("grep"), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_grep_call("grep"), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
-def test_edit_file_guardrail_before_execute_missing_old_string():
-    """Missing old_string → pass through (let the real tool handle it)."""
+def test_edit_file_guardrail_missing_old_string_passes_to_handler():
+    """Missing old_string → handler runs (let the real tool handle it)."""
     cap = EditFileGuardrailAsRetry()
     args = {"path": "somefile.py", "new_string": "replacement"}
-    result = _run(cap.before_tool_execute(
-        None, call=_edit_call(), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
-def test_edit_file_guardrail_before_execute_empty_old_string():
-    """Empty old_string → pass through (let the real tool handle it)."""
+def test_edit_file_guardrail_empty_old_string_passes_to_handler():
+    """Empty old_string → handler runs (let the real tool handle it)."""
     cap = EditFileGuardrailAsRetry()
     args = {"path": "somefile.py", "old_string": "", "new_string": "replacement"}
-    result = _run(cap.before_tool_execute(
-        None, call=_edit_call(), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
-def test_edit_file_guardrail_before_execute_missing_path():
-    """Missing path arg → pass through (let the real tool handle it)."""
+def test_edit_file_guardrail_missing_path_passes_to_handler():
+    """Missing path arg → handler runs (let the real tool handle it)."""
     cap = EditFileGuardrailAsRetry()
     args = {"old_string": "something", "new_string": "replacement"}
-    result = _run(cap.before_tool_execute(
-        None, call=_edit_call(), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
-def test_edit_file_guardrail_before_execute_file_not_found(tmp_path):
-    """FileNotFoundError → pass through (let the real tool handle it)."""
+def test_edit_file_guardrail_file_not_found_passes_to_handler(tmp_path):
+    """FileNotFoundError → handler runs (let the real tool handle it)."""
     cap = EditFileGuardrailAsRetry()
     args = {"path": str(tmp_path / "nonexistent.py"), "old_string": "x", "new_string": "y"}
-    result = _run(cap.before_tool_execute(
-        None, call=_edit_call(), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
-def test_edit_file_guardrail_before_execute_object_args(tmp_path):
+def test_edit_file_guardrail_object_args(tmp_path):
     """Object-style args (not dict) should work for extraction."""
     cap = EditFileGuardrailAsRetry()
     fpath = _tmp_file(tmp_path, "a.py", "hello world\n")
     args = SimpleNamespace(path=fpath, old_string="hello world", new_string="hi")
-    result = _run(cap.before_tool_execute(
-        None, call=_edit_call(), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
 def _write_call(name="write_file"):
@@ -3013,7 +3192,7 @@ def test_edit_file_guardrail_docstring_mentions_proactive_rejection():
 
 
 @pytest.mark.parametrize("match_count", [2, 3, 5])
-def test_edit_file_guardrail_before_execute_old_string_reports_accurate_count(
+def test_edit_file_guardrail_old_string_reports_accurate_count(
     tmp_path, match_count
 ):
     """The ModelRetry message must report the correct count for 2, 3, 5+ matches."""
@@ -3025,9 +3204,10 @@ def test_edit_file_guardrail_before_execute_old_string_reports_accurate_count(
     old_string = "irrelevant"
     fpath = _tmp_file(tmp_path, "multi_match.py", content)
     args = {"path": fpath, "old_string": old_string, "new_string": "replacement"}
+    handler, _ = _passthrough_handler()
     with pytest.raises(ModelRetry) as exc:
-        _run(cap.before_tool_execute(
-            None, call=_edit_call(), tool_def=None, args=args,
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
         ))
     msg = str(exc.value)
     assert f"appears {match_count} times" in msg, (
@@ -3038,7 +3218,7 @@ def test_edit_file_guardrail_before_execute_old_string_reports_accurate_count(
     assert "disambiguate" in msg
 
 
-def test_edit_file_guardrail_before_execute_multi_line_ambiguous(tmp_path):
+def test_edit_file_guardrail_multi_line_ambiguous(tmp_path):
     """Multi-line old_string that appears multiple times is rejected."""
     cap = EditFileGuardrailAsRetry()
     content = (
@@ -3053,25 +3233,28 @@ def test_edit_file_guardrail_before_execute_multi_line_ambiguous(tmp_path):
     old_string = "    def repeated(self):\n        pass\n"
     fpath = _tmp_file(tmp_path, "multi_line.py", content)
     args = {"path": fpath, "old_string": old_string, "new_string": "    def new_method(self):\n        pass\n"}
+    handler, _ = _passthrough_handler()
     with pytest.raises(ModelRetry) as exc:
-        _run(cap.before_tool_execute(
-            None, call=_edit_call(), tool_def=None, args=args,
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
         ))
     msg = str(exc.value)
     assert "appears 2 times" in msg
     assert "above AND below" in msg
 
 
-def test_edit_file_guardrail_before_execute_non_overlapping_count_only(tmp_path):
+def test_edit_file_guardrail_non_overlapping_count_only(tmp_path):
     """str.count does NOT count overlapping occurrences, so 'aaa'.count('aa') == 1.
     This edge case should still pass through (single match), not raise ModelRetry."""
     cap = EditFileGuardrailAsRetry()
     fpath = _tmp_file(tmp_path, "aaa.py", "aaa\n")
     args = {"path": fpath, "old_string": "aa", "new_string": "bb"}
-    result = _run(cap.before_tool_execute(
-        None, call=_edit_call(), tool_def=None, args=args,
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
     ))
-    assert result is args
+    assert result == "__edit_called__"
+    assert calls == [args]
 
 
 # ---------------------------------------------------------------------------

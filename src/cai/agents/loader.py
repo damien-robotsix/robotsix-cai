@@ -292,37 +292,114 @@ class EditFileGuardrailAsRetry(AbstractCapability):
     retry budget on strings that can never match.  When ``old_string``
     appears more than once the guardrail rejects the call with the
     match count and disambiguation guidance — catching the ambiguity
-    before the edit lands on the wrong location.  Both checks fire on
-    the first attempt, saving latency and tokens.
+    before the edit lands on the wrong location.
+
+    The first pre-verify failure on a given path raises ``ModelRetry``
+    with re-read guidance.  Subsequent consecutive failures on the same
+    path **return a warning string with the file's actual content
+    embedded** instead of raising.  This is critical: pydantic-ai's
+    per-tool ``max_retries=3`` cap aborts the entire workflow with
+    ``UnexpectedModelBehavior`` after the third ``ModelRetry``, so a
+    model that ignores the "re-read the file" instruction (a common
+    failure mode of large reasoning models that reconstruct file state
+    from memory) would otherwise crash the run.  Returning a warning
+    short-circuits the tool execution without consuming the retry
+    budget and forces the file's truth into context, breaking the
+    guess-and-retry cycle.  See trace
+    ``24990cf37f1d20be844807964fd87951`` for the failure mode this
+    addresses.
     """
 
-    async def before_tool_execute(
-        self, ctx: Any, *, call: Any, tool_def: Any, args: Any,
+    _ESCALATE_AT = 2  # 1st failure: ModelRetry; 2nd+: return warning string
+
+    def __init__(self) -> None:
+        # Per-path consecutive pre-verify failure count. Reset on a
+        # successful edit_file call (any path-keyed entry is cleared
+        # when its path is edited successfully).
+        self._fail_count: dict[str, int] = {}
+
+    async def for_run(self, ctx: Any) -> "EditFileGuardrailAsRetry":
+        return EditFileGuardrailAsRetry()
+
+    async def wrap_tool_execute(
+        self, ctx: Any, *, call: Any, tool_def: Any, args: Any, handler: Any,
     ) -> Any:
         if call.tool_name != "edit_file":
-            return args
+            return await handler(args)
         old_string = _get_arg(args, "old_string")
         path = _get_arg(args, "path")
         if not (isinstance(old_string, str) and old_string and isinstance(path, str) and path):
-            return args
+            return await handler(args)
         try:
             content = Path(path).read_text()
         except (FileNotFoundError, PermissionError, OSError):
-            return args
-        if old_string not in content:
-            raise ModelRetry(
-                f"old_string not found in {path}. "
-                f"Re-read the file with read_file and copy the exact target "
-                f"lines — including all whitespace, blank lines, and surrounding "
-                f"content — into old_string. Do not reconstruct from memory."
+            return await handler(args)
+
+        not_found = old_string not in content
+        match_count = 0 if not_found else content.count(old_string)
+        ambiguous = match_count > 1
+
+        if not (not_found or ambiguous):
+            # Pre-verify passes; run the actual tool. Clear the
+            # counter on success so a future unrelated failure starts
+            # a fresh streak.
+            result = await handler(args)
+            self._fail_count.pop(path, None)
+            return result
+
+        count = self._fail_count.get(path, 0) + 1
+        self._fail_count[path] = count
+
+        if not_found:
+            if count < self._ESCALATE_AT:
+                raise ModelRetry(
+                    f"old_string not found in {path}. "
+                    f"Re-read the file with read_file and copy the exact target "
+                    f"lines — including all whitespace, blank lines, and surrounding "
+                    f"content — into old_string. Do not reconstruct from memory."
+                )
+            preview = self._render_preview(path, content)
+            return (
+                f"Warning: edit_file failed {count} consecutive times on {path} "
+                f"because old_string was not found. You appear to be reconstructing "
+                f"old_string from memory across retries instead of re-reading the "
+                f"file. The actual file content is included below — copy your "
+                f"old_string verbatim from this text (preserving every space, tab, "
+                f"and blank line) before calling edit_file again.\n\n{preview}"
             )
-        if content.count(old_string) > 1:
+
+        # ambiguous (match_count > 1)
+        if count < self._ESCALATE_AT:
             raise ModelRetry(
-                f"old_string appears {content.count(old_string)} times in {path}. "
+                f"old_string appears {match_count} times in {path}. "
                 f"Include more surrounding context — at minimum one unique line "
                 f"above AND below the target location — to disambiguate."
             )
-        return args
+        preview = self._render_preview(path, content)
+        return (
+            f"Warning: edit_file failed {count} consecutive times on {path} "
+            f"because old_string still matches {match_count} locations. Use a "
+            f"wider old_string with a unique anchor (function name, comment, or "
+            f"unique identifier) above AND below the target. The actual file "
+            f"content is included below.\n\n{preview}"
+        )
+
+    @staticmethod
+    def _render_preview(path: str, content: str) -> str:
+        """Format file content for inclusion in an escalation warning,
+        capping size to keep the warning readable in conversation history."""
+        max_chars = 8000
+        if len(content) <= max_chars:
+            body = content
+            footer = ""
+        else:
+            body = content[:max_chars]
+            footer = (
+                f"\n...[file truncated at {max_chars} chars; total "
+                f"{len(content)} chars. Use read_file with offset/limit "
+                f"to inspect later regions.]"
+            )
+        return f"--- {path} ---\n{body}{footer}"
 
     async def on_tool_execute_error(
         self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
