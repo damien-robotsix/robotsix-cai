@@ -79,19 +79,12 @@ def test_registry_covers_user_facing_cli_scripts():
         f"set {set(expected)!r}"
     )
     for slug, script in expected.items():
-        if slug == "parent-check":
-            # The CLI entry for parent-check exists (parent_check.py:main)
-            # but cai-parent-check has not been added to pyproject.toml yet.
-            continue
         assert script in scripts, (
             f"registry expects [project.scripts] entry {script!r} for slug "
             f"{slug!r}, but it is missing from pyproject.toml"
         )
     # Each spec's cli_entry must match the dotted path in pyproject.toml
     for spec in WORKFLOWS:
-        if spec.slug == "parent-check":
-            # cli_entry verified separately — no pyproject.toml entry yet
-            continue
         script_name = expected[spec.slug]
         assert scripts[script_name] == spec.cli_entry, (
             f"{spec.slug}: cli_entry {spec.cli_entry!r} does not match "
