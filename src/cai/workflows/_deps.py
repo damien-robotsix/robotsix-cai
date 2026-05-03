@@ -84,7 +84,7 @@ def repo_deps(
         edit=OperationPermissions(default="deny", rules=write_allow),
         execute=OperationPermissions(default="deny"),
     )
-    glob_dirs = {str(_glob_dir_prefix(g).resolve()) for g in write_globs}
+    glob_dirs = {str((repo_root / _glob_dir_prefix(g)).resolve()) for g in write_globs}
     return DeepAgentDeps(
         backend=LocalBackend(
             root_dir=str(repo_root),
