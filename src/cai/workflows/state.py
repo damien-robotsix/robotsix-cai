@@ -32,6 +32,7 @@ from cai.github.issues import IssueMeta
 from cai.github.pr import ReviewThread
 
 _MAX_REFERENCE_FILE_BYTES = 100_000
+_MAX_REFERENCE_FILES_TOTAL_BYTES = 200_000
 
 
 class WithConfidence(BaseModel):
@@ -285,9 +286,17 @@ class IssueState:
 
         Returns an empty string when no readable files remain after filtering
         (missing paths and oversized files are silently dropped).
+
+        A cumulative byte budget (``_MAX_REFERENCE_FILES_TOTAL_BYTES``)
+        prevents prompt bloat; files beyond the budget are skipped and a
+        truncation note is appended so the agent knows to ``read_file`` them
+        on demand.
         """
+        header = "## Reference files\n\n"
+        total_bytes = len(header)
         sections: list[str] = []
-        for path_str in self.reference_files:
+        omitted = 0
+        for i, path_str in enumerate(self.reference_files):
             p = Path(path_str)
             if not p.is_absolute():
                 p = self.repo_root / p
@@ -300,9 +309,18 @@ class IssueState:
                 rel = p.relative_to(self.repo_root)
                 from pydantic_ai_backends.hashline import format_hashline_output
                 tagged = format_hashline_output(p.read_text())
-                sections.append(f"### {rel}\n\n```\n{tagged}\n```")
+                entry = f"### {rel}\n\n```\n{tagged}\n```"
+                cost = len(entry) + len("\n\n")
+                if total_bytes + cost > _MAX_REFERENCE_FILES_TOTAL_BYTES:
+                    omitted = len(self.reference_files) - i
+                    break
+                sections.append(entry)
+                total_bytes += cost
             except (ValueError, OSError):
                 pass
         if not sections:
             return ""
-        return "## Reference files\n\n" + "\n\n".join(sections)
+        result = header + "\n\n".join(sections)
+        if omitted:
+            result += f"\n\n_... ({omitted} reference files omitted due to size limit)_"
+        return result

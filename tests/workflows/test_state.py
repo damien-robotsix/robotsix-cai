@@ -1,276 +1,165 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
-from cai.workflows.state import (
-    DocsOutput,
-    ImplementOutput,
-    SessionState,
-    ThreadReply,
-    load_session_state,
-    save_session_state,
-)
+from cai.github.issues import IssueMeta
+from cai.workflows.state import ExploreOutput, IssueState
+
+
+@pytest.fixture
+def state(tmp_path: Path) -> IssueState:
+    body = tmp_path / "42.md"
+    body.write_text("## Issue body\n")
+    meta = IssueMeta(repo="owner/repo", number=42, title="Original title", labels=["cai:raised"])
+    bot = MagicMock()
+    bot.token_for.return_value = "tok"
+    s = IssueState(
+        bot=bot,
+        meta=meta,
+        body_path=body,
+        repo_root=tmp_path,
+        meta_json='{"number": 42}',
+        body="## Issue body\n",
+    )
+    s.findings = ExploreOutput(summary="Some findings.", related_files=[])
+    s.reference_files = []
+    return s
 
 
 # ---------------------------------------------------------------------------
-# ImplementOutput — files_changed field
+# reference_files_section — edge cases
 # ---------------------------------------------------------------------------
 
 
-def test_implement_output_files_changed_defaults_to_empty_list():
-    """files_changed defaults to an empty list when not provided."""
-    output = ImplementOutput(
-        summary="Implemented feature X.",
-        commit_message="feat: implement feature X",
-    )
-    assert output.files_changed == []
+def test_reference_files_section_empty_list(state):
+    """An empty reference_files list produces an empty section."""
+    state.reference_files = []
+    assert state.reference_files_section() == ""
 
 
-def test_implement_output_files_changed_accepts_list_of_strings():
-    """files_changed accepts and stores a list of repo-relative paths."""
-    files = ["src/a.py", "src/b.py", "tests/test_a.py"]
-    output = ImplementOutput(
-        summary="Implemented feature X.",
-        commit_message="feat: implement feature X",
-        files_changed=files,
-    )
-    assert output.files_changed == files
+def test_reference_files_section_all_files_oversized(state, tmp_path):
+    """When every file exceeds the per-file cap, the section is empty."""
+    content = "x" * 200_000  # > _MAX_REFERENCE_FILE_BYTES
+    f = tmp_path / "huge.py"
+    f.write_text(content)
+    state.reference_files = ["huge.py"]
+    assert state.reference_files_section() == ""
 
 
-def test_implement_output_files_changed_preserves_order():
-    """files_changed preserves the order of paths as provided."""
-    files = ["z.py", "a.py", "m.py"]
-    output = ImplementOutput(
-        summary="Implemented feature X.",
-        commit_message="feat: implement feature X",
-        files_changed=files,
-    )
-    assert output.files_changed == ["z.py", "a.py", "m.py"]
+def test_reference_files_section_all_files_missing(state):
+    """When no reference files exist on disk, the section is empty."""
+    state.reference_files = ["nonexistent.py", "missing/foo.py"]
+    assert state.reference_files_section() == ""
 
 
-def test_implement_output_json_schema_includes_files_changed():
-    """The JSON schema for ImplementOutput includes the files_changed field."""
-    schema = ImplementOutput.model_json_schema()
-    props = schema.get("properties", {})
-    assert "files_changed" in props, (
-        "files_changed must appear in the JSON schema properties"
-    )
-    assert props["files_changed"].get("title") == "Files Changed"
-    assert props["files_changed"].get("type") == "array"
+def test_reference_files_section_exact_budget_fits(state, tmp_path):
+    """A file whose rendered cost exactly matches the remaining budget is included
+    and no truncation note is appended."""
+    f = tmp_path / "exact.py"
+    # Must stay under the per-file cap (_MAX_REFERENCE_FILE_BYTES = 100_000)
+    # so the file isn't silently dropped before the budget check runs.
+    content = "y" * 99_000
+    f.write_text(content)
+    state.reference_files = ["exact.py"]
+
+    section = state.reference_files_section()
+    assert section.startswith("## Reference files\n")
+    assert "exact.py" in section
+    assert "omitted due to size limit" not in section
 
 
-def test_implement_output_existing_fields_still_work():
-    """Adding files_changed does not break existing fields like summary,
-    commit_message, required_checks, or replies."""
-    replies = [
-        ThreadReply(
-            thread_id="thread_1",
-            action="fix",
-            reply="Fixed the import issue.",
-        ),
-    ]
-    output = ImplementOutput(
-        summary="Fixed import issue.",
-        commit_message="fix: resolve circular import",
-        required_checks=["python"],
-        replies=replies,
-        files_changed=["src/module.py"],
-    )
-    assert output.summary == "Fixed import issue."
-    assert output.commit_message == "fix: resolve circular import"
-    assert output.required_checks == ["python"]
-    assert len(output.replies) == 1
-    assert output.replies[0].thread_id == "thread_1"
-    assert output.files_changed == ["src/module.py"]
+def test_reference_files_section_zero_byte_files(state, tmp_path):
+    """Zero-byte reference files are included (they cost almost nothing)."""
+    for name in ("empty_a.py", "empty_b.py"):
+        f = tmp_path / "src" / name
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("")
+    state.reference_files = ["src/empty_a.py", "src/empty_b.py"]
+
+    section = state.reference_files_section()
+    assert "src/empty_a.py" in section
+    assert "src/empty_b.py" in section
+    assert "omitted due to size limit" not in section
+
+
+def test_reference_files_section_mixed_missing_and_valid(state, tmp_path):
+    """Missing files are silently skipped; valid files that fit are included
+    and the omitted count only reflects files skipped due to the budget."""
+    f = tmp_path / "a.py"
+    f.write_text("x" * 50_000)
+    state.reference_files = ["missing.py", "a.py", "beyond.py"]
+    section = state.reference_files_section()
+    assert "missing.py" not in section
+    assert "a.py" in section
+    assert "beyond.py" not in section
+    assert "omitted due to size limit" not in section
 
 
 # ---------------------------------------------------------------------------
-# DocsOutput — files_changed field
+# reference_files_section — total byte budget
 # ---------------------------------------------------------------------------
 
 
-def test_docs_output_files_changed_defaults_to_empty_list():
-    """files_changed defaults to an empty list when not provided."""
-    output = DocsOutput(
-        summary="Updated docs/cli.md to cover the new flag.",
-        commit_message="docs: document --timeout flag in cli.md",
-    )
-    assert output.files_changed == []
+def test_reference_files_section_truncation_note_correct_count(state, tmp_path):
+    """When multiple files exceed the total byte budget, the truncation note
+    shows the correct number of remaining files."""
+    # Create 6 files of ~45 KB each.  Rendered cost per file is ~45 KB +
+    # markdown overhead.  With a 200 KB total budget, roughly 4 files fit
+    # and the remainder are counted in the truncation note.
+    content = "z" * 45_000
+    for i in range(6):
+        f = tmp_path / f"part_{i}.py"
+        f.write_text(content)
+    state.reference_files = [f"part_{i}.py" for i in range(6)]
+
+    section = state.reference_files_section()
+
+    assert section.startswith("## Reference files\n")
+    # At least some files should be present
+    assert "part_0.py" in section
+    # A truncation note must be present
+    assert "omitted due to size limit" in section
+    # The note should end the section
+    assert section.endswith("_")
 
 
-def test_docs_output_files_changed_accepts_list_of_strings():
-    """files_changed accepts and stores a list of repo-relative paths."""
-    files = ["docs/cli.md", "docs/index.md"]
-    output = DocsOutput(
-        summary="Updated CLI and index docs.",
-        commit_message="docs: update cli and index pages",
-        files_changed=files,
-    )
-    assert output.files_changed == files
+def test_reference_files_section_absolute_path_outside_repo(state, tmp_path):
+    """An absolute reference-file path that resolves outside repo_root
+    raises ValueError from relative_to and is silently skipped."""
+    outside = tmp_path.parent / "outside.py"
+    outside.write_text("x" * 1000)
+    state.reference_files = [str(outside)]
+    assert state.reference_files_section() == ""
 
 
-def test_docs_output_files_changed_preserves_order():
-    """files_changed preserves the order of paths as provided."""
-    files = ["docs/z.md", "docs/a.md", "docs/m.md"]
-    output = DocsOutput(
-        summary="Updated multiple docs pages.",
-        commit_message="docs: update multiple pages",
-        files_changed=files,
-    )
-    assert output.files_changed == ["docs/z.md", "docs/a.md", "docs/m.md"]
+def test_reference_files_section_omitted_count_stops_at_first_exceeding(state, tmp_path):
+    """When a file exceeds the remaining total budget, iteration stops via
+    ``break`` and later files are not included or checked."""
+    # Three tiny files (~100 bytes each) that easily fit.
+    # Then a ~100 KB file whose rendered cost (~100 KB) fits.
+    # Then a second ~100 KB file whose rendered cost pushes the total
+    # past the 200 KB cap — that file is the first to be omitted and
+    # iteration stops immediately (no further files are checked).
+    for i in range(3):
+        f = tmp_path / f"tiny_{i}.py"
+        f.write_text("s" * 100)
+    big = tmp_path / "big.py"
+    big.write_text("x" * 99_990)
+    tail = tmp_path / "tail.py"
+    tail.write_text("x" * 99_990)
 
+    state.reference_files = [
+        f"tiny_{i}.py" for i in range(3)
+    ] + ["big.py", "tail.py"]
 
-def test_docs_output_json_schema_includes_files_changed():
-    """The JSON schema for DocsOutput includes the files_changed field."""
-    schema = DocsOutput.model_json_schema()
-    props = schema.get("properties", {})
-    assert "files_changed" in props, (
-        "files_changed must appear in the JSON schema properties"
-    )
-    assert props["files_changed"].get("title") == "Files Changed"
-    assert props["files_changed"].get("type") == "array"
-
-
-def test_docs_output_existing_fields_still_work():
-    """Adding files_changed does not break existing fields like summary or
-    commit_message."""
-    output = DocsOutput(
-        summary="Updated docs/cli.md to cover the new --timeout flag.",
-        commit_message="docs: document --timeout flag in cli.md",
-        files_changed=["docs/cli.md"],
-    )
-    assert output.summary == (
-        "Updated docs/cli.md to cover the new --timeout flag."
-    )
-    assert output.commit_message == "docs: document --timeout flag in cli.md"
-    assert output.files_changed == ["docs/cli.md"]
-
-
-# ---------------------------------------------------------------------------
-# SessionState model
-# ---------------------------------------------------------------------------
-
-
-class TestSessionState:
-    def test_defaults(self):
-        """SessionState fields have sensible defaults."""
-        state = SessionState()
-        assert state.explore_findings == ""
-        assert state.explore_files == []
-        assert state.known_corruptions == []
-        assert state.attempt_count == 0
-        assert state.prior_file_hashes == {}
-
-    def test_explicit_values(self):
-        """SessionState accepts all fields via constructor."""
-        state = SessionState(
-            explore_findings="Found the authentication module.",
-            explore_files=["src/auth.py", "src/config.py"],
-            known_corruptions=["test_refine.py was corrupted in a prior run"],
-            attempt_count=3,
-            prior_file_hashes={"src/auth.py": "abc123"},
-        )
-        assert state.explore_findings == "Found the authentication module."
-        assert state.explore_files == ["src/auth.py", "src/config.py"]
-        assert state.known_corruptions == ["test_refine.py was corrupted in a prior run"]
-        assert state.attempt_count == 3
-        assert state.prior_file_hashes == {"src/auth.py": "abc123"}
-
-    def test_attempt_count_increments(self):
-        """attempt_count is a plain int that can be incremented externally."""
-        state = SessionState(attempt_count=1)
-        state.attempt_count += 1
-        assert state.attempt_count == 2
-
-    def test_json_round_trip(self):
-        """SessionState serialises and deserialises without data loss."""
-        original = SessionState(
-            explore_findings="Found the bug.",
-            explore_files=["src/bug.py"],
-            known_corruptions=["corrupt_file.py"],
-            attempt_count=2,
-            prior_file_hashes={"src/bug.py": "def456"},
-        )
-        json_str = original.model_dump_json(indent=2)
-        restored = SessionState.model_validate_json(json_str)
-        assert restored.explore_findings == original.explore_findings
-        assert restored.explore_files == original.explore_files
-        assert restored.known_corruptions == original.known_corruptions
-        assert restored.attempt_count == original.attempt_count
-        assert restored.prior_file_hashes == original.prior_file_hashes
-
-
-# ---------------------------------------------------------------------------
-# load_session_state / save_session_state
-# ---------------------------------------------------------------------------
-
-
-def test_load_session_state_file_missing(tmp_path: Path):
-    """load_session_state returns a default SessionState when no file exists."""
-    state = load_session_state(tmp_path)
-    assert isinstance(state, SessionState)
-    assert state.attempt_count == 0
-    assert state.explore_findings == ""
-
-
-def test_load_session_state_file_exists(tmp_path: Path):
-    """load_session_state reads and parses an existing session_state.json."""
-    state_file = tmp_path / "session_state.json"
-    state_file.write_text(
-        '{\n'
-        '  "explore_findings": "Found auth module.",\n'
-        '  "explore_files": ["src/auth.py"],\n'
-        '  "known_corruptions": [],\n'
-        '  "attempt_count": 2,\n'
-        '  "prior_file_hashes": {}\n'
-        '}'
-    )
-    state = load_session_state(tmp_path)
-    assert state.explore_findings == "Found auth module."
-    assert state.explore_files == ["src/auth.py"]
-    assert state.attempt_count == 2
-
-
-def test_save_session_state_writes_file(tmp_path: Path):
-    """save_session_state writes SessionState as JSON to session_state.json."""
-    state = SessionState(
-        explore_findings="Results.",
-        explore_files=["src/x.py"],
-        attempt_count=1,
-    )
-    save_session_state(state, tmp_path)
-    state_file = tmp_path / "session_state.json"
-    assert state_file.exists()
-    content = state_file.read_text()
-    assert "explore_findings" in content
-    assert "Results." in content
-    assert "src/x.py" in content
-    assert '"attempt_count": 1' in content
-
-
-def test_save_session_state_round_trip(tmp_path: Path):
-    """State saved and then loaded preserves all fields."""
-    original = SessionState(
-        explore_findings="Round trip test.",
-        explore_files=["a.py", "b.py"],
-        known_corruptions=["c.py"],
-        attempt_count=5,
-        prior_file_hashes={"a.py": "hash1"},
-    )
-    save_session_state(original, tmp_path)
-    restored = load_session_state(tmp_path)
-    assert restored.explore_findings == original.explore_findings
-    assert restored.explore_files == original.explore_files
-    assert restored.known_corruptions == original.known_corruptions
-    assert restored.attempt_count == original.attempt_count
-    assert restored.prior_file_hashes == original.prior_file_hashes
-
-
-def test_load_session_state_corrupt_file(tmp_path: Path):
-    """load_session_state raises when the JSON file is malformed."""
-    state_file = tmp_path / "session_state.json"
-    state_file.write_text("not valid json")
-    with pytest.raises(Exception):
-        load_session_state(tmp_path)
+    section = state.reference_files_section()
+    assert "tiny_0.py" in section
+    assert "tiny_1.py" in section
+    assert "tiny_2.py" in section
+    assert "big.py" in section
+    # tail.py is after the file that exceeded the budget → omitted
+    assert "tail.py" not in section
+    assert "omitted due to size limit" in section
