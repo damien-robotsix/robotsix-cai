@@ -12,6 +12,7 @@ jobs:
   solve-pr:
     if: github.event.review.state == 'changes_requested'
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: write
       pull-requests: write
