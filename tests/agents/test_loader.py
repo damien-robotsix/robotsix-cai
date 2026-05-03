@@ -3416,27 +3416,62 @@ def test_tool_error_as_retry_converts_generic_exception():
 # ---------------------------------------------------------------------------
 
 
-def test_unknown_tool_retry_enriches_message():
-    """ModelRetry starting with 'Unknown tool name:' gets enriched guidance."""
+@pytest.mark.parametrize(
+    "banned_tool",
+    ["execute", "bash", "shell", "run"],
+)
+def test_unknown_tool_retry_banned_tool_do_not_retry(banned_tool):
+    """For execute/bash/shell/run the message says 'do not retry' and
+    'this tool will never exist' to shut down hallucination loops."""
     cap = UnknownToolRetry()
     original = ModelRetry(
-        "Unknown tool name: 'execute'. "
-        "Available tools: ls, read_file, write_file, edit_file, glob, grep."
+        f"Unknown tool name: '{banned_tool}'. "
+        f"Available tools: ls, read_file, write_file, edit_file, glob, grep."
     )
     with pytest.raises(ModelRetry) as exc:
         _run(cap.on_tool_execute_error(
             None,
-            call=SimpleNamespace(tool_name="execute"),
+            call=SimpleNamespace(tool_name=banned_tool),
             tool_def=None,
             args={},
             error=original,
         ))
     msg = str(exc.value)
-    assert "Unknown tool name: 'execute'" in msg
+    assert f"Unknown tool name: '{banned_tool}'" in msg
+    assert "You do NOT have shell access" in msg
+    assert "Do not retry with different commands" in msg
+    assert "this tool will never exist" in msg
+    assert "Use only the tools listed above" in msg
+    assert "Available tools: ls, read_file, write_file, edit_file, glob, grep" in msg
+    # Must NOT contain the vague generic guidance
+    assert "Use read_file or grep to inspect files" not in msg
+    assert "The tool you called does not exist" not in msg
+
+
+def test_unknown_tool_retry_non_banned_tool_gets_generic_guidance():
+    """Unknown tools other than execute/bash/shell/run get the general guidance."""
+    cap = UnknownToolRetry()
+    original = ModelRetry(
+        "Unknown tool name: 'nonexistent_tool'. "
+        "Available tools: ls, read_file, write_file, edit_file, glob, grep."
+    )
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.on_tool_execute_error(
+            None,
+            call=SimpleNamespace(tool_name="nonexistent_tool"),
+            tool_def=None,
+            args={},
+            error=original,
+        ))
+    msg = str(exc.value)
+    assert "Unknown tool name: 'nonexistent_tool'" in msg
     assert "The tool you called does not exist" in msg
     assert "Available tools: ls, read_file, write_file, edit_file, glob, grep" in msg
     assert "You cannot run shell commands" in msg
     assert "Use read_file or grep to inspect files instead" in msg
+    # Must NOT contain the banned-tool-specific message
+    assert "do not retry" not in msg.lower()
+    assert "this tool will never exist" not in msg
 
 
 def test_unknown_tool_retry_passes_through_other_errors():

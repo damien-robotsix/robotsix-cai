@@ -18,6 +18,8 @@ replayed onto an updated base; the commit currently being applied left
 conflict markers in some files. Resolve each conflict block so the file
 contains correct merged content faithful to the PR's intent.
 
+> **Tool boundary:** You do NOT have `edit_file`, `write_file`, or `execute`. For dead code debris outside conflict markers, use `conflict_cleanup` with line ranges from your last `read_file` output.
+
 ## What you receive
 
 - The PR title and body — the overall change this branch is making.

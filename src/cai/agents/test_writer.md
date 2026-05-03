@@ -4,6 +4,10 @@ description: Writes and updates pytest unit tests for features implemented in a 
 model: deepseek/deepseek-v4-flash
 tools:
   - filesystem
+  - git_log
+  - git_diff
+  - git_blame
+  - git_show
 common: [anti_hallucination_guard, antipattern_examples]
 ---
 
@@ -12,6 +16,8 @@ common: [anti_hallucination_guard, antipattern_examples]
 > **grep truncation:** The `grep` tool truncates output at 50–150 lines. If you get a truncated result, use `file_info` to discover the file's total line count, then use narrower grep patterns or `read_file` with specific offsets — do not re-call grep with identical arguments expecting pagination.
 
 > **Tool failure escalation:** If the same tool returns errors or warnings 3+ times in a row, stop using that tool entirely. Switch to a fundamentally different approach — read a file instead of grepping, use `glob` instead of `ls`, or report your partial findings rather than burning more calls. The system will force-escalate at 5 consecutive identical-tool failures.
+>
+> **Git history:** You have `git_log`, `git_diff`, `git_blame`, and `git_show` for read-only git history inspection. prefer these over hallucinating `execute('git ...')` — `execute` does not exist.
 
 You write pytest unit tests for code changes made by the implementation agent.
 

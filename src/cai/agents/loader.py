@@ -721,6 +721,15 @@ class UnknownToolRetry(AbstractCapability):
         if match:
             tool_name = match.group(1)
             available = match.group(2)
+            if tool_name in ("execute", "bash", "shell", "run"):
+                raise ModelRetry(
+                    f"Unknown tool name: '{tool_name}'. "
+                    f"You do NOT have shell access. "
+                    f"Do not retry with different commands — "
+                    f"this tool will never exist. "
+                    f"Use only the tools listed above.\n"
+                    f"Available tools: {available}."
+                )
             raise ModelRetry(
                 f"Unknown tool name: '{tool_name}'. "
                 f"The tool you called does not exist.\n"
