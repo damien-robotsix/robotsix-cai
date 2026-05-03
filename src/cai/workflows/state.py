@@ -221,6 +221,35 @@ class MergeEvaluationOutput(BaseModel):
     )
 
 
+SESSION_STATE_FILE = "session_state.json"
+
+
+class SessionState(BaseModel):
+    """Persisted across sequential cai-solve invocations on the same issue."""
+
+    explore_findings: str = ""  # summary from the best explore run so far
+    explore_files: list[str] = Field(default_factory=list)
+    known_corruptions: list[str] = Field(default_factory=list)
+        # Forward-looking plumbing — populating this is out of scope.
+        # e.g. "test_refine.py was corrupted in a prior run; verify before editing"
+    attempt_count: int = 0
+    prior_file_hashes: dict[str, str] = Field(default_factory=dict)
+        # Forward-looking plumbing — path -> sha256 of last known-good content.
+
+
+def load_session_state(workspace_root: Path) -> SessionState:
+    path = workspace_root / SESSION_STATE_FILE
+    if path.exists():
+        return SessionState.model_validate_json(path.read_text())
+    return SessionState()
+
+
+def save_session_state(state: SessionState, workspace_root: Path) -> None:
+    (workspace_root / SESSION_STATE_FILE).write_text(
+        state.model_dump_json(indent=2)
+    )
+
+
 @dataclass
 class IssueState:
     bot: CaiBot
@@ -249,6 +278,7 @@ class IssueState:
     review_threads: list[ReviewThread] = field(default_factory=list)
     prior_corrections: list[ReviewThread] = field(default_factory=list)
     pr_number: int | None = field(default=None)
+    session_state: SessionState | None = field(default=None)
 
     def reference_files_section(self) -> str:
         """Render ``reference_files`` as a markdown section ready to splice into a prompt.

@@ -14,7 +14,7 @@ from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_pa
 from cai.git import checkout_branch
 from cai.github.pr import ReviewThread
 from cai.log.observability import traced_agent_run
-from cai.workflows.state import ImplementOutput, IssueState
+from cai.workflows.state import ImplementOutput, IssueState, save_session_state
 
 
 @lru_cache(maxsize=1)
@@ -153,6 +153,16 @@ class ImplementNode(BaseNode[IssueState]):
                 "Fix the code so these tests pass:\n\n"
                 f"```\n{state.test_failure_details}\n```"
             )
+        if state.session_state is not None and state.session_state.known_corruptions:
+            warning_lines = "\n".join(
+                f"  - {c}" for c in state.session_state.known_corruptions
+            )
+            prompt += (
+                "\n\n## Session warnings\n\n"
+                "The following issues were recorded in prior runs on this same issue. "
+                "Verify the affected files are still in a workable state before editing:\n\n"
+                f"{warning_lines}"
+            )
         result = await traced_agent_run(
             "implement",
             _implement_agent(),
@@ -163,4 +173,7 @@ class ImplementNode(BaseNode[IssueState]):
         state.implement_output = result.output
         if result.output.files_changed:
             state.reference_files = list(result.output.files_changed)
+        if state.session_state is not None:
+            state.session_state.attempt_count += 1
+            save_session_state(state.session_state, state.body_path.parent)
         return TestNode()
