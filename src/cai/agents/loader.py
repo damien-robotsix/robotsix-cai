@@ -1087,6 +1087,16 @@ _TASK_TOOL_NOTE = (
     "as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter."
 )
 
+# Batching instruction auto-injected when an agent has any filesystem tool
+# (filesystem, filesystem_read, or filesystem_write) in its ``tools:`` list.
+_BATCH_TOOL_CALLS_FRAGMENT = (
+    "**Batch independent tool calls:** When you need to make multiple "
+    "independent tool calls (reading several files, running multiple "
+    "searches), do them all in a single response rather than making one "
+    "call per LLM turn. Each unnecessary round-trip costs ~$0.003–$0.007 "
+    "and 5–40s of latency."
+)
+
 
 def _inject_common_fragments(config: dict, instructions: str) -> str:
     """Inject common prompt fragments into instructions after the title heading.
@@ -1107,6 +1117,11 @@ def _inject_common_fragments(config: dict, instructions: str) -> str:
     tools = config.get("tools", [])
     if isinstance(tools, list) and "subagents" in tools:
         fragments.append(_TASK_TOOL_NOTE)
+
+    if isinstance(tools, list) and any(
+        t in ("filesystem", "filesystem_read", "filesystem_write") for t in tools
+    ):
+        fragments.append(_BATCH_TOOL_CALLS_FRAGMENT)
 
     if not fragments:
         return instructions
