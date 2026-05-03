@@ -25,6 +25,7 @@ from cai.workflows.sourcing import sourcing_graph
 from cai.workflows.memory_audit import memory_audit_graph
 from cai.workflows.parent_check import parent_check_graph
 from cai.workflows.ci_triage import ci_triage_graph
+from cai.workflows.trace_followup import trace_followup_graph
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,12 @@ def _conflicts_session_id(args: CliArgs) -> str:
 def _ci_triage_session_id(args: CliArgs) -> str:
     """Return a timestamp-based session id matching the pattern in ``ci_triage.py``."""
     return f"ci-triage-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+
+
+def _trace_followup_session_id(args: CliArgs) -> str:
+    """Return a date-based session id so a day's run is one Langfuse session."""
+    repo_slug = args.repo.replace("/", "-")
+    return f"trace-followup-{repo_slug}-{datetime.now(timezone.utc).strftime('%Y%m%d')}"
 
 
 WORKFLOWS: list[WorkflowSpec] = [
@@ -366,6 +373,43 @@ WORKFLOWS: list[WorkflowSpec] = [
         ),
         docker_command="cai-parent-check ${{ github.repository }}#${{ github.event.issue.number }}",
         permissions={"issues": "write"},
+        authorized_user_variant="none",
+    ),
+    WorkflowSpec(
+        slug="trace-followup",
+        title="CAI Trace Follow-up",
+        nav_order=11,
+        blurb=(
+            "Daily check on every open ``cai:trace-investigation`` issue. "
+            "Pulls yesterday's Langfuse traces, scopes them via the "
+            "``Trace filter`` hint persisted in each issue body, delegates "
+            "per-trace deep dives to ``trace_analyst``, and posts a "
+            "``Last reproduced`` comment when the symptom appears again."
+        ),
+        graph=trace_followup_graph,
+        cli_entry="cai.workflows.trace_followup:main",
+        session_id=_trace_followup_session_id,
+        github_trigger=GitHubTrigger(
+            on=[
+                GitHubTriggerEvent(event="schedule", cron="0 7 * * *"),
+                GitHubTriggerEvent(
+                    event="workflow_dispatch",
+                    inputs={
+                        "repo": {
+                            "description": "Target GitHub repository (owner/repo)",
+                            "required": True,
+                            "default": "damien-robotsix/robotsix-cai",
+                        },
+                    },
+                ),
+            ],
+        ),
+        docker_command="cai-trace-followup --repo \"${{ github.event.inputs.repo || 'damien-robotsix/robotsix-cai' }}\"",
+        permissions={"contents": "read", "issues": "write"},
+        # Single global slot — the followup walks all open trace-investigation
+        # issues sequentially, so parallel daily runs from the same repo would
+        # race to comment and double-update body lines.
+        concurrency_group="cai-trace-followup",
         authorized_user_variant="none",
     ),
     WorkflowSpec(

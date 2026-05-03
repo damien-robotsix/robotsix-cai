@@ -1,0 +1,43 @@
+name: CAI Trace Follow-up
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Target GitHub repository (owner/repo)"
+        required: true
+        default: damien-robotsix/robotsix-cai
+
+concurrency:
+  group: cai-trace-followup
+  cancel-in-progress: true
+
+jobs:
+  trace-followup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Stage cai config for container
+        uses: ./.github/actions/setup-cai
+        with:
+          cai_github_app_pem: ${{ secrets.CAI_GITHUB_APP_PEM }}
+          cai_app_env: ${{ secrets.CAI_APP_ENV }}
+
+      - name: Run CAI Trace Follow-up
+        run: |
+          docker run --rm \
+            -v "${RUNNER_TEMP}/cai-config:/home/cai/.config/cai:ro" \
+            -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            -e LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}" \
+            -e LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
+            -e LANGFUSE_BASE_URL="${{ secrets.LANGFUSE_BASE_URL }}" \
+            docker.io/robotsix/cai:latest \
+            cai-trace-followup --repo "${{ github.event.inputs.repo || 'damien-robotsix/robotsix-cai' }}"

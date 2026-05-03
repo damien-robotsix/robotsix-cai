@@ -161,6 +161,68 @@ def test_trace_section_renders_first_observed():
     assert section.index("First observed") < section.index("- `abc`")
 
 
+def test_trace_section_renders_trace_filter():
+    section = _trace_section(
+        ["abc"],
+        first_observed="2026-05-03T12:00:00+00:00",
+        trace_filter="tool errors in Bash",
+    )
+    assert "**First observed**: 2026-05-03T12:00:00+00:00" in section
+    assert "**Trace filter**: tool errors in Bash" in section
+    # Both metadata lines come before the bullets
+    assert section.index("Trace filter") < section.index("- `abc`")
+
+
+def test_proposed_issue_trace_filter_default_none():
+    issue = ProposedIssue(title="t", body="b", confidence=5)
+    assert issue.trace_filter is None
+
+
+def test_proposed_issue_trace_filter_accepted():
+    issue = ProposedIssue(
+        title="t", body="b", confidence=5,
+        trace_ids=["x"], trace_filter="cai-solve traces with prose-instead-of-tool-call",
+    )
+    assert issue.trace_filter == "cai-solve traces with prose-instead-of-tool-call"
+
+
+def test_create_issues_from_proposals_trace_filter_lands_in_body():
+    """trace_filter on the ProposedIssue is written into the created issue body."""
+    fake_dedupe = MagicMock()
+    fake_dedupe.run = AsyncMock(return_value=MagicMock(
+        output=DedupeOutput(action="new", target_issue_number=None, reason="New")
+    ))
+
+    repo_mock = MagicMock()
+    repo_mock.get_issues.return_value = []
+    created = MagicMock()
+    created.html_url = "https://github.com/owner/repo/issues/1"
+    repo_mock.create_issue.return_value = created
+
+    bot = MagicMock()
+    bot.repo.return_value = repo_mock
+
+    issue = ProposedIssue(
+        title="T", body="Body.", confidence=8,
+        trace_ids=["t-1"],
+        last_detected_at="2026-05-03T08:00:00+00:00",
+        trace_filter="trace_analyst agent runs that hit retry loops",
+    )
+
+    with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
+        import asyncio
+        asyncio.run(_create_issues_from_proposals(
+            bot=bot,
+            repo_name="owner/repo",
+            issues=[issue],
+            labels_for_confidence=_labels_for_confidence,
+        ))
+
+    body = repo_mock.create_issue.call_args.kwargs["body"]
+    assert "**Trace filter**: trace_analyst agent runs that hit retry loops" in body
+    assert "**First observed**: 2026-05-03T08:00:00+00:00" in body
+
+
 @pytest.mark.parametrize(
     "input_labels,expected",
     [

@@ -35,6 +35,7 @@ cai-sourcing = "cai.workflows.sourcing:main"
 cai-memory-audit = "cai.workflows.memory_audit:main"
 cai-chain-sub-issue = "cai.workflows.chain:main"
 cai-ci-triage = "cai.workflows.ci_triage:main"
+cai-trace-followup = "cai.workflows.trace_followup:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cai"]

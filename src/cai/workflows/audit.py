@@ -65,6 +65,7 @@ class ProposedIssue(WithConfidence):
     body: str
     last_detected_at: str | None = None  # ISO timestamp of the most recent relevant trace
     trace_ids: list[str] = []  # Langfuse trace IDs that motivated the issue; non-empty marks it as needing human trace investigation and disables auto-raise
+    trace_filter: str | None = None  # Free-form hint describing which kind of yesterday's traces matter for the daily follow-up (e.g. "tool errors in Bash", "cai-solve traces where DeepSeek emits prose instead of a final tool call")
 
 
 class DedupeOutput(BaseModel):
@@ -126,16 +127,24 @@ def _dedupe_agent():
     )
 
 
-def _trace_section(trace_ids: list[str], first_observed: str | None = None) -> str:
+def _trace_section(
+    trace_ids: list[str],
+    first_observed: str | None = None,
+    trace_filter: str | None = None,
+) -> str:
     """Render trace IDs as a markdown section to splice into an issue body or comment.
 
-    ``first_observed`` is rendered as a metadata line above the bullets so the
-    daily follow-up workflow can read it back from the issue body.
+    ``first_observed`` and ``trace_filter`` are rendered as metadata lines
+    above the bullets so the daily follow-up workflow can read them back
+    from the issue body.
     """
     bullets = "\n".join(f"- `{tid}`" for tid in trace_ids)
-    metadata = (
-        f"**First observed**: {first_observed}\n\n" if first_observed else ""
-    )
+    metadata_lines: list[str] = []
+    if first_observed:
+        metadata_lines.append(f"**First observed**: {first_observed}")
+    if trace_filter:
+        metadata_lines.append(f"**Trace filter**: {trace_filter}")
+    metadata = "\n".join(metadata_lines) + "\n\n" if metadata_lines else ""
     return (
         "## Relevant Traces\n\n"
         "Symptom drawn from the following Langfuse traces. "
@@ -204,7 +213,9 @@ async def _create_issues_from_proposals(
             )
             if issue.trace_ids:
                 comment += "\n\n" + _trace_section(
-                    issue.trace_ids, first_observed=issue.last_detected_at
+                    issue.trace_ids,
+                    first_observed=issue.last_detected_at,
+                    trace_filter=issue.trace_filter,
                 )
             target_issue.create_comment(comment)
             continue
@@ -223,7 +234,9 @@ async def _create_issues_from_proposals(
         if issue.trace_ids:
             labels = _labels_for_trace_investigation(labels)
             body = body.rstrip() + "\n\n" + _trace_section(
-                issue.trace_ids, first_observed=issue.last_detected_at
+                issue.trace_ids,
+                first_observed=issue.last_detected_at,
+                trace_filter=issue.trace_filter,
             )
         created = repo_obj.create_issue(
             title=issue.title,
