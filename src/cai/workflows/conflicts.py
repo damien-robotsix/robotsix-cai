@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
@@ -164,6 +164,15 @@ async def _run_resolve_step(repo_root: Path, prompt: str) -> None:
             prompt,
             deps=_resolve_step_deps(repo_root),
             usage_limits=UsageLimits(request_limit=90),
+        )
+    except ModelHTTPError as exc:
+        if exc.status_code != 404 or "No endpoints found" not in str(exc.body or ""):
+            raise
+        await asyncio.sleep(30)
+        await _resolve_step_agent().run(
+            prompt,
+            deps=_resolve_step_deps(repo_root),
+            usage_limits=UsageLimits(request_limit=60),
         )
 
 
