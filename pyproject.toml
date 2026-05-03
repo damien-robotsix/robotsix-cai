@@ -21,6 +21,8 @@ dependencies = [
     "pytest>=8",
     "pre-commit>=3",
     "jinja2>=3",
+    "tree-sitter>=0.25",
+    "tree-sitter-python>=0.25",
 ]
 
 [project.scripts]
