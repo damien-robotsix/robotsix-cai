@@ -469,7 +469,7 @@ def test_solve_issue_applies_failed_label_when_refine_output_is_none(tmp_path):
 @patch("cai.workflows.refine.push")
 @patch("cai.workflows.refine.refine_agent")
 def test_refine_node_request_limit(mock_agent_factory, mock_push, mock_add_sub_issue, state, tmp_path):
-    """RefineNode passes UsageLimits with request_limit=100 to the refine agent."""
+    """RefineNode passes UsageLimits with request_limit=15 to the refine agent."""
     agent_instance = MagicMock()
     mock_agent_factory.return_value = agent_instance
 
@@ -501,4 +501,4 @@ def test_refine_node_request_limit(mock_agent_factory, mock_push, mock_add_sub_i
     _, kwargs = agent_instance.run.call_args
     assert "usage_limits" in kwargs
     assert isinstance(kwargs["usage_limits"], UsageLimits)
-    assert kwargs["usage_limits"].request_limit == 100
+    assert kwargs["usage_limits"].request_limit == 15
