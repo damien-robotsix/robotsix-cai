@@ -693,50 +693,123 @@ def test_grep_guardrail_resets_on_match():
     assert cap._empty_grep_count == 0
 
 
-def test_grep_guardrail_warns_at_threshold():
+def test_grep_guardrail_escalates_from_modelretry_to_warning():
+    """First threshold breach raises ModelRetry; subsequent breaches return a
+    warning string (escalation path to avoid pydantic-ai max_retries crash)."""
     cap = GrepGuardrailAsRetry()
+    # Warm up to just below threshold.
     for _ in range(GrepGuardrailAsRetry._THRESHOLD - 1):
         _run(cap.after_tool_execute(
             None, call=_grep_call(), tool_def=None, args={},
             result="No matches for 'foo'",
         ))
+    # First threshold breach → ModelRetry.
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'bar'",
+        ))
+    msg = str(exc.value)
+    assert "consecutive zero-result grep" in msg
+    assert "read_file" in msg
+    assert cap._empty_grep_count == 0
+    assert cap._guardrail_fire_count == 1
+    # Now hit the threshold again — escalted to warning string.
+    for _ in range(GrepGuardrailAsRetry._THRESHOLD - 1):
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'baz'",
+        ))
     result = _run(cap.after_tool_execute(
         None, call=_grep_call(), tool_def=None, args={},
-        result="No matches for 'bar'",
+        result="No matches for 'qux'",
     ))
     assert "Warning:" in result
     assert "consecutive zero-result grep" in result
-    assert "No matches for 'bar'" in result
+    assert "No matches for 'qux'" in result
     # counter resets after warning so the next streak starts fresh
     assert cap._empty_grep_count == 0
 
 
 def test_grep_guardrail_warning_suggests_read_file():
-    """The warning returned at threshold must suggest read_file as an alternative."""
+    """The escalated warning (after first ModelRetry is consumed) must still
+    suggest read_file as an alternative and preserve original grep results."""
     cap = GrepGuardrailAsRetry()
+    # First, exhaust the ModelRetry escalation by hitting the threshold once.
     for _ in range(GrepGuardrailAsRetry._THRESHOLD - 1):
         _run(cap.after_tool_execute(
             None, call=_grep_call(), tool_def=None, args={},
             result="No matches for 'foo'",
         ))
+    with pytest.raises(ModelRetry):
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'bar'",
+        ))
+    # Now make _THRESHOLD more zero-result calls for the escalated warning.
+    for _ in range(GrepGuardrailAsRetry._THRESHOLD - 1):
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'baz'",
+        ))
     result = _run(cap.after_tool_execute(
         None, call=_grep_call(), tool_def=None, args={},
-        result="No matches for 'bar'",
+        result="No matches for 'qux'",
     ))
     assert "read_file" in result
     assert "Warning:" in result
-    assert "No matches for 'bar'" in result
-    assert "glob_pattern" in result
+    assert "read_file" in result
+    assert "Warning:" in result
+    assert "No matches for 'qux'" in result
 
 
 def test_grep_guardrail_for_run_returns_fresh_instance():
     cap = GrepGuardrailAsRetry()
     cap._empty_grep_count = 5
+    cap._guardrail_fire_count = 3
     cap._recently_removed.add("old_stuff")
     fresh = _run(cap.for_run(None))
     assert fresh is not cap
     assert fresh._empty_grep_count == 0
+    assert fresh._guardrail_fire_count == 0
     assert fresh._recently_removed == set()
+
+
+def test_grep_guardrail_resets_fire_count_on_nonempty():
+    """A non-empty grep resets _guardrail_fire_count to 0 alongside
+    _empty_grep_count, so a future zero-result streak starts fresh with
+    ModelRetry escalation available again."""
+    cap = GrepGuardrailAsRetry()
+    # Trigger first threshold breach to increment fire count.
+    for _ in range(GrepGuardrailAsRetry._THRESHOLD - 1):
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'foo'",
+        ))
+    with pytest.raises(ModelRetry):
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'bar'",
+        ))
+    assert cap._guardrail_fire_count == 1
+    # Non-empty grep resets fire count.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None, args={},
+        result="Files containing 'foo':\n  a.py",
+    ))
+    assert cap._guardrail_fire_count == 0
+    assert cap._empty_grep_count == 0
+    # Future zero-result streak starts fresh — first breach raises ModelRetry.
+    for _ in range(GrepGuardrailAsRetry._THRESHOLD - 1):
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'baz'",
+        ))
+    with pytest.raises(ModelRetry):
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None, args={},
+            result="No matches for 'qux'",
+        ))
 
 
 def test_grep_guardrail_edit_file_tracks_old_string():
@@ -999,15 +1072,15 @@ def test_grep_guardrail_verification_exempt_does_not_reset_counter():
         result="No matches for 'pytest.raises(Exception)'",
     ))
     assert cap._empty_grep_count == GrepGuardrailAsRetry._THRESHOLD - 1
-    # Next non-exempt empty grep hits threshold and returns a warning.
-    result = _run(cap.after_tool_execute(
-        None,
-        call=_grep_call(),
-        tool_def=None,
-        args={"pattern": "unrelated2"},
-        result="No matches for 'unrelated2'",
-    ))
-    assert "Warning:" in result
+    # Next non-exempt empty grep hits threshold. First breach raises ModelRetry.
+    with pytest.raises(ModelRetry):
+        _run(cap.after_tool_execute(
+            None,
+            call=_grep_call(),
+            tool_def=None,
+            args={"pattern": "unrelated2"},
+            result="No matches for 'unrelated2'",
+        ))
     assert cap._empty_grep_count == 0
 
 

@@ -159,24 +159,30 @@ class GrepGuardrailAsRetry(AbstractCapability):
 
     Models sometimes spiral on minor regex variations that all return
     zero matches, burning context without progress. After
-    ``_THRESHOLD`` consecutive empty grep results, the result is
-    returned prefixed with a warning suggesting ``read_file()``
-    instead of raising ``ModelRetry`` — the grep runs normally and
-    its output is preserved. Any non-empty grep result resets the
-    counter, so a single productive search clears the streak.
+    ``_THRESHOLD`` consecutive empty grep results, the first breach
+    raises ``ModelRetry`` with instructions to use ``read_file``,
+    ``ls``, or ``glob`` instead. Subsequent breaches (after the first
+    ``ModelRetry`` is consumed) return a warning string prefixed to
+    the grep result — this preserves the run by avoiding
+    pydantic-ai's ``max_retries=3`` crash while still surfacing
+    guidance. Any non-empty grep result resets all counters, so a
+    single productive search clears the streak and restores the
+    ``ModelRetry`` escalation for the next streak.
 
     State lives on the instance, but ``for_run`` returns a fresh
     instance per run so concurrent runs of the same agent don't share
     the counter.
     """
 
-    _THRESHOLD = 8
+    _THRESHOLD = 3
+    _ESCALATE_AT = 1  # 1st threshold breach: ModelRetry; 2nd+: return warning string
     _SAME_FILTER_THRESHOLD = 3
     _NO_MATCH_PREFIX = "No matches for"
 
     def __init__(self) -> None:
         super().__init__()
         self._empty_grep_count = 0
+        self._guardrail_fire_count = 0
         self._recently_removed: set[str] = set()
         self._last_nonempty_grep_key: tuple | None = None
         self._identical_nonempty_count = 0
@@ -233,6 +239,8 @@ class GrepGuardrailAsRetry(AbstractCapability):
         is_empty = not stripped or stripped.startswith(self._NO_MATCH_PREFIX)
         if not is_empty:
             self._empty_grep_count = 0
+            self._empty_grep_count = 0
+            self._guardrail_fire_count = 0
             self._last_empty_grep_key = None
             self._same_filter_count = 0
             self._last_empty_pattern = None
@@ -348,6 +356,14 @@ class GrepGuardrailAsRetry(AbstractCapability):
         self._empty_grep_count += 1
         if self._empty_grep_count >= self._THRESHOLD:
             self._empty_grep_count = 0
+            if self._guardrail_fire_count < self._ESCALATE_AT:
+                self._guardrail_fire_count += 1
+                raise ModelRetry(
+                    f"You have made {self._THRESHOLD} consecutive zero-result grep queries. "
+                    f"Stop searching with grep. Instead, read the file(s) you're "
+                    f"interested in directly with read_file, or use ls/glob to "
+                    f"explore the directory structure."
+                )
             return (
                 f"Warning: you have made {self._THRESHOLD} consecutive zero-result grep queries. "
                 f"Consider switching to read_file() instead, or trying a different "
