@@ -27,7 +27,7 @@ jobs:
             echo "Skipping bot actor: $ACTOR"
             exit 1
           fi
-          if ! echo "$APPROVED_AI_USERS" | tr ',' '\n' | tr ' ' '\n' | tr -d '\r' | grep -qFx "$ACTOR"; then
+          if ! grep -qFx "$ACTOR" <<< "$(tr ',' '\n' <<< "$APPROVED_AI_USERS" | tr ' ' '\n' | tr -d '\r')"; then
             echo "Unauthorized user: $ACTOR"
             exit 1
           fi
