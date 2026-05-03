@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from unittest.mock import Mock, patch
 
 import pytest
@@ -264,7 +265,6 @@ def test_push_ensure_labels_not_triggered_by_non_prefix_match(push_mocks, tmp_pa
 
 def _setup_pull_test(tmp_path, body="Issue body text", comments=None):
     """Create mocks for a pull() call and return (bot, directory, number)."""
-    from datetime import datetime
 
     mock_bot = Mock()
     mock_repo = Mock()
@@ -307,7 +307,6 @@ def test_pull_writes_body_without_comments_when_none(tmp_path):
 
 def test_pull_appends_comments_section(tmp_path):
     """pull() writes body + ## Issue Comments section when comments exist."""
-    from datetime import datetime
 
     comments = [
         ("alice", datetime(2025, 1, 15, 10, 30), "First comment."),
@@ -331,7 +330,6 @@ def test_pull_appends_comments_section(tmp_path):
 
 def test_pull_single_comment(tmp_path):
     """pull() correctly formats the comments section with a single comment."""
-    from datetime import datetime
 
     comments = [
         ("alice", datetime(2025, 1, 15, 10, 30), "Only comment."),
@@ -361,7 +359,6 @@ def test_pull_none_body_without_comments(tmp_path):
 
 def test_pull_none_body_with_comments(tmp_path):
     """pull() handles a None body gracefully when comments exist."""
-    from datetime import datetime
 
     comments = [
         ("alice", datetime(2025, 1, 15, 10, 30), "A comment."),
@@ -398,7 +395,6 @@ def test_pull_returns_correct_paths(tmp_path):
 ])
 def test_pull_does_not_raise_for_varied_inputs(tmp_path, body, has_comments):
     """pull() should not raise for any combination of body content and comment presence."""
-    from datetime import datetime
 
     comments = None
     if has_comments:

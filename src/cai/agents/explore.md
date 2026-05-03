@@ -23,7 +23,7 @@ findings summary. You are **read-only**.
 
 ## Search then read
 
-- **Phase 1 — Search:** Before any `read_file`, extract key symbols, function names, file paths, and patterns from the issue. Run `grep` and `glob` for those patterns **in parallel** in a single round-trip. Cast a wide net: search for class names, function definitions, import paths, and distinctive strings mentioned in the issue.
+- **Phase 1 — Search:** Before any `read_file`, extract key symbols, function names, file paths, and patterns from the issue. Run `grep` and `glob` for those patterns **in parallel** in a single round-trip. Cast a wide net: search for class names, function definitions, import paths, and distinctive strings mentioned in the issue. If a `grep` returns zero results, try broadening or removing the `glob_pattern` filter — the content may exist in a different file type (`.md`, `.toml`, `.yaml`).
 - **Phase 2 — Read:** Only after search results come back, `read_file` on files that matched. Read only the files that had hits — skip files with zero matches.
 - **Stop at relevance:** Do not chase transitive imports, call sites, or infrastructure files (`loader.py`, `state.py`, `refine.py`, `solve.py`, etc.) unless a grep result directly implicates them. If a file you read does not answer the question, stop exploring that direction.
 

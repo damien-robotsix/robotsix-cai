@@ -171,6 +171,7 @@ class GrepGuardrailAsRetry(AbstractCapability):
     """
 
     _THRESHOLD = 8
+    _SAME_FILTER_THRESHOLD = 3
     _NO_MATCH_PREFIX = "No matches for"
 
     def __init__(self) -> None:
@@ -180,6 +181,9 @@ class GrepGuardrailAsRetry(AbstractCapability):
         self._last_nonempty_grep_key: tuple | None = None
         self._identical_nonempty_count = 0
         self._last_empty_grep_key: tuple | None = None
+        self._last_empty_pattern: str | None = None
+        self._last_empty_glob_pattern: str | None = None
+        self._same_filter_count = 0
 
     async def for_run(self, ctx: Any) -> "GrepGuardrailAsRetry":
         return GrepGuardrailAsRetry()
@@ -230,6 +234,9 @@ class GrepGuardrailAsRetry(AbstractCapability):
         if not is_empty:
             self._empty_grep_count = 0
             self._last_empty_grep_key = None
+            self._same_filter_count = 0
+            self._last_empty_pattern = None
+            self._last_empty_glob_pattern = None
             # Detect identical-argument non-empty grep loops.
             # pydantic_deep's grep tool truncates output at 50-150 lines
             # with messages like "showing first 50 of 67 matches". Agents
@@ -306,12 +313,45 @@ class GrepGuardrailAsRetry(AbstractCapability):
                 )
             self._last_empty_grep_key = current_key
 
+        # Same-filter empty-grep tracking: detect when the model
+        # varies the search pattern but keeps the same glob_pattern
+        # across consecutive zero-result greps (e.g. 3 different
+        # regexes all with glob_pattern='*.py').
+        pattern = _get_arg(args, "pattern")
+        glob_pattern = _get_arg(args, "glob_pattern")
+        if (
+            self._last_empty_glob_pattern is not None
+            and glob_pattern == self._last_empty_glob_pattern
+        ):
+            if pattern != self._last_empty_pattern:
+                self._same_filter_count += 1
+            # else: same pattern + same glob_pattern — the identical-
+            # empty guard above already handles repeated identical calls.
+        else:
+            # First zero-result grep ever, or glob_pattern changed.
+            self._same_filter_count = 1
+        self._last_empty_pattern = pattern
+        self._last_empty_glob_pattern = glob_pattern
+
+        if self._same_filter_count >= self._SAME_FILTER_THRESHOLD:
+            self._same_filter_count = 0
+            return (
+                f"Warning: you have made {self._SAME_FILTER_THRESHOLD} consecutive "
+                f"zero-result grep queries with the same glob_pattern "
+                f"({glob_pattern!r}) while varying only the search pattern. "
+                f"Consider using a different glob_pattern (e.g., '*.md', "
+                f"'*.toml') or dropping the filter entirely. "
+                f"(The grep was executed normally — results below.)\n\n"
+                f"{text}"
+            )
+
         self._empty_grep_count += 1
         if self._empty_grep_count >= self._THRESHOLD:
             self._empty_grep_count = 0
             return (
                 f"Warning: you have made {self._THRESHOLD} consecutive zero-result grep queries. "
-                f"Consider switching to read_file() instead. "
+                f"Consider switching to read_file() instead, or trying a different "
+                f"glob_pattern (e.g., '*.md', '*.toml') or dropping the filter entirely. "
                 f"(The grep was executed normally — results below.)\n\n"
                 f"{text}"
             )

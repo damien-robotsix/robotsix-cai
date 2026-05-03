@@ -716,6 +716,7 @@ def test_grep_guardrail_warning_suggests_read_file():
     assert "read_file" in result
     assert "Warning:" in result
     assert "No matches for 'bar'" in result
+    assert "glob_pattern" in result
 
 
 def test_grep_guardrail_for_run_returns_fresh_instance():
@@ -1444,6 +1445,135 @@ def test_grep_guardrail_identical_nonempty_hard_counter():
     assert "truncated" in str(exc.value)
     assert cap._identical_nonempty_count == 3
 
+
+
+# ---------------------------------------------------------------------------
+# GrepGuardrailAsRetry — same-filter empty-grep detection
+# ---------------------------------------------------------------------------
+
+
+def test_grep_guardrail_same_filter_warns_after_three():
+    """Three consecutive zero-result greps with the same glob_pattern='*.py'
+    but different search patterns return a targeted warning on the third."""
+    cap = GrepGuardrailAsRetry()
+    # First empty grep: *.py, pattern "foo"
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "foo", "glob_pattern": "*.py"},
+        result="No matches for 'foo'",
+    ))
+    assert cap._same_filter_count == 1
+    # Second empty grep: same glob_pattern, different pattern
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "bar", "glob_pattern": "*.py"},
+        result="No matches for 'bar'",
+    ))
+    assert cap._same_filter_count == 2
+    # Third empty grep: same glob_pattern, different pattern — triggers warning
+    result = _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "baz", "glob_pattern": "*.py"},
+        result="No matches for 'baz'",
+    ))
+    assert "Warning:" in result
+    assert "same glob_pattern" in result
+    assert "*.py" in result
+    assert "different glob_pattern" in result
+    assert "No matches for 'baz'" in result
+    # Counter resets after warning.
+    assert cap._same_filter_count == 0
+
+
+def test_grep_guardrail_same_filter_resets_on_glob_pattern_change():
+    """Same-filter counter resets when glob_pattern changes between
+    consecutive zero-result greps."""
+    cap = GrepGuardrailAsRetry()
+    # Two zero-result greps with glob_pattern='*.py'.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "foo", "glob_pattern": "*.py"},
+        result="No matches for 'foo'",
+    ))
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "bar", "glob_pattern": "*.py"},
+        result="No matches for 'bar'",
+    ))
+    assert cap._same_filter_count == 2
+    # Third zero-result grep with a different glob_pattern — resets counter.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "baz", "glob_pattern": "*.md"},
+        result="No matches for 'baz'",
+    ))
+    assert cap._same_filter_count == 1
+
+
+def test_grep_guardrail_same_filter_resets_on_nonempty_grep():
+    """Same-filter counter resets when a non-empty grep intervenes."""
+    cap = GrepGuardrailAsRetry()
+    # Two zero-result greps with glob_pattern='*.py'.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "foo", "glob_pattern": "*.py"},
+        result="No matches for 'foo'",
+    ))
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "bar", "glob_pattern": "*.py"},
+        result="No matches for 'bar'",
+    ))
+    assert cap._same_filter_count == 2
+    # Non-empty grep — resets same-filter tracking.
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "real_match", "glob_pattern": "*.py"},
+        result="showing first 5 of 10 matches:\n  real.py\n...",
+    ))
+    assert cap._same_filter_count == 0
+    assert cap._last_empty_pattern is None
+    assert cap._last_empty_glob_pattern is None
+
+
+def test_grep_guardrail_same_filter_identical_pattern_no_warning():
+    """Repeated zero-result greps with the SAME pattern aren't the
+    same-filter guard's concern: the identical-empty-grep guard raises
+    ModelRetry on the 2nd identical call, so the same-filter counter
+    never climbs past 1 in this scenario."""
+    cap = GrepGuardrailAsRetry()
+    # First call: same-filter guard records (pattern, glob_pattern).
+    _run(cap.after_tool_execute(
+        None, call=_grep_call(), tool_def=None,
+        args={"pattern": "nonexistent", "glob_pattern": "*.py"},
+        result="No matches for 'nonexistent'",
+    ))
+    assert cap._same_filter_count == 1
+    assert cap._empty_grep_count == 1
+
+    # Second identical call: identical-empty-grep guard raises before
+    # the same-filter block runs.
+    with pytest.raises(ModelRetry):
+        _run(cap.after_tool_execute(
+            None, call=_grep_call(), tool_def=None,
+            args={"pattern": "nonexistent", "glob_pattern": "*.py"},
+            result="No matches for 'nonexistent'",
+        ))
+    assert cap._same_filter_count == 1
+
+
+def test_grep_guardrail_for_run_resets_same_filter_state():
+    """for_run returns a fresh instance with default same-filter state."""
+    cap = GrepGuardrailAsRetry()
+    # Seed some state.
+    cap._same_filter_count = 2
+    cap._last_empty_pattern = "foo"
+    cap._last_empty_glob_pattern = "*.py"
+    fresh = _run(cap.for_run(None))
+    assert fresh is not cap
+    assert fresh._same_filter_count == 0
+    assert fresh._last_empty_pattern is None
+    assert fresh._last_empty_glob_pattern is None
 
 
 # ---------------------------------------------------------------------------
