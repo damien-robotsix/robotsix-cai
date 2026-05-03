@@ -16,7 +16,7 @@ You receive pre-fetched Langfuse trace data in the prompt — either a full sess
 ## How to work
 
 1. **Read the provided context**: The prompt contains everything you need — session info, trace IDs, costs, latencies, or error details. Do not try to fetch trace lists yourself.
-2. **Delegate deep dives**: For any trace where you need to understand what happened inside (tool calls, errors, reasoning steps, repeated loops), delegate to the `trace_analyst` subagent with the specific trace IDs. Keep your own context use minimal — do not inline large trace outputs. **Important:** When calling the `task` tool, pass the subagent instructions as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter.
+2. **Delegate deep dives**: For any trace where you need to understand what happened inside (tool calls, errors, reasoning steps, repeated loops), delegate to the `trace_analyst` subagent with the specific trace IDs. Keep your own context use minimal — do not inline large trace outputs.
 3. **Analyze**: Based on the data and analyst findings, look for:
    - Expensive or repeated tool calls that should be consolidated
    - Failure patterns (timeouts, missing context, wrong arguments)

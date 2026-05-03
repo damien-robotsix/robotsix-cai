@@ -1,6 +1,6 @@
 """Tests for the ci_triage agent definition (ci_triage.md)."""
 
-from cai.agents.loader import parse_agent_md, resolve_agent_path
+from cai.agents.loader import parse_agent_md, resolve_agent_path, build_deep_agent
 
 
 def test_ci_triage_agent_config():
@@ -114,10 +114,10 @@ def test_ci_triage_has_trace_analyst_subagent():
     )
 
 
-def test_ci_triage_trace_analyst_instructions():
+def test_ci_triage_trace_analyst_instructions(monkeypatch):
     """Instructions must describe delegating deep trace analysis to trace_analyst."""
     path = resolve_agent_path("ci_triage")
-    _, instructions = parse_agent_md(path)
+    config, instructions = parse_agent_md(path)
 
     assert "trace_analyst" in instructions, (
         "Instructions must reference the trace_analyst subagent"
@@ -128,6 +128,24 @@ def test_ci_triage_trace_analyst_instructions():
     assert "trace ID" in instructions, (
         "Instructions must mention passing a specific trace ID to the subagent"
     )
-    assert "description=" in instructions or "description =" in instructions, (
-        "Instructions must remind about passing description= not prompt="
+
+    # Task-tool-note is auto-injected by build_deep_agent — verify via merged output.
+    captured_instructions = []
+
+    def fake_create(model, *, name, instructions, **kwargs):
+        captured_instructions.append(instructions)
+        return object()
+
+    monkeypatch.setattr("pydantic_deep.create_deep_agent", fake_create)
+    monkeypatch.setattr("cai.agents.loader._resolve_subagents", lambda c: [])
+    monkeypatch.setattr("cai.agents.loader.build_model", lambda c: None)
+    monkeypatch.setattr("cai.agents.loader.build_deep_agent_kwargs", lambda c: {})
+    monkeypatch.setattr("cai.agents.loader._prune_toolsets", lambda a, r: None)
+    build_deep_agent(config, instructions)
+    assert captured_instructions, "build_deep_agent did not call create_deep_agent"
+    merged = captured_instructions[0]
+
+    assert "description=" in merged or "description =" in merged, (
+        "Merged instructions must contain the task-tool-note about passing "
+        "description=, not prompt="
     )

@@ -984,6 +984,66 @@ _DEEP_FLAG_DEFAULTS: dict[str, bool] = {
     flag: False for kwargs in TOOL_FLAGS.values() for flag in kwargs
 }
 
+# Common prompt fragments keyed by the ``common:`` frontmatter key.
+# Each value is inserted verbatim after the title heading of the agent.
+_COMMON_FRAGMENTS: dict[str, str] = {
+    "anti_hallucination_guard": (
+        "> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. "
+        "You cannot run commands, tests, or scripts. "
+        "Only the tools listed above are available to you.**"
+    ),
+    "antipattern_examples": (
+        "> **Anti-pattern examples:**\n"
+        "> - **BAD:** `execute('git log')` or `bash('ls')` — you do not have these tools.\n"
+        "> - **GOOD:** use `read_file`, `grep`, `glob`, or `ls` to discover what changed."
+    ),
+}
+
+# Task-tool-note auto-injected when ``subagents`` appears in ``tools:``.
+_TASK_TOOL_NOTE = (
+    "**Important:** When calling the `task` tool, pass the subagent instructions "
+    "as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter."
+)
+
+
+def _inject_common_fragments(config: dict, instructions: str) -> str:
+    """Inject common prompt fragments into instructions after the title heading.
+
+    Resolves ``config['common']`` names against :data:`_COMMON_FRAGMENTS` and
+    auto-includes the task-tool-note when ``subagents`` is listed in
+    ``config['tools']``.  Fragments are inserted in order, each separated by
+    a blank line, immediately after the first ``# Title`` line.
+    """
+    fragments: list[str] = []
+
+    common_names = config.get("common", [])
+    if isinstance(common_names, list):
+        for name in common_names:
+            if name in _COMMON_FRAGMENTS:
+                fragments.append(_COMMON_FRAGMENTS[name])
+
+    tools = config.get("tools", [])
+    if isinstance(tools, list) and "subagents" in tools:
+        fragments.append(_TASK_TOOL_NOTE)
+
+    if not fragments:
+        return instructions
+
+    lines = instructions.splitlines()
+    heading_idx = None
+    for i, line in enumerate(lines):
+        if line.startswith("# "):
+            heading_idx = i
+            break
+
+    if heading_idx is None:
+        return "\n\n".join(fragments) + "\n\n" + instructions
+
+    insert_point = heading_idx + 1
+    frag_text = "\n\n".join(fragments)
+    result_lines = lines[:insert_point] + [""] + [frag_text] + [""] + lines[insert_point:]
+    return "\n".join(result_lines)
+
 
 def _import_factory(target: str) -> Any:
     """Resolve a ``"module.path:attr"`` string from :data:`TOOL_FACTORIES`."""
@@ -1093,6 +1153,8 @@ def build_deep_agent(
     are passed through to ``create_deep_agent`` unchanged.
     """
     from pydantic_deep import create_deep_agent
+
+    instructions = _inject_common_fragments(config, instructions)
 
     requested = list(config.get("tools", []))
     sub_configs = _resolve_subagents(config)

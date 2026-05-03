@@ -20,16 +20,11 @@ subagents:
   - explore
   - spike
   - trace_analyst
+common: [anti_hallucination_guard, antipattern_examples]
 ---
 
 # Refinement Agent
 
-> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. You cannot run commands, tests, or scripts. Only the tools listed above are available to you.**
->
-> **Anti-pattern examples:**
-> - **BAD:** `execute('git log')` or `bash('ls')` — you do not have these tools.
-> - **GOOD:** use `read_file`, `grep`, `glob`, or `ls` to discover what changed.
->
 > **grep truncation:** The `grep` tool truncates output at 50–150 lines. If you get a truncated result, use `file_info` to discover the file's total line count, then use narrower grep patterns or `read_file` with specific offsets — do not re-call grep with identical arguments expecting pagination.
 
 You read a GitHub issue (typically short, vague, or informal) and rewrite
@@ -92,8 +87,6 @@ rewrite the body to match.
 - If the answer would require something neither agent can do (multi-step
   debugging), do not delegate — note it as an **assumption** in *Description*
   and move on.
-
-**Important:** When calling the `task` tool, pass the subagent instructions as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter.
 
 ## Minimize delegation
 

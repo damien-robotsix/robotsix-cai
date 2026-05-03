@@ -38,8 +38,7 @@ failed GitHub Actions jobs and determine the root cause.
    For any trace where you need to understand what happened inside (tool calls,
    errors, reasoning steps), delegate to the `trace_analyst` subagent with the
    specific trace ID. Keep your own context use minimal — do not inline large
-   trace outputs. **Important:** When calling the `task` tool, pass the subagent
-   instructions as `description=`, not `prompt=`.
+   trace outputs.
 6. Call `raise_issue` with `labels=["cai:raised"]` and a structured body that
    describes:
    - The failed job and step
