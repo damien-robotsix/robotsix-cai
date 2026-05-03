@@ -787,6 +787,95 @@ def test_format_overview_empty_blocks():
 
 
 # ---------------------------------------------------------------------------
+# _resolve_and_parse — shared helper introduced in #1780
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.tools.block_tools._resolve")
+def test_resolve_and_parse_success(mock_resolve, tmp_path):
+    """_resolve_and_parse returns (Path, list[_Block]) for a valid Python file."""
+    from cai.tools.block_tools import _resolve_and_parse
+
+    f = tmp_path / "sample.py"
+    f.write_text("def foo():\n    pass\n")
+    mock_resolve.return_value = f
+
+    resolved, blocks = _run(_resolve_and_parse(_make_ctx(), "sample.py"))
+
+    assert resolved == f
+    assert len(blocks) == 1
+    assert blocks[0].name == "foo"
+    assert blocks[0].kind == "function"
+
+
+@patch("cai.tools.block_tools._resolve")
+def test_resolve_and_parse_file_not_found(mock_resolve, tmp_path):
+    """_resolve_and_parse raises FileNotFoundError when the resolved path does not exist."""
+    from cai.tools.block_tools import _resolve_and_parse
+
+    f = tmp_path / "missing.py"
+    mock_resolve.return_value = f
+
+    with pytest.raises(FileNotFoundError, match="File not found"):
+        _run(_resolve_and_parse(_make_ctx(), "missing.py"))
+
+
+@patch("cai.tools.block_tools._resolve")
+def test_resolve_and_parse_non_python_file(mock_resolve, tmp_path):
+    """_resolve_and_parse raises ValueError for non-.py files."""
+    from cai.tools.block_tools import _resolve_and_parse
+
+    f = tmp_path / "data.txt"
+    f.write_text("not python")
+    mock_resolve.return_value = f
+
+    with pytest.raises(ValueError, match="not a Python file"):
+        _run(_resolve_and_parse(_make_ctx(), "data.txt"))
+
+
+@patch("cai.tools.block_tools._resolve")
+def test_resolve_and_parse_syntax_error(mock_resolve, tmp_path):
+    """_resolve_and_parse raises ValueError when the file contains syntax errors."""
+    from cai.tools.block_tools import _resolve_and_parse
+
+    f = tmp_path / "broken.py"
+    f.write_text("def broken(\n")
+    mock_resolve.return_value = f
+
+    with pytest.raises(ValueError, match="syntax errors"):
+        _run(_resolve_and_parse(_make_ctx(), "broken.py"))
+
+
+@patch("cai.tools.block_tools._resolve")
+def test_resolve_and_parse_permission_error(mock_resolve):
+    """_resolve_and_parse propagates PermissionError from _resolve unchanged."""
+    from cai.tools.block_tools import _resolve_and_parse
+
+    mock_resolve.side_effect = PermissionError("Path escapes repository root")
+
+    with pytest.raises(PermissionError, match="Path escapes repository root"):
+        _run(_resolve_and_parse(_make_ctx(), "../escape.py"))
+
+
+@patch("cai.tools.block_tools._resolve")
+def test_resolve_and_parse_returns_resolved_path(mock_resolve, tmp_path):
+    """The resolved path returned by _resolve_and_parse is the absolute path from _resolve."""
+    from cai.tools.block_tools import _resolve_and_parse
+
+    f = tmp_path / "mod.py"
+    f.write_text("class A:\n    pass\n")
+    mock_resolve.return_value = f
+
+    resolved, blocks = _run(_resolve_and_parse(_make_ctx(), "mod.py"))
+
+    assert resolved == f
+    # Verify the path is a concrete Path instance (not a string)
+    from pathlib import Path
+    assert isinstance(resolved, Path)
+    assert resolved.name == "mod.py"
+
+
+# ---------------------------------------------------------------------------
 # block_overview — formatting edge cases
 # ---------------------------------------------------------------------------
 

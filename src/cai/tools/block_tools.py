@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 
 from pydantic_ai import RunContext, Tool
 from tree_sitter import Language, Parser
@@ -159,6 +160,20 @@ def _format_overview(path: str, blocks: list[_Block]) -> str:
     return "\n".join(lines)
 
 
+async def _resolve_and_parse(ctx: RunContext, path: str) -> tuple[Path, list[_Block]]:
+    resolved = _resolve(ctx, path)
+    if not resolved.exists():
+        raise FileNotFoundError(f"File not found: {path!r}")
+    if resolved.suffix != ".py":
+        raise ValueError(f"Error: {path!r} is not a Python file (.py extension required)")
+    file_bytes = resolved.read_bytes()
+    tree = await asyncio.to_thread(_get_parser().parse, file_bytes)
+    if tree.root_node.has_error:
+        raise ValueError(f"Error: {path!r} contains syntax errors and could not be parsed")
+    blocks = _collect_blocks(tree.root_node)
+    return resolved, blocks
+
+
 async def block_overview(ctx: RunContext, path: str) -> str:
     """Parse a Python file into an overview of top-level blocks (functions, classes, methods).
 
@@ -170,23 +185,9 @@ async def block_overview(ctx: RunContext, path: str) -> str:
         and docstrings.
     """
     try:
-        resolved = _resolve(ctx, path)
-    except PermissionError as exc:
+        resolved, blocks = await _resolve_and_parse(ctx, path)
+    except (ValueError, FileNotFoundError, PermissionError) as exc:
         return str(exc)
-
-    if not resolved.exists():
-        return f"File not found: {path!r}"
-
-    if resolved.suffix != ".py":
-        return f"Error: {path!r} is not a Python file (.py extension required)"
-
-    file_bytes = resolved.read_bytes()
-    tree = await asyncio.to_thread(_get_parser().parse, file_bytes)
-
-    if tree.root_node.has_error:
-        return f"Error: {path!r} contains syntax errors and could not be parsed"
-
-    blocks = _collect_blocks(tree.root_node)
     return _format_overview(path, blocks)
 
 
@@ -203,23 +204,9 @@ async def block_edit(ctx: RunContext, path: str, block_index: int, new_content: 
         On re-parse failure a warning is returned but the edit is kept on disk.
     """
     try:
-        resolved = _resolve(ctx, path)
-    except PermissionError as exc:
+        resolved, blocks = await _resolve_and_parse(ctx, path)
+    except (ValueError, FileNotFoundError, PermissionError) as exc:
         return str(exc)
-
-    if not resolved.exists():
-        return f"File not found: {path!r}"
-
-    if resolved.suffix != ".py":
-        return f"Error: {path!r} is not a Python file (.py extension required)"
-
-    file_bytes = resolved.read_bytes()
-    tree = await asyncio.to_thread(_get_parser().parse, file_bytes)
-
-    if tree.root_node.has_error:
-        return f"Error: {path!r} contains syntax errors and could not be parsed"
-
-    blocks = _collect_blocks(tree.root_node)
 
     if block_index < 0 or block_index >= len(blocks):
         max_idx = len(blocks) - 1
