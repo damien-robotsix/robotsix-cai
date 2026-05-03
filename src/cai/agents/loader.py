@@ -468,16 +468,20 @@ class EditFileGuardrailAsRetry(AbstractCapability):
                     f"edit_file({path!r}): change already present in file — "
                     f"skipping (already applied by prior edit in batch)."
                 )
+            hint = self._closest_match_hint(old_string, content)
+            trunc_hint = self._truncation_hint(old_string)
+            ws_hint = self._whitespace_normalization_hint(old_string, content)
             if count < self._ESCALATE_AT:
-                hint = self._closest_match_hint(old_string, content)
                 raise ModelRetry(
                     f"old_string not found in {path}. "
                     f"Re-read the file with read_file and copy the exact target "
                     f"lines — including all whitespace, blank lines, and surrounding "
                     f"content — into old_string. Do not reconstruct from memory."
+                    f"\n\nold_string repr: {repr(old_string)}"
+                    + (f"\n{trunc_hint}" if trunc_hint else "")
+                    + (f"\n{ws_hint}" if ws_hint else "")
                     + (f"\n\n{hint}" if hint else "")
                 )
-            hint = self._closest_match_hint(old_string, content)
             preview = self._render_preview(path, content)
             return (
                 f"Warning: edit_file failed {count} consecutive times on {path} "
@@ -485,8 +489,11 @@ class EditFileGuardrailAsRetry(AbstractCapability):
                 f"old_string from memory across retries instead of re-reading the "
                 f"file. The actual file content is included below — copy your "
                 f"old_string verbatim from this text (preserving every space, tab, "
-                f"and blank line) before calling edit_file again.\n\n"
-                + (f"{hint}\n\n" if hint else "")
+                f"and blank line) before calling edit_file again."
+                f"\n\nold_string repr: {repr(old_string)}"
+                + (f"\n{trunc_hint}" if trunc_hint else "")
+                + (f"\n{ws_hint}" if ws_hint else "")
+                + (f"\n\n{hint}\n\n" if hint else "\n\n")
                 + f"{preview}"
             )
 
@@ -569,6 +576,42 @@ class EditFileGuardrailAsRetry(AbstractCapability):
             f"Closest match at lines {best_start + 1}-{best_start + n} "
             f"({best_ratio:.0%} similar). Diff:\n{diff}"
         )
+
+    @staticmethod
+    def _truncation_hint(old_string: str) -> str:
+        """Return a hint when *old_string* appears truncated mid-word.
+
+        Heuristic: the last non-whitespace character is a lowercase
+        letter, digit, or underscore, AND the string does not end with
+        a newline.
+        """
+        stripped = old_string.rstrip()
+        if stripped and not old_string.endswith("\n"):
+            last_char = stripped[-1]
+            if last_char.islower() or last_char.isdigit() or last_char == "_":
+                return (
+                    "… The old_string appears truncated (ends mid-word). "
+                    "Ensure it ends at a line boundary."
+                )
+        return ""
+
+    @staticmethod
+    def _whitespace_normalization_hint(old_string: str, content: str) -> str:
+        """Return a hint when *old_string* would match the file after
+        stripping leading whitespace from every line.
+
+        Only reports the hint — does NOT auto-apply the normalized match.
+        """
+        old_lines = old_string.splitlines()
+        content_lines = content.splitlines()
+        stripped_old = "\n".join(line.lstrip() for line in old_lines)
+        stripped_content = "\n".join(line.lstrip() for line in content_lines)
+        if "\n" in stripped_old and stripped_old in stripped_content:
+            return (
+                "… old_string would match with whitespace normalization "
+                "— check your indentation."
+            )
+        return ""
 
     async def on_tool_execute_error(
         self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
