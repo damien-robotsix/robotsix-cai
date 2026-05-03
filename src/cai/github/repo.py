@@ -81,9 +81,8 @@ def prepare_workspace(bot: CaiBot, repo: str, number: int) -> IssueWorkspace:
     """Ensure the per-issue workspace exists; return its paths.
 
     Idempotent: existing issue files and clone are kept as-is on a
-    re-run. TODO: when reusing an existing workspace, decide how to
-    refresh stale state (fetch+reset, stash, branch hygiene) — for now
-    we trust the on-disk copy.
+    re-run. Docker-based workflows always start with a fresh
+    ``/tmp/cai-solve``, so no explicit refresh logic is needed.
     """
     root = issue_workspace(repo, number)
     root.mkdir(parents=True, exist_ok=True)

@@ -253,9 +253,7 @@ def test_solve_conflicts_aborts_rebase_before_raising(
 @patch("cai.workflows.conflicts.current_rebase_step")
 @patch("cai.workflows.conflicts.rebase_onto")
 @patch("cai.workflows.conflicts.rebase_abort")
-@patch("cai.workflows.conflicts.fetch")
 def test_rebase_loop_aborts_on_hook_failure(
-    mock_fetch,
     mock_abort,
     mock_onto,
     mock_step,
@@ -303,9 +301,7 @@ def test_rebase_loop_aborts_on_hook_failure(
 @patch("cai.workflows.conflicts.current_rebase_step")
 @patch("cai.workflows.conflicts.rebase_onto")
 @patch("cai.workflows.conflicts.rebase_abort")
-@patch("cai.workflows.conflicts.fetch")
 def test_rebase_loop_skips_genuinely_empty_commit(
-    mock_fetch,
     mock_abort,
     mock_onto,
     mock_step,

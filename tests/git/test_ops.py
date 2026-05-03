@@ -282,3 +282,10 @@ def test_index_matches_head(tmp_path):
     (repo_root / "u.txt").write_text("u2\n")
     repo.git.add("u.txt")
     assert index_matches_head(repo_root) is False
+
+
+def test_fetch_not_in_ops_module():
+    """The unused fetch() function was removed; it must not be importable."""
+    import cai.git.ops as ops_mod
+
+    assert not hasattr(ops_mod, "fetch"), "fetch() was removed from ops.py"

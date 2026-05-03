@@ -3,7 +3,7 @@ the resolve_step agent resolve conflicts step-by-step.
 
 The flow is implemented as a ``pydantic_graph.Graph``:
 
-* ``RebaseLoopNode`` — fetches ``origin`` and rebases onto ``origin/<base>``.
+* ``RebaseLoopNode`` — rebases onto ``origin/<base>``.
   When the rebase stops at a conflict, hands the current commit's diff
   plus the conflicted files to the ``resolve_step`` agent and continues.
 * ``SanityTestNode`` — runs the test suite once the rebase finishes
@@ -43,7 +43,6 @@ from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_pa
 from cai.git import (
     conflicted_paths,
     current_rebase_step,
-    fetch,
     index_matches_head,
     push_branch,
     rebase_abort,
@@ -176,7 +175,6 @@ async def _rebase_loop_async(workspace: PRWorkspace) -> tuple[bool, list[str]]:
     disrupt background tasks started by pydantic-ai or its OTel integration
     and cause silent failures on the second or later step.)
     """
-    fetch(workspace.repo_root, env={"GIT_TERMINAL_PROMPT": "0"})
     touched: list[str] = []
     try:
         finished = rebase_onto(
@@ -300,7 +298,7 @@ class ConflictsState:
 
 
 class RebaseLoopNode(BaseNode[ConflictsState, None, dict]):
-    """Fetch the base branch and rebase the PR onto it.
+    """Rebase the PR onto its base branch.
 
     The resolve_step agent is invoked for each conflicting commit until
     the rebase finishes cleanly. On any failure the rebase is aborted and
