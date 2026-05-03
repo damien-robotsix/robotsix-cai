@@ -502,3 +502,56 @@ def test_refine_node_request_limit(mock_agent_factory, mock_push, mock_add_sub_i
     assert "usage_limits" in kwargs
     assert isinstance(kwargs["usage_limits"], UsageLimits)
     assert kwargs["usage_limits"].request_limit == 30
+
+
+# ---------------------------------------------------------------------------
+# reference_files_section — total byte budget
+# ---------------------------------------------------------------------------
+
+
+def test_reference_files_section_truncates_when_over_budget(state, tmp_path):
+    """Files beyond _MAX_REFERENCE_FILES_TOTAL_BYTES are omitted and a
+    truncation note is appended."""
+    from cai.workflows.state import _MAX_REFERENCE_FILES_TOTAL_BYTES
+
+    # Create 3 files large enough that 2 fit but 3 exceed the budget.
+    # ~90 KB raw each  =>  ~90 KB rendered each  =>  2 fit (~180 KB), 3 blow past (~270 KB).
+    content = "x" * 90_000
+    for i in range(3):
+        f = tmp_path / "src" / f"big_{i}.py"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(content)
+
+    state.reference_files = [f"src/big_{i}.py" for i in range(3)]
+
+    section = state.reference_files_section()
+
+    assert section.startswith("## Reference files\n")
+    # First two files should be present
+    assert "src/big_0.py" in section
+    assert "src/big_1.py" in section
+    # Third file should be omitted
+    assert "src/big_2.py" not in section
+    # Truncation note should name the omitted count
+    assert "omitted due to size limit" in section
+    assert section.endswith("_")
+
+
+def test_reference_files_section_no_truncation_when_under_budget(state, tmp_path):
+    """When all files fit within _MAX_REFERENCE_FILES_TOTAL_BYTES, the
+    section includes every file and no truncation note appears."""
+    # Small files that easily fit
+    for i in range(3):
+        f = tmp_path / "src" / f"small_{i}.py"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(f"# small file {i}\nprint('hello')\n")
+
+    state.reference_files = [f"src/small_{i}.py" for i in range(3)]
+
+    section = state.reference_files_section()
+
+    assert section.startswith("## Reference files\n")
+    assert "src/small_0.py" in section
+    assert "src/small_1.py" in section
+    assert "src/small_2.py" in section
+    assert "omitted due to size limit" not in section
