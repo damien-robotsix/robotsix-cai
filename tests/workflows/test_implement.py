@@ -7,7 +7,7 @@ import pytest
 from pydantic_ai.usage import UsageLimits
 
 from cai.workflows.implement import ImplementNode
-from cai.workflows.state import ExploreOutput
+from cai.workflows.state import ExploreOutput, SessionState
 from cai.workflows.test_runner import TestNode
 
 
@@ -241,3 +241,188 @@ def test_reference_files_not_refreshed_when_files_changed_empty(
     assert state.reference_files == original_refs, (
         "state.reference_files should NOT be updated when files_changed is empty"
     )
+
+
+# ---------------------------------------------------------------------------
+# ImplementNode — session state: corruption warnings
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_prompt_includes_corruption_warnings_when_present(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """When session_state has known_corruptions, 'Session warnings' appears."""
+    mock_conflicted_files.return_value = []
+    state.session_state = SessionState(
+        known_corruptions=["test_refine.py was corrupted in a prior run"],
+    )
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        class MockResult:
+            output = MagicMock()
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Session warnings" in captured_prompt
+    assert "test_refine.py was corrupted" in captured_prompt
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_prompt_omits_corruption_warnings_when_session_state_none(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """When session_state is None, no 'Session warnings' section."""
+    mock_conflicted_files.return_value = []
+    state.session_state = None
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        class MockResult:
+            output = MagicMock()
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Session warnings" not in captured_prompt
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_prompt_omits_corruption_warnings_when_empty_list(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """When session_state.known_corruptions is empty, no 'Session warnings' section."""
+    mock_conflicted_files.return_value = []
+    state.session_state = SessionState(known_corruptions=[])
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    captured_prompt = None
+
+    async def mock_run(prompt, *args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prompt
+        class MockResult:
+            output = MagicMock()
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    assert captured_prompt is not None
+    assert "## Session warnings" not in captured_prompt
+
+
+# ---------------------------------------------------------------------------
+# ImplementNode — session state: attempt_count increment
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.workflows.implement.save_session_state")
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_attempt_count_incremented_when_session_state(
+    mock_checkout, mock_conflicted_files, mock_agent, mock_save, state,
+):
+    """When session_state exists, attempt_count is incremented after implement."""
+    mock_conflicted_files.return_value = []
+    state.session_state = SessionState(attempt_count=2)
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        class MockResult:
+            output = MagicMock()
+        MockResult.output.files_changed = []
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    assert state.session_state.attempt_count == 3
+
+
+@patch("cai.workflows.implement.save_session_state")
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_save_session_state_called_after_increment(
+    mock_checkout, mock_conflicted_files, mock_agent, mock_save, state,
+):
+    """save_session_state is called after incrementing attempt_count."""
+    mock_conflicted_files.return_value = []
+    state.session_state = SessionState(attempt_count=0)
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        class MockResult:
+            output = MagicMock()
+        MockResult.output.files_changed = []
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    mock_save.assert_called_once_with(state.session_state, state.body_path.parent)
+
+
+@patch("cai.workflows.implement.save_session_state")
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_attempt_count_not_incremented_when_no_session_state(
+    mock_checkout, mock_conflicted_files, mock_agent, mock_save, state,
+):
+    """When session_state is None, attempt_count is not touched."""
+    mock_conflicted_files.return_value = []
+    state.session_state = None
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        class MockResult:
+            output = MagicMock()
+        MockResult.output.files_changed = []
+        return MockResult()
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    _run(ImplementNode(), state)
+
+    mock_save.assert_not_called()
+

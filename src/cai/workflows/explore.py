@@ -10,7 +10,7 @@ from cai.log import setup_langfuse
 from cai.log.observability import traced_agent_run
 from cai.workflows._deps import repo_deps
 from cai.workflows.refine import RefineNode
-from cai.workflows.state import ExploreOutput, IssueState
+from cai.workflows.state import ExploreOutput, IssueState, save_session_state
 
 
 @lru_cache(maxsize=1)
@@ -35,6 +35,13 @@ class ExploreNode(BaseNode[IssueState]):
             f"## Issue metadata\n\n{state.meta_json}\n\n"
             f"## Issue body\n\n{state.body}"
         )
+        if state.session_state is not None and state.session_state.explore_findings:
+            prompt += (
+                "\n\n## Prior session findings\n\n"
+                "The following was discovered in a previous run on this same issue. "
+                "Verify it is still accurate rather than re-discovering from scratch:\n\n"
+                f"{state.session_state.explore_findings}"
+            )
         result = await traced_agent_run(
             "explore",
             _explore_agent(),
@@ -44,4 +51,12 @@ class ExploreNode(BaseNode[IssueState]):
         )
         state.findings = result.output
         state.reference_files = list(result.output.related_files)
+        if state.session_state is not None:
+            if (
+                not state.session_state.explore_findings
+                or state.session_state.explore_findings != state.findings.summary
+            ):
+                state.session_state.explore_findings = state.findings.summary
+                state.session_state.explore_files = list(result.output.related_files)
+                save_session_state(state.session_state, state.body_path.parent)
         return RefineNode()

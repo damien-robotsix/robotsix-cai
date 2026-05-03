@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from cai.github.issues import IssueMeta
-from cai.workflows.state import IssueState
+from cai.workflows.state import IssueState, SessionState
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +313,95 @@ class TestSolveIssueAsyncioRun:
             args, kwargs = mock_run.call_args
             assert isinstance(args[0], ExploreNode)
             assert kwargs.get("state") is not None
+
+
+class TestSolveIssueSessionState:
+    """Tests that solve_issue loads session state from the workspace root."""
+
+    def test_session_state_loaded_from_workspace_root(self, tmp_path: Path):
+        """solve_issue loads session_state from the body_path parent directory."""
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"] as mock_ensure,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+        ):
+            captured_state = None
+
+            async def set_state(*args, **kwargs):
+                nonlocal captured_state
+                captured_state = kwargs["state"]
+                state = kwargs["state"]
+                state.pr_number = 1
+                state.pr_url = "https://github.com/o/r/pull/1"
+                state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
+                state.auto_merge_enabled = False
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            # Write a session_state.json next to the issue files
+            session_file = workspace.root / "session_state.json"
+            session_file.write_text(
+                '{\n'
+                '  "explore_findings": "Prior findings.",\n'
+                '  "explore_files": ["src/prior.py"],\n'
+                '  "known_corruptions": [],\n'
+                '  "attempt_count": 2,\n'
+                '  "prior_file_hashes": {}\n'
+                '}'
+            )
+
+            from cai.workflows.fsm import solve_issue
+
+            solve_issue(bot, workspace)
+
+            assert captured_state is not None
+            assert captured_state.session_state is not None
+            assert captured_state.session_state.explore_findings == "Prior findings."
+            assert captured_state.session_state.explore_files == ["src/prior.py"]
+            assert captured_state.session_state.attempt_count == 2
+
+    def test_session_state_defaults_when_no_file(self, tmp_path: Path):
+        """When session_state.json does not exist, session_state is a default instance."""
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"] as mock_ensure,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+        ):
+            captured_state = None
+
+            async def set_state(*args, **kwargs):
+                nonlocal captured_state
+                captured_state = kwargs["state"]
+                state = kwargs["state"]
+                state.pr_number = 1
+                state.pr_url = "https://github.com/o/r/pull/1"
+                state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
+                state.auto_merge_enabled = False
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            from cai.workflows.fsm import solve_issue
+
+            solve_issue(bot, workspace)
+
+            assert captured_state is not None
+            assert captured_state.session_state is not None
+            # Default values after load_session_state with no file
+            assert captured_state.session_state.attempt_count == 0
+            assert captured_state.session_state.explore_findings == ""
+            assert captured_state.session_state.explore_files == []
 
 
 class TestSolveIssueFailureLabel:
