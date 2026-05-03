@@ -713,6 +713,8 @@ def test_grep_guardrail_escalates_from_modelretry_to_warning():
     msg = str(exc.value)
     assert "consecutive zero-result grep" in msg
     assert "read_file" in msg
+    assert "ls" in msg
+    assert "trace data" in msg
     assert cap._empty_grep_count == 0
     assert cap._guardrail_fire_count == 1
     # Now hit the threshold again — escalted to warning string.
@@ -727,6 +729,8 @@ def test_grep_guardrail_escalates_from_modelretry_to_warning():
     ))
     assert "Warning:" in result
     assert "consecutive zero-result grep" in result
+    assert "ls" in result
+    assert "trace data" in result
     assert "No matches for 'qux'" in result
     # counter resets after warning so the next streak starts fresh
     assert cap._empty_grep_count == 0
@@ -758,6 +762,8 @@ def test_grep_guardrail_warning_suggests_read_file():
         result="No matches for 'qux'",
     ))
     assert "read_file" in result
+    assert "ls" in result
+    assert "trace data" in result
     assert "Warning:" in result
     assert "read_file" in result
     assert "Warning:" in result

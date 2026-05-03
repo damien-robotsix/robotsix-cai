@@ -400,14 +400,17 @@ class GrepGuardrailAsRetry(AbstractCapability):
                 self._guardrail_fire_count += 1
                 raise ModelRetry(
                     f"You have made {self._THRESHOLD} consecutive zero-result grep queries. "
-                    f"Stop searching with grep. Instead, read the file(s) you're "
-                    f"interested in directly with read_file, or use ls/glob to "
-                    f"explore the directory structure."
+                    f"Stop searching with grep. The content you're looking for may not "
+                    f"exist on disk — use ls to verify the path exists before trying "
+                    f"read_file. If you're analyzing pre-fetched trace data, work with "
+                    f"that data directly instead of searching the filesystem."
                 )
             return (
                 f"Warning: you have made {self._THRESHOLD} consecutive zero-result grep queries. "
-                f"Consider switching to read_file() instead, or trying a different "
-                f"glob_pattern (e.g., '*.md', '*.toml') or dropping the filter entirely. "
+                f"The content you're looking for may not exist on disk — use ls to "
+                f"verify the path exists before trying read_file. If you're analyzing "
+                f"pre-fetched trace data, work with that data directly instead of "
+                f"searching the filesystem. "
                 f"(The grep was executed normally — results below.)\n\n"
                 f"{text}"
             )
