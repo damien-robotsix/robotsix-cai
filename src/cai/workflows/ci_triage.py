@@ -47,7 +47,7 @@ class FetchAndTriageNode(BaseNode[CiTriageState, None, None]):
             "Accept": "application/vnd.github+json",
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             # Fetch jobs for the workflow run
             jobs_url = (
                 f"https://api.github.com/repos/{ctx.state.repo}/actions/runs/"

@@ -352,6 +352,34 @@ def test_fetch_and_triage_node_constructs_correct_urls():
     assert "/actions/jobs/5/logs" in logs_url
 
 
+def test_fetch_and_triage_node_follows_redirects():
+    """The httpx.AsyncClient is constructed with follow_redirects=True."""
+    bot = MagicMock()
+    bot.token_for.return_value = "gh_token"
+
+    state = CiTriageState(bot=bot, repo="owner/repo", run_id=42)
+
+    jobs_resp = _make_mock_response(json_data={"jobs": []})
+    fake_agent = MagicMock()
+    fake_agent.run = AsyncMock()
+
+    node = FetchAndTriageNode()
+    ctx = GraphRunContext(state=state, deps=None)
+
+    with patch("cai.workflows.ci_triage.httpx.AsyncClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client_cls.return_value = mock_client
+        mock_client.get = AsyncMock(return_value=jobs_resp)
+
+        with patch("cai.workflows.ci_triage._ci_triage_agent", return_value=fake_agent):
+            asyncio.run(node.run(ctx))
+
+    # The constructor must be called with follow_redirects=True so that
+    # the client follows 302 redirects from the GitHub Actions logs API.
+    mock_client_cls.assert_called_once_with(follow_redirects=True)
+
+
 # ── main() CLI ─────────────────────────────────────────────────────────
 
 
