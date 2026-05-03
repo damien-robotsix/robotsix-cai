@@ -24,6 +24,13 @@ from cai.agents.spike_tool import (
 # ---------------------------------------------------------------------------
 
 
+def _spike_md_content() -> str:
+    """Read the spike.md prompt file and return its full text."""
+    import cai.agents
+
+    return (Path(cai.agents.__file__).parent / "spike.md").read_text()
+
+
 def test_scrubbed_env_only_passthrough_keys():
     """Only vars in _PASSTHROUGH (plus HOME/TMPDIR/PYTHONUNBUFFERED/PYTHONPATH) appear."""
     env_override = {
@@ -573,6 +580,60 @@ def test_spike_md_batch_related_runtime_facts():
     assert "share setup or target the same module" in content, (
         "spike.md batching guidance must mention shared setup or same module"
     )
-    assert "single `spike_run` call" in content, (
-        "spike.md must reference single spike_run call in batching guidance"
+    assert "single `spike_run` call" in content
+
+
+# ── tests for the updated opening paragraph and "How to work" step 2 ──────────
+
+
+def test_spike_md_opening_paragraph_urges_repo_tools_first():
+    """The opening paragraph tells the agent to try repo tools before spike_run."""
+    content = _spike_md_content()
+    assert "grep" in content
+    assert "read_file" in content
+    assert "glob" in content or "ls" in content
+
+
+def test_spike_md_opening_paragraph_has_fallback_decision_tree():
+    """The opening paragraph describes fallback conditions for using spike_run."""
+    content = _spike_md_content()
+    # The decision tree: try repo tools, fall back only when repo tools
+    # find nothing and the target is in an installed package.
+    assert "find nothing" in content or "found nothing" in content
+    assert "installed" in content
+    assert "spike_run" in content
+
+
+def test_spike_md_no_contradictory_hand_it_back_language():
+    """The old contradictory 'hand it back' language has been removed."""
+    content = _spike_md_content()
+    # The implement resolved the contradiction; these phrases should be absent.
+    assert "hand it back" not in content
+    assert "not an exploration agent" not in content
+
+
+def test_spike_md_step_two_says_search_repo_first():
+    """Step 2 says 'Search the repo first' (not 'Optionally read')."""
+    content = _spike_md_content()
+    assert "Search the repo first" in content
+    assert "read_file" in content
+    assert "grep" in content
+    assert "glob" in content or "ls" in content
+
+
+def test_spike_md_step_two_explicit_fallback_conditions():
+    """Step 2 lists explicit fallback conditions (a) and (b)."""
+    content = _spike_md_content()
+    # Verify both labelled conditions appear in the text.
+    assert "(a) repo tools return nothing" in content or "(a)" in content
+    assert "(b) the question requires" in content or "(b)" in content
+
+
+def test_spike_md_step_two_fallback_to_spike_run():
+    """Step 2 says 'Fall back to spike_run only when'."""
+    content = _spike_md_content()
+    assert "Fall back to" in content
+    assert "spike_run" in content
+    assert "only when" in content, (
+        "spike.md must instruct fall back to spike_run only when certain conditions are met"
     )
