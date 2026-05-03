@@ -1475,6 +1475,7 @@ def load_agent_from_md(
         ToolErrorAsRetry(),
         ModelRequestErrorAsRetry(),
         GrepGuardrailAsRetry(),
+        ConsecutiveFailureGuardrail(),
         MicroReadGuardCapability(),
         HistoryCompactorCapability(),
     ]
