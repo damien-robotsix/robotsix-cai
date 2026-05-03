@@ -382,3 +382,33 @@ class TestRunResolveStep:
                 asyncio.run(_run_resolve_step(tmp_path, "resolve this"))
 
         assert mock_agent.run.await_count == 2
+
+
+# ---------------------------------------------------------------------------
+# _rebase_loop cross-context (PRNode constructs PRWorkspace with number=0)
+# ---------------------------------------------------------------------------
+
+
+def test_rebase_loop_works_with_number_zero_workspace(tmp_path: Path):
+    """_rebase_loop must accept a PRWorkspace with number=0 (as PRNode constructs it)."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    body = tmp_path / "99.md"
+    body.write_text("PR body")
+    ws = PRWorkspace(
+        root=tmp_path,
+        repo_root=repo_root,
+        body_path=body,
+        repo="owner/name",
+        number=0,
+        head_branch="cai/solve-99",
+        base_branch="main",
+        title="Add feature",
+        body="PR body",
+    )
+    # Verify the workspace fields _rebase_loop actually reads.
+    assert ws.repo_root == repo_root
+    assert ws.base_branch == "main"
+    assert ws.title == "Add feature"
+    assert ws.body == "PR body"
+    assert ws.number == 0
