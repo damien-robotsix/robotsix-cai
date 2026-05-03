@@ -2,7 +2,6 @@
 name: refine
 description: Rewrite a human-filed GitHub issue into a structured, actionable plan.
 model: deepseek/deepseek-v4-pro
-max_tokens: 16000
 tools:
   - filesystem
   - subagents

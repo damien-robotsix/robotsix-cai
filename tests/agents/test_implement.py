@@ -9,7 +9,11 @@ def test_implement_agent_config(monkeypatch):
     # Assert basics
     assert config["name"] == "implement"
     assert config["model"] == "deepseek/deepseek-v4-pro"
-    assert config["max_tokens"] == 32000
+    # Intentionally no max_tokens: pydantic_ai sends `max_completion_tokens`
+    # on the wire, which OpenRouter rejects with 404 under
+    # provider.require_parameters=True (no deepseek-v4-pro provider declares
+    # support for that field). See revert in this commit.
+    assert "max_tokens" not in config
 
     # Assert expected tools
     tools = config.get("tools", [])

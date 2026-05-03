@@ -8,7 +8,11 @@ def test_refine_agent_config():
     # Assert basics
     assert config["name"] == "refine"
     assert config["model"] == "deepseek/deepseek-v4-pro"
-    assert config["max_tokens"] == 16000
+    # Intentionally no max_tokens: pydantic_ai sends `max_completion_tokens`
+    # on the wire, which OpenRouter rejects with 404 under
+    # provider.require_parameters=True (no deepseek-v4-pro provider declares
+    # support for that field). See revert in this commit.
+    assert "max_tokens" not in config
     
     # Assert expected tools
     tools = config.get("tools", [])
