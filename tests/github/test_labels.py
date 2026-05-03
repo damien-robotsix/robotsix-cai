@@ -126,7 +126,7 @@ class TestCAILabelSpecs:
         ("cai:trace-investigation", "d93f0b", "Symptom seen in agent traces — confirm by inspecting the listed traces before acting"),
     ]
 
-    def test_is_list_of_seven(self):
+    def test_has_correct_number_of_labels(self):
         assert isinstance(CAI_LABEL_SPECS, list)
         assert len(CAI_LABEL_SPECS) == 7
 

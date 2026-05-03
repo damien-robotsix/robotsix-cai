@@ -1336,6 +1336,8 @@ TOOL_FACTORIES: dict[str, str] = {
     "git_blame": "cai.tools.git_tools:GIT_BLAME_TOOL",
     "git_show": "cai.tools.git_tools:GIT_SHOW_TOOL",
     "file_info": "cai.tools.file_tools:FILE_INFO_TOOL",
+    "block_overview": "cai.tools.block_tools:BLOCK_OVERVIEW_TOOL",
+    "block_edit": "cai.tools.block_tools:BLOCK_EDIT_TOOL",
 }
 
 _DEEP_FLAG_DEFAULTS: dict[str, bool] = {

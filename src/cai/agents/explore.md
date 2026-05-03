@@ -9,6 +9,7 @@ tools:
   - git_blame
   - git_show
   - raise_issue
+  - block_overview
 common: [anti_hallucination_guard]
 ---
 
