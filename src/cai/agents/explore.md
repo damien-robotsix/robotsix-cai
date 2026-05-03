@@ -8,6 +8,7 @@ tools:
   - git_diff
   - git_blame
   - git_show
+  - block_overview
   - raise_issue
 common: [anti_hallucination_guard]
 ---

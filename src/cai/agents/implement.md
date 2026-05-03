@@ -12,6 +12,7 @@ tools:
   - web_fetch
   - raise_issue
   - spike_run
+  - block_edit
 common: [anti_hallucination_guard, antipattern_examples]
 ---
 

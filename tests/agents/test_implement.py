@@ -16,6 +16,7 @@ def test_implement_agent_config(monkeypatch):
     assert "web_search" in tools
     assert "web_fetch" in tools
     assert "spike_run" in tools
+    assert "block_edit" in tools
 
     # Build merged output for common-fragment checks.
     captured_instructions = []
