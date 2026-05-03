@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 from pydantic_deep import DeepAgentDeps, LocalBackend
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
@@ -153,11 +154,18 @@ def _strip_orphaned_markers(repo_root: Path, paths: list[str]) -> None:
 
 
 async def _run_resolve_step(repo_root: Path, prompt: str) -> None:
-    await _resolve_step_agent().run(
-        prompt,
-        deps=_resolve_step_deps(repo_root),
-        usage_limits=UsageLimits(request_limit=60),
-    )
+    try:
+        await _resolve_step_agent().run(
+            prompt,
+            deps=_resolve_step_deps(repo_root),
+            usage_limits=UsageLimits(request_limit=60),
+        )
+    except UsageLimitExceeded:
+        await _resolve_step_agent().run(
+            prompt,
+            deps=_resolve_step_deps(repo_root),
+            usage_limits=UsageLimits(request_limit=90),
+        )
 
 
 async def _rebase_loop_async(workspace: PRWorkspace) -> tuple[bool, list[str]]:

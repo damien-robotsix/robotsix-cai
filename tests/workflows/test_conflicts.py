@@ -10,6 +10,7 @@ from cai.github.repo import PRWorkspace
 from cai.workflows.conflicts import (
     _has_conflict_markers,
     _rebase_loop_async,
+    _run_resolve_step,
     _step_prompt,
     _strip_orphaned_markers,
     solve_conflicts,
@@ -330,3 +331,54 @@ def test_rebase_loop_skips_genuinely_empty_commit(
     assert touched == ["a.txt"]
     mock_skip.assert_called_once_with(workspace.repo_root)
     mock_abort.assert_not_called()
+
+
+class TestRunResolveStep:
+    """_run_resolve_step() catches UsageLimitExceeded and retries once
+    with bumped request_limit (60 → 90).
+    """
+
+    def test_resolve_step_succeeds_on_first_attempt(self, tmp_path):
+        """Normal case: agent.run succeeds on the first call."""
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock()
+
+        with patch("cai.workflows.conflicts._resolve_step_agent", return_value=mock_agent):
+            asyncio.run(_run_resolve_step(tmp_path, "resolve this"))
+
+        mock_agent.run.assert_awaited_once()
+        _, kwargs = mock_agent.run.await_args
+        assert kwargs["usage_limits"].request_limit == 60
+
+    def test_resolve_step_retries_with_bumped_limit(self, tmp_path):
+        """First call raises UsageLimitExceeded, retry with
+        request_limit=90 succeeds."""
+        from pydantic_ai.exceptions import UsageLimitExceeded
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=[
+            UsageLimitExceeded("limit hit"),
+            None,
+        ])
+
+        with patch("cai.workflows.conflicts._resolve_step_agent", return_value=mock_agent):
+            asyncio.run(_run_resolve_step(tmp_path, "resolve this"))
+
+        assert mock_agent.run.await_count == 2
+        _, kwargs1 = mock_agent.run.await_args_list[0]
+        _, kwargs2 = mock_agent.run.await_args_list[1]
+        assert kwargs1["usage_limits"].request_limit == 60
+        assert kwargs2["usage_limits"].request_limit == 90
+
+    def test_resolve_step_bubbles_on_second_failure(self, tmp_path):
+        """Both calls raise UsageLimitExceeded → exception propagates."""
+        from pydantic_ai.exceptions import UsageLimitExceeded
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=UsageLimitExceeded("limit hit"))
+
+        with patch("cai.workflows.conflicts._resolve_step_agent", return_value=mock_agent):
+            with pytest.raises(UsageLimitExceeded):
+                asyncio.run(_run_resolve_step(tmp_path, "resolve this"))
+
+        assert mock_agent.run.await_count == 2

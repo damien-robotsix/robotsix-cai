@@ -246,3 +246,106 @@ class TestModuleReloadResilience:
             asyncio.run(_run())
         finally:
             sys.modules[mod_name] = old_mod
+
+
+class TestTracedAgentRunSoftRetry:
+    """When ``UsageLimitExceeded`` is raised, ``traced_agent_run`` bumps
+    the ``request_limit`` by 50% and retries exactly once.
+    """
+
+    def test_retry_succeeds_on_second_attempt(self):
+        """First call raises UsageLimitExceeded, second call succeeds → returns
+        second-call output and the span carries soft_retry metadata."""
+        from pydantic_ai.exceptions import UsageLimitExceeded
+        from pydantic_ai.usage import UsageLimits
+
+        async def _run():
+            agent = MagicMock()
+            # First call raises, second succeeds
+            agent.run = AsyncMock(side_effect=[
+                UsageLimitExceeded("request limit exceeded"),
+                {"retry": "ok"},
+            ])
+
+            with patch("cai.log.observability._initialized", False):
+                result = await traced_agent_run(
+                    "explore", agent, "investigate",
+                    usage_limits=UsageLimits(request_limit=30),
+                )
+
+            assert result == {"retry": "ok"}
+            assert agent.run.await_count == 2
+            # Second call had bumped limits
+            _, kwargs2 = agent.run.await_args_list[1]
+            assert kwargs2["usage_limits"].request_limit == 45
+
+        asyncio.run(_run())
+
+    def test_retry_bubbles_up_on_second_failure(self):
+        """Both calls raise UsageLimitExceeded → re-raises so the workflow
+        still fails loudly."""
+        from pydantic_ai.exceptions import UsageLimitExceeded
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=UsageLimitExceeded("exhausted"))
+
+            with patch("cai.log.observability._initialized", False):
+                with pytest.raises(UsageLimitExceeded):
+                    await traced_agent_run("test", agent, "prompt")
+
+            assert agent.run.await_count == 2
+
+        asyncio.run(_run())
+
+    def test_no_usage_limits_retry_still_works(self):
+        """When no usage_limits are passed, the retry still fires (just
+        without bumping the limit)."""
+        from pydantic_ai.exceptions import UsageLimitExceeded
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=[
+                UsageLimitExceeded("exhausted"),
+                {"ok": True},
+            ])
+
+            with patch("cai.log.observability._initialized", False):
+                result = await traced_agent_run("test", agent, "prompt")
+
+            assert result == {"ok": True}
+            assert agent.run.await_count == 2
+
+        asyncio.run(_run())
+
+    def test_soft_retry_metadata_on_langfuse_span(self):
+        """When Langfuse is initialized, the retry path sets ``soft_retry``
+        metadata on the current span."""
+        from pydantic_ai.exceptions import UsageLimitExceeded
+        from pydantic_ai.usage import UsageLimits
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=[
+                UsageLimitExceeded("request limit exceeded"),
+                {"retry": "ok"},
+            ])
+
+            mock_client = MagicMock()
+            mock_client.start_as_current_observation.return_value = MagicMock()
+
+            with (
+                patch("cai.log.observability._initialized", True),
+                patch("langfuse.get_client", return_value=mock_client),
+            ):
+                result = await traced_agent_run(
+                    "explore", agent, "prompt",
+                    usage_limits=UsageLimits(request_limit=100),
+                )
+
+            assert result == {"retry": "ok"}
+            mock_client.update_current_span.assert_called_once_with(
+                metadata={"soft_retry": True}
+            )
+
+        asyncio.run(_run())
