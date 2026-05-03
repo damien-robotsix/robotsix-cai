@@ -3590,33 +3590,38 @@ def test_micro_read_guard_wired_into_build_deep_agent_capabilities(monkeypatch):
 # ── _inject_common_fragments ─────────────────────────────────────────
 
 def test_inject_common_fragments_no_common_key():
-    """No ``common`` key in config returns instructions unchanged."""
+    """No ``common`` key in config — anti_hallucination_guard still auto-injects."""
     from cai.agents.loader import _inject_common_fragments
 
     instructions = "# Test Agent\n\nSome body text."
     config = {"name": "test"}
     result = _inject_common_fragments(config, instructions)
-    assert result == instructions
+    # anti_hallucination_guard is auto-included when no execute/bash/shell/run tools
+    assert "You do NOT have an `execute`" in result
+    assert "Some body text." in result
 
 
 def test_inject_common_fragments_empty_common_list():
-    """Empty ``common`` list returns instructions unchanged."""
+    """Empty ``common`` list — anti_hallucination_guard still auto-injects."""
     from cai.agents.loader import _inject_common_fragments
 
     instructions = "# Test Agent\n\nSome body text."
     config = {"name": "test", "common": []}
     result = _inject_common_fragments(config, instructions)
-    assert result == instructions
+    # anti_hallucination_guard is auto-included when no execute/bash/shell/run tools
+    assert "You do NOT have an `execute`" in result
+    assert "Some body text." in result
 
 
 def test_inject_common_fragments_unknown_name():
-    """Unknown fragment names are silently ignored."""
+    """Unknown fragment names raise ValueError."""
     from cai.agents.loader import _inject_common_fragments
+    import pytest
 
     instructions = "# Test Agent\n\nSome body text."
     config = {"name": "test", "common": ["nonexistent_fragment"]}
-    result = _inject_common_fragments(config, instructions)
-    assert result == instructions
+    with pytest.raises(ValueError, match="unknown common fragment"):
+        _inject_common_fragments(config, instructions)
 
 
 def test_inject_common_fragments_anti_hallucination_only():
@@ -3708,13 +3713,16 @@ def test_inject_common_fragments_fragments_and_task_tool_note():
 
 
 def test_inject_common_fragments_common_not_a_list():
-    """When ``common`` is not a list, it is ignored."""
+    """When ``common`` is not a list, it is ignored (but auto-inclusion still fires)."""
     from cai.agents.loader import _inject_common_fragments
 
     instructions = "# Test Agent\n\nBody."
     config = {"name": "test", "common": "anti_hallucination_guard"}
     result = _inject_common_fragments(config, instructions)
-    assert result == instructions
+    # Non-list ``common`` is skipped, but anti_hallucination_guard is auto-included.
+    assert "You do NOT have an `execute`" in result
+    assert "# Test Agent" in result
+    assert "Body." in result
 
 
 def test_inject_common_fragments_tools_not_a_list():
@@ -3823,6 +3831,150 @@ def test_inject_common_fragments_batch_tool_calls_with_common_fragments():
     result = _inject_common_fragments(config, instructions)
     assert "Parameter bleed warning" in result
     assert "Batch independent tool calls" in result
+
+
+# ── _load_common_fragment direct tests ─────────────────────────────
+
+
+def test_load_common_fragment_existing_name():
+    """_load_common_fragment returns content from the expected .md file."""
+    from cai.agents.loader import _load_common_fragment
+
+    content = _load_common_fragment("anti_hallucination_guard")
+    assert isinstance(content, str)
+    assert len(content) > 50
+    assert "execute" in content
+    assert "Parameter bleed warning" in content
+
+
+def test_load_common_fragment_file_not_found():
+    """_load_common_fragment raises FileNotFoundError for unknown names."""
+    from cai.agents.loader import _load_common_fragment
+
+    with pytest.raises(FileNotFoundError):
+        _load_common_fragment("nonexistent_fragment")
+
+
+def test_COMMON_DIR_is_relative_to_AGENT_DIR():
+    """_COMMON_DIR must be AGENT_DIR / 'common'."""
+    from cai.agents.loader import AGENT_DIR, _COMMON_DIR
+
+    assert _COMMON_DIR == AGENT_DIR / "common"
+    assert _COMMON_DIR.is_dir()
+
+
+def test_load_common_fragment_task_tool_note():
+    """_load_common_fragment loads task_tool_note correctly."""
+    from cai.agents.loader import _load_common_fragment
+
+    content = _load_common_fragment("task_tool_note")
+    assert "description=" in content
+    assert "`task` tool has no `prompt` parameter" in content
+
+
+def test_load_common_fragment_antipattern_examples():
+    """_load_common_fragment loads antipattern_examples correctly."""
+    from cai.agents.loader import _load_common_fragment
+
+    content = _load_common_fragment("antipattern_examples")
+    assert "Anti-pattern examples" in content
+    assert "BAD" in content
+
+
+# ── _inject_common_fragments — idempotency, dedup, ordering ────────
+
+
+def test_inject_common_fragments_idempotency():
+    """Fragment text already present in instructions is skipped (no double-insert)."""
+    from cai.agents.loader import _inject_common_fragments, _load_common_fragment
+
+    guard_text = _load_common_fragment("anti_hallucination_guard").strip()
+    instructions = f"# Test Agent\n\n{guard_text}\n\nBody text."
+    config = {"name": "test", "common": ["anti_hallucination_guard"]}
+    result = _inject_common_fragments(config, instructions)
+    # anti_hallucination_guard text is already in instructions → skip
+    assert result == instructions
+
+
+def test_inject_common_fragments_no_anti_hallucination_with_execute():
+    """anti_hallucination_guard is NOT auto-injected when agent has execute/bash/shell/run tools."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "tools": ["execute", "filesystem"]}
+    result = _inject_common_fragments(config, instructions)
+    assert "do NOT have an `execute`" not in result
+    assert "Parameter bleed warning" not in result
+
+
+def test_inject_common_fragments_no_anti_hallucination_with_bash():
+    """anti_hallucination_guard is NOT auto-injected when agent has bash tool."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "tools": ["bash"]}
+    result = _inject_common_fragments(config, instructions)
+    assert "do NOT have an `execute`" not in result
+
+
+def test_inject_common_fragments_no_anti_hallucination_with_shell():
+    """anti_hallucination_guard is NOT auto-injected when agent has shell tool."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "tools": ["shell", "filesystem_read"]}
+    result = _inject_common_fragments(config, instructions)
+    assert "do NOT have an `execute`" not in result
+
+
+def test_inject_common_fragments_no_anti_hallucination_with_run():
+    """anti_hallucination_guard is NOT auto-injected when agent has run tool."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "tools": ["run", "web_search"]}
+    result = _inject_common_fragments(config, instructions)
+    assert "do NOT have an `execute`" not in result
+
+
+def test_inject_common_fragments_deduplicates_explicit_and_auto():
+    """Explicitly listing an auto-included fragment does not duplicate it."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    # anti_hallucination_guard is both explicitly listed AND auto-included
+    config = {"name": "test", "common": ["anti_hallucination_guard"], "tools": []}
+    result = _inject_common_fragments(config, instructions)
+    count = result.count("do NOT have an `execute`")
+    assert count == 1, f"Expected 1 occurrence, got {count}"
+
+
+def test_inject_common_fragments_explicit_before_auto():
+    """Explicit common: entries appear before auto-included fragments."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "common": ["antipattern_examples"], "tools": ["subagents"]}
+    result = _inject_common_fragments(config, instructions)
+    # antipattern_examples is explicit → should appear before auto-included task_tool_note
+    assert "Anti-pattern examples" in result
+    assert "description=" in result
+    assert result.index("Anti-pattern") < result.index("description=")
+
+
+def test_inject_common_fragments_auto_included_sorted():
+    """Multiple auto-included fragments appear in deterministic (sorted) order."""
+    from cai.agents.loader import _inject_common_fragments
+
+    instructions = "# Test Agent\n\nBody."
+    config = {"name": "test", "common": [], "tools": ["subagents"]}
+    result = _inject_common_fragments(config, instructions)
+    # With subagents but no execute tools, auto-included are:
+    # anti_hallucination_guard, task_tool_note (sorted order)
+    assert "do NOT have an `execute`" in result
+    assert "description=" in result
+    # anti_hallucination_guard (a...) comes before task_tool_note (t...)
+    assert result.index("do NOT have") < result.index("description=")
 
 
 # ---------------------------------------------------------------------------

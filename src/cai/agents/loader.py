@@ -57,6 +57,13 @@ from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 AGENT_DIR = Path(__file__).resolve().parent
+_COMMON_DIR = AGENT_DIR / "common"
+
+
+def _load_common_fragment(name: str) -> str:
+    """Read a common prompt fragment from ``_COMMON_DIR / f'{name}.md'``."""
+    return (_COMMON_DIR / f"{name}.md").read_text()
+
 
 _OUTPUT_MARKERS = (NativeOutput, PromptedOutput, TextOutput, ToolOutput)
 
@@ -1406,32 +1413,6 @@ _DEEP_FLAG_DEFAULTS: dict[str, bool] = {
     flag: False for kwargs in TOOL_FLAGS.values() for flag in kwargs
 }
 
-# Common prompt fragments keyed by the ``common:`` frontmatter key.
-# Each value is inserted verbatim after the title heading of the agent.
-_COMMON_FRAGMENTS: dict[str, str] = {
-    "anti_hallucination_guard": (
-        "> **You do NOT have an `execute`, `bash`, `shell`, or `run` tool. "
-        "You cannot run commands, tests, or scripts. "
-        "Only the tools listed above are available to you.**\n"
-        ">\n"
-        "> **Parameter bleed warning:** Each tool accepts only its own documented "
-        "parameters. Do not carry a parameter from one tool (e.g., `limit` from "
-        "`read_file`) to another tool (e.g., `grep`). If a parameter isn't listed "
-        "in the tool's documentation, it won't be accepted."
-    ),
-    "antipattern_examples": (
-        "> **Anti-pattern examples:**\n"
-        "> - **BAD:** `execute('git log')` or `bash('ls')` — you do not have these tools.\n"
-        "> - **GOOD:** use `read_file`, `grep`, `glob`, or `ls` to discover what changed."
-    ),
-}
-
-# Task-tool-note auto-injected when ``subagents`` appears in ``tools:``.
-_TASK_TOOL_NOTE = (
-    "**Important:** When calling the `task` tool, pass the subagent instructions "
-    "as `description=`, not `prompt=`. The `task` tool has no `prompt` parameter."
-)
-
 # Batching instruction auto-injected when an agent has any filesystem tool
 # (filesystem, filesystem_read, or filesystem_write) in its ``tools:`` list.
 _BATCH_TOOL_CALLS_FRAGMENT = (
@@ -1446,27 +1427,61 @@ _BATCH_TOOL_CALLS_FRAGMENT = (
 def _inject_common_fragments(config: dict, instructions: str) -> str:
     """Inject common prompt fragments into instructions after the title heading.
 
-    Resolves ``config['common']`` names against :data:`_COMMON_FRAGMENTS` and
-    auto-includes the task-tool-note when ``subagents`` is listed in
-    ``config['tools']``.  Fragments are inserted in order, each separated by
-    a blank line, immediately after the first ``# Title`` line.
+    Resolves ``config['common']`` names against fragment files on disk
+    under ``_COMMON_DIR``, auto-includes ``task_tool_note`` when
+    ``subagents`` is listed in ``config['tools']``, and auto-includes
+    ``anti_hallucination_guard`` when the agent has no execute/bash/shell/run
+    tools.  Fragments are inserted in order, each separated by a blank line,
+    immediately after the first ``# Title`` line.
     """
-    fragments: list[str] = []
+    # --- collect fragment names (explicit + auto-included, deduped) ------
+    name_set: set[str] = set()
 
     common_names = config.get("common", [])
     if isinstance(common_names, list):
         for name in common_names:
-            if name in _COMMON_FRAGMENTS:
-                fragments.append(_COMMON_FRAGMENTS[name])
+            name_set.add(name)
 
     tools = config.get("tools", [])
-    if isinstance(tools, list) and "subagents" in tools:
-        fragments.append(_TASK_TOOL_NOTE)
+    if isinstance(tools, list):
+        # Auto-include task_tool_note when subagents is listed.
+        if "subagents" in tools:
+            name_set.add("task_tool_note")
+        # Auto-include anti_hallucination_guard when the agent lacks
+        # execute/bash/shell/run tools.
+        if not (set(tools) & {"execute", "bash", "shell", "run"}):
+            name_set.add("anti_hallucination_guard")
 
+    # Preserve order: explicit common: entries first, then auto-included.
+    ordered_names: list[str] = []
+    if isinstance(common_names, list):
+        for name in common_names:
+            if name in name_set:
+                ordered_names.append(name)
+                name_set.discard(name)
+    ordered_names.extend(sorted(name_set))  # deterministic order for auto-included
+
+    # --- resolve to text (file-based, with validation) ------------------
+    fragments: list[str] = []
+    for name in ordered_names:
+        try:
+            text = _load_common_fragment(name).strip()
+        except FileNotFoundError:
+            raise ValueError(f"unknown common fragment: {name!r}")
+        # Idempotency guard: skip if the stripped text is already a
+        # substring of instructions (prevents double-insertion when
+        # injection is called on already-merged text).
+        if text in instructions:
+            continue
+        fragments.append(text)
+
+    # --- batch-tool-calls auto-inclusion (unchanged logic) ---------------
     if isinstance(tools, list) and any(
         t in ("filesystem", "filesystem_read", "filesystem_write") for t in tools
     ):
-        fragments.append(_BATCH_TOOL_CALLS_FRAGMENT)
+        bt_text = _BATCH_TOOL_CALLS_FRAGMENT.strip()
+        if bt_text not in instructions:
+            fragments.append(bt_text)
 
     if not fragments:
         return instructions
@@ -1687,6 +1702,7 @@ def load_agent_from_md(
     and callables.
     """
     config, instructions = parse_agent_md(path)
+    instructions = _inject_common_fragments(config, instructions)
     factory_tools = [
         _import_factory(TOOL_FACTORIES[t])
         for t in config.get("tools", [])
