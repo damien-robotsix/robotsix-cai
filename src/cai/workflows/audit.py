@@ -126,14 +126,21 @@ def _dedupe_agent():
     )
 
 
-def _trace_section(trace_ids: list[str]) -> str:
-    """Render trace IDs as a markdown section to splice into an issue body or comment."""
+def _trace_section(trace_ids: list[str], first_observed: str | None = None) -> str:
+    """Render trace IDs as a markdown section to splice into an issue body or comment.
+
+    ``first_observed`` is rendered as a metadata line above the bullets so the
+    daily follow-up workflow can read it back from the issue body.
+    """
     bullets = "\n".join(f"- `{tid}`" for tid in trace_ids)
+    metadata = (
+        f"**First observed**: {first_observed}\n\n" if first_observed else ""
+    )
     return (
         "## Relevant Traces\n\n"
         "Symptom drawn from the following Langfuse traces. "
         "Inspect them (`traces_show <id>`) to confirm the issue is real before acting.\n\n"
-        f"{bullets}\n"
+        f"{metadata}{bullets}\n"
     )
 
 
@@ -196,7 +203,9 @@ async def _create_issues_from_proposals(
                 f"**Body**:\n{issue.body}"
             )
             if issue.trace_ids:
-                comment += "\n\n" + _trace_section(issue.trace_ids)
+                comment += "\n\n" + _trace_section(
+                    issue.trace_ids, first_observed=issue.last_detected_at
+                )
             target_issue.create_comment(comment)
             continue
 
@@ -213,7 +222,9 @@ async def _create_issues_from_proposals(
         body = issue.body
         if issue.trace_ids:
             labels = _labels_for_trace_investigation(labels)
-            body = body.rstrip() + "\n\n" + _trace_section(issue.trace_ids)
+            body = body.rstrip() + "\n\n" + _trace_section(
+                issue.trace_ids, first_observed=issue.last_detected_at
+            )
         created = repo_obj.create_issue(
             title=issue.title,
             body=body,

@@ -148,6 +148,17 @@ def test_trace_section_renders_bullets():
     assert "- `abc`" in section
     assert "- `def`" in section
     assert "traces_show" in section
+    # No metadata line when first_observed is omitted
+    assert "First observed" not in section
+
+
+def test_trace_section_renders_first_observed():
+    section = _trace_section(
+        ["abc"], first_observed="2026-05-03T12:00:00+00:00"
+    )
+    assert "**First observed**: 2026-05-03T12:00:00+00:00" in section
+    # Metadata appears before the bullets
+    assert section.index("First observed") < section.index("- `abc`")
 
 
 @pytest.mark.parametrize(
@@ -1304,6 +1315,7 @@ def test_create_issues_from_proposals_new_with_trace_ids_augments_body_and_label
         body="Original body content.",
         confidence=10,  # would normally auto-raise
         trace_ids=["trace-abc", "trace-def"],
+        last_detected_at="2026-05-03T12:00:00+00:00",
     )
 
     with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
@@ -1323,6 +1335,7 @@ def test_create_issues_from_proposals_new_with_trace_ids_augments_body_and_label
     assert "## Relevant Traces" in kwargs["body"]
     assert "- `trace-abc`" in kwargs["body"]
     assert "- `trace-def`" in kwargs["body"]
+    assert "**First observed**: 2026-05-03T12:00:00+00:00" in kwargs["body"]
     # Labels: cai:raised replaced by cai:human-review, plus cai:trace-investigation
     assert kwargs["labels"] == [
         "cai:audit", "cai:human-review", "cai:trace-investigation",
@@ -1385,6 +1398,7 @@ def test_create_issues_from_proposals_append_with_trace_ids_includes_section():
     issue = ProposedIssue(
         title="T", body="More evidence.", confidence=8,
         trace_ids=["new-trace-1"],
+        last_detected_at="2026-05-03T08:00:00+00:00",
     )
 
     with patch("cai.workflows.audit._dedupe_agent", return_value=fake_dedupe):
@@ -1403,6 +1417,7 @@ def test_create_issues_from_proposals_append_with_trace_ids_includes_section():
     assert "**Body**:\nMore evidence." in comment
     assert "## Relevant Traces" in comment
     assert "- `new-trace-1`" in comment
+    assert "**First observed**: 2026-05-03T08:00:00+00:00" in comment
 
 
 def test_create_issues_from_proposals_empty_trace_ids_unchanged_behavior():
