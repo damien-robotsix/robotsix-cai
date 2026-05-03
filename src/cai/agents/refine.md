@@ -172,30 +172,7 @@ the main body file, following the same body format as the parent.
 
 ## Body format
 
-The body you write (whether via `Write` or arrived at via `Edit` calls)
-should follow this structure exactly:
-
-```
-## Refined Issue
-
-### Description
-<concrete problem statement derived from the input — what is wrong or
-missing, and why it matters>
-
-### Plan
-1. <first concrete step — name specific files and functions>
-2. <second step>
-3. ...
-
-### Verification
-<how to confirm each step worked: "run X", "check that modified file Z looks like ...">
-
-### Scope guardrails
-<what NOT to touch; what is out of scope for this change>
-
-### Files to change
-<best-guess list of files based on what the input describes>
-```
+The body you write must start with `## Refined Issue` and must contain at minimum a description section and a plan section — the exact subheading names, ordering, and presence of additional sections like "Verification", "Scope guardrails", or "Files to change" are left to your judgment — choose whatever headings and structure best communicate the issue to the implementation agent.
 
 ## Guidelines
 
@@ -210,10 +187,9 @@ missing, and why it matters>
   implementation agent reads this as context.
 - **Read files whole:** Prefer reading entire files by omitting `offset` and `limit`. Re-reading file regions already in context is wasteful — reference earlier outputs instead.
 - **Avoid re-reading files you've already read.** When you delegate to subagents, their findings are returned inline. Before calling `read_file` yourself, check whether the content you need is already in your conversation history from a prior read or subagent result.
-- **Files to change vs Scope guardrails are disjoint.** A path may
-  appear in only one section, never both. If you would forbid a file
-  that's required for the change to work, include it in *Files to
-  change* instead and keep the edit minimal.
+- **Files to change vs Scope guardrails are disjoint.** If both a
+  "Files to change" section and a "Scope guardrails" section
+  are present, a path should appear in only one, not both.
 - **Group structural file operations.** When the plan involves
   multiple renames, moves, or deletions, write a single batched step
   ("batch-move files A, B, C to …" / "batch-delete X, Y, Z") instead
