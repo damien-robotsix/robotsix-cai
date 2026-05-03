@@ -18,6 +18,7 @@ from cai.agents.loader import (
     _get_arg,
     HistoryCompactorCapability,
     MicroReadGuardCapability,
+    MicroStepGuardCapability,
     UnknownToolRetry,
     build_deep_agent,
     parse_agent_md,
@@ -3674,6 +3675,114 @@ def test_micro_read_guard_wired_into_build_deep_agent_capabilities(monkeypatch):
     assert micro_idx < hist_idx, (
         "MicroReadGuardCapability must be before HistoryCompactorCapability"
     )
+
+
+# ── MicroStepGuardCapability ──
+
+
+def test_micro_step_guard_for_run_returns_fresh_instance():
+    """for_run returns a new MicroStepGuardCapability instance so concurrent runs don't share count."""
+    cap = MicroStepGuardCapability()
+    cap._consecutive_single_count = 2
+    fresh = _run(cap.for_run(None))
+    assert isinstance(fresh, MicroStepGuardCapability)
+    assert fresh is not cap
+    assert fresh._consecutive_single_count == 0
+
+
+def test_micro_step_guard_single_tool_below_threshold():
+    """before_model_request does not raise when single-tool count is below threshold."""
+    cap = MicroStepGuardCapability()
+    part = ToolCallPart(tool_name="read_file", args={"path": "foo"})
+    msg = ModelResponse(parts=[part])
+    rc = _make_ctx(messages=[msg])
+    result = _run(cap.before_model_request(None, rc))
+    assert result is rc
+    assert cap._consecutive_single_count == 1
+
+
+def test_micro_step_guard_triggers_at_threshold():
+    """before_model_request raises ModelRetry after 3 consecutive single-tool turns."""
+    cap = MicroStepGuardCapability()
+    part = ToolCallPart(tool_name="read_file", args={"path": "foo"})
+    msg = ModelResponse(parts=[part])
+    rc = _make_ctx(messages=[msg])
+    _run(cap.before_model_request(None, rc))  # count = 1
+    _run(cap.before_model_request(None, rc))  # count = 2
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.before_model_request(None, rc))  # count = 3 → raise
+    assert "3 consecutive LLM calls" in str(exc.value)
+
+
+def test_micro_step_guard_resets_on_multi_tool():
+    """before_model_request resets the counter when the latest ModelResponse has >=2 tool calls."""
+    cap = MicroStepGuardCapability()
+    part = ToolCallPart(tool_name="read_file", args={"path": "foo"})
+    msg = ModelResponse(parts=[part])
+    rc = _make_ctx(messages=[msg])
+    _run(cap.before_model_request(None, rc))  # count = 1
+    _run(cap.before_model_request(None, rc))  # count = 2
+    # Now a multi-tool response resets the counter
+    multi_msg = ModelResponse(parts=[
+        ToolCallPart(tool_name="read_file", args={"path": "a"}),
+        ToolCallPart(tool_name="grep", args={"pattern": "b"}),
+    ])
+    rc2 = _make_ctx(messages=[multi_msg])
+    _run(cap.before_model_request(None, rc2))
+    assert cap._consecutive_single_count == 0
+
+
+def test_micro_step_guard_resets_on_zero_tool():
+    """before_model_request resets the counter when the latest ModelResponse has 0 tool calls."""
+    cap = MicroStepGuardCapability()
+    part = ToolCallPart(tool_name="read_file", args={"path": "foo"})
+    msg = ModelResponse(parts=[part])
+    rc = _make_ctx(messages=[msg])
+    _run(cap.before_model_request(None, rc))  # count = 1
+    _run(cap.before_model_request(None, rc))  # count = 2
+    # No tool calls in response resets the counter
+    no_tool_msg = ModelResponse(parts=[])
+    rc2 = _make_ctx(messages=[no_tool_msg])
+    _run(cap.before_model_request(None, rc2))
+    assert cap._consecutive_single_count == 0
+
+
+def test_micro_step_guard_no_model_response():
+    """before_model_request handles empty messages without error and keeps counter valid."""
+    cap = MicroStepGuardCapability()
+    rc = _make_ctx(messages=[])
+    result = _run(cap.before_model_request(None, rc))
+    assert result is rc
+    assert cap._consecutive_single_count == 0
+
+
+def test_micro_step_guard_only_model_request_in_messages():
+    """before_model_request handles messages with only ModelRequest entries."""
+    cap = MicroStepGuardCapability()
+    from pydantic_ai.messages import ModelRequest, ToolReturnPart
+    req = ModelRequest(parts=[ToolReturnPart(tool_name="read_file", content="foo", tool_call_id="1")])
+    rc = _make_ctx(messages=[req])
+    result = _run(cap.before_model_request(None, rc))
+    assert result is rc
+    assert cap._consecutive_single_count == 0
+
+
+def test_micro_step_guard_error_message_content():
+    """before_model_request error message includes batching guidance and tool-name examples."""
+    cap = MicroStepGuardCapability()
+    part = ToolCallPart(tool_name="read_file", args={"path": "foo"})
+    msg = ModelResponse(parts=[part])
+    rc = _make_ctx(messages=[msg])
+    _run(cap.before_model_request(None, rc))  # count = 1
+    _run(cap.before_model_request(None, rc))  # count = 2
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.before_model_request(None, rc))  # count = 3 → raise
+    msg_text = str(exc.value)
+    assert "Batch your next tool calls" in msg_text
+    assert "read_file" in msg_text
+    assert "grep" in msg_text
+    assert "edit_file" in msg_text
+    assert "spike_run" in msg_text
 
 
 # ── _inject_common_fragments ─────────────────────────────────────────
