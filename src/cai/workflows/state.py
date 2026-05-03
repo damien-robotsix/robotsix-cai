@@ -237,6 +237,8 @@ class IssueState:
     tests_passed: bool | None = field(default=None)
     test_failure_details: str = field(default="")
     test_retry_count: int = field(default=0)
+    push_validation_retry_count: int = field(default=0)
+    push_validation_failure: str = field(default="")
     python_review_output: PythonReviewOutput | None = field(default=None)
     github_workflow_review_output: GitHubWorkflowReviewOutput | None = field(default=None)
     pydantic_ai_review_output: PydanticAIReviewOutput | None = field(default=None)

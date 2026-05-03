@@ -627,10 +627,10 @@ def test_sanity_does_not_retry_when_at_max_retries(
     )
     state.test_retry_count = 2
 
-    from cai.workflows.pr import PRNode
+    from cai.workflows.pre_push_validate import PrePushValidationNode
     result = _run(TestSanityNode(), state)
 
-    assert isinstance(result, PRNode)
+    assert isinstance(result, PrePushValidationNode)
     # retry_count should NOT have been incremented
     assert state.test_retry_count == 2
     assert state.tests_passed is False
@@ -666,10 +666,10 @@ def test_sanity_transitions_to_pr_when_no_checks(
     )
     state.test_retry_count = 2
 
-    from cai.workflows.pr import PRNode
+    from cai.workflows.pre_push_validate import PrePushValidationNode
     result = _run(TestSanityNode(), state)
 
-    assert isinstance(result, PRNode)
+    assert isinstance(result, PrePushValidationNode)
     assert state.tests_passed is True
 
 

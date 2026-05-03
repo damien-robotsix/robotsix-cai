@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from cai.workflows.state import DocsOutput, ImplementOutput, ThreadReply
+from pathlib import Path
+from unittest.mock import MagicMock
+
+from cai.workflows.state import DocsOutput, ImplementOutput, IssueState, ThreadReply
 
 
 # ---------------------------------------------------------------------------
@@ -135,3 +138,36 @@ def test_docs_output_existing_fields_still_work():
     )
     assert output.commit_message == "docs: document --timeout flag in cli.md"
     assert output.files_changed == ["docs/cli.md"]
+
+
+# ---------------------------------------------------------------------------
+# IssueState — pre-push validation fields
+# ---------------------------------------------------------------------------
+
+
+def test_issue_state_push_validation_retry_count_defaults_to_zero():
+    """push_validation_retry_count defaults to 0 on a fresh IssueState."""
+    from cai.github.issues import IssueMeta
+
+    meta = IssueMeta(repo="o/r", number=1, title="t")
+    state = IssueState(
+        bot=MagicMock(),
+        meta=meta,
+        body_path=Path("/tmp/body.md"),
+        repo_root=Path("/tmp"),
+    )
+    assert state.push_validation_retry_count == 0
+
+
+def test_issue_state_push_validation_failure_defaults_to_empty():
+    """push_validation_failure defaults to empty string on a fresh IssueState."""
+    from cai.github.issues import IssueMeta
+
+    meta = IssueMeta(repo="o/r", number=1, title="t")
+    state = IssueState(
+        bot=MagicMock(),
+        meta=meta,
+        body_path=Path("/tmp/body.md"),
+        repo_root=Path("/tmp"),
+    )
+    assert state.push_validation_failure == ""

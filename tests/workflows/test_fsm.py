@@ -52,9 +52,12 @@ class TestModuleIntegrity:
         ), "PydanticAIReviewNode must be registered in solve_graph.node_defs"
 
     def test_solve_graph_node_ordering(self):
-        """solve_graph.nodes are in the expected order: ... PythonReview, GitHubWorkflowReview, PydanticAIReview, TestSanity ..."""
+        """solve_graph.nodes are in the expected order: ... PythonReview, GitHubWorkflowReview, PydanticAIReview, TestSanity, DocsNode, PrePushValidation, PRNode ..."""
         from cai.workflows.fsm import solve_graph
+        from cai.workflows.docs import DocsNode
         from cai.workflows.github_workflow_review import GitHubWorkflowReviewNode
+        from cai.workflows.pre_push_validate import PrePushValidationNode
+        from cai.workflows.pr import PRNode
         from cai.workflows.pydantic_ai_review import PydanticAIReviewNode
         from cai.workflows.python_review import PythonReviewNode
         from cai.workflows.test_runner import TestSanityNode
@@ -68,11 +71,28 @@ class TestModuleIntegrity:
         gh_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, GitHubWorkflowReviewNode))
         ai_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, PydanticAIReviewNode))
         sanity_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, TestSanityNode))
+        docs_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, DocsNode))
+        pre_push_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, PrePushValidationNode))
+        pr_idx = next(i for i, n in enumerate(node_classes) if issubclass(n, PRNode))
 
         assert python_idx < gh_idx < ai_idx < sanity_idx, (
             f"Expected PythonReview({python_idx}) < GitHubWorkflowReview({gh_idx}) "
             f"< PydanticAIReview({ai_idx}) < TestSanity({sanity_idx})"
         )
+        assert sanity_idx < docs_idx < pre_push_idx < pr_idx, (
+            f"Expected TestSanity({sanity_idx}) < DocsNode({docs_idx}) "
+            f"< PrePushValidation({pre_push_idx}) < PRNode({pr_idx})"
+        )
+
+    def test_solve_graph_includes_pre_push_validation_node(self):
+        """solve_graph.nodes includes PrePushValidationNode between DocsNode and PRNode."""
+        from cai.workflows.fsm import solve_graph
+        from cai.workflows.pre_push_validate import PrePushValidationNode
+
+        assert any(
+            issubclass(defn.node, PrePushValidationNode)
+            for defn in solve_graph.node_defs.values()
+        ), "PrePushValidationNode must be registered in solve_graph.node_defs"
 
 
 # ---------------------------------------------------------------------------

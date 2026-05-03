@@ -131,10 +131,10 @@ class TestNode(BaseNode[IssueState]):
 class TestSanityNode(BaseNode[IssueState]):
     async def run(
         self, ctx: GraphRunContext[IssueState]
-    ) -> DocsNode | PRNode | ImplementNode:
+    ) -> DocsNode | PrePushValidationNode | ImplementNode:
         from cai.workflows.docs import DocsNode
         from cai.workflows.implement import ImplementNode
-        from cai.workflows.pr import PRNode
+        from cai.workflows.pre_push_validate import PrePushValidationNode
 
         state = ctx.state
         assert state.implement_output is not None
@@ -152,4 +152,4 @@ class TestSanityNode(BaseNode[IssueState]):
 
         if "documentation" in state.implement_output.required_checks:
             return DocsNode()
-        return PRNode()
+        return PrePushValidationNode()

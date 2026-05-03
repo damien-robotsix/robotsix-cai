@@ -153,6 +153,13 @@ class ImplementNode(BaseNode[IssueState]):
                 "Fix the code so these tests pass:\n\n"
                 f"```\n{state.test_failure_details}\n```"
             )
+        if state.push_validation_failure:
+            prompt += (
+                "\n\n## Pre-push validation failures to fix\n\n"
+                "The previous implementation attempt failed pre-push validation. "
+                "Fix the code so these checks pass:\n\n"
+                f"```\n{state.push_validation_failure}\n```"
+            )
         result = await traced_agent_run(
             "implement",
             _implement_agent(),
