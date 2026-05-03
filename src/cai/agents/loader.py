@@ -177,7 +177,9 @@ class GrepGuardrailAsRetry(AbstractCapability):
         super().__init__()
         self._empty_grep_count = 0
         self._recently_removed: set[str] = set()
-        self._last_nonempty_grep: tuple | None = None
+        self._last_nonempty_grep_key: tuple | None = None
+        self._identical_nonempty_count = 0
+        self._last_empty_grep_key: tuple | None = None
 
     async def for_run(self, ctx: Any) -> "GrepGuardrailAsRetry":
         return GrepGuardrailAsRetry()
@@ -197,7 +199,8 @@ class GrepGuardrailAsRetry(AbstractCapability):
             old_string = _get_arg(args, "old_string")
             if isinstance(old_string, str) and old_string:
                 self._recently_removed.add(old_string)
-            self._last_nonempty_grep = None
+            self._last_nonempty_grep_key = None
+            self._identical_nonempty_count = 0
             return result
 
         if call.tool_name != "grep":
@@ -205,9 +208,28 @@ class GrepGuardrailAsRetry(AbstractCapability):
 
         text = result if isinstance(result, str) else ""
         stripped = text.strip()
+
+        # Detect "Access denied" results and extract allowed-directory hints.
+        # The filesystem backend rejects paths outside allowed_directories and
+        # returns a message like "Access denied: '/bad/path' is outside allowed
+        # directories (/repo, /tmp/repo)".  Raise ModelRetry so the model can
+        # use one of the listed paths instead of wasting turns retrying.
+        if stripped.startswith("Access denied:") and "outside allowed directories" in stripped:
+            m = re.search(r"\(([^)]+)\)", stripped)
+            if m:
+                allowed = m.group(1)
+                raise ModelRetry(
+                    f"Your grep path was rejected. Allowed directories: {allowed}. "
+                    f"Use one of these paths."
+                )
+            raise ModelRetry(
+                f"Your grep path was rejected. Check the allowed directories and retry."
+            )
+
         is_empty = not stripped or stripped.startswith(self._NO_MATCH_PREFIX)
         if not is_empty:
             self._empty_grep_count = 0
+            self._last_empty_grep_key = None
             # Detect identical-argument non-empty grep loops.
             # pydantic_deep's grep tool truncates output at 50-150 lines
             # with messages like "showing first 50 of 67 matches". Agents
@@ -219,19 +241,22 @@ class GrepGuardrailAsRetry(AbstractCapability):
                 _get_arg(args, "path"),
                 _get_arg(args, "glob_pattern"),
             )
-            if self._last_nonempty_grep == current_key:
-                self._last_nonempty_grep = None
-                raise ModelRetry(
-                    "You just called grep with the same arguments as your last "
-                    "non-empty grep call. grep output is truncated by the tool "
-                    "framework — calling grep with identical arguments returns "
-                    "the same truncated top-N lines, not paginated results. "
-                    "Instead, use file_info to discover the file's total line "
-                    "count, then use grep with a narrower pattern, or use "
-                    "read_file with specific offsets to get the content you "
-                    "need."
-                )
-            self._last_nonempty_grep = current_key
+            if self._last_nonempty_grep_key == current_key:
+                self._identical_nonempty_count += 1
+                if self._identical_nonempty_count >= 2:
+                    raise ModelRetry(
+                        "You just called grep with the same arguments as your last "
+                        "non-empty grep call. grep output is truncated by the tool "
+                        "framework — calling grep with identical arguments returns "
+                        "the same truncated top-N lines, not paginated results. "
+                        "Instead, use file_info to discover the file's total line "
+                        "count, then use grep with a narrower pattern, or use "
+                        "read_file with specific offsets to get the content you "
+                        "need."
+                    )
+            else:
+                self._last_nonempty_grep_key = current_key
+                self._identical_nonempty_count = 1
             return result
 
         # Exempt verification greps: when the grep pattern contains
@@ -257,6 +282,29 @@ class GrepGuardrailAsRetry(AbstractCapability):
                         return result
                 except re.error:
                     pass
+
+        # Identical-argument empty-grep tracking: if the agent issues the
+        # same empty grep twice in a row with identical (pattern, path,
+        # glob_pattern), raise ModelRetry with guidance to switch tactics.
+        # This catches identical empty-result loops on the 2nd call instead
+        # of the 8th.  Only applied when pattern is truthy — tests that
+        # use args={} produce (None, None, None) keys and are exempt.
+        grep_pattern = _get_arg(args, "pattern")
+        if isinstance(grep_pattern, str) and grep_pattern:
+            current_key = (
+                grep_pattern,
+                _get_arg(args, "path"),
+                _get_arg(args, "glob_pattern"),
+            )
+            if self._last_empty_grep_key == current_key:
+                self._last_empty_grep_key = None
+                raise ModelRetry(
+                    "You just called grep with the same arguments as your last "
+                    "empty-result grep. Instead, use file_info to discover the "
+                    "file's total line count, read_file with specific offsets, "
+                    "or a different path/pattern."
+                )
+            self._last_empty_grep_key = current_key
 
         self._empty_grep_count += 1
         if self._empty_grep_count >= self._THRESHOLD:

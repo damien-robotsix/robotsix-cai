@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from cai.github.labels import CAI_LABEL_SPECS, LabelSpec, ensure_labels
 
