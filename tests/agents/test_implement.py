@@ -182,6 +182,20 @@ def test_implement_agent_config(monkeypatch):
         in instructions
     ), "Prompt must close with a decisive edit_file default"
 
+    # Assert backslash-escape repr() diagnostic guidance (issue #1646)
+    assert (
+        "Backslash escapes in `old_string`"
+        in instructions
+    ), "Prompt must include backslash-escape diagnostic bullet"
+    assert (
+        "repr(old_string)"
+        in instructions
+    ), "Prompt must reference repr() output for diagnosing JSON corruption"
+    assert (
+        "JSON-level corruption"
+        in instructions
+    ), "Prompt must explain JSON serialization corruption risk for backslash escapes"
+
 
 def test_implement_prompt_includes_avoid_rereading_guidance():
     """Verify implement.md contains check-conversation-history guidance."""

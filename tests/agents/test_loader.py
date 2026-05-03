@@ -299,7 +299,8 @@ def test_edit_file_guardrail_old_string_not_found_first_attempt_retries(tmp_path
             None, call=_edit_call(), tool_def=None, args=args, handler=handler,
         ))
     msg = str(exc.value)
-    assert "old_string not found" in msg
+    assert "not found in" in msg
+    assert repr(args["old_string"]) in msg
     assert fpath in msg
     assert "read_file" in msg
     assert "Do not reconstruct from memory" in msg
@@ -327,7 +328,8 @@ def test_edit_file_guardrail_not_found_escalates_after_repeats(tmp_path):
     ))
     assert isinstance(result, str)
     assert "consecutive" in result
-    assert "old_string was not found" in result
+    assert "was not found" in result
+    assert repr(args["old_string"]) in result
     assert file_content in result  # actual file content embedded
     assert calls == []  # handler never invoked on either failure
 
@@ -474,7 +476,61 @@ def test_edit_file_guardrail_wrong_blank_line_count_first_attempt_retries(tmp_pa
         _run(cap.wrap_tool_execute(
             None, call=_edit_call(), tool_def=None, args=args, handler=handler,
         ))
-    assert "old_string not found" in str(exc.value)
+    assert "not found in" in str(exc.value)
+
+
+def test_edit_file_guardrail_not_found_includes_repr_with_non_printable(tmp_path):
+    """When old_string contains a non-printable character (e.g. backspace
+    \\x08 from JSON corruption), the ModelRetry message must include
+    repr(old_string) so the backspace is visible as \\x08."""
+    cap = EditFileGuardrailAsRetry()
+    fpath = _tmp_file(tmp_path, "a.py", "hello world\n")
+    args = {"path": fpath, "old_string": "hello\x08world", "new_string": "x"}
+    handler, _ = _passthrough_handler()
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+    msg = str(exc.value)
+    assert "repr(old_string)" not in msg  # we embed repr's output, not the literal text
+    assert "\\x08" in msg  # backspace rendered visibly via repr
+    assert "'hello\\x08world'" in msg
+
+
+def test_edit_file_guardrail_not_found_detects_truncation(tmp_path):
+    """When old_string ends mid-word (lowercase letter, digit, or underscore
+    without trailing newline), the error message must include a truncation hint."""
+    cap = EditFileGuardrailAsRetry()
+    fpath = _tmp_file(tmp_path, "a.py", 'assert sub_meta.labels == ["bug", "priority"]\n')
+    args = {"path": fpath, "old_string": 'assert sub_meta.labels == ["bug", "truncat', "new_string": "x"}
+    handler, _ = _passthrough_handler()
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+    msg = str(exc.value)
+    assert "appears truncated" in msg
+    assert "ends mid-word" in msg
+
+
+def test_edit_file_guardrail_not_found_whitespace_normalization_hint(tmp_path):
+    """When old_string has wrong leading whitespace but would match after
+    stripping leading whitespace from every line, the error message must
+    include a hint — but must NOT auto-apply the edit."""
+    cap = EditFileGuardrailAsRetry()
+    content = "def foo():\n    pass\n"
+    fpath = _tmp_file(tmp_path, "a.py", content)
+    # Extra leading space on each line — semantic content matches.
+    args = {"path": fpath, "old_string": " def foo():\n     pass", "new_string": "x"}
+    handler, calls = _passthrough_handler()
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+    msg = str(exc.value)
+    assert "whitespace normalization" in msg
+    assert "check your indentation" in msg
+    assert calls == []  # handler never invoked — edit NOT auto-applied
 
 
 def test_edit_file_guardrail_non_edit_file_passthrough():
@@ -3375,7 +3431,133 @@ def test_explore_agent_never_re_read_under_read_files_whole():
         f"Never re-read directive is too far from the Read files whole bullet "
         f"(gap={gap} chars). It should be part of that bullet."
     )
-def test_explore_agent_never_re_read_under_read_files_whole():
+def test_edit_file_guardrail_not_found_truncation_hint_on_escalation(tmp_path):
+    """When truncation hint fires, the escalation warning (2nd+ consecutive
+    failure) must also include the truncation hint."""
+    fpath = str(tmp_path / "test.txt")
+    Path(fpath).write_text("actual line one\nactual line two\n")
+    guardrail = EditFileGuardrailAsRetry()
+    args = {"path": fpath, "old_string": "fake reconstruc", "new_string": "x"}
+    call = SimpleNamespace(tool_name="edit_file", tool_call_id="call1")
+    handler = lambda args: "Handler called"
+
+    with pytest.raises(ModelRetry):
+        _run(guardrail.wrap_tool_execute(None, call=call, tool_def=None, args=args, handler=handler))
+
+    result = _run(guardrail.wrap_tool_execute(None, call=call, tool_def=None, args=args, handler=handler))
+    assert "Warning:" in result
+    assert "appears truncated" in result
+
+
+def test_edit_file_guardrail_not_found_whitespace_hint_on_escalation(tmp_path):
+    """When whitespace-normalization hint fires, the escalation warning
+    (2nd+ consecutive failure) must also include the hint."""
+    fpath = str(tmp_path / "test.txt")
+    Path(fpath).write_text("    def foo():\n        pass\n")
+    guardrail = EditFileGuardrailAsRetry()
+    args = {"path": fpath, "old_string": "def foo():\n    pass", "new_string": "x"}
+    call = SimpleNamespace(tool_name="edit_file", tool_call_id="call1")
+    handler = lambda args: "Handler called"
+
+    with pytest.raises(ModelRetry):
+        _run(guardrail.wrap_tool_execute(None, call=call, tool_def=None, args=args, handler=handler))
+
+    result = _run(guardrail.wrap_tool_execute(None, call=call, tool_def=None, args=args, handler=handler))
+    assert "Warning:" in result
+    assert "whitespace normalization" in result
+
+
+def test_edit_file_guardrail_not_found_truncation_skipped_on_newline_end(tmp_path):
+    """Truncation hint must NOT be emitted when old_string ends with \\n."""
+    fpath = str(tmp_path / "test.txt")
+    Path(fpath).write_text("actual line one\n")
+    guardrail = EditFileGuardrailAsRetry()
+    args = {"path": fpath, "old_string": "complete word\n", "new_string": "x"}
+    call = SimpleNamespace(tool_name="edit_file", tool_call_id="call1")
+    handler = lambda args: "Handler called"
+
+    with pytest.raises(ModelRetry) as exc:
+        _run(guardrail.wrap_tool_execute(None, call=call, tool_def=None, args=args, handler=handler))
+
+    msg = str(exc.value)
+    assert "not found in" in msg
+    assert "appears truncated" not in msg
+
+
+def test_edit_file_guardrail_not_found_truncation_skipped_on_uppercase_end(tmp_path):
+    """Truncation hint must NOT be emitted when old_string ends with an
+    uppercase letter (not mid-word per the heuristic)."""
+    fpath = str(tmp_path / "test.txt")
+    Path(fpath).write_text("some content\n")
+    guardrail = EditFileGuardrailAsRetry()
+    args = {"path": fpath, "old_string": "NOT_A_MATCH", "new_string": "x"}
+    call = SimpleNamespace(tool_name="edit_file", tool_call_id="call1")
+    handler = lambda args: "Handler called"
+
+    with pytest.raises(ModelRetry) as exc:
+        _run(guardrail.wrap_tool_execute(None, call=call, tool_def=None, args=args, handler=handler))
+
+    msg = str(exc.value)
+    assert "not found in" in msg
+    assert "appears truncated" not in msg
+
+
+def test_edit_file_guardrail_not_found_truncation_skipped_on_punctuation_end(tmp_path):
+    """Truncation hint must NOT be emitted when old_string ends with
+    punctuation (not mid-word per the heuristic)."""
+    fpath = str(tmp_path / "test.txt")
+    Path(fpath).write_text("some content\n")
+    guardrail = EditFileGuardrailAsRetry()
+    args = {"path": fpath, "old_string": "old_string(", "new_string": "x"}
+    call = SimpleNamespace(tool_name="edit_file", tool_call_id="call1")
+    handler = lambda args: "Handler called"
+
+    with pytest.raises(ModelRetry) as exc:
+        _run(guardrail.wrap_tool_execute(None, call=call, tool_def=None, args=args, handler=handler))
+
+    msg = str(exc.value)
+    assert "not found in" in msg
+    assert "appears truncated" not in msg
+
+
+def test_edit_file_guardrail_not_found_both_hints_simultaneously(tmp_path):
+    """When old_string both ends mid-word AND would match after whitespace
+    normalization, both hints must appear in the error message."""
+    fpath = str(tmp_path / "test.txt")
+    Path(fpath).write_text("    def my_func():\n        param1,\n")
+    guardrail = EditFileGuardrailAsRetry()
+    args = {
+        "path": fpath,
+        "old_string": "def my_func():\n    param1",  # ends mid-word + stripped indentation
+        "new_string": "x",
+    }
+    call = SimpleNamespace(tool_name="edit_file", tool_call_id="call1")
+    handler = lambda args: "Handler called"
+
+    with pytest.raises(ModelRetry) as exc:
+        _run(guardrail.wrap_tool_execute(None, call=call, tool_def=None, args=args, handler=handler))
+
+    msg = str(exc.value)
+    assert "appears truncated" in msg
+    assert "whitespace normalization" in msg
+
+
+def test_edit_file_guardrail_not_found_whitespace_hint_no_match_when_not_applicable(tmp_path):
+    """Whitespace normalization hint must NOT be emitted when stripping
+    leading whitespace still does not make old_string match."""
+    fpath = str(tmp_path / "test.txt")
+    Path(fpath).write_text("completely different content here\n")
+    guardrail = EditFileGuardrailAsRetry()
+    args = {"path": fpath, "old_string": "  indented text", "new_string": "x"}
+    call = SimpleNamespace(tool_name="edit_file", tool_call_id="call1")
+    handler = lambda args: "Handler called"
+
+    with pytest.raises(ModelRetry) as exc:
+        _run(guardrail.wrap_tool_execute(None, call=call, tool_def=None, args=args, handler=handler))
+
+    msg = str(exc.value)
+    assert "not found in" in msg
+    assert "whitespace normalization" not in msg
     """The 'Never re-read' directive must appear on the same line or within the
     Read files whole bullet, not as a standalone bullet."""
     path = resolve_agent_path("explore")

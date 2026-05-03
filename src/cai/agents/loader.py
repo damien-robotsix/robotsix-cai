@@ -351,21 +351,46 @@ class EditFileGuardrailAsRetry(AbstractCapability):
         self._fail_count[path] = count
 
         if not_found:
+            # Build diagnostic hints for common failure modes.
+            hints = []
+            # 1. Truncation detection: does old_string end mid-word?
+            stripped = old_string.rstrip()
+            if stripped and not old_string.endswith("\n"):
+                last_char = stripped[-1]
+                if last_char.islower() or last_char.isdigit() or last_char == "_":
+                    hints.append(
+                        "The old_string appears truncated (ends mid-word). "
+                        "Ensure it ends at a line boundary."
+                    )
+            # 2. Whitespace-normalized match check.
+            old_norm = "\n".join(line.lstrip() for line in old_string.splitlines())
+            content_norm = "\n".join(line.lstrip() for line in content.splitlines())
+            if old_norm and old_norm in content_norm:
+                hints.append(
+                    "old_string would match with whitespace normalization — "
+                    "check your indentation."
+                )
+            hint_text = ""
+            if hints:
+                hint_text = " " + " ".join(f"… {h}" for h in hints)
+
             if count < self._ESCALATE_AT:
                 raise ModelRetry(
-                    f"old_string not found in {path}. "
+                    f"old_string {repr(old_string)} not found in {path}. "
                     f"Re-read the file with read_file and copy the exact target "
                     f"lines — including all whitespace, blank lines, and surrounding "
                     f"content — into old_string. Do not reconstruct from memory."
+                    f"{hint_text}"
                 )
             preview = self._render_preview(path, content)
             return (
                 f"Warning: edit_file failed {count} consecutive times on {path} "
-                f"because old_string was not found. You appear to be reconstructing "
+                f"because old_string {repr(old_string)} was not found. You appear to be reconstructing "
                 f"old_string from memory across retries instead of re-reading the "
                 f"file. The actual file content is included below — copy your "
                 f"old_string verbatim from this text (preserving every space, tab, "
                 f"and blank line) before calling edit_file again.\n\n{preview}"
+                f"{hint_text}"
             )
 
         # ambiguous (match_count > 1)
