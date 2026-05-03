@@ -14,6 +14,7 @@ from cai.workflows.audit import (
     _build_architecture_prompt,
     _build_errors_prompt,
     _build_security_prompt,
+    _build_tools_prompt,
     _create_issues_from_proposals,
     _create_issues_node_run,
     _dedupe_agent,
@@ -1792,3 +1793,106 @@ def test_create_issues_node_run_with_sourcing_state():
         body="Body",
         labels=["cai:sourcing", "cai:raised"],
     )
+
+
+# ── _build_tools_prompt ─────────────────────────────────────────────────
+
+
+def test_build_tools_prompt():
+    """_build_tools_prompt produces a prompt with agent names, tools, and session references."""
+    fake_sessions = [
+        {
+            "session_id": "issue-123",
+            "timestamp": "2025-06-15T10:30:00+00:00",
+            "trace_ids": ["trace-abc-123"],
+            "cost": 0.5,
+        },
+    ]
+
+    fake_trace = {
+        "id": "trace-abc-123",
+        "name": "cai-solve",
+        "timestamp": "2025-06-15T10:30:00+00:00",
+        "cost": 0.5,
+        "latency": 30.0,
+        "tool_counts": {"read_file": 5, "grep": 3, "edit_file": 2},
+        "errors": [],
+    }
+
+    fake_config = {
+        "name": "test_agent",
+        "tools": ["read_file", "grep", "edit_file", "write_file"],
+        "subagents": ["explore"],
+    }
+
+    mock_md_path = MagicMock()
+    mock_md_path.stem = "test_agent"
+    mock_md_path.__str__ = lambda self: "test_agent.md"
+
+    with patch("cai.workflows.audit._TRACES") as mock_traces:
+        mock_traces.list_solve_sessions.return_value = fake_sessions
+        mock_traces.show_trace.return_value = fake_trace
+
+        with patch(
+            "cai.workflows.audit.parse_agent_md",
+            return_value=(fake_config, "fake instructions"),
+        ):
+            with patch.object(
+                Path, "glob", return_value=[mock_md_path]
+            ):
+                prompt = _build_tools_prompt([])
+
+    assert "test_agent" in prompt
+    assert "read_file" in prompt
+    assert "grep" in prompt
+    assert "edit_file" in prompt
+    assert "write_file" in prompt
+    assert "issue-123" in prompt
+    assert "trace-abc-123" in prompt
+    assert "trace_analyst" in prompt
+
+
+@patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "tools"])
+def test_main_tools_mode(
+    mock_setup_langfuse,
+    mock_build_prompt,
+    mock_cai_bot,
+    mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
+):
+    """main() dispatches --mode tools to _build_tools_prompt."""
+    mock_audit_agent.run = AsyncMock(return_value=MagicMock(output=AuditOutput(issues=[])))
+
+    canned_prompt = "tools audit prompt"
+    with patch(
+        "cai.workflows.audit._build_tools_prompt",
+        return_value=canned_prompt,
+    ) as mock_tp:
+        main()
+
+    mock_tp.assert_called_once()
+    mock_audit_agent.run.assert_called_once()
+    call_args = mock_audit_agent.run.call_args
+    assert call_args[0][0] == canned_prompt
+
+
+@patch("sys.argv", ["cai-audit", "--repo", "owner/repo", "--mode", "tools"])
+def test_main_tools_mode_no_sessions(
+    mock_setup_langfuse,
+    mock_build_prompt,
+    mock_cai_bot,
+    mock_langfuse_workflow,
+    mock_audit_agent,
+    mock_dedupe_agent,
+):
+    """When _build_tools_prompt raises SystemExit (no sessions), main propagates it."""
+    with patch(
+        "cai.workflows.audit._build_tools_prompt",
+        side_effect=SystemExit(1),
+    ) as mock_tp:
+        with pytest.raises(SystemExit):
+            main()
+
+    mock_tp.assert_called_once()
+    mock_audit_agent.run.assert_not_called()

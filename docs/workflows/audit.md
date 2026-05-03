@@ -17,6 +17,7 @@ Runs an audit agent against Langfuse traces or a cloned repository, then files p
 | `duplication` | Clones the repo, runs jscpd, and audits copy-paste findings. |
 | `architecture` | Clones the repo and audits structural health. |
 | `security` | Clones the repo and audits for common vulnerability patterns (hardcoded secrets, unsafe subprocess, injection vectors, insecure deserialization, etc.). |
+| `tools` | Analyses per-agent tool usage against declared tools across recent traces. |
 
 ## Graph
 
