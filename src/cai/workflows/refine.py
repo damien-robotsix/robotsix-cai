@@ -59,7 +59,7 @@ class RefineNode(BaseNode[IssueState]):
                     f"{issue_dir}/*.json",
                 ],
             ),
-            usage_limits=UsageLimits(request_limit=15),
+            usage_limits=UsageLimits(request_limit=30),
         )
         out: RefineOutput = result.output
         new_meta = state.meta.model_copy(update={"title": out.title})
