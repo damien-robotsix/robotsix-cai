@@ -16,6 +16,10 @@ def test_test_writer_agent_config():
     # Tools
     tools = config.get("tools", [])
     assert "filesystem" in tools
+    assert "git_log" in tools, "test_writer should have read-only git tools"
+    assert "git_diff" in tools
+    assert "git_blame" in tools
+    assert "git_show" in tools
 
     # Description
     assert "description" in config
@@ -44,6 +48,41 @@ def test_test_writer_model_is_not_pro():
     assert config["model"] != "deepseek/deepseek-v4-pro", (
         "test_writer should use deepseek-v4-flash, not the expensive pro reasoning model"
     )
+
+
+def test_test_writer_tools_includes_git_tools():
+    """test_writer has read-only git tools in its tool list."""
+    from cai.agents.loader import parse_agent_md, resolve_agent_path
+
+    config, _ = parse_agent_md(resolve_agent_path("test_writer"))
+    tools = config.get("tools", [])
+    assert "git_log" in tools
+    assert "git_diff" in tools
+    assert "git_blame" in tools
+    assert "git_show" in tools
+
+
+def test_test_writer_prompt_includes_git_history_guidance():
+    """test_writer instructions include the Git history note about git tools."""
+    from cai.agents.loader import parse_agent_md, resolve_agent_path
+
+    _, instructions = parse_agent_md(resolve_agent_path("test_writer"))
+    assert "**Git history:**" in instructions
+    assert "git_log" in instructions
+    assert "git_diff" in instructions
+    assert "git_blame" in instructions
+    assert "git_show" in instructions
+    assert "execute does not exist" in instructions or "`execute` does not exist" in instructions
+
+
+def test_test_writer_git_history_note_discourages_execute():
+    """The Git history note steers away from execute('git ...') toward the git tools."""
+    from cai.agents.loader import parse_agent_md, resolve_agent_path
+
+    _, instructions = parse_agent_md(resolve_agent_path("test_writer"))
+    assert "execute('git" in instructions or "execute" in instructions
+    # The note should prefer git_log over hallucinated execute
+    assert "prefer these over" in instructions
 
 
 def test_test_writer_prompt_includes_avoid_rereading_guidance():
