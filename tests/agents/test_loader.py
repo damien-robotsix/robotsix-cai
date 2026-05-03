@@ -1844,6 +1844,33 @@ def test_agent_prompt_includes_read_whole_guidance(agent_name):
 
 
 # ---------------------------------------------------------------------------
+# Backslash / repr guidance in agent system prompts
+# ---------------------------------------------------------------------------
+
+BACKSLASH_REPR_GUIDANCE_TEXT = (
+    "**Backslash escapes in `old_string`:** When `old_string` contains "
+    "regex patterns with backslash escapes"
+)
+
+AGENTS_WITH_BACKSLASH_REPR_GUIDANCE = [
+    "implement",
+    "docs",
+]
+
+
+@pytest.mark.parametrize("agent_name", AGENTS_WITH_BACKSLASH_REPR_GUIDANCE)
+def test_agent_prompt_includes_backslash_repr_guidance(agent_name):
+    """Ensure implement and docs agent system prompts include the backslash
+    escape / repr() diagnostic guidance bullet."""
+    path = resolve_agent_path(agent_name)
+    _, system_prompt = parse_agent_md(path)
+    assert BACKSLASH_REPR_GUIDANCE_TEXT in system_prompt, (
+        f"Agent '{agent_name}' system prompt missing backslash/repr guidance.\n"
+        f"Expected text: {BACKSLASH_REPR_GUIDANCE_TEXT!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Avoid-re-reading guidance in agent system prompts
 # ---------------------------------------------------------------------------
 
@@ -4080,6 +4107,134 @@ def test_edit_file_guardrail_new_string_present_with_object_args(tmp_path):
     assert "change already present in file" in result
     assert "skipping" in result
     assert calls == []
+
+
+class TestEditFileGuardrailReprDiagnostic:
+    """Tests for ``repr(old_string)`` in "not found" error messages."""
+
+    def test_repr_shows_non_printable_characters(self, tmp_path):
+        """When old_string contains a non-printable character (backspace \\x08),
+        the ModelRetry message includes repr(old_string) so the corruption is
+        visible."""
+        fpath = str(tmp_path / "test.py")
+        Path(fpath).write_text("def foo():\n    pass\n")
+        cap = EditFileGuardrailAsRetry()
+        # Simulate JSON-level corruption: \b in a regex pattern becomes U+0008
+        old_string = "def foo():\n    pass\x08"
+        args = {"path": fpath, "old_string": old_string, "new_string": "x"}
+        handler, calls = _passthrough_handler()
+        with pytest.raises(ModelRetry) as exc:
+            _run(cap.wrap_tool_execute(
+                None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+            ))
+        msg = str(exc.value)
+        assert "old_string repr:" in msg
+        assert r"\x08" in msg
+        assert calls == []
+
+    def test_repr_in_escalation_warning(self, tmp_path):
+        """After ESCALATE_AT repeats, the warning string also includes
+        repr(old_string)."""
+        fpath = str(tmp_path / "test.py")
+        Path(fpath).write_text("def foo():\n    pass\n")
+        cap = EditFileGuardrailAsRetry()
+        old_string = "not in file\x00"
+        args = {"path": fpath, "old_string": old_string, "new_string": "x"}
+        handler, calls = _passthrough_handler()
+
+        # First call → ModelRetry
+        with pytest.raises(ModelRetry):
+            _run(cap.wrap_tool_execute(
+                None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+            ))
+        # Second call → warning (ESCALATE_AT = 2)
+        result = _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+        assert "old_string repr:" in result
+        assert r"\x00" in result
+        assert calls == []
+
+
+class TestEditFileGuardrailTruncationHint:
+    """Tests for mid-word truncation detection in "not found" errors."""
+
+    def test_truncation_hint_for_mid_word_ending(self, tmp_path):
+        """When old_string ends mid-word (last char is lowercase letter),
+        the error message includes a truncation hint."""
+        fpath = str(tmp_path / "test.py")
+        Path(fpath).write_text('assert sub_meta.labels == ["bug", "critical"]\n')
+        cap = EditFileGuardrailAsRetry()
+        old_string = 'assert sub_meta.labels == ["bug", "priorit'
+        args = {"path": fpath, "old_string": old_string, "new_string": "x"}
+        handler, calls = _passthrough_handler()
+        with pytest.raises(ModelRetry) as exc:
+            _run(cap.wrap_tool_execute(
+                None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+            ))
+        msg = str(exc.value)
+        assert "old_string repr:" in msg
+        assert "appears truncated" in msg
+        assert "ends mid-word" in msg
+        assert calls == []
+
+    def test_no_truncation_hint_when_ends_at_line_boundary(self, tmp_path):
+        """When old_string ends with a newline or punctuation, no truncation
+        hint is produced."""
+        fpath = str(tmp_path / "test.py")
+        Path(fpath).write_text("def foo():\n    pass\n")
+        cap = EditFileGuardrailAsRetry()
+        old_string = "def bar():\n    return True\n"
+        args = {"path": fpath, "old_string": old_string, "new_string": "x"}
+        handler, calls = _passthrough_handler()
+        with pytest.raises(ModelRetry) as exc:
+            _run(cap.wrap_tool_execute(
+                None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+            ))
+        msg = str(exc.value)
+        assert "appears truncated" not in msg
+
+
+class TestEditFileGuardrailWhitespaceNormalizationHint:
+    """Tests for whitespace-normalization diagnostic in "not found" errors."""
+
+    def test_whitespace_normalization_hint(self, tmp_path):
+        """When old_string has extra leading spaces but matches after stripping
+        leading whitespace from every line, the error includes a normalization
+        hint and does NOT auto-apply the edit."""
+        fpath = str(tmp_path / "test.py")
+        # Content has 4-space indent
+        Path(fpath).write_text("def foo():\n    pass\n")
+        cap = EditFileGuardrailAsRetry()
+        # old_string has 8-space indent instead of 4-space
+        old_string = "def foo():\n        pass\n"
+        args = {"path": fpath, "old_string": old_string, "new_string": "x"}
+        handler, calls = _passthrough_handler()
+        with pytest.raises(ModelRetry) as exc:
+            _run(cap.wrap_tool_execute(
+                None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+            ))
+        msg = str(exc.value)
+        assert "whitespace normalization" in msg
+        assert "check your indentation" in msg
+        # The handler must NOT have been called (no auto-apply)
+        assert calls == []
+
+    def test_no_whitespace_hint_when_normalized_also_fails(self, tmp_path):
+        """When the old_string doesn't match even after whitespace normalization,
+        no normalization hint is included."""
+        fpath = str(tmp_path / "test.py")
+        Path(fpath).write_text("def foo():\n    pass\n")
+        cap = EditFileGuardrailAsRetry()
+        old_string = "completely different content\n"
+        args = {"path": fpath, "old_string": old_string, "new_string": "x"}
+        handler, calls = _passthrough_handler()
+        with pytest.raises(ModelRetry) as exc:
+            _run(cap.wrap_tool_execute(
+                None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+            ))
+        msg = str(exc.value)
+        assert "whitespace normalization" not in msg
 
 
 class TestEditFileGuardrailNewStringCountGuard:

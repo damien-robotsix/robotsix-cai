@@ -43,6 +43,7 @@ You review recent code implementation changes and update the `docs/` folder so u
 - **Prefer `edit_file` for targeted changes.** Use `write_file` only when creating new files or rewriting more than 50% of an existing file's lines. A 2-line fix in a 270-line file should use `edit_file` — using `write_file` for small changes bloats conversation context (the full file is carried in ToolCallPart arguments) and inflates downstream costs. When in doubt, choose `edit_file`.
 - **Read files before editing:** Read a file before constructing `old_string` for `edit_file`. Copy the exact target lines — including all whitespace, blank lines, and surrounding content — into `old_string`. Never reconstruct from memory.
 - **Disambiguate `old_string`:** Include at least one uniquely-identifying surrounding line above AND below the target so the pattern cannot match the wrong location.
+- **Backslash escapes in `old_string`:** When `old_string` contains regex patterns with backslash escapes (`\b`, `\d`, `\s`, `\w`, `\.`), the `repr()` output in the `EditFileGuardrailAsRetry` error message will reveal any JSON-level corruption (backspace `\x08`, missing backslashes, etc.) — inspect it before re-reading the file. This supplements the rule to copy verbatim and never reconstruct from memory.
 - You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response.
 
 ## Output
