@@ -9,6 +9,7 @@ jobs:
     if: contains(github.event.issue.labels.*.name, 'cai:sub-issue')
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
 
     steps:

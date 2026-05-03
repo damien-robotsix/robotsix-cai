@@ -2,6 +2,7 @@
 name: implement
 description: Implements code changes to resolve a GitHub issue or address PR review threads in a local repository.
 model: deepseek/deepseek-v4-pro
+max_tokens: 32000
 tools:
   - filesystem
   - move_file

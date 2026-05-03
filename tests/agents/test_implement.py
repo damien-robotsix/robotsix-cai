@@ -9,6 +9,7 @@ def test_implement_agent_config(monkeypatch):
     # Assert basics
     assert config["name"] == "implement"
     assert config["model"] == "deepseek/deepseek-v4-pro"
+    assert config["max_tokens"] == 32000
 
     # Assert expected tools
     tools = config.get("tools", [])

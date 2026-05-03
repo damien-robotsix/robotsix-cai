@@ -1020,6 +1020,18 @@ def test_explore_agent_includes_block_overview():
     assert "block_overview" in tools, "explore.md must include block_overview in its tools list"
 
 
+def test_explore_agent_model_is_flash():
+    """The explore agent uses deepseek-v4-flash (not pro) to cap reasoning latency."""
+    from cai.agents.loader import parse_agent_md, resolve_agent_path
+
+    explore_file = resolve_agent_path("explore")
+    config, _ = parse_agent_md(explore_file)
+
+    assert config["model"] == "deepseek/deepseek-v4-flash", (
+        "explore.md must use deepseek/deepseek-v4-flash to avoid excessive reasoning latency"
+    )
+
+
 def test_implement_agent_includes_block_edit():
     """The implement agent markdown lists block_edit in its tools."""
     from cai.agents.loader import parse_agent_md, resolve_agent_path
