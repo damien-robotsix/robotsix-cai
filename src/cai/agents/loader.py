@@ -976,9 +976,11 @@ class HistoryCompactorCapability(AbstractCapability):
                 prior_limit = prior_args.get("limit")
                 current_limit = current_args.get("limit")
                 if prior_limit is None:
-                    # Prior read covered from prior_offset to EOF — any
-                    # current_offset >= prior_offset is fully contained.
-                    if current_offset >= prior_offset:
+                    # Prior read covered from prior_offset to EOF.
+                    # Only block reads that are also unbounded (limit=None) —
+                    # those are truly wasteful. Bounded reads with an explicit
+                    # limit are targeted navigation in a large file; allow them.
+                    if current_limit is None and current_offset >= prior_offset:
                         prior_msg_idx = i
                         matched_prior_args = prior_args
                         matched_by_overlap = True
@@ -1033,13 +1035,15 @@ class HistoryCompactorCapability(AbstractCapability):
                 f"{current_limit_str}) is covered by a prior "
                 f"read_file({path!r}, offset={prior_offset}{prior_limit_str}) "
                 f"at message index {prior_msg_idx} — file content has "
-                f"not changed; review your previous messages for the content."
+                f"not changed. DO NOT re-read this range. Use the content "
+                f"from message {prior_msg_idx} in your conversation history."
             )
         else:
             warning = (
                 f"Warning: identical read_file({path!r}) call at message "
-                f"index {prior_msg_idx} — file content has not changed; "
-                f"review your previous messages for the content."
+                f"index {prior_msg_idx} — file content has not changed. "
+                f"DO NOT re-read this range. Use the content from "
+                f"message {prior_msg_idx} in your conversation history."
             )
         return warning
 
