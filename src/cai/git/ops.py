@@ -86,21 +86,6 @@ def commit(
             repo.git.add("-A")
 
 
-def fetch(
-    repo_root: Path,
-    remote: str = "origin",
-    *,
-    env: Mapping[str, str] | None = None,
-) -> None:
-    """Run ``git fetch <remote>``."""
-    repo = Repo(str(repo_root))
-    if env:
-        with repo.git.custom_environment(**env):
-            repo.git.fetch(remote)
-    else:
-        repo.git.fetch(remote)
-
-
 def merge_no_commit(
     repo_root: Path,
     ref: str,
