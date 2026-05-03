@@ -559,7 +559,12 @@ class EditFileGuardrailAsRetry(AbstractCapability):
             f"earlier, check whether the intended change is already there "
             f"before retrying. Include more surrounding context — at minimum "
             f"one unique line above or below (e.g., a slug, title, or "
-            f"function name) — to disambiguate the target location."
+            f"function name) — to disambiguate the target location. "
+            f"Do NOT assume the edit succeeded just because you see similar "
+            f"content in the file — that content may be from a different, "
+            f"earlier edit. Re-read the file at the exact target location "
+            f"with read_file to confirm whether the change is present before "
+            f"declaring success."
         )
 
 

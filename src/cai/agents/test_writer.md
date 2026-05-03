@@ -36,6 +36,12 @@ You write pytest unit tests for code changes made by the implementation agent.
 
 - **Avoid re-reading:** before calling `read_file`, check your conversation history. File contents from earlier reads are still in context. Only re-read when you need data from an unread range or the file may have changed.
 
+## Editing strategy
+
+- **Read files before editing:** Read a file before constructing `old_string` for `edit_file`. Copy the exact target lines — including all whitespace, blank lines, and surrounding content — into `old_string`. Never reconstruct from memory.
+- **Disambiguate `old_string`:** Include at least one uniquely-identifying surrounding line above AND below the target so the pattern cannot match the wrong location.
+- You can call `edit_file` multiple times **in a single response** to apply several edits at once — batch all edits you know are needed rather than one per response.
+
 ## Test requirements
 
 - **No LLM calls**: never import or instantiate `anthropic`, `openai`, `pydantic_ai`, or any API client

@@ -151,6 +151,11 @@ def test_edit_file_guardrail_enriches_same_result_message():
     assert "the text is already present" in msg
     assert "unique line above or below" in msg
     assert "disambiguate" in msg
+    assert "Do NOT assume the edit succeeded" in msg
+    assert "similar content" in msg
+    assert "that content may be from a different" in msg
+    assert "Re-read the file at the exact target location" in msg
+    assert "read_file to confirm" in msg
 
 
 def test_edit_file_guardrail_enriches_same_result_partial():
@@ -174,6 +179,11 @@ def test_edit_file_guardrail_enriches_same_result_partial():
     assert "the edit may have already been applied" in msg
     assert "the text is already present" in msg
     assert "disambiguate" in msg
+    assert "Do NOT assume the edit succeeded" in msg
+    assert "similar content" in msg
+    assert "that content may be from a different" in msg
+    assert "Re-read the file at the exact target location" in msg
+    assert "read_file to confirm" in msg
 
 
 def test_edit_file_guardrail_docstring_mentions_already_applied():
