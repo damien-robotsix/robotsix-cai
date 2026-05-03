@@ -3809,6 +3809,187 @@ def test_load_agent_from_md_includes_capabilities(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# EditFileGuardrailAsRetry — new_string already present (batch-mate skip)
+# ---------------------------------------------------------------------------
+
+
+def test_edit_file_guardrail_new_string_already_present_returns_skip(tmp_path):
+    """When old_string is not found but new_string is already in the file,
+    the guardrail returns a skip message instead of raising ModelRetry."""
+    fpath = str(tmp_path / "test.py")
+    Path(fpath).write_text("existing content\nreplacement_text\n")
+    cap = EditFileGuardrailAsRetry()
+    args = {"path": fpath, "old_string": "old content", "new_string": "replacement_text"}
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+    ))
+    assert "change already present in file" in result
+    assert "skipping" in result
+    assert calls == []  # handler not invoked
+
+
+def test_edit_file_guardrail_new_string_present_resets_failure_counter(tmp_path):
+    """When new_string is already present, the per-path failure counter
+    is cleared so a subsequent unrelated failure starts fresh."""
+    fpath = str(tmp_path / "test.py")
+    Path(fpath).write_text("alpha\nbeta\nreplacement_text\n")
+    cap = EditFileGuardrailAsRetry()
+    # First call: old_string not found, but new_string present → skip, counter cleared
+    args = {"path": fpath, "old_string": "gamma", "new_string": "replacement_text"}
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+    ))
+    assert "change already present in file" in result
+    # Second call: different old_string, not found, new_string not present → ModelRetry (first attempt)
+    args2 = {"path": fpath, "old_string": "missing", "new_string": "other_new"}
+    handler2, calls2 = _passthrough_handler()
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args2, handler=handler2,
+        ))
+    assert "old_string not found" in str(exc.value)
+
+
+def test_edit_file_guardrail_new_string_none_falls_through_to_retry(tmp_path):
+    """When new_string is None, the guardrail falls through to the normal
+    ModelRetry path for not_found."""
+    fpath = str(tmp_path / "test.py")
+    Path(fpath).write_text("existing content\n")
+    cap = EditFileGuardrailAsRetry()
+    args = {"path": fpath, "old_string": "missing_string"}
+    handler, calls = _passthrough_handler()
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+    assert "old_string not found" in str(exc.value)
+    assert calls == []
+
+
+def test_edit_file_guardrail_new_string_empty_falls_through_to_retry(tmp_path):
+    """When new_string is an empty string, the guardrail falls through to
+    the normal ModelRetry path for not_found."""
+    fpath = str(tmp_path / "test.py")
+    Path(fpath).write_text("existing content\n")
+    cap = EditFileGuardrailAsRetry()
+    args = {"path": fpath, "old_string": "missing_string", "new_string": ""}
+    handler, calls = _passthrough_handler()
+    with pytest.raises(ModelRetry) as exc:
+        _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+    assert "old_string not found" in str(exc.value)
+    assert calls == []
+
+
+def test_edit_file_guardrail_new_string_present_with_object_args(tmp_path):
+    """When args is an object (not dict), new_string present still returns
+    the skip message."""
+    fpath = str(tmp_path / "test.py")
+    Path(fpath).write_text("new code here\n")
+    cap = EditFileGuardrailAsRetry()
+    args = SimpleNamespace(
+        path=fpath, old_string="old code", new_string="new code here",
+    )
+    handler, calls = _passthrough_handler()
+    result = _run(cap.wrap_tool_execute(
+        None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+    ))
+    assert "change already present in file" in result
+    assert "skipping" in result
+    assert calls == []
+
+
+class TestEditFileGuardrailNewStringCountGuard:
+    """Tests for the ``content.count(new_string) <= 3`` guard added to the
+    batch-mate detection in ``EditFileGuardrailAsRetry.wrap_tool_execute``.
+
+    When ``new_string`` appears more than 3 times in the file content, it is
+    likely a trivial/common substring (e.g. ``"x"`` in a file of repeated
+    ``x``'s) rather than having been inserted by a prior batch-mate edit.
+    In that case the guardrail must NOT skip the edit — it must fall through
+    to the normal ``ModelRetry`` / escalation path instead.
+    """
+
+    def test_new_string_too_common_does_not_skip(self, tmp_path):
+        """When new_string is a common substring that appears >3 times, the
+        batch-mate skip must NOT trigger — ModelRetry is raised."""
+        fpath = str(tmp_path / "common.txt")
+        Path(fpath).write_text("x\nx\nx\nx\nx\n")
+        cap = EditFileGuardrailAsRetry()
+        args = {"path": fpath, "old_string": "nonexistent", "new_string": "x"}
+        handler, calls = _passthrough_handler()
+        with pytest.raises(ModelRetry) as exc:
+            _run(cap.wrap_tool_execute(
+                None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+            ))
+        assert "old_string not found" in str(exc.value)
+        assert calls == []
+
+    def test_new_string_present_once_skips(self, tmp_path):
+        """When new_string appears exactly once, the batch-mate skip SHOULD
+        trigger (count <= 3 and new_string in content)."""
+        fpath = str(tmp_path / "single.txt")
+        Path(fpath).write_text("unique_new_content\n")
+        cap = EditFileGuardrailAsRetry()
+        args = {"path": fpath, "old_string": "nonexistent", "new_string": "unique_new_content"}
+        handler, calls = _passthrough_handler()
+        result = _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+        assert "skipping" in result
+        assert calls == []
+
+    def test_new_string_present_exactly_three_times_skips(self, tmp_path):
+        """When new_string appears exactly 3 times (the <=3 boundary), the
+        batch-mate skip SHOULD trigger."""
+        fpath = str(tmp_path / "three.txt")
+        Path(fpath).write_text("abc\nabc\nabc\n")
+        cap = EditFileGuardrailAsRetry()
+        args = {"path": fpath, "old_string": "nonexistent", "new_string": "abc"}
+        handler, calls = _passthrough_handler()
+        result = _run(cap.wrap_tool_execute(
+            None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+        ))
+        assert "skipping" in result
+        assert calls == []
+
+    def test_new_string_present_exactly_four_times_does_not_skip(self, tmp_path):
+        """When new_string appears exactly 4 times (just past the <=3 boundary),
+        the batch-mate skip must NOT trigger — ModelRetry is raised."""
+        fpath = str(tmp_path / "four.txt")
+        Path(fpath).write_text("abc\nabc\nabc\nabc\n")
+        cap = EditFileGuardrailAsRetry()
+        args = {"path": fpath, "old_string": "nonexistent", "new_string": "abc"}
+        handler, calls = _passthrough_handler()
+        with pytest.raises(ModelRetry) as exc:
+            _run(cap.wrap_tool_execute(
+                None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+            ))
+        assert "old_string not found" in str(exc.value)
+        assert calls == []
+
+    def test_new_string_not_a_string_does_not_skip(self, tmp_path):
+        """When new_string is not a string (e.g. an integer), the isinstance
+        check fails and the guardrail falls through to ModelRetry."""
+        fpath = str(tmp_path / "int.txt")
+        Path(fpath).write_text("abc\n")
+        cap = EditFileGuardrailAsRetry()
+        args = {"path": fpath, "old_string": "nonexistent", "new_string": 42}
+        handler, calls = _passthrough_handler()
+        with pytest.raises(ModelRetry) as exc:
+            _run(cap.wrap_tool_execute(
+                None, call=_edit_call(), tool_def=None, args=args, handler=handler,
+            ))
+        assert "old_string not found" in str(exc.value)
+        assert calls == []
+
+
+
+
+# ---------------------------------------------------------------------------
 # Explore agent — Search-then-read strategy prompt sections
 # ---------------------------------------------------------------------------
 

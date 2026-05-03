@@ -416,6 +416,7 @@ class EditFileGuardrailAsRetry(AbstractCapability):
         if call.tool_name != "edit_file":
             return await handler(args)
         old_string = _get_arg(args, "old_string")
+        new_string = _get_arg(args, "new_string")
         path = _get_arg(args, "path")
         if not (isinstance(old_string, str) and old_string and isinstance(path, str) and path):
             return await handler(args)
@@ -440,6 +441,14 @@ class EditFileGuardrailAsRetry(AbstractCapability):
         self._fail_count[path] = count
 
         if not_found:
+            if (isinstance(new_string, str) and new_string and new_string in content
+                    and content.count(new_string) <= 3):
+                # The edit was already applied by a prior batch-mate.
+                self._fail_count.pop(path, None)
+                return (
+                    f"edit_file({path!r}): change already present in file — "
+                    f"skipping (already applied by prior edit in batch)."
+                )
             if count < self._ESCALATE_AT:
                 hint = self._closest_match_hint(old_string, content)
                 raise ModelRetry(
