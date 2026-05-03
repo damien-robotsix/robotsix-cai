@@ -25,7 +25,7 @@ from cai.agents.spike_tool import (
 
 
 def test_scrubbed_env_only_passthrough_keys():
-    """Only vars in _PASSTHROUGH (plus HOME/TMPDIR/PYTHONUNBUFFERED) appear."""
+    """Only vars in _PASSTHROUGH (plus HOME/TMPDIR/PYTHONUNBUFFERED/PYTHONPATH) appear."""
     env_override = {
         "PATH": "/usr/bin",
         "LANG": "en_US.UTF-8",
@@ -38,8 +38,9 @@ def test_scrubbed_env_only_passthrough_keys():
         "SECRET": "should-be-dropped",
     }
     scratch = Path("/tmp/spike-test")
+    repo_root = Path("/workspace/repo")
     with patch.dict(os.environ, env_override, clear=True):
-        env = _scrubbed_env(scratch)
+        env = _scrubbed_env(scratch, repo_root)
 
     # passthrough keys preserved
     for key in _PASSTHROUGH:
@@ -50,6 +51,7 @@ def test_scrubbed_env_only_passthrough_keys():
     assert env["HOME"] == str(scratch)
     assert env["TMPDIR"] == str(scratch)
     assert env["PYTHONUNBUFFERED"] == "1"
+    assert env["PYTHONPATH"] == str(repo_root)
 
     # no leaked keys
     for bad in ("GH_TOKEN", "GITHUB_TOKEN", "AWS_ACCESS_KEY_ID", "SECRET"):
@@ -58,26 +60,30 @@ def test_scrubbed_env_only_passthrough_keys():
 
 def test_scrubbed_env_missing_optional_passthrough():
     """Passthrough keys that aren't in os.environ are simply skipped."""
+    repo_root = Path("/workspace/repo")
     with patch.dict(os.environ, {"PATH": "/bin"}, clear=True):
-        env = _scrubbed_env(Path("/tmp/scratch"))
+        env = _scrubbed_env(Path("/tmp/scratch"), repo_root)
 
     assert env["PATH"] == "/bin"
     # These shouldn't be present because we cleared the env
     assert "LANG" not in env
     assert "OPENROUTER_API_KEY" not in env
+    assert env["PYTHONPATH"] == str(repo_root)
 
 
 def test_scrubbed_env_injected_keys_always_present():
-    """HOME, TMPDIR, and PYTHONUNBUFFERED are always set regardless of real env."""
+    """HOME, TMPDIR, PYTHONUNBUFFERED, and PYTHONPATH are always set regardless of real env."""
     scratch = Path("/does/not/exist")
+    repo_root = Path("/workspace/repo")
     with patch.dict(os.environ, {}, clear=True):
-        env = _scrubbed_env(scratch)
+        env = _scrubbed_env(scratch, repo_root)
 
     assert env["HOME"] == str(scratch)
     assert env["TMPDIR"] == str(scratch)
     assert env["PYTHONUNBUFFERED"] == "1"
+    assert env["PYTHONPATH"] == str(repo_root)
     # No other keys
-    assert set(env.keys()) == {"HOME", "TMPDIR", "PYTHONUNBUFFERED"}
+    assert set(env.keys()) == {"HOME", "TMPDIR", "PYTHONUNBUFFERED", "PYTHONPATH"}
 
 
 # ---------------------------------------------------------------------------

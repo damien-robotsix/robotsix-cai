@@ -37,11 +37,12 @@ _OUTPUT_CAP = 100_000
 _PIP_INSTALL_TIMEOUT = 300
 
 
-def _scrubbed_env(scratch: Path) -> dict[str, str]:
+def _scrubbed_env(scratch: Path, repo_root: Path) -> dict[str, str]:
     env = {k: os.environ[k] for k in _PASSTHROUGH if k in os.environ}
     env["HOME"] = str(scratch)
     env["TMPDIR"] = str(scratch)
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONPATH"] = str(repo_root)
     return env
 
 
@@ -103,7 +104,8 @@ async def spike_run(
         return string starts with ``Script failed (exit code N):``.
     """
     scratch = _scratch_dir(ctx)
-    env = _scrubbed_env(scratch)
+    repo_root = Path(ctx.deps.backend.root_dir)
+    env = _scrubbed_env(scratch, repo_root)
 
     venv_dir = scratch / ".venv"
     if pip_install:
