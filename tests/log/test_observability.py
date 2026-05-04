@@ -556,3 +556,84 @@ class TestTracedAgentRunModelHTTPRetry:
             mock_sleep.assert_not_called()
 
         asyncio.run(_run())
+
+
+class TestTracedAgentRunUnexpectedModelBehavior:
+    """``traced_agent_run`` catches ``UnexpectedModelBehavior`` with the
+    ``"exceeded max retries count of"`` variant (pydantic-ai tool
+    exhaustion) and returns an ``AgentRunResult`` wrapping an exhaustion
+    sentinel. Other variants propagate unchanged.
+    """
+
+    def test_unexpected_model_behavior_max_retries_caught(self):
+        """Tool-exhaustion variant is caught → returns AgentRunResult with
+        sentinel output (does not raise)."""
+        from pydantic_ai import AgentRunResult
+        from pydantic_ai.exceptions import UnexpectedModelBehavior
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=UnexpectedModelBehavior(
+                "Tool 'glob' exceeded max retries count of 3"
+            ))
+
+            with patch("cai.log.observability._initialized", False):
+                result = await traced_agent_run("test", agent, "prompt")
+
+            assert isinstance(result, AgentRunResult)
+            assert result.output.exhausted is True
+            assert result.output.summary == (
+                "Agent exhausted all retries before completing the task."
+            )
+
+        asyncio.run(_run())
+
+    def test_unexpected_model_behavior_max_retries_langfuse_metadata(self):
+        """Tool-exhaustion variant sets ``exhausted_retries`` metadata on the
+        current Langfuse span."""
+        from pydantic_ai import AgentRunResult
+        from pydantic_ai.exceptions import UnexpectedModelBehavior
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=UnexpectedModelBehavior(
+                "Tool 'glob' exceeded max retries count of 3"
+            ))
+
+            mock_client = MagicMock()
+            mock_client.start_as_current_observation.return_value = MagicMock()
+
+            with (
+                patch("cai.log.observability._initialized", True),
+                patch("langfuse.get_client", return_value=mock_client),
+            ):
+                result = await traced_agent_run("test", agent, "prompt")
+
+            assert isinstance(result, AgentRunResult)
+            assert result.output.exhausted is True
+            mock_client.update_current_span.assert_called_once_with(
+                metadata={
+                    "exhausted_retries": True,
+                    "detail": "Tool 'glob' exceeded max retries count of 3",
+                }
+            )
+
+        asyncio.run(_run())
+
+    def test_unexpected_model_behavior_other_variants_raise(self):
+        """Non-tool-exhaustion UnexpectedModelBehavior variants propagate
+        unchanged."""
+        from pydantic_ai.exceptions import UnexpectedModelBehavior
+
+        async def _run():
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=UnexpectedModelBehavior(
+                "Some other unexpected behavior"
+            ))
+
+            with patch("cai.log.observability._initialized", False):
+                with pytest.raises(UnexpectedModelBehavior) as exc_info:
+                    await traced_agent_run("test", agent, "prompt")
+                assert str(exc_info.value) == "Some other unexpected behavior"
+
+        asyncio.run(_run())

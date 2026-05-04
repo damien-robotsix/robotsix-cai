@@ -108,6 +108,8 @@ class TestNode(BaseNode[IssueState]):
             deps=repo_deps(state.repo_root, write_dirs=[tests_dir]),
             usage_limits=UsageLimits(request_limit=100),
         )
+        if getattr(result.output, "exhausted", False) is True:
+            raise RuntimeError(f"Agent 'test_writer' exhausted retries: {result.output.summary}")
         state.test_output = result.output
 
         passed, details = _run_tests(state.repo_root)

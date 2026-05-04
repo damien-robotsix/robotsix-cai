@@ -11,6 +11,7 @@ from pydantic_ai.usage import UsageLimits
 from pydantic_graph import End
 
 from cai.github.issues import IssueMeta
+from cai.workflows.implement import ImplementNode
 from cai.workflows.refine import RefineNode, refine_agent
 from cai.workflows.state import ExploreOutput, IssueState, RefineOutput
 
@@ -555,3 +556,54 @@ def test_reference_files_section_no_truncation_when_under_budget(state, tmp_path
     assert "src/small_1.py" in section
     assert "src/small_2.py" in section
     assert "omitted due to size limit" not in section
+
+
+# ---------------------------------------------------------------------------
+# RefineNode — exhaustion guard
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.workflows.refine.add_sub_issue")
+@patch("cai.workflows.refine.push")
+@patch("cai.workflows.refine.refine_agent")
+def test_refine_raises_runtime_error_when_agent_exhausted(
+    mock_agent_factory, mock_push, mock_add_sub_issue, state, tmp_path,
+):
+    """When traced_agent_run returns an exhausted sentinel, RefineNode raises RuntimeError."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        result = MagicMock()
+        result.output = MagicMock()
+        result.output.exhausted = True
+        result.output.summary = "Agent exhausted all retries before completing the task."
+        return result
+
+    agent_instance.run = MagicMock(side_effect=mock_run)
+
+    with pytest.raises(RuntimeError, match="Agent 'refine' exhausted retries"):
+        _run(RefineNode(), state)
+
+
+@patch("cai.workflows.refine.add_sub_issue")
+@patch("cai.workflows.refine.push")
+@patch("cai.workflows.refine.refine_agent")
+def test_refine_does_not_raise_on_magicmock_output(
+    mock_agent_factory, mock_push, mock_add_sub_issue, state, tmp_path,
+):
+    """When result.output is a bare MagicMock (no .exhausted set), the
+    ``is True`` identity check prevents false-positive exhaustion."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        result = MagicMock()
+        result.output = MagicMock()
+        return result
+
+    agent_instance.run = MagicMock(side_effect=mock_run)
+
+    result = _run(RefineNode(), state)
+
+    assert isinstance(result, ImplementNode)

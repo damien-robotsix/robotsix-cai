@@ -61,6 +61,8 @@ class RefineNode(BaseNode[IssueState]):
             ),
             usage_limits=UsageLimits(request_limit=30),
         )
+        if getattr(result.output, "exhausted", False) is True:
+            raise RuntimeError(f"Agent 'refine' exhausted retries: {result.output.summary}")
         out: RefineOutput = result.output
         new_meta = state.meta.model_copy(update={"title": out.title})
         state.new_meta = new_meta

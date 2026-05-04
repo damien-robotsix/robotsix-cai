@@ -22,7 +22,8 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
-from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
+from pydantic_ai import AgentRunResult
+from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior, UsageLimitExceeded
 
 from genai_prices.update_prices import UpdatePrices as _UpdatePrices
 
@@ -204,6 +205,15 @@ async def traced_agent_run(
         if not _is_transient_http_error(exc):
             raise
         return await _retry_transient(name, agent, prompt, exc, **kwargs)
+    except UnexpectedModelBehavior as exc:
+        if "exceeded max retries count of" in str(exc):
+            if _is_langfuse_initialized():
+                from langfuse import get_client
+                get_client().update_current_span(
+                    metadata={"exhausted_retries": True, "detail": str(exc)}
+                )
+            return AgentRunResult(output=_AgentExhaustedSentinel())
+        raise
 
 
 # Retry policy for transient ModelHTTPErrors.  Each attempt is preceded by
@@ -212,6 +222,19 @@ async def traced_agent_run(
 # blips without holding the workflow hostage.
 _TRANSIENT_RETRY_ATTEMPTS = 3
 _TRANSIENT_RETRY_BASE_SECONDS = 5.0
+
+
+class _AgentExhaustedSentinel:
+    exhausted: bool = True
+    summary: str = "Agent exhausted all retries before completing the task."
+    related_files: list[str] = []
+    files_changed: list[str] = []
+    commit_message: str = "Agent exhausted"
+    required_checks: list[str] = []
+    replies: list = []
+    title: str = "Agent exhausted"
+    reference_files: list[str] = []
+    sub_issues: list[str] = []
 
 
 def _is_transient_http_error(exc: "ModelHTTPError") -> bool:

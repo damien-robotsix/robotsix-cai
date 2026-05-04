@@ -49,6 +49,8 @@ class ExploreNode(BaseNode[IssueState]):
             deps=repo_deps(state.repo_root),
             usage_limits=UsageLimits(request_limit=100),
         )
+        if getattr(result.output, "exhausted", False) is True:
+            raise RuntimeError(f"Agent 'explore' exhausted retries: {result.output.summary}")
         state.findings = result.output
         state.reference_files = list(result.output.related_files)
         if state.session_state is not None:

@@ -7,13 +7,13 @@ from pathlib import Path
 from git import Repo
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.usage import UsageLimits
-from cai.workflows._deps import repo_deps
 from pydantic_graph import BaseNode, GraphRunContext
 
 from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_path
 from cai.git import checkout_branch
 from cai.github.pr import ReviewThread
 from cai.log.observability import traced_agent_run
+from cai.workflows._deps import repo_deps
 from cai.workflows.state import ImplementOutput, IssueState, save_session_state
 
 
@@ -177,6 +177,8 @@ class ImplementNode(BaseNode[IssueState]):
             deps=repo_deps(state.repo_root, write_dirs=[state.repo_root]),
             usage_limits=UsageLimits(request_limit=120),
         )
+        if getattr(result.output, "exhausted", False) is True:
+            raise RuntimeError(f"Agent 'implement' exhausted retries: {result.output.summary}")
         state.implement_output = result.output
         if result.output.files_changed:
             state.reference_files = list(result.output.files_changed)

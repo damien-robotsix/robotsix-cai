@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import MagicMock, patch
 
+import pytest
 from pydantic_ai.usage import UsageLimits
 
 from cai.workflows.explore import ExploreNode
@@ -206,3 +207,45 @@ def test_does_not_save_when_session_state_is_none(mock_agent_factory, mock_save,
 
     mock_save.assert_not_called()
 
+
+# ---------------------------------------------------------------------------
+# ExploreNode — exhaustion guard
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.workflows.explore._explore_agent")
+def test_explore_raises_runtime_error_when_agent_exhausted(mock_agent_factory, state):
+    """When traced_agent_run returns an exhausted sentinel, ExploreNode raises RuntimeError."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        result = MagicMock()
+        result.output = MagicMock()
+        result.output.exhausted = True
+        result.output.summary = "Agent exhausted all retries before completing the task."
+        return result
+
+    agent_instance.run = MagicMock(side_effect=mock_run)
+
+    with pytest.raises(RuntimeError, match="Agent 'explore' exhausted retries"):
+        _run(ExploreNode(), state)
+
+
+@patch("cai.workflows.explore._explore_agent")
+def test_explore_does_not_raise_on_magicmock_output(mock_agent_factory, state):
+    """When result.output is a bare MagicMock (no .exhausted set), the
+    ``is True`` identity check prevents false-positive exhaustion."""
+    agent_instance = MagicMock()
+    mock_agent_factory.return_value = agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        result = MagicMock()
+        result.output = MagicMock()
+        return result
+
+    agent_instance.run = MagicMock(side_effect=mock_run)
+
+    result = _run(ExploreNode(), state)
+
+    assert isinstance(result, RefineNode)

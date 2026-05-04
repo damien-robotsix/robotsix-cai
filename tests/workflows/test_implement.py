@@ -493,3 +493,55 @@ def test_prompt_omits_pre_push_validation_failure_when_empty(
     assert captured_prompt is not None
     assert "## Pre-push validation failures to fix" not in captured_prompt
 
+
+# ---------------------------------------------------------------------------
+# ImplementNode — exhaustion guard
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_implement_raises_runtime_error_when_agent_exhausted(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """When traced_agent_run returns an exhausted sentinel, ImplementNode raises RuntimeError."""
+    mock_conflicted_files.return_value = []
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        result = MagicMock()
+        result.output = MagicMock()
+        result.output.exhausted = True
+        result.output.summary = "Agent exhausted all retries before completing the task."
+        return result
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    with pytest.raises(RuntimeError, match="Agent 'implement' exhausted retries"):
+        _run(ImplementNode(), state)
+
+
+@patch("cai.workflows.implement._implement_agent")
+@patch("cai.workflows.implement._conflicted_files")
+@patch("cai.workflows.implement.checkout_branch")
+def test_implement_does_not_raise_on_magicmock_output(
+    mock_checkout, mock_conflicted_files, mock_agent, state,
+):
+    """When result.output is a bare MagicMock (no .exhausted set), the
+    ``is True`` identity check prevents false-positive exhaustion."""
+    mock_conflicted_files.return_value = []
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        result = MagicMock()
+        result.output = MagicMock()
+        return result
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    result = _run(ImplementNode(), state)
+
+    assert isinstance(result, TestNode)

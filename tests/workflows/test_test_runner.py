@@ -760,3 +760,55 @@ def test_test_node_prompt_omits_files_changed_section_when_empty(
 
     assert captured_prompt is not None
     assert "## Files changed by implement" not in captured_prompt
+
+
+# ---------------------------------------------------------------------------
+# TestNode — exhaustion guard
+# ---------------------------------------------------------------------------
+
+
+@patch("cai.workflows.test_runner._test_writer_agent")
+def test_test_node_raises_runtime_error_when_agent_exhausted(mock_agent, state):
+    """When traced_agent_run returns an exhausted sentinel, TestNode raises RuntimeError."""
+    state.implement_output = ImplementOutput(
+        summary="s", commit_message="c", required_checks=[], replies=[],
+    )
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        result = MagicMock()
+        result.output = MagicMock()
+        result.output.exhausted = True
+        result.output.summary = "Agent exhausted all retries before completing the task."
+        return result
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    with pytest.raises(RuntimeError, match="Agent 'test_writer' exhausted retries"):
+        _run(TestNode(), state)
+
+
+@patch("cai.workflows.test_runner._test_writer_agent")
+def test_test_node_does_not_raise_on_magicmock_output(mock_agent, state):
+    """When result.output is a bare MagicMock (no .exhausted set), the
+    ``is True`` identity check prevents false-positive exhaustion."""
+    state.implement_output = ImplementOutput(
+        summary="s", commit_message="c", required_checks=[], replies=[],
+    )
+
+    mock_agent_instance = MagicMock()
+    mock_agent.return_value = mock_agent_instance
+
+    async def mock_run(prompt, *args, **kwargs):
+        result = MagicMock()
+        result.output = MagicMock()
+        return result
+
+    mock_agent_instance.run.side_effect = mock_run
+
+    from cai.workflows.pre_push_validate import PrePushValidationNode
+    result = _run(TestNode(), state)
+
+    assert isinstance(result, PrePushValidationNode)
