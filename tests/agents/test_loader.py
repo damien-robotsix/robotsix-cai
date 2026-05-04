@@ -3702,28 +3702,36 @@ def test_micro_step_guard_single_tool_below_threshold():
 
 
 def test_micro_step_guard_triggers_at_threshold():
-    """before_model_request appends a system reminder after 3 consecutive
-    single-tool turns and resets the counter (it does NOT raise — pydantic-ai
-    does not catch ModelRetry from before_model_request, so a raise would
-    crash the workflow)."""
+    """before_model_request injects a system reminder *into the most recent
+    ModelRequest* (not by appending a new message — that would violate
+    pydantic-ai's per-turn invariant that messages[-1] is a ModelRequest)
+    after 3 consecutive single-tool turns, and resets the counter."""
+    from pydantic_ai.messages import (
+        ModelRequest, SystemPromptPart, ToolReturnPart,
+    )
     cap = MicroStepGuardCapability()
-    part = ToolCallPart(tool_name="read_file", args={"path": "foo"})
-    msg = ModelResponse(parts=[part])
-    rc = _make_ctx(messages=[msg])
+    response = ModelResponse(parts=[ToolCallPart(tool_name="read_file", args={"path": "foo"})])
+    request = ModelRequest(parts=[ToolReturnPart(
+        tool_name="read_file", content="content", tool_call_id="1",
+    )])
+    rc = _make_ctx(messages=[response, request])
     _run(cap.before_model_request(None, rc))  # count = 1
     _run(cap.before_model_request(None, rc))  # count = 2
     initial_msg_count = len(rc.messages)
+    initial_last = rc.messages[-1]
     _run(cap.before_model_request(None, rc))  # count = 3 → reminder + reset
 
     # Counter resets so the next 3-streak fires again instead of crashing.
     assert cap._consecutive_single_count == 0
-    # A reminder ModelRequest is appended (the "in-band" delivery).
-    from pydantic_ai.messages import ModelRequest, SystemPromptPart
-    assert len(rc.messages) == initial_msg_count + 1
-    reminder = rc.messages[-1]
-    assert isinstance(reminder, ModelRequest)
+    # No new messages — the existing last ModelRequest gets the reminder
+    # prepended to its parts so messages[-1] stays a ModelRequest.
+    assert len(rc.messages) == initial_msg_count
+    last = rc.messages[-1]
+    assert isinstance(last, ModelRequest)
+    # Original parts still present; reminder added at the front.
     assert any(isinstance(p, SystemPromptPart) and "[micro-step-guard]" in p.content
-               for p in reminder.parts)
+               for p in last.parts)
+    assert any(isinstance(p, ToolReturnPart) for p in last.parts)
 
 
 def test_micro_step_guard_resets_on_multi_tool():
@@ -3781,24 +3789,44 @@ def test_micro_step_guard_only_model_request_in_messages():
 
 def test_micro_step_guard_reminder_message_content():
     """The injected reminder includes batching guidance and tool-name examples."""
+    from pydantic_ai.messages import (
+        ModelRequest, SystemPromptPart, ToolReturnPart,
+    )
     cap = MicroStepGuardCapability()
-    part = ToolCallPart(tool_name="read_file", args={"path": "foo"})
-    msg = ModelResponse(parts=[part])
-    rc = _make_ctx(messages=[msg])
+    response = ModelResponse(parts=[ToolCallPart(tool_name="read_file", args={"path": "foo"})])
+    request = ModelRequest(parts=[ToolReturnPart(
+        tool_name="read_file", content="content", tool_call_id="1",
+    )])
+    rc = _make_ctx(messages=[response, request])
     _run(cap.before_model_request(None, rc))  # count = 1
     _run(cap.before_model_request(None, rc))  # count = 2
     _run(cap.before_model_request(None, rc))  # count = 3 → reminder + reset
 
-    from pydantic_ai.messages import ModelRequest, SystemPromptPart
-    reminder = rc.messages[-1]
-    assert isinstance(reminder, ModelRequest)
-    text = next(p.content for p in reminder.parts
+    last = rc.messages[-1]
+    text = next(p.content for p in last.parts
                 if isinstance(p, SystemPromptPart))
     assert "Batch your next tool calls" in text
     assert "read_file" in text
     assert "grep" in text
     assert "edit_file" in text
     assert "spike_run" in text
+
+
+def test_micro_step_guard_does_not_violate_history_invariant_with_no_request():
+    """When there's no prior ModelRequest in messages, the guard becomes
+    a no-op (very first turn — the user prompt is added later by
+    pydantic-ai). It must not append a stray ModelRequest that would
+    perturb the invariant."""
+    cap = MicroStepGuardCapability()
+    # Three responses with no intervening requests (synthetic/edge).
+    msg = ModelResponse(parts=[ToolCallPart(tool_name="read_file", args={"path": "foo"})])
+    rc = _make_ctx(messages=[msg])
+    initial_msg_count = len(rc.messages)
+    _run(cap.before_model_request(None, rc))  # count = 1
+    _run(cap.before_model_request(None, rc))  # count = 2
+    _run(cap.before_model_request(None, rc))  # count = 3 → reset, no prior MR
+    assert cap._consecutive_single_count == 0
+    assert len(rc.messages) == initial_msg_count
 
 
 # ── _inject_common_fragments ─────────────────────────────────────────

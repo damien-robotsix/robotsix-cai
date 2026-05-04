@@ -1159,19 +1159,21 @@ class MicroStepGuardCapability(AbstractCapability):
                 elif tool_count == 1:
                     self._consecutive_single_count += 1
                     if self._consecutive_single_count >= self._THRESHOLD:
-                        # Reset and inject a system reminder so the model sees
-                        # the batching nudge without crashing the workflow.
-                        # Raising ``ModelRetry`` here is unsafe — pydantic-ai
-                        # only catches ``ModelRetry`` from the tool-execution
-                        # path (per-tool ``max_retries``), so a raise from
-                        # ``before_model_request`` propagates up and aborts
-                        # the entire run. Instead, prepend a reminder
-                        # ``ModelRequest`` to the next outgoing batch.
+                        # Reset and inject the batching nudge into the
+                        # most recent ``ModelRequest`` (rather than
+                        # appending a fresh one) so we don't perturb
+                        # pydantic-ai's per-turn invariant that
+                        # ``messages[-1]`` is a ``ModelRequest``.
+                        # Raising ``ModelRetry`` here is unsafe —
+                        # pydantic-ai only catches ``ModelRetry`` from
+                        # the tool-execution path, so a raise from
+                        # ``before_model_request`` propagates up and
+                        # aborts the entire run.
                         self._consecutive_single_count = 0
                         from pydantic_ai.messages import (
                             ModelRequest, SystemPromptPart,
                         )
-                        reminder = ModelRequest(parts=[SystemPromptPart(
+                        reminder_part = SystemPromptPart(
                             content=(
                                 f"[micro-step-guard] You have made "
                                 f"{self._THRESHOLD} consecutive LLM calls "
@@ -1181,8 +1183,18 @@ class MicroStepGuardCapability(AbstractCapability):
                                 f"calls in a single response instead of "
                                 f"making one per turn."
                             ),
-                        )])
-                        request_context.messages.append(reminder)
+                        )
+                        # Find the last ModelRequest and prepend the
+                        # reminder. If none exists (very first turn),
+                        # do nothing — the batching guidance can wait.
+                        for i in range(len(request_context.messages) - 1, -1, -1):
+                            existing = request_context.messages[i]
+                            if isinstance(existing, ModelRequest):
+                                request_context.messages[i] = dataclasses.replace(
+                                    existing,
+                                    parts=[reminder_part, *existing.parts],
+                                )
+                                break
                 else:
                     self._consecutive_single_count = 0
                 break
