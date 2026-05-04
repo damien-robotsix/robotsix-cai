@@ -25,7 +25,7 @@ def _resolve(ctx: RunContext, rel_path: str) -> Path:
     root = Path(ctx.deps.backend.root_dir).resolve()
     resolved = (root / rel_path).resolve()
     if not str(resolved).startswith(str(root)):
-        raise PermissionError(f"Path {rel_path!r} escapes repository root")
+        raise PermissionError(f"Path escapes repository root: {rel_path!r}")
     return resolved
 
 
@@ -158,7 +158,7 @@ async def batch_delete(ctx: RunContext, paths: list[str]) -> str:
     return f"Deleted {len(resolved)} path(s):\n" + "\n".join(lines)
 
 
-MOVE_FILE_TOOL = Tool(move_file)
-DELETE_FILE_TOOL = Tool(delete_file)
-BATCH_MOVE_TOOL = Tool(batch_move)
-BATCH_DELETE_TOOL = Tool(batch_delete)
+MOVE_FILE_TOOL: Tool = Tool(move_file)
+DELETE_FILE_TOOL: Tool = Tool(delete_file)
+BATCH_MOVE_TOOL: Tool = Tool(batch_move)
+BATCH_DELETE_TOOL: Tool = Tool(batch_delete)

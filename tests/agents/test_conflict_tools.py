@@ -7,7 +7,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cai.agents.conflict_tools import _load_file_conflicts, _parse_conflicts, conflict_cleanup, conflict_list, conflict_resolve
+from cai.agents.conflict_tools import (
+    CONFLICT_CLEANUP_TOOL,
+    CONFLICT_LIST_TOOL,
+    CONFLICT_RESOLVE_TOOL,
+    _load_file_conflicts,
+    _parse_conflicts,
+    conflict_cleanup,
+    conflict_list,
+    conflict_resolve,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -363,3 +372,81 @@ def test_conflict_cleanup_non_existent_file(tmp_path):
     ctx = _make_ctx(tmp_path)
     out = run(conflict_cleanup(ctx, "missing.py", [(1, 1)]))
     assert "not found" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tool wrapping constants
+# ---------------------------------------------------------------------------
+
+
+def test_conflict_list_tool_is_tool_instance():
+    """CONFLICT_LIST_TOOL is a pydantic_ai Tool."""
+    from pydantic_ai import Tool
+
+    assert isinstance(CONFLICT_LIST_TOOL, Tool)
+
+
+def test_conflict_list_tool_name():
+    """CONFLICT_LIST_TOOL name matches the function name."""
+    assert CONFLICT_LIST_TOOL.name == "conflict_list"
+
+
+def test_conflict_resolve_tool_is_tool_instance():
+    """CONFLICT_RESOLVE_TOOL is a pydantic_ai Tool."""
+    from pydantic_ai import Tool
+
+    assert isinstance(CONFLICT_RESOLVE_TOOL, Tool)
+
+
+def test_conflict_resolve_tool_name():
+    """CONFLICT_RESOLVE_TOOL name matches the function name."""
+    assert CONFLICT_RESOLVE_TOOL.name == "conflict_resolve"
+
+
+def test_conflict_cleanup_tool_is_tool_instance():
+    """CONFLICT_CLEANUP_TOOL is a pydantic_ai Tool."""
+    from pydantic_ai import Tool
+
+    assert isinstance(CONFLICT_CLEANUP_TOOL, Tool)
+
+
+def test_conflict_cleanup_tool_name():
+    """CONFLICT_CLEANUP_TOOL name matches the function name."""
+    assert CONFLICT_CLEANUP_TOOL.name == "conflict_cleanup"
+
+
+# ---------------------------------------------------------------------------
+# TOOL_FACTORIES registration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "key, expected_target",
+    [
+        ("conflict_list", "cai.agents.conflict_tools:CONFLICT_LIST_TOOL"),
+        ("conflict_resolve", "cai.agents.conflict_tools:CONFLICT_RESOLVE_TOOL"),
+        ("conflict_cleanup", "cai.agents.conflict_tools:CONFLICT_CLEANUP_TOOL"),
+    ],
+)
+def test_conflict_tools_registered_in_tool_factories(key, expected_target):
+    """Each conflict tool is registered under its key in loader.py."""
+    from cai.agents.loader import TOOL_FACTORIES
+
+    assert key in TOOL_FACTORIES
+    assert TOOL_FACTORIES[key] == expected_target
+
+
+@pytest.mark.parametrize(
+    "key, expected_tool",
+    [
+        ("conflict_list", CONFLICT_LIST_TOOL),
+        ("conflict_resolve", CONFLICT_RESOLVE_TOOL),
+        ("conflict_cleanup", CONFLICT_CLEANUP_TOOL),
+    ],
+)
+def test_import_factory_resolves_conflict_tool(key, expected_tool):
+    """The factory target string imports and returns the correct tool."""
+    from cai.agents.loader import TOOL_FACTORIES, _import_factory
+
+    tool = _import_factory(TOOL_FACTORIES[key])
+    assert tool is expected_tool

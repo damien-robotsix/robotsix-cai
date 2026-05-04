@@ -477,6 +477,176 @@ class TestFormatFailures:
         assert "    Output:  o" in result
 
 
+# ============================================================================
+# Tool wrapping constants
+# ============================================================================
+
+
+def test_traces_list_tool_is_tool_instance():
+    """TRACES_LIST_TOOL is a pydantic_ai Tool."""
+    from pydantic_ai import Tool
+    from cai.log.traces import TRACES_LIST_TOOL
+
+    assert isinstance(TRACES_LIST_TOOL, Tool)
+
+
+def test_traces_list_tool_name():
+    """TRACES_LIST_TOOL name matches the function name."""
+    from cai.log.traces import TRACES_LIST_TOOL
+
+    assert TRACES_LIST_TOOL.name == "traces_list"
+
+
+def test_traces_show_tool_is_tool_instance():
+    """TRACES_SHOW_TOOL is a pydantic_ai Tool."""
+    from pydantic_ai import Tool
+    from cai.log.traces import TRACES_SHOW_TOOL
+
+    assert isinstance(TRACES_SHOW_TOOL, Tool)
+
+
+def test_traces_show_tool_name():
+    """TRACES_SHOW_TOOL name matches the function name."""
+    from cai.log.traces import TRACES_SHOW_TOOL
+
+    assert TRACES_SHOW_TOOL.name == "traces_show"
+
+
+def test_traces_failures_tool_is_tool_instance():
+    """TRACES_FAILURES_TOOL is a pydantic_ai Tool."""
+    from pydantic_ai import Tool
+    from cai.log.traces import TRACES_FAILURES_TOOL
+
+    assert isinstance(TRACES_FAILURES_TOOL, Tool)
+
+
+def test_traces_failures_tool_name():
+    """TRACES_FAILURES_TOOL name matches the function name."""
+    from cai.log.traces import TRACES_FAILURES_TOOL
+
+    assert TRACES_FAILURES_TOOL.name == "traces_failures"
+
+
+def test_traces_session_cost_tool_is_tool_instance():
+    """TRACES_SESSION_COST_TOOL is a pydantic_ai Tool."""
+    from pydantic_ai import Tool
+    from cai.log.traces import TRACES_SESSION_COST_TOOL
+
+    assert isinstance(TRACES_SESSION_COST_TOOL, Tool)
+
+
+def test_traces_session_cost_tool_name():
+    """TRACES_SESSION_COST_TOOL name matches the function name."""
+    from cai.log.traces import TRACES_SESSION_COST_TOOL
+
+    assert TRACES_SESSION_COST_TOOL.name == "traces_session_cost"
+
+
+def test_traces_session_tool_is_tool_instance():
+    """TRACES_SESSION_TOOL is a pydantic_ai Tool."""
+    from pydantic_ai import Tool
+    from cai.log.traces import TRACES_SESSION_TOOL
+
+    assert isinstance(TRACES_SESSION_TOOL, Tool)
+
+
+def test_traces_session_tool_name():
+    """TRACES_SESSION_TOOL name matches the function name."""
+    from cai.log.traces import TRACES_SESSION_TOOL
+
+    assert TRACES_SESSION_TOOL.name == "traces_session"
+
+
+def test_traces_solve_sessions_tool_is_tool_instance():
+    """TRACES_SOLVE_SESSIONS_TOOL is a pydantic_ai Tool."""
+    from pydantic_ai import Tool
+    from cai.log.traces import TRACES_SOLVE_SESSIONS_TOOL
+
+    assert isinstance(TRACES_SOLVE_SESSIONS_TOOL, Tool)
+
+
+def test_traces_solve_sessions_tool_name():
+    """TRACES_SOLVE_SESSIONS_TOOL name matches the function name."""
+    from cai.log.traces import TRACES_SOLVE_SESSIONS_TOOL
+
+    assert TRACES_SOLVE_SESSIONS_TOOL.name == "traces_solve_sessions"
+
+
+# ============================================================================
+# TOOL_FACTORIES registration
+# ============================================================================
+
+
+import pytest
+
+
+@pytest.mark.parametrize(
+    "key, expected_target",
+    [
+        ("traces_list", "cai.log.traces:TRACES_LIST_TOOL"),
+        ("traces_show", "cai.log.traces:TRACES_SHOW_TOOL"),
+        ("traces_failures", "cai.log.traces:TRACES_FAILURES_TOOL"),
+        ("traces_session_cost", "cai.log.traces:TRACES_SESSION_COST_TOOL"),
+        ("traces_session", "cai.log.traces:TRACES_SESSION_TOOL"),
+        ("traces_solve_sessions", "cai.log.traces:TRACES_SOLVE_SESSIONS_TOOL"),
+    ],
+)
+def test_traces_tools_registered_in_tool_factories(key, expected_target):
+    """Each traces tool is registered under its key in loader.py."""
+    from cai.agents.loader import TOOL_FACTORIES
+
+    assert key in TOOL_FACTORIES
+    assert TOOL_FACTORIES[key] == expected_target
+
+
+@pytest.mark.parametrize(
+    "key, expected_tool",
+    [
+        ("traces_list", None),  # resolved below
+        ("traces_show", None),
+        ("traces_failures", None),
+        ("traces_session_cost", None),
+        ("traces_session", None),
+        ("traces_solve_sessions", None),
+    ],
+)
+def test_import_factory_resolves_traces_tool(key, expected_tool):
+    """The factory target string imports and returns the correct tool."""
+    from cai.agents.loader import TOOL_FACTORIES, _import_factory
+    from cai.log.traces import (
+        TRACES_LIST_TOOL,
+        TRACES_SHOW_TOOL,
+        TRACES_FAILURES_TOOL,
+        TRACES_SESSION_COST_TOOL,
+        TRACES_SESSION_TOOL,
+        TRACES_SOLVE_SESSIONS_TOOL,
+    )
+
+    mapping = {
+        "traces_list": TRACES_LIST_TOOL,
+        "traces_show": TRACES_SHOW_TOOL,
+        "traces_failures": TRACES_FAILURES_TOOL,
+        "traces_session_cost": TRACES_SESSION_COST_TOOL,
+        "traces_session": TRACES_SESSION_TOOL,
+        "traces_solve_sessions": TRACES_SOLVE_SESSIONS_TOOL,
+    }
+    tool = _import_factory(TOOL_FACTORIES[key])
+    assert tool is mapping[key]
+
+
+# ============================================================================
+# Module docstring
+# ============================================================================
+
+
+def test_module_docstring_exists():
+    """The traces module has a docstring describing its purpose."""
+    import cai.log.traces as tr
+
+    assert tr.__doc__ is not None
+    assert len(tr.__doc__) > 0
+
+
 class _FakeTrace:
     """Minimal fake that mimics a Langfuse trace object.
 

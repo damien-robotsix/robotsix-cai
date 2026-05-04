@@ -3272,3 +3272,97 @@ def test_history_compactor_grep_non_modifying_tools_preserve_short_circuit():
     assert "Warning: grep" in result
     assert "already read in full" in result
 
+
+# ============================================================================
+# TOOL_FACTORIES — comprehensive audit of all 22 entries
+# ============================================================================
+
+
+def test_all_tool_factories_entries_are_valid():
+    """Every entry in TOOL_FACTORIES is a valid ``module:attr`` that
+    imports and returns an object."""
+    from cai.agents.loader import TOOL_FACTORIES, _import_factory
+
+    for name, target in TOOL_FACTORIES.items():
+        assert ":" in target, f"{name}: target {target!r} missing ':' separator"
+        module_path, _, attr = target.partition(":")
+        assert module_path, f"{name}: empty module path in {target!r}"
+        assert attr, f"{name}: empty attribute in {target!r}"
+        # Verify it imports without error
+        tool = _import_factory(target)
+        assert tool is not None, f"{name}: _import_factory returned None"
+
+
+def test_tool_factories_has_expected_count():
+    """TOOL_FACTORIES has exactly 22 entries as documented."""
+    from cai.agents.loader import TOOL_FACTORIES
+
+    assert len(TOOL_FACTORIES) == 22, (
+        f"Expected 22 entries in TOOL_FACTORIES, found {len(TOOL_FACTORIES)}. "
+        "Update this assertion when entries are added or removed."
+    )
+
+
+@pytest.mark.parametrize(
+    "key, expected_target",
+    [
+        ("spike_run", "cai.agents.spike_tool:SPIKE_RUN_TOOL"),
+        ("move_file", "cai.agents.fs_ops:MOVE_FILE_TOOL"),
+        ("delete_file", "cai.agents.fs_ops:DELETE_FILE_TOOL"),
+        ("batch_move", "cai.agents.fs_ops:BATCH_MOVE_TOOL"),
+        ("batch_delete", "cai.agents.fs_ops:BATCH_DELETE_TOOL"),
+        ("conflict_list", "cai.agents.conflict_tools:CONFLICT_LIST_TOOL"),
+        ("conflict_resolve", "cai.agents.conflict_tools:CONFLICT_RESOLVE_TOOL"),
+        ("conflict_cleanup", "cai.agents.conflict_tools:CONFLICT_CLEANUP_TOOL"),
+        ("raise_issue", "cai.agents.issue_tool:RAISE_ISSUE_TOOL"),
+        ("traces_list", "cai.log.traces:TRACES_LIST_TOOL"),
+        ("traces_show", "cai.log.traces:TRACES_SHOW_TOOL"),
+        ("traces_failures", "cai.log.traces:TRACES_FAILURES_TOOL"),
+        ("traces_session_cost", "cai.log.traces:TRACES_SESSION_COST_TOOL"),
+        ("traces_session", "cai.log.traces:TRACES_SESSION_TOOL"),
+        ("traces_solve_sessions", "cai.log.traces:TRACES_SOLVE_SESSIONS_TOOL"),
+        ("git_log", "cai.tools.git_tools:GIT_LOG_TOOL"),
+        ("git_diff", "cai.tools.git_tools:GIT_DIFF_TOOL"),
+        ("git_blame", "cai.tools.git_tools:GIT_BLAME_TOOL"),
+        ("git_show", "cai.tools.git_tools:GIT_SHOW_TOOL"),
+        ("file_info", "cai.tools.file_tools:FILE_INFO_TOOL"),
+        ("block_overview", "cai.tools.block_tools:BLOCK_OVERVIEW_TOOL"),
+        ("block_edit", "cai.tools.block_tools:BLOCK_EDIT_TOOL"),
+    ],
+)
+def test_every_tool_factory_registration(key, expected_target):
+    """Every TOOL_FACTORIES entry has the correct module:attr target.
+    This is the authoritative list — all 22 entries must be enumerated."""
+    from cai.agents.loader import TOOL_FACTORIES
+
+    assert key in TOOL_FACTORIES, (
+        f"Key {key!r} not found in TOOL_FACTORIES. "
+        "Update this test when entries are added or removed."
+    )
+    assert TOOL_FACTORIES[key] == expected_target, (
+        f"TOOL_FACTORIES[{key!r}] has changed: "
+        f"expected {expected_target!r}, got {TOOL_FACTORIES[key]!r}"
+    )
+
+
+def test_no_unknown_keys_in_tool_factories():
+    """All 22 keys in TOOL_FACTORIES are accounted for in the parametrized test."""
+    from cai.agents.loader import TOOL_FACTORIES
+
+    expected_keys = {
+        "spike_run", "move_file", "delete_file", "batch_move", "batch_delete",
+        "conflict_list", "conflict_resolve", "conflict_cleanup",
+        "raise_issue",
+        "traces_list", "traces_show", "traces_failures",
+        "traces_session_cost", "traces_session", "traces_solve_sessions",
+        "git_log", "git_diff", "git_blame", "git_show",
+        "file_info",
+        "block_overview", "block_edit",
+    }
+    actual_keys = set(TOOL_FACTORIES.keys())
+    assert actual_keys == expected_keys, (
+        f"TOOL_FACTORIES keys mismatch.\n"
+        f"Unexpected extras: {actual_keys - expected_keys}\n"
+        f"Missing: {expected_keys - actual_keys}"
+    )
+
