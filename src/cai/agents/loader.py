@@ -1830,11 +1830,20 @@ def build_deep_agent(
     # produce a response that doesn't match the schema, and trigger output-
     # validation retries.
     #
-    # Skip DeepSeek's direct backend: their pay-per-use upstream account
-    # is currently out of credit ("Insufficient Balance" 402), so any
-    # request OpenRouter routes there fails. Other providers
-    # (SiliconFlow, DeepInfra, Novita, Fireworks, …) route fine. Remove
-    # the ignore once DeepSeek tops up. See traces around 2026-05-03 19:36 UTC.
+    # Skip provider backends with known transient failures:
+    #
+    # * DeepSeek — pay-per-use upstream account out of credit
+    #   ("Insufficient Balance" 402, ~2026-05-03 19:36 UTC).
+    # * SiliconFlow — rejects pydantic-ai's reconstructed message
+    #   history with HTTP 400 "The `reasoning_content` in the thinking
+    #   mode must be passed back to the API." pydantic-ai does not
+    #   preserve `reasoning_content` between turns, so SiliconFlow
+    #   fails on every multi-turn run (~2026-05-04 00:27 UTC, run
+    #   25294657313 / issue #1666).
+    #
+    # Other providers (DeepInfra, Novita, Fireworks, …) route fine.
+    # Remove each entry from the ignore list once the provider issue
+    # is resolved upstream.
     settings = settings or {}
     existing_extra_body = settings.get("extra_body") or {}
     existing_provider = (existing_extra_body.get("provider") if isinstance(existing_extra_body, dict) else None) or {}
@@ -1842,7 +1851,7 @@ def build_deep_agent(
         **existing_extra_body,
         "provider": {
             "require_parameters": True,
-            "ignore": ["DeepSeek"],
+            "ignore": ["DeepSeek", "SiliconFlow"],
             **existing_provider,
         },
     }
@@ -1926,7 +1935,7 @@ def load_agent_from_md(
         **existing_extra_body,
         "provider": {
             "require_parameters": True,
-            "ignore": ["DeepSeek"],
+            "ignore": ["DeepSeek", "SiliconFlow"],
             **existing_provider,
         },
     }
