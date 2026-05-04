@@ -961,7 +961,6 @@ TOOL_FACTORIES: dict[str, str] = {
     "traces_list": "cai.log.traces:TRACES_LIST_TOOL",
     "traces_show": "cai.log.traces:TRACES_SHOW_TOOL",
     "traces_failures": "cai.log.traces:TRACES_FAILURES_TOOL",
-    "traces_session_cost": "cai.log.traces:TRACES_SESSION_COST_TOOL",
     "traces_session": "cai.log.traces:TRACES_SESSION_TOOL",
     "traces_solve_sessions": "cai.log.traces:TRACES_SOLVE_SESSIONS_TOOL",
     "git_log": "cai.tools.git_tools:GIT_LOG_TOOL",
