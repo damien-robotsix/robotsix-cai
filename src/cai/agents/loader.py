@@ -707,6 +707,34 @@ class HistoryCompactorCapability(AbstractCapability):
         return warning
 
 
+# httpx defaults read/write/pool to None (infinite). Without these, a silently
+# dropped OpenRouter request will hang the agent indefinitely instead of
+# surfacing as a retryable error.
+_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=10.0)
+_MAX_RETRIES = 3
+
+
+async def _capture_openrouter_cost(response: httpx.Response) -> None:
+    try:
+        await response.aread()
+        data = response.json()
+
+        usage = data.get("usage") or {}
+        cost = usage.get("cost")
+        if cost is None:
+            model_extra = usage.get("model_extra") or {}
+            cost = model_extra.get("cost")
+        if cost is None:
+            cost = data.get("cost")
+
+        if cost is not None:
+            from langfuse import get_client
+
+            get_client().update_current_generation(cost_details={"total": float(cost)})
+    except Exception:
+        pass
+
+
 @lru_cache(maxsize=None)
 def _provider() -> OpenRouterProvider:
     key = os.environ.get("OPENROUTER_API_KEY")
