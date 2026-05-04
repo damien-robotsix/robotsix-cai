@@ -405,35 +405,6 @@ def _has_error_level_str(level: str) -> bool:
     return bool(level) and level not in ("DEFAULT", "ObservationLevel.DEFAULT")
 
 
-async def traces_session_cost(
-    limit: int = 100,
-    since: str | None = None,
-) -> str:
-    """Show total LLM cost grouped by Langfuse session id.
-
-    Sessions group an issue's full lifecycle — the cai-solve run, its PR's
-    review-thread runs, and any later conflict-resolves — under one id
-    (e.g. 'issue-1426', 'pr-1427').
-
-    Args:
-        limit: Maximum number of traces to scan (default 100).
-        since: ISO date string — only include traces after this date, e.g. '2026-01-01'.
-    """
-    groups = await asyncio.to_thread(_TRACES.cost_per_session, limit, since)
-    if not groups:
-        return "No sessioned traces found."
-    lines = [f"{'SESSION':<24} {'COST':>10} {'TRACES':>7}  WORKFLOWS", "-" * 80]
-    total = 0.0
-    for g in groups:
-        cost_str = f"${g['total_cost']:.4f}"
-        workflows = ", ".join(sorted(set(g["workflows"])))
-        lines.append(f"{g['session_id']:<24} {cost_str:>10} {g['trace_count']:>7}  {workflows}")
-        total += g["total_cost"]
-    lines.append("-" * 80)
-    lines.append(f"{'TOTAL':<24} ${total:>9.4f}")
-    return "\n".join(lines)
-
-
 async def traces_session(
     session_id: str,
     limit: int = 100,
@@ -488,6 +459,5 @@ async def traces_solve_sessions(limit: int = 10) -> str:
 TRACES_LIST_TOOL = Tool(traces_list)
 TRACES_SHOW_TOOL = Tool(traces_show)
 TRACES_FAILURES_TOOL = Tool(traces_failures)
-TRACES_SESSION_COST_TOOL = Tool(traces_session_cost)
 TRACES_SESSION_TOOL = Tool(traces_session)
 TRACES_SOLVE_SESSIONS_TOOL = Tool(traces_solve_sessions)

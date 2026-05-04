@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cai.log.traces import _build_list_kwargs, _format_failures, _format_trace
 
 
@@ -494,3 +496,57 @@ class _FakeTrace:
                 delattr(self, k)
             except AttributeError:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Tool constant exports — traces_session_cost was removed
+# ---------------------------------------------------------------------------
+
+
+def test_traces_session_cost_tool_does_not_exist():
+    """TRACES_SESSION_COST_TOOL must NOT be importable from cai.log.traces
+    after the removal (it was unused by any agent)."""
+    import cai.log.traces as traces_mod
+
+    assert not hasattr(traces_mod, "TRACES_SESSION_COST_TOOL"), (
+        "TRACES_SESSION_COST_TOOL should have been removed"
+    )
+
+
+def test_traces_session_cost_function_does_not_exist():
+    """The traces_session_cost async function must NOT exist in the
+    traces module after removal."""
+    import cai.log.traces as traces_mod
+
+    assert not hasattr(traces_mod, "traces_session_cost"), (
+        "traces_session_cost function should have been removed"
+    )
+
+
+@pytest.mark.parametrize(
+    "constant_name",
+    [
+        "TRACES_LIST_TOOL",
+        "TRACES_SHOW_TOOL",
+        "TRACES_FAILURES_TOOL",
+        "TRACES_SESSION_TOOL",
+        "TRACES_SOLVE_SESSIONS_TOOL",
+    ],
+)
+def test_remaining_trace_tool_constants_exist(constant_name):
+    """All other trace tool constants must still be importable."""
+    import cai.log.traces as traces_mod
+
+    assert hasattr(traces_mod, constant_name), (
+        f"{constant_name} should still exist in cai.log.traces"
+    )
+
+
+def test_cost_per_session_still_exists():
+    """The cost_per_session() method on LangfuseTraces must still exist
+    since it is called by most_costly_solve_session() in audit.py."""
+    from cai.log.traces import LangfuseTraces
+
+    assert hasattr(LangfuseTraces, "cost_per_session"), (
+        "LangfuseTraces.cost_per_session() should still exist"
+    )

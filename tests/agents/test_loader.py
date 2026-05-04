@@ -3272,3 +3272,50 @@ def test_history_compactor_grep_non_modifying_tools_preserve_short_circuit():
     assert "Warning: grep" in result
     assert "already read in full" in result
 
+
+# ---------------------------------------------------------------------------
+# TOOL_FACTORIES — traces_session_cost removed
+# ---------------------------------------------------------------------------
+
+
+def test_traces_session_cost_removed_from_tool_factories():
+    """The ``traces_session_cost`` factory entry was removed from
+    ``TOOL_FACTORIES`` since the underlying tool and function were deleted."""
+    from cai.agents.loader import TOOL_FACTORIES
+
+    assert "traces_session_cost" not in TOOL_FACTORIES, (
+        "traces_session_cost should have been removed from TOOL_FACTORIES"
+    )
+
+
+def test_tool_factories_has_21_entries():
+    """TOOL_FACTORIES should have exactly 21 entries after removing
+    traces_session_cost."""
+    from cai.agents.loader import TOOL_FACTORIES
+
+    assert len(TOOL_FACTORIES) == 21, (
+        f"Expected 21 TOOL_FACTORIES entries, got {len(TOOL_FACTORIES)}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("key", "expected_target"),
+    [
+        ("traces_list", "cai.log.traces:TRACES_LIST_TOOL"),
+        ("traces_show", "cai.log.traces:TRACES_SHOW_TOOL"),
+        ("traces_failures", "cai.log.traces:TRACES_FAILURES_TOOL"),
+        ("traces_session", "cai.log.traces:TRACES_SESSION_TOOL"),
+        ("traces_solve_sessions", "cai.log.traces:TRACES_SOLVE_SESSIONS_TOOL"),
+    ],
+)
+def test_traces_tools_still_registered_in_tool_factories(key, expected_target):
+    """All remaining traces tool entries must still be registered in
+    TOOL_FACTORIES with the correct import targets."""
+    from cai.agents.loader import TOOL_FACTORIES
+
+    assert key in TOOL_FACTORIES, f"{key!r} missing from TOOL_FACTORIES"
+    assert TOOL_FACTORIES[key] == expected_target, (
+        f"Expected {key!r} -> {expected_target!r}, "
+        f"got {TOOL_FACTORIES[key]!r}"
+    )
+
