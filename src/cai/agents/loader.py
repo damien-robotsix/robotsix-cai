@@ -15,20 +15,12 @@ from __future__ import annotations
 
 __all__ = [
     "AGENT_DIR",
-    "ConsecutiveFailureGuardrail",
     "EditFileGuardrailAsRetry",
     "GlobPatternSanitizer",
-    "GrepExtraParamFilter",
-    "GrepGuardrailAsRetry",
     "HistoryCompactorCapability",
-    "MicroReadGuardCapability",
-    "MicroStepGuardCapability",
-    "ModelRequestErrorAsRetry",
     "TOOL_FACTORIES",
     "TOOL_FLAGS",
     "ToolErrorAsRetry",
-    "UnknownToolRetry",
-    "WriteFileGuardrailAsRetry",
     "build_deep_agent",
     "build_deep_agent_kwargs",
     "build_model",
@@ -156,266 +148,11 @@ class GlobPatternSanitizer(AbstractCapability):
         return args
 
 
-class GrepExtraParamFilter(AbstractCapability):
-    """Strip hallucinated parameters from ``grep`` tool calls before pydantic validation.
-
-    Agents (particularly the Test Writer Agent) hallucinate CLI-grep-style
-    parameters that don't exist in the ``grep`` tool schema — ``limit``
-    (bleeding from ``read_file``) and ``context`` (analogous to ``grep -A``).
-    The ``grep`` tool accepts only: ``pattern``, ``path``, ``glob_pattern``,
-    ``output_mode``, ``ignore_hidden``. Its pydantic validator has
-    ``extra_behavior: Forbid``, so any extra key triggers a validation error
-    before execution.  Each hallucination wastes a tool round-trip.
-
-    ``before_tool_validate`` fires before pydantic validation, so silently
-    stripping unknown keys here prevents the error entirely.
-    """
-
-    _KNOWN_GREP_PARAMS: frozenset[str] = frozenset({
-        "pattern", "path", "glob_pattern", "output_mode", "ignore_hidden",
-    })
-
-    async def before_tool_validate(
-        self, ctx: Any, *, call: Any, tool_def: Any, args: Any,
-    ) -> Any:
-        if call.tool_name == "grep" and isinstance(args, dict):
-            extra = [k for k in args if k not in self._KNOWN_GREP_PARAMS]
-            if extra:
-                return {k: v for k, v in args.items() if k in self._KNOWN_GREP_PARAMS}
-        return args
-
-
 def _get_arg(args: Any, name: str) -> Any:
     """Extract a named argument from tool ``args``, which may be a dict or object."""
     if isinstance(args, dict):
         return args.get(name)
     return getattr(args, name, None)
-
-
-class GrepGuardrailAsRetry(AbstractCapability):
-    """Nudge the model away from repeated zero-result ``grep`` queries.
-
-    Models sometimes spiral on minor regex variations that all return
-    zero matches, burning context without progress. After
-    ``_THRESHOLD`` consecutive empty grep results, the first breach
-    raises ``ModelRetry`` with instructions to use ``read_file``,
-    ``ls``, or ``glob`` instead. Subsequent breaches (after the first
-    ``ModelRetry`` is consumed) return a warning string prefixed to
-    the grep result — this preserves the run by avoiding
-    pydantic-ai's ``max_retries=3`` crash while still surfacing
-    guidance. Any non-empty grep result resets all counters, so a
-    single productive search clears the streak and restores the
-    ``ModelRetry`` escalation for the next streak.
-
-    State lives on the instance, but ``for_run`` returns a fresh
-    instance per run so concurrent runs of the same agent don't share
-    the counter.
-    """
-
-    _THRESHOLD = 3
-    _ESCALATE_AT = 1  # 1st threshold breach: ModelRetry; 2nd+: return warning string
-    _SAME_FILTER_THRESHOLD = 3
-    _NO_MATCH_PREFIX = "No matches for"
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._empty_grep_count = 0
-        self._guardrail_fire_count = 0
-        self._recently_removed: set[str] = set()
-        self._last_nonempty_grep_key: tuple | None = None
-        self._identical_nonempty_count = 0
-        self._last_empty_grep_key: tuple | None = None
-        self._last_empty_pattern: str | None = None
-        self._last_empty_glob_pattern: str | None = None
-        self._same_filter_count = 0
-
-    async def for_run(self, ctx: Any) -> "GrepGuardrailAsRetry":
-        return GrepGuardrailAsRetry()
-
-    async def after_tool_execute(
-        self,
-        ctx: Any,
-        *,
-        call: Any,
-        tool_def: Any,
-        args: Any,
-        result: Any,
-    ) -> Any:
-        # Track edit_file old_string values so we can later exempt
-        # verification greps from the empty-result counter.
-        if call.tool_name == "edit_file":
-            old_string = _get_arg(args, "old_string")
-            if isinstance(old_string, str) and old_string:
-                self._recently_removed.add(old_string)
-            self._last_nonempty_grep_key = None
-            self._identical_nonempty_count = 0
-            return result
-
-        if call.tool_name != "grep":
-            return result
-
-        text = result if isinstance(result, str) else ""
-        stripped = text.strip()
-
-        # Detect "Access denied" results and extract allowed-directory hints.
-        # The filesystem backend rejects paths outside allowed_directories and
-        # returns a message like "Access denied: '/bad/path' is outside allowed
-        # directories (/repo, /tmp/repo)".  Raise ModelRetry so the model can
-        # use one of the listed paths instead of wasting turns retrying.
-        if stripped.startswith("Access denied:") and "outside allowed directories" in stripped:
-            m = re.search(r"\(([^)]+)\)", stripped)
-            if m:
-                allowed = m.group(1)
-                raise ModelRetry(
-                    f"Your grep path was rejected. Allowed directories: {allowed}. "
-                    f"Use one of these paths."
-                )
-            raise ModelRetry(
-                f"Your grep path was rejected. Check the allowed directories and retry."
-            )
-
-        is_empty = not stripped or stripped.startswith(self._NO_MATCH_PREFIX)
-        if not is_empty:
-            self._empty_grep_count = 0
-            self._guardrail_fire_count = 0
-            self._last_empty_grep_key = None
-            self._same_filter_count = 0
-            self._last_empty_pattern = None
-            self._last_empty_glob_pattern = None
-            # Detect identical-argument non-empty grep loops.
-            # pydantic_deep's grep tool truncates output at 50-150 lines
-            # with messages like "showing first 50 of 67 matches". Agents
-            # re-call with the same arguments expecting pagination, but
-            # grep output is idempotent — they get the same truncated
-            # lines every time. Catch that here.
-            current_key = (
-                _get_arg(args, "pattern"),
-                _get_arg(args, "path"),
-                _get_arg(args, "glob_pattern"),
-            )
-            if self._last_nonempty_grep_key == current_key:
-                self._identical_nonempty_count += 1
-                if self._identical_nonempty_count >= 2:
-                    raise ModelRetry(
-                        "You just called grep with the same arguments as your last "
-                        "non-empty grep call. grep output is truncated by the tool "
-                        "framework — calling grep with identical arguments returns "
-                        "the same truncated top-N lines, not paginated results. "
-                        "Instead, use file_info to discover the file's total line "
-                        "count, then use grep with a narrower pattern, or use "
-                        "read_file with specific offsets to get the content you "
-                        "need."
-                    )
-            else:
-                self._last_nonempty_grep_key = current_key
-                self._identical_nonempty_count = 1
-            return result
-
-        # Exempt verification greps: when the grep pattern contains
-        # an old_string that was recently removed via edit_file, the
-        # zero-result grep is confirming the edit — not a wild goose
-        # chase.  Don't count it or reset the streak.
-        if self._recently_removed:
-            pattern = _get_arg(args, "pattern")
-            if isinstance(pattern, str) and pattern:
-                if any(
-                    removed in pattern or re.escape(removed) in pattern
-                    for removed in self._recently_removed
-                ):
-                    return result
-                # re.escape escaping can differ between Python versions
-                # (e.g. whether space is escaped).  Fall back to testing
-                # whether the grep regex itself matches a removed string.
-                try:
-                    if any(
-                        re.search(pattern, removed)
-                        for removed in self._recently_removed
-                    ):
-                        return result
-                except re.error:
-                    pass
-
-        # Identical-argument empty-grep tracking: if the agent issues the
-        # same empty grep twice in a row with identical (pattern, path,
-        # glob_pattern), raise ModelRetry with guidance to switch tactics.
-        # This catches identical empty-result loops on the 2nd call instead
-        # of the 8th.  Only applied when pattern is truthy — tests that
-        # use args={} produce (None, None, None) keys and are exempt.
-        grep_pattern = _get_arg(args, "pattern")
-        if isinstance(grep_pattern, str) and grep_pattern:
-            current_key = (
-                grep_pattern,
-                _get_arg(args, "path"),
-                _get_arg(args, "glob_pattern"),
-            )
-            if self._last_empty_grep_key == current_key:
-                self._last_empty_grep_key = None
-                raise ModelRetry(
-                    "You just called grep with the same arguments as your last "
-                    "empty-result grep. Instead, use file_info to discover the "
-                    "file's total line count, read_file with specific offsets, "
-                    "or a different path/pattern."
-                )
-            self._last_empty_grep_key = current_key
-
-        # Same-filter empty-grep tracking: detect when the model
-        # varies the search pattern but keeps the same glob_pattern
-        # across consecutive zero-result greps (e.g. 3 different
-        # regexes all with glob_pattern='*.py').
-        pattern = _get_arg(args, "pattern")
-        glob_pattern = _get_arg(args, "glob_pattern")
-        if (
-            self._last_empty_glob_pattern is not None
-            and glob_pattern == self._last_empty_glob_pattern
-        ):
-            if pattern != self._last_empty_pattern:
-                self._same_filter_count += 1
-            # else: same pattern + same glob_pattern — the identical-
-            # empty guard above already handles repeated identical calls.
-        else:
-            # First zero-result grep ever, or glob_pattern changed.
-            self._same_filter_count = 1
-            if self._last_empty_glob_pattern is not None:
-                # glob_pattern actually changed — reset the empty streak
-                # so the model gets a fresh _THRESHOLD on the new filter.
-                self._empty_grep_count = 0
-        self._last_empty_pattern = pattern
-        self._last_empty_glob_pattern = glob_pattern
-
-        if self._same_filter_count >= self._SAME_FILTER_THRESHOLD:
-            self._same_filter_count = 0
-            return (
-                f"Warning: you have made {self._SAME_FILTER_THRESHOLD} consecutive "
-                f"zero-result grep queries with the same glob_pattern "
-                f"({glob_pattern!r}) while varying only the search pattern. "
-                f"Consider using a different glob_pattern (e.g., '*.md', "
-                f"'*.toml') or dropping the filter entirely. "
-                f"(The grep was executed normally — results below.)\n\n"
-                f"{text}"
-            )
-
-        self._empty_grep_count += 1
-        if self._empty_grep_count >= self._THRESHOLD:
-            self._empty_grep_count = 0
-            if self._guardrail_fire_count < self._ESCALATE_AT:
-                self._guardrail_fire_count += 1
-                raise ModelRetry(
-                    f"You have made {self._THRESHOLD} consecutive zero-result grep queries. "
-                    f"Stop searching with grep. The content you're looking for may not "
-                    f"exist on disk — use ls to verify the path exists before trying "
-                    f"read_file. If you're analyzing pre-fetched trace data, work with "
-                    f"that data directly instead of searching the filesystem."
-                )
-            return (
-                f"Warning: you have made {self._THRESHOLD} consecutive zero-result grep queries. "
-                f"The content you're looking for may not exist on disk — use ls to "
-                f"verify the path exists before trying read_file. If you're analyzing "
-                f"pre-fetched trace data, work with that data directly instead of "
-                f"searching the filesystem. "
-                f"(The grep was executed normally — results below.)\n\n"
-                f"{text}"
-            )
-        return result
 
 
 class EditFileGuardrailAsRetry(AbstractCapability):
@@ -678,134 +415,6 @@ class EditFileGuardrailAsRetry(AbstractCapability):
             f"with read_file to confirm whether the change is present before "
             f"declaring success."
         )
-
-
-class WriteFileGuardrailAsRetry(AbstractCapability):
-    """Nudge the model away from ``write_file`` when a targeted ``edit_file`` would suffice.
-
-    Models sometimes rewrite entire files via ``write_file`` for small
-    fixes (e.g. a 2-line change in a 270-line file).  The full file
-    content lives in the ``ToolCallPart`` arguments and bloats
-    conversation context, forcing downstream LLM calls to process it
-    repeatedly.
-
-    This capability intercepts ``write_file`` calls in
-    :meth:`before_tool_execute`: when the target file already exists,
-    it reads the disk content and compares it against the proposed
-    ``content`` via ``difflib.SequenceMatcher.ratio()``.  If similarity
-    is at least 80 %, it raises ``ModelRetry`` telling the model to use
-    ``edit_file`` instead and explaining the context-cost impact.  When
-    the file doesn't exist, or the content differs substantially, the
-    call passes through unchanged.
-    """
-
-    _SIMILARITY_THRESHOLD = 0.80
-
-    async def before_tool_execute(
-        self, ctx: Any, *, call: Any, tool_def: Any, args: Any,
-    ) -> Any:
-        if call.tool_name != "write_file":
-            return args
-        path = _get_arg(args, "path")
-        new_content = _get_arg(args, "content")
-        if not (isinstance(path, str) and path and isinstance(new_content, str)):
-            return args
-        try:
-            existing = Path(path).read_text()
-        except (FileNotFoundError, PermissionError, OSError):
-            # File doesn't exist — creating a new file is fine.
-            return args
-
-        # Count lines for a human-scale description in the retry message.
-        new_lines = new_content.count("\n") + (0 if new_content.endswith("\n") else 1)
-        existing_lines = existing.count("\n") + (0 if existing.endswith("\n") else 1)
-
-        similarity = difflib.SequenceMatcher(None, existing, new_content).ratio()
-        if similarity >= self._SIMILARITY_THRESHOLD:
-            raise ModelRetry(
-                f"write_file on {path!r} is {similarity:.0%} identical to the "
-                f"existing file ({existing_lines} lines).  The proposed content "
-                f"would replace {existing_lines} lines with {new_lines} — a "
-                f"near-duplicate rewrite that bloats conversation context "
-                f"(each write_file carries the full file content in "
-                f"ToolCallPart arguments) and inflates downstream costs.  Use "
-                f"edit_file instead with a targeted old_string/new_string pair "
-                f"to change only the lines that differ."
-            )
-        return args
-
-
-class UnknownToolRetry(AbstractCapability):
-    """Enrich ``Unknown tool name`` ModelRetry errors with concrete guidance.
-
-    When a model hallucinates a non-existent tool like ``execute``,
-    pydantic_ai raises ``ModelRetry("Unknown tool name: 'execute'. ...")``
-    which gets the vague suffix ``"Fix the errors and try again."`` from
-    ``RetryPromptPart.model_response()``. DeepSeek models interpret this
-    as "fix your command syntax" and retry with different commands
-    instead of switching to a valid tool. This capability enriches the
-    message with explicit anti-hallucination guidance.
-    """
-
-    async def on_tool_execute_error(
-        self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
-    ) -> None:
-        if not isinstance(error, ModelRetry):
-            return
-        message = str(error)
-        if not message.startswith("Unknown tool name:"):
-            raise error
-        match = re.match(
-            r"Unknown tool name: '(\w+)'\. Available tools: (.+)\.",
-            message,
-        )
-        if match:
-            tool_name = match.group(1)
-            available = match.group(2)
-            if tool_name in ("execute", "bash", "shell", "run"):
-                raise ModelRetry(
-                    f"Unknown tool name: '{tool_name}'. "
-                    f"You do NOT have shell access. "
-                    f"Do not retry with different commands — "
-                    f"this tool will never exist. "
-                    f"Use only the tools listed above.\n"
-                    f"Available tools: {available}."
-                )
-            raise ModelRetry(
-                f"Unknown tool name: '{tool_name}'. "
-                f"The tool you called does not exist.\n"
-                f"Available tools: {available}.\n"
-                f"You cannot run shell commands. "
-                f"Use read_file or grep to inspect files instead."
-            )
-        raise error
-
-
-class ModelRequestErrorAsRetry(AbstractCapability):
-    """Turn transient model-call errors into ``ModelRetry`` so the run survives.
-
-    OpenRouter occasionally returns a malformed HTTP 200 (all-None fields in the
-    ChatCompletion schema -> ``UnexpectedModelBehavior``; non-JSON or truncated
-    body -> ``JSONDecodeError`` / ``httpx.RemoteProtocolError``), especially on
-    DeepSeek V4 routing. The OpenAI SDK's ``max_retries`` only covers transport
-    errors and 5xx — body-parse failures land here untouched, and without this
-    one bad response aborts the entire agent run. pydantic_ai's built-in
-    ``request_limit`` still caps total retries, so this does not loop forever.
-    """
-
-    _RETRYABLE = (
-        UnexpectedModelBehavior,
-        json.JSONDecodeError,
-        httpx.RemoteProtocolError,
-    )
-
-    async def on_model_request_error(self, ctx: Any, *, request_context: Any, error: Exception) -> None:
-        if isinstance(error, self._RETRYABLE):
-            raise ModelRetry(
-                f"Model returned a malformed response "
-                f"({type(error).__name__}: {error}). Retrying..."
-            )
-        raise error
 
 
 class HistoryCompactorCapability(AbstractCapability):
@@ -1096,276 +705,6 @@ class HistoryCompactorCapability(AbstractCapability):
                 f"message {prior_msg_idx} in your conversation history."
             )
         return warning
-
-
-class MicroReadGuardCapability(AbstractCapability):
-    """Auto-extend tiny ``limit`` values on ``read_file`` to prevent micro-reading.
-
-    Agents sometimes call ``read_file`` with ``limit=15`` or ``limit=60``,
-    producing a wasteful read→think→read→think loop. This capability bumps
-    any ``limit`` below 200 up to 200, so the agent gets a meaningful chunk
-    on every call. An absent ``limit`` (whole-file read) is left alone.
-    """
-
-    _MIN_LIMIT = 200
-
-    async def before_tool_execute(
-        self, ctx: Any, *, call: Any, tool_def: Any, args: Any,
-    ) -> Any:
-        if call.tool_name == "read_file":
-            limit = _get_arg(args, "limit")
-            if limit is not None and isinstance(limit, int) and limit < self._MIN_LIMIT:
-                if isinstance(args, dict):
-                    args["limit"] = self._MIN_LIMIT
-                else:
-                    setattr(args, "limit", self._MIN_LIMIT)
-        return args
-
-
-class MicroStepGuardCapability(AbstractCapability):
-    """Break single-tool-per-turn micro-step loops by raising ``ModelRetry``.
-
-    The agent loop supports batching — the model can emit multiple tool
-    calls in a single LLM response.  However, models sometimes ignore
-    batching instructions and fall into a one-tool-call-per-LLM-turn
-    pattern.  This capability uses :meth:`before_model_request` to
-    detect three consecutive single-tool LLM turns and raises
-    ``ModelRetry`` with guidance to batch.
-
-    State lives on the instance, but ``for_run`` returns a fresh
-    instance per run so concurrent runs don't share the counter.
-    """
-
-    _THRESHOLD = 3
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._consecutive_single_count = 0
-
-    async def for_run(self, ctx: Any) -> "MicroStepGuardCapability":
-        return MicroStepGuardCapability()
-
-    async def before_model_request(
-        self, ctx: RunContext, request_context: ModelRequestContext,
-    ) -> ModelRequestContext:
-        # Scan messages backward to find the most recent ModelResponse.
-        for msg in reversed(request_context.messages):
-            if isinstance(msg, ModelResponse):
-                tool_count = sum(
-                    1 for part in msg.parts if isinstance(part, ToolCallPart)
-                )
-                if tool_count >= 2:
-                    self._consecutive_single_count = 0
-                elif tool_count == 1:
-                    self._consecutive_single_count += 1
-                    if self._consecutive_single_count >= self._THRESHOLD:
-                        # Reset and inject the batching nudge into the
-                        # most recent ``ModelRequest`` (rather than
-                        # appending a fresh one) so we don't perturb
-                        # pydantic-ai's per-turn invariant that
-                        # ``messages[-1]`` is a ``ModelRequest``.
-                        # Raising ``ModelRetry`` here is unsafe —
-                        # pydantic-ai only catches ``ModelRetry`` from
-                        # the tool-execution path, so a raise from
-                        # ``before_model_request`` propagates up and
-                        # aborts the entire run.
-                        self._consecutive_single_count = 0
-                        from pydantic_ai.messages import (
-                            ModelRequest, SystemPromptPart,
-                        )
-                        reminder_part = SystemPromptPart(
-                            content=(
-                                f"[micro-step-guard] You have made "
-                                f"{self._THRESHOLD} consecutive LLM calls "
-                                f"with only a single tool call each. Batch "
-                                f"your next tool calls — emit multiple "
-                                f"read_file, grep, spike_run, or edit_file "
-                                f"calls in a single response instead of "
-                                f"making one per turn."
-                            ),
-                        )
-                        # Find the last ModelRequest and prepend the
-                        # reminder. If none exists (very first turn),
-                        # do nothing — the batching guidance can wait.
-                        for i in range(len(request_context.messages) - 1, -1, -1):
-                            existing = request_context.messages[i]
-                            if isinstance(existing, ModelRequest):
-                                request_context.messages[i] = dataclasses.replace(
-                                    existing,
-                                    parts=[reminder_part, *existing.parts],
-                                )
-                                break
-                else:
-                    self._consecutive_single_count = 0
-                break
-        return request_context
-
-
-class ConsecutiveFailureGuardrail(AbstractCapability):
-    """Detect persistent tool failure across parameter variations.
-
-    When the same tool produces errors or warnings 5 consecutive times
-    (across any parameter variations), this guardrail raises
-    ``ModelRetry`` naming the failing tool and instructing the agent to
-    abandon it entirely. A successful tool execution resets the counter.
-
-    This catches the pattern that individual tool-specific guardrails
-    miss: the model retrying the same tool over and over with slightly
-    tweaked parameters, never recognizing the tool is blocked.
-
-    State lives on the instance, but ``for_run`` returns a fresh
-    instance per run so concurrent sessions don't share the counter.
-    """
-
-    _THRESHOLD = 5
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._error_count: dict[str, int] = {}
-        self._warning_count: dict[str, int] = {}
-
-    async def for_run(self, ctx: Any) -> "ConsecutiveFailureGuardrail":
-        return ConsecutiveFailureGuardrail()
-
-    async def on_tool_execute_error(
-        self, ctx: Any, *, call: Any, tool_def: Any, args: Any, error: Exception
-    ) -> None:
-        tool_name = call.tool_name
-        count = self._error_count.get(tool_name, 0) + 1
-        self._error_count[tool_name] = count
-        if count >= self._THRESHOLD:
-            self._error_count[tool_name] = 0
-            raise ModelRetry(
-                f"Tool {tool_name!r} has failed {count} consecutive times "
-                f"with varying arguments. Stop using {tool_name!r} entirely "
-                f"and switch to a fundamentally different approach — "
-                f"e.g. read a file instead of grepping, use glob instead "
-                f"of ls, or report partial findings rather than burning "
-                f"more calls."
-            )
-
-    async def after_tool_execute(
-        self,
-        ctx: Any,
-        *,
-        call: Any,
-        tool_def: Any,
-        args: Any,
-        result: Any,
-    ) -> Any:
-        tool_name = call.tool_name
-        if isinstance(result, str) and result.startswith("Warning:"):
-            count = self._warning_count.get(tool_name, 0) + 1
-            self._warning_count[tool_name] = count
-            if count >= self._THRESHOLD:
-                self._warning_count[tool_name] = 0
-                raise ModelRetry(
-                    f"Tool {tool_name!r} has produced {count} consecutive "
-                    f"warning results with varying arguments. Stop using "
-                    f"{tool_name!r} entirely and switch to a fundamentally "
-                    f"different approach — e.g. read a file instead of "
-                    f"grepping, use glob instead of ls, or report partial "
-                    f"findings rather than burning more calls."
-                )
-        else:
-            # Successful tool execution resets counters for that tool.
-            self._error_count.pop(tool_name, None)
-            self._warning_count.pop(tool_name, None)
-        return result
-
-
-class PostEditVerificationGuardrail(AbstractCapability):
-    """Block excessive ``spike_run`` verification when no edits have been made.
-
-    After the implement agent's changes are verified (e.g. tests pass via
-    ``spike_run``), it sometimes loops re-running tests and import checks
-    without making any further edits. This capability counts consecutive
-    ``spike_run`` calls since the last file-modifying operation and blocks
-    further calls after a threshold.
-
-    The counter resets on any file-modifying tool call (write_file,
-    edit_file, batch_move, batch_delete, move_file, delete_file,
-    block_edit).
-
-    State lives on the instance, but ``for_run`` returns a fresh
-    instance per run so concurrent sessions don't share the counter.
-    """
-
-    _THRESHOLD = 3  # block on the 3rd consecutive spike_run w/o edits
-
-    _FILE_MODIFYING_TOOLS = frozenset({
-        "write_file", "edit_file", "move_file", "delete_file",
-        "batch_move", "batch_delete", "block_edit",
-    })
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._spike_count = 0
-        self._warned = False
-
-    async def for_run(self, ctx: Any) -> "PostEditVerificationGuardrail":
-        return PostEditVerificationGuardrail()
-
-    async def wrap_tool_execute(
-        self, ctx: Any, *, call: Any, tool_def: Any, args: Any, handler: Any,
-    ) -> Any:
-        # Reset counter on any file-modifying operation.
-        if call.tool_name in self._FILE_MODIFYING_TOOLS:
-            self._spike_count = 0
-            self._warned = False
-            return await handler(args)
-
-        if call.tool_name != "spike_run":
-            return await handler(args)
-
-        self._spike_count += 1
-
-        if self._warned:
-            raise ModelRetry(
-                f"You have made {self._spike_count} consecutive spike_run "
-                f"calls without any edits since your last change. Your "
-                f"implementation is complete — return your ImplementOutput "
-                f"now. Do not call spike_run again."
-            )
-
-        if self._spike_count >= self._THRESHOLD:
-            self._warned = True
-            return (
-                f"Warning: {self._spike_count} consecutive spike_run "
-                f"verification calls without any intervening edits. "
-                f"Your implementation has been verified. Return your "
-                f"ImplementOutput now — do not call spike_run again."
-            )
-
-        return await handler(args)
-
-
-# httpx defaults read/write/pool to None (infinite). Without these, a silently
-# dropped OpenRouter request will hang the agent indefinitely instead of
-# surfacing as a retryable error.
-_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=10.0)
-_MAX_RETRIES = 3
-
-
-async def _capture_openrouter_cost(response: httpx.Response) -> None:
-    try:
-        await response.aread()
-        data = response.json()
-
-        usage = data.get("usage") or {}
-        cost = usage.get("cost")
-        if cost is None:
-            model_extra = usage.get("model_extra") or {}
-            cost = model_extra.get("cost")
-        if cost is None:
-            cost = data.get("cost")
-
-        if cost is not None:
-            from langfuse import get_client
-
-            get_client().update_current_generation(cost_details={"total": float(cost)})
-    except Exception:
-        pass
 
 
 @lru_cache(maxsize=None)
@@ -1795,19 +1134,21 @@ def _resolve_subagents(config: dict) -> list[dict[str, Any]]:
 
 
 def _default_capabilities() -> list[AbstractCapability]:
+    """Minimal, load-bearing capability stack.
+
+    Intentionally small: each guardrail above this set was deleted on
+    2026-05-04 after they accumulated to the point of causing more
+    crashes than they prevented (MicroStepGuard breaking the
+    pydantic-ai message-history invariant, ConsecutiveFailureGuardrail
+    not catching the dominant validation-retry failure mode, two
+    overlapping grep guardrails, etc.). Add a new capability only when
+    a concrete reproducible failure cannot be addressed at the prompt
+    layer or in pydantic-ai itself.
+    """
     return [
         EditFileGuardrailAsRetry(),
-        WriteFileGuardrailAsRetry(),
-        UnknownToolRetry(),
-        GrepExtraParamFilter(),
         GlobPatternSanitizer(),
         ToolErrorAsRetry(),
-        ModelRequestErrorAsRetry(),
-        GrepGuardrailAsRetry(),
-        PostEditVerificationGuardrail(),
-        ConsecutiveFailureGuardrail(),
-        MicroReadGuardCapability(),
-        MicroStepGuardCapability(),
         HistoryCompactorCapability(),
     ]
 
@@ -1842,20 +1183,13 @@ def build_deep_agent(
     # produce a response that doesn't match the schema, and trigger output-
     # validation retries.
     #
-    # Skip provider backends with known transient failures:
-    #
-    # * DeepSeek — pay-per-use upstream account out of credit
-    #   ("Insufficient Balance" 402, ~2026-05-03 19:36 UTC).
-    # * SiliconFlow — rejects pydantic-ai's reconstructed message
-    #   history with HTTP 400 "The `reasoning_content` in the thinking
-    #   mode must be passed back to the API." pydantic-ai does not
-    #   preserve `reasoning_content` between turns, so SiliconFlow
-    #   fails on every multi-turn run (~2026-05-04 00:27 UTC, run
-    #   25294657313 / issue #1666).
-    #
-    # Other providers (DeepInfra, Novita, Fireworks, …) route fine.
-    # Remove each entry from the ignore list once the provider issue
-    # is resolved upstream.
+    # SiliconFlow is permanently skipped: it rejects pydantic-ai's
+    # reconstructed message history with HTTP 400 "The `reasoning_content`
+    # in the thinking mode must be passed back to the API." pydantic-ai
+    # does not preserve `reasoning_content` between turns, so any
+    # multi-turn run routed there fails (run 25294657313 / issue #1666,
+    # 2026-05-04 00:27 UTC). Remove once pydantic-ai preserves
+    # reasoning_content or SiliconFlow stops requiring it.
     settings = settings or {}
     existing_extra_body = settings.get("extra_body") or {}
     existing_provider = (existing_extra_body.get("provider") if isinstance(existing_extra_body, dict) else None) or {}
@@ -1863,7 +1197,7 @@ def build_deep_agent(
         **existing_extra_body,
         "provider": {
             "require_parameters": True,
-            "ignore": ["DeepSeek", "SiliconFlow"],
+            "ignore": ["SiliconFlow"],
             **existing_provider,
         },
     }
@@ -1947,7 +1281,7 @@ def load_agent_from_md(
         **existing_extra_body,
         "provider": {
             "require_parameters": True,
-            "ignore": ["DeepSeek", "SiliconFlow"],
+            "ignore": ["SiliconFlow"],
             **existing_provider,
         },
     }
