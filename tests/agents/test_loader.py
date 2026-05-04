@@ -9,6 +9,8 @@ from pydantic_ai.models import ModelRequestContext
 
 from cai.agents.loader import (
 
+    TOOL_FACTORIES,
+    TOOL_FLAGS,
     EditFileGuardrailAsRetry,
     GlobPatternSanitizer,
 
@@ -3271,4 +3273,110 @@ def test_history_compactor_grep_non_modifying_tools_preserve_short_circuit():
     assert not handler_called
     assert "Warning: grep" in result
     assert "already read in full" in result
+
+
+# ---------------------------------------------------------------------------
+# skills: / commands: frontmatter split (issue #1804)
+# ---------------------------------------------------------------------------
+
+# Agents whose tools: frontmatter key was split into skills: and commands:.
+# TOOL_FLAGS entries (filesystem_read, subagents, web_search, web_fetch)
+# moved to skills:; TOOL_FACTORIES entries (raise_issue, spike_run) moved
+# to commands:.
+_SPLIT_AGENTS_SKILLS: dict[str, list[str]] = {
+    "architecture_auditor": ["filesystem_read", "subagents"],
+    "audit": ["subagents"],
+    "duplication_auditor": ["filesystem_read"],
+    "security_auditor": ["filesystem_read", "subagents"],
+    "sourcing": ["web_search", "web_fetch"],
+    "spike": ["filesystem_read"],
+}
+
+_SPLIT_AGENTS_COMMANDS: dict[str, list[str]] = {
+    "architecture_auditor": ["raise_issue"],
+    "audit": ["raise_issue"],
+    "duplication_auditor": ["raise_issue"],
+    "security_auditor": ["raise_issue"],
+    "sourcing": ["raise_issue"],
+    "spike": ["spike_run", "raise_issue"],
+}
+
+
+@pytest.mark.parametrize(
+    "agent_name,expected_skills",
+    list(_SPLIT_AGENTS_SKILLS.items()),
+    ids=_SPLIT_AGENTS_SKILLS.keys(),
+)
+def test_split_agent_skills_list(agent_name, expected_skills):
+    """Each split agent has a skills: list containing the correct
+    TOOL_FLAGS entries, in their original order."""
+    path = resolve_agent_path(agent_name)
+    config, _ = parse_agent_md(path)
+    actual = config.get("skills", [])
+    assert actual == expected_skills, (
+        f"Agent {agent_name}: expected skills={expected_skills}, got {actual}"
+    )
+
+
+@pytest.mark.parametrize(
+    "agent_name,expected_commands",
+    list(_SPLIT_AGENTS_COMMANDS.items()),
+    ids=_SPLIT_AGENTS_COMMANDS.keys(),
+)
+def test_split_agent_commands_list(agent_name, expected_commands):
+    """Each split agent has a commands: list containing the correct
+    TOOL_FACTORIES entries, in their original order."""
+    path = resolve_agent_path(agent_name)
+    config, _ = parse_agent_md(path)
+    actual = config.get("commands", [])
+    assert actual == expected_commands, (
+        f"Agent {agent_name}: expected commands={expected_commands}, got {actual}"
+    )
+
+
+@pytest.mark.parametrize(
+    "agent_name",
+    list(_SPLIT_AGENTS_SKILLS.keys()),
+    ids=_SPLIT_AGENTS_SKILLS.keys(),
+)
+def test_split_agent_no_deprecated_tools_key(agent_name):
+    """The old tools: frontmatter key is removed from split agents."""
+    path = resolve_agent_path(agent_name)
+    # Check the raw YAML frontmatter, not the synthesized config — parse_agent_md
+    # now synthesizes ``tools`` from ``skills`` + ``commands`` for backward
+    # compatibility, but the on-disk file must not carry a ``tools:`` key.
+    raw = path.read_text()
+    # Extract the frontmatter between the --- delimiters
+    parts = raw.split("---", 2)
+    assert "tools:" not in parts[1], (
+        f"Agent {agent_name} still has a 'tools:' frontmatter key; "
+        f"it should be split into 'skills:' and 'commands:'."
+    )
+
+
+def test_all_split_entries_classified_correctly():
+    """Every entry in a split agent's skills: maps to a TOOL_FLAGS key,
+    and every entry in commands: maps to a TOOL_FACTORIES key."""
+    for agent_name in _SPLIT_AGENTS_SKILLS:
+        path = resolve_agent_path(agent_name)
+        config, _ = parse_agent_md(path)
+        for skill in config.get("skills", []):
+            assert skill in TOOL_FLAGS, (
+                f"Agent {agent_name}: '{skill}' in skills: is not a known TOOL_FLAGS entry"
+            )
+        for cmd in config.get("commands", []):
+            assert cmd in TOOL_FACTORIES, (
+                f"Agent {agent_name}: '{cmd}' in commands: is not a known TOOL_FACTORIES entry"
+            )
+
+
+def test_split_agents_total_count():
+    """The total number of entries across all 6 split agents
+    matches the pre-split count (no entries added or removed)."""
+    total_skills = sum(len(s) for s in _SPLIT_AGENTS_SKILLS.values())
+    total_commands = sum(len(c) for c in _SPLIT_AGENTS_COMMANDS.values())
+    assert total_skills + total_commands == 16, (
+        f"Expected 16 total entries (skills={total_skills} + commands={total_commands}), "
+        f"but the count is off — entries may have been added or removed."
+    )
 

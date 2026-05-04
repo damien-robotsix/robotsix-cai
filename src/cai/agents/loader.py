@@ -799,6 +799,14 @@ def parse_agent_md(path: str | Path) -> tuple[dict, str]:
     frontmatter = "\n".join(lines[1:close_idx])
     body = "\n".join(lines[close_idx + 1:])
     config = yaml.safe_load(frontmatter) or {}
+    # Synthesize ``tools`` from split ``skills:`` / ``commands:`` keys
+    # so that downstream callers see a single unified list.  If the agent
+    # still uses the legacy ``tools:`` key, leave it untouched.
+    if "tools" not in config:
+        skills = config.get("skills") or []
+        commands = config.get("commands") or []
+        if skills or commands:
+            config["tools"] = skills + commands
     if "name" not in config:
         raise ValueError(f"{path}: frontmatter missing required 'name' field")
     return config, body.strip()

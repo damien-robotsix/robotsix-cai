@@ -2,8 +2,9 @@
 name: audit
 description: Analyzes pre-fetched Langfuse trace context to identify workflow inefficiencies, failure patterns, and cost drivers, then proposes concrete improvements.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - subagents
+commands:
   - raise_issue
 subagents:
   - trace_analyst

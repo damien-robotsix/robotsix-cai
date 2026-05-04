@@ -2,8 +2,9 @@
 name: spike
 description: Runs a short throwaway python script to verify ONE runtime fact about installed code — a function's actual return shape, an import path, an exception's class, a library's observable behaviour. Use only when the answer requires actually executing code, not when it can be read off the source. Has read access to the repo's working tree and can `pip_install` packages on demand. Returns the script's observed stdout/stderr. Cannot modify repo files.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem_read
+commands:
   - spike_run
   - raise_issue
 ---

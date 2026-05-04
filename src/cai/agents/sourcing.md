@@ -2,9 +2,10 @@
 name: sourcing
 description: Monthly scans the open-source ecosystem for transferable tools, libraries, and frameworks that could be adopted by this project.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - web_search
   - web_fetch
+commands:
   - raise_issue
 subagents:
   - issue_deduplicator

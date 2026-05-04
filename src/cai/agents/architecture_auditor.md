@@ -2,9 +2,10 @@
 name: architecture_auditor
 description: Examines repository structure for refactoring opportunities and proposes GitHub issues for improvements worth making.
 model: deepseek/deepseek-v4-pro
-tools:
+skills:
   - filesystem_read
   - subagents
+commands:
   - raise_issue
 subagents:
   - explore
