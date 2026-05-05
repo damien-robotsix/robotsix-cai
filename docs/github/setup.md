@@ -34,18 +34,14 @@ if you want the App owned by an org).
 | Issues | Read & write | Open issues + manage labels/milestones (sub-resources of issues) |
 | Metadata | Read | Mandatory; auto-selected |
 
-Leave everything else unset.
+### Organization permissions
 
-> **ProjectsV2 permission is intentionally absent.** GitHub Apps installed on a
-> personal user account cannot access user-owned ProjectsV2 — there is no
-> usable App permission for it. The Repository "Projects" permission only
-> covers the deprecated *classic* projects. The Organization "Projects"
-> permission only applies to org-installed Apps.
->
-> Project access is configured separately, via a fine-grained Personal Access
-> Token (PAT) — see "Configure GitHub Projects integration" in `install.sh`.
-> The PAT is used **only** for ProjectsV2 GraphQL calls; everything else
-> (issues, PRs, commits) stays on App auth.
+| Permission | Access | Why |
+|---|---|---|
+| Members | Read | Org-wide read scope |
+| Projects | Read & write | Read the `Type` field on Project items so `cai-solve` can route analysis issues to the comment flow instead of the code-change flow |
+
+Leave everything else unset.
 
 ## 3. Installation scope
 

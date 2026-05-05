@@ -52,15 +52,6 @@ class CaiBot:
         self.project_number: int | None = int(project_number) if project_number else None
         self.project_owner_type: str = env.get("PROJECT_OWNER_TYPE") or "user"
         self.project_default_repo: str | None = env.get("PROJECT_DEFAULT_REPO") or None
-        # Fine-grained PAT for ProjectsV2 calls. GitHub Apps installed on
-        # personal user accounts cannot access user-owned ProjectsV2 via
-        # App auth (no `projects` permission exists at user-install level
-        # — only `repository_projects`, which is classic projects).
-        # Workaround: a PAT scoped to "Projects: Read and write" on the
-        # account that owns the project. When set, all ProjectsV2 GraphQL
-        # calls use it; everything else (issues, PRs, commits) keeps
-        # using the App.
-        self.project_pat: str | None = env.get("PROJECT_PAT") or None
 
     def verify(self) -> dict:
         """Validate credentials by fetching App metadata. Raises on failure."""

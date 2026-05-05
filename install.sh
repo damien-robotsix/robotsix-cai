@@ -205,15 +205,10 @@ case "$SETUP_BOT" in
     echo "      Issues:                   Read & write"
     echo "      Issue fields:             Read & write  (required for sub-issue linking)"
     echo "      Workflows:                Read & write  (required to push changes under .github/workflows)"
+    echo "    Organization permissions:"
+    echo "      Members:                  Read"
+    echo "      Projects:                 Read & write  (required for project-aware solve routing — Type field)"
     echo "    Where can it be installed:  Only on this account"
-    echo
-    echo "  Note on Projects (v2): GitHub Apps installed on a personal user"
-    echo "  account CANNOT access user-owned ProjectsV2 — there is no usable"
-    echo "  permission for it (the Repository 'Projects' permission only covers"
-    echo "  the deprecated classic projects). The Organization 'Projects'"
-    echo "  permission is irrelevant for user-account installs."
-    echo "  Project access is configured separately, via a fine-grained PAT,"
-    echo "  in the 'Configure GitHub Projects integration' step below."
     echo
     prompt _CONFIRM "Press Enter once the App is created"
 
@@ -309,23 +304,12 @@ case "$SETUP_PROJECT" in
     done
     prompt PROJECT_DEFAULT_REPO "Default repo for promoted tickets (owner/repo)"
 
-    echo
-    echo "  Generate a fine-grained PAT for ProjectsV2 access:"
-    echo "    https://github.com/settings/personal-access-tokens/new"
-    echo "    Resource owner:        $PROJECT_OWNER"
-    echo "    Account permissions -> Projects: Read and write"
-    echo "    (No repository permissions needed — the App handles those.)"
-    echo "    Why: GitHub Apps on personal accounts can't access user-owned"
-    echo "    ProjectsV2 by App auth alone. The PAT is used ONLY for"
-    echo "    project-API GraphQL calls; everything else stays on the App."
-    prompt PROJECT_PAT "Paste PAT (github_pat_...)"
-
     $DC exec -T --user cai cai sh -c "
       cd /home/cai/.config/cai &&
       umask 077 &&
-      sed -i '/^PROJECT_OWNER=/d;/^PROJECT_NUMBER=/d;/^PROJECT_OWNER_TYPE=/d;/^PROJECT_DEFAULT_REPO=/d;/^PROJECT_PAT=/d' app.env &&
-      printf 'PROJECT_OWNER=%s\nPROJECT_NUMBER=%s\nPROJECT_OWNER_TYPE=%s\nPROJECT_DEFAULT_REPO=%s\nPROJECT_PAT=%s\n' \
-        '$PROJECT_OWNER' '$PROJECT_NUMBER' '$PROJECT_OWNER_TYPE' '$PROJECT_DEFAULT_REPO' '$PROJECT_PAT' >> app.env
+      sed -i '/^PROJECT_OWNER=/d;/^PROJECT_NUMBER=/d;/^PROJECT_OWNER_TYPE=/d;/^PROJECT_DEFAULT_REPO=/d' app.env &&
+      printf 'PROJECT_OWNER=%s\nPROJECT_NUMBER=%s\nPROJECT_OWNER_TYPE=%s\nPROJECT_DEFAULT_REPO=%s\n' \
+        '$PROJECT_OWNER' '$PROJECT_NUMBER' '$PROJECT_OWNER_TYPE' '$PROJECT_DEFAULT_REPO' >> app.env
     "
     echo "  Validating project access..."
     if $DC exec --user cai cai python -c "
@@ -338,7 +322,7 @@ print(f'        Status options: {sorted(meta.field_options.get(\"Status\", {}))}
 "; then
       :
     else
-      echo "  FAILED: could not resolve the project. Check owner/number/owner_type and that the PAT has Projects: read & write on $PROJECT_OWNER."
+      echo "  FAILED: could not resolve the project. Check owner/number/owner_type and that the App has Projects: read & write."
     fi
     ;;
 esac
