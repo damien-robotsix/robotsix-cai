@@ -110,9 +110,18 @@ def _clear_meta_cache() -> None:
 
 
 def _graphql(bot: CaiBot, query: str, variables: dict[str, Any]) -> dict[str, Any]:
-    """POST a GraphQL query/mutation. Returns the ``data`` dict, raising on any error."""
-    repo_for_token = bot.project_default_repo or f"{bot.project_owner}/{bot.project_owner}"
-    token = bot.token_for(repo_for_token)
+    """POST a GraphQL query/mutation. Returns the ``data`` dict, raising on any error.
+
+    Uses the configured ``PROJECT_PAT`` when present (required for user-owned
+    ProjectsV2, which App auth cannot reach). Falls back to the App's
+    installation token otherwise — fine for repo-scoped queries and for
+    org-owned projects where the App has the right permission.
+    """
+    if bot.project_pat:
+        token = bot.project_pat
+    else:
+        repo_for_token = bot.project_default_repo or f"{bot.project_owner}/{bot.project_owner}"
+        token = bot.token_for(repo_for_token)
     resp = requests.post(
         "https://api.github.com/graphql",
         json={"query": query, "variables": variables},
@@ -250,7 +259,10 @@ def get_issue_type(bot: CaiBot, repo: str, number: int) -> str | None:
     owner, _, name = repo.partition("/")
     if not owner or not name:
         raise ValueError(f"expected owner/repo, got {repo!r}")
-    token = bot.token_for(repo)
+    # Project info is invisible to App auth on user-owned projects — use
+    # PROJECT_PAT when set, otherwise fall back to the install token
+    # (which still works for org-owned projects with App permission).
+    token = bot.project_pat or bot.token_for(repo)
     resp = requests.post(
         "https://api.github.com/graphql",
         json={

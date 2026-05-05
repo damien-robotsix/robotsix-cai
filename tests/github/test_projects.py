@@ -31,6 +31,15 @@ def _project_bot(owner_type: str = "user") -> Mock:
     bot.project_number = 7
     bot.project_owner_type = owner_type
     bot.project_default_repo = "damien-robotsix/robotsix-cai"
+    bot.project_pat = None
+    bot.token_for.return_value = "tok"
+    return bot
+
+
+def _bot():
+    """Plain bot (no project config) — for legacy get_issue_type tests."""
+    bot = Mock()
+    bot.project_pat = None
     bot.token_for.return_value = "tok"
     return bot
 
@@ -46,12 +55,6 @@ def _gql_response(items_with_field_values):
             }
         }
     }
-
-
-def _bot():
-    bot = Mock()
-    bot.token_for.return_value = "tok"
-    return bot
 
 
 def test_returns_type_value_when_field_present():
@@ -283,6 +286,36 @@ class TestResolveProjectMeta:
         with patch("cai.github.projects.requests.post", return_value=mock_resp):
             with pytest.raises(RuntimeError, match="Project not found"):
                 projects_mod._resolve_project_meta(bot)
+
+    def test_uses_project_pat_when_set(self):
+        bot = _project_bot()
+        bot.project_pat = "ghp_test_pat"
+        mock_resp = Mock(status_code=200)
+        mock_resp.json.return_value = _resolve_payload()
+        mock_resp.raise_for_status = Mock()
+
+        with patch("cai.github.projects.requests.post", return_value=mock_resp) as mock_post:
+            projects_mod._resolve_project_meta(bot)
+
+        # The PAT should be the bearer, not the installation token.
+        sent_auth = mock_post.call_args.kwargs["headers"]["Authorization"]
+        assert sent_auth == "Bearer ghp_test_pat"
+        # token_for must NOT have been called.
+        bot.token_for.assert_not_called()
+
+    def test_falls_back_to_install_token_without_pat(self):
+        bot = _project_bot()
+        bot.project_pat = None
+        mock_resp = Mock(status_code=200)
+        mock_resp.json.return_value = _resolve_payload()
+        mock_resp.raise_for_status = Mock()
+
+        with patch("cai.github.projects.requests.post", return_value=mock_resp) as mock_post:
+            projects_mod._resolve_project_meta(bot)
+
+        sent_auth = mock_post.call_args.kwargs["headers"]["Authorization"]
+        assert sent_auth == "Bearer tok"  # the install token from token_for
+        bot.token_for.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
