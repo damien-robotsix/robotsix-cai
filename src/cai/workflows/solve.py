@@ -49,12 +49,13 @@ def main() -> None:
         )
     else:
         workspace = prepare_workspace(bot, repo, number)
-        new_meta, pr_url = solve_issue(bot, workspace)
+        new_meta, pr_url, comment_url = solve_issue(bot, workspace)
         json.dump(
             {
                 "mode": "issue",
                 "meta": new_meta.model_dump(),
                 "pr_url": pr_url,
+                "comment_url": comment_url,
             },
             sys.stdout,
             indent=2,

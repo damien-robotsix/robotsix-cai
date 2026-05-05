@@ -10,6 +10,7 @@ from cai.agents.loader import build_deep_agent, parse_agent_md, resolve_agent_pa
 from cai.github.issues import IssueMeta, add_sub_issue, push
 from cai.log.observability import traced_agent_run
 from cai.workflows._deps import repo_deps
+from cai.workflows.comment import CommentNode
 from cai.workflows.implement import ImplementNode
 from cai.workflows.state import IssueState, RefineOutput
 
@@ -21,7 +22,9 @@ def refine_agent() -> Any:
 
 
 class RefineNode(BaseNode[IssueState]):
-    async def run(self, ctx: GraphRunContext[IssueState]) -> ImplementNode | End[IssueMeta]:
+    async def run(
+        self, ctx: GraphRunContext[IssueState]
+    ) -> ImplementNode | CommentNode | End[IssueMeta]:
         state = ctx.state
         assert state.findings is not None
 
@@ -90,5 +93,8 @@ class RefineNode(BaseNode[IssueState]):
 
         if out.sub_issues:
             return End(new_meta)
+
+        if state.flow_kind == "analysis":
+            return CommentNode()
 
         return ImplementNode()

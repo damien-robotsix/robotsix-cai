@@ -45,6 +45,13 @@ class CaiBot:
         self._install_map: dict[str, int] = self._read_json(self._install_map_path) or {}
         self._clients: dict[int, Github] = {}
         self._lock = Lock()
+        # Optional project config — when set, agents file tickets on this
+        # Project (v2) instead of opening repo issues. See cai/github/projects.py.
+        self.project_owner: str | None = env.get("PROJECT_OWNER") or None
+        project_number = env.get("PROJECT_NUMBER")
+        self.project_number: int | None = int(project_number) if project_number else None
+        self.project_owner_type: str = env.get("PROJECT_OWNER_TYPE") or "user"
+        self.project_default_repo: str | None = env.get("PROJECT_DEFAULT_REPO") or None
 
     def verify(self) -> dict:
         """Validate credentials by fetching App metadata. Raises on failure."""

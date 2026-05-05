@@ -39,7 +39,7 @@ if you want the App owned by an org).
 | Permission | Access | Why |
 |---|---|---|
 | Members | Read | Org-wide read scope |
-| Projects | Read & write | Manage Projects (v2) |
+| Projects | Read & write | Read the `Type` field on Project items so `cai-solve` can route analysis issues to the comment flow instead of the code-change flow |
 
 Leave everything else unset.
 

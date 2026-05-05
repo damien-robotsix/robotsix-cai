@@ -3,7 +3,7 @@
 Triggered by a ``workflow_run`` event when the CI workflow completes.
 Fetches failed job logs from the GitHub Actions API, hands them to a
 triage agent that inspects relevant code and identifies the root cause,
-then calls ``raise_issue`` to file a ``cai:raised`` issue with findings.
+then calls ``raise_ticket`` to file a ``Ready`` ticket with findings.
 """
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class FetchAndTriageNode(BaseNode[CiTriageState, None, None]):
 
             prompt = "".join(prompt_parts)
 
-            # Run the triage agent — it calls raise_issue to file findings
+            # Run the triage agent — it calls raise_ticket to file findings
             await _ci_triage_agent().run(prompt)
 
         return End(None)

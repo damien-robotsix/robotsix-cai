@@ -5,7 +5,7 @@ model: deepseek/deepseek-v4-pro
 tools:
   - filesystem_read
   - subagents
-  - raise_issue
+  - raise_ticket
 subagents:
   - explore
 ---

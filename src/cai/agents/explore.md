@@ -9,7 +9,7 @@ tools:
   - git_blame
   - git_show
   - block_overview
-  - raise_issue
+  - raise_ticket
 common: [anti_hallucination_guard]
 ---
 

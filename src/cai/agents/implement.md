@@ -10,7 +10,7 @@ tools:
   - batch_delete
   - web_search
   - web_fetch
-  - raise_issue
+  - raise_ticket
   - spike_run
   - block_edit
 common: [anti_hallucination_guard, antipattern_examples]

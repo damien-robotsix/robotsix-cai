@@ -941,10 +941,10 @@ def test_antipattern_examples_absent_from_explore():
 
 
 # ---------------------------------------------------------------------------
-# raise_issue tool in agent frontmatter
+# raise_ticket tool in agent frontmatter
 # ---------------------------------------------------------------------------
 
-PRO_MODEL_AGENTS_WITH_RAISE_ISSUE = [
+PRO_MODEL_AGENTS_WITH_RAISE_TICKET = [
     "spike",
     "duplication_auditor",
     "audit",
@@ -957,11 +957,11 @@ PRO_MODEL_AGENTS_WITH_RAISE_ISSUE = [
     "explore",
 ]
 
-# Pro-model agents that intentionally do NOT have raise_issue: they are
+# Pro-model agents that intentionally do NOT have raise_ticket: they are
 # reviewers that fix in place or return structured output, and have a
 # history of filing spurious "no issues found" / "no docs changes
-# needed" GitHub issues when given the tool (#1740, #1763).
-REVIEW_AGENTS_NO_RAISE_ISSUE = [
+# needed" reports when given the tool (#1740, #1763).
+REVIEW_AGENTS_NO_RAISE_TICKET = [
     "docs",
     "python_review",
 ]
@@ -977,32 +977,37 @@ FLASH_MODEL_AGENTS = [
 ]
 
 
-@pytest.mark.parametrize("agent_name", PRO_MODEL_AGENTS_WITH_RAISE_ISSUE)
-def test_pro_model_agent_has_raise_issue_tool(agent_name: str):
-    """Every pro-model agent that's expected to file blockers as issues
-    should list ``raise_issue`` in its YAML frontmatter ``tools`` list."""
+@pytest.mark.parametrize("agent_name", PRO_MODEL_AGENTS_WITH_RAISE_TICKET)
+def test_pro_model_agent_has_raise_ticket_tool(agent_name: str):
+    """Every pro-model agent that's expected to file blockers as tickets
+    should list ``raise_ticket`` in its YAML frontmatter ``tools`` list."""
     path = resolve_agent_path(agent_name)
     config, _ = parse_agent_md(path)
     tools = config.get("tools", [])
-    assert "raise_issue" in tools, (
+    assert "raise_ticket" in tools, (
         f"{agent_name}.md is a pro-model blocker-filing agent but its "
-        f"frontmatter tools list does not include 'raise_issue'. "
+        f"frontmatter tools list does not include 'raise_ticket'. "
         f"Found: {tools}"
+    )
+    # The legacy tool name must not linger.
+    assert "raise_issue" not in tools, (
+        f"{agent_name}.md still references the legacy 'raise_issue' tool. "
+        f"Replace with 'raise_ticket'."
     )
 
 
-@pytest.mark.parametrize("agent_name", REVIEW_AGENTS_NO_RAISE_ISSUE)
-def test_review_agent_does_not_have_raise_issue(agent_name: str):
+@pytest.mark.parametrize("agent_name", REVIEW_AGENTS_NO_RAISE_TICKET)
+def test_review_agent_does_not_have_raise_ticket(agent_name: str):
     """Review-style agents (docs, python_review) must not have
-    raise_issue: their job is to fix in place or return structured
-    output, not to file GitHub issues — empirically they file
-    spurious 'no issues found' reports when given the tool."""
+    raise_ticket: their job is to fix in place or return structured
+    output, not to file tickets — empirically they file spurious
+    'no issues found' reports when given the tool."""
     path = resolve_agent_path(agent_name)
     config, _ = parse_agent_md(path)
     tools = config.get("tools", [])
-    assert "raise_issue" not in tools, (
+    assert "raise_ticket" not in tools, (
         f"{agent_name}.md is a review agent and must not have "
-        f"'raise_issue' in its tools list: {tools}"
+        f"'raise_ticket' in its tools list: {tools}"
     )
 
 

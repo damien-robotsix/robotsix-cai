@@ -14,7 +14,7 @@ tools:
   - traces_solve_sessions
   - context_manager
   - history_archive
-  - raise_issue
+  - raise_ticket
   - spike_run
 subagents:
   - explore

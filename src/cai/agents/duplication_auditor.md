@@ -4,7 +4,7 @@ description: Reviews jscpd copy-paste findings and proposes GitHub issues for du
 model: deepseek/deepseek-v4-pro
 tools:
   - filesystem_read
-  - raise_issue
+  - raise_ticket
 ---
 
 # Duplication Auditor

@@ -4,7 +4,7 @@ description: Analyzes pre-fetched Langfuse trace context to identify workflow in
 model: deepseek/deepseek-v4-pro
 tools:
   - subagents
-  - raise_issue
+  - raise_ticket
 subagents:
   - trace_analyst
 ---

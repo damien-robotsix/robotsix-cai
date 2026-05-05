@@ -19,6 +19,7 @@ title: solve-pr_graph
 stateDiagram-v2
   ExploreNode --> RefineNode
   RefineNode --> ImplementNode
+  RefineNode --> CommentNode
   RefineNode --> [*]
   ImplementNode --> TestNode
   TestNode --> PythonReviewNode
@@ -36,4 +37,5 @@ stateDiagram-v2
   PrePushValidationNode --> ImplementNode
   PRNode --> MergeEvaluationNode
   MergeEvaluationNode --> [*]
+  CommentNode --> [*]
 ```

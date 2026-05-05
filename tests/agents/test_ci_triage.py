@@ -18,12 +18,14 @@ def test_ci_triage_agent_config():
     desc = config["description"]
     assert "CI" in desc
     assert "failure" in desc.lower()
-    assert "issue" in desc.lower()
+    # Description used to mention 'issue' — now triage files tickets, but
+    # the description may still phrase it as filing an issue/ticket; tolerate either.
+    assert ("issue" in desc.lower()) or ("ticket" in desc.lower())
 
     # Assert expected tools
     tools = config.get("tools", [])
     assert "filesystem_read" in tools
-    assert "raise_issue" in tools
+    assert "raise_ticket" in tools
     assert "web_fetch" in tools
     assert "traces_show" in tools, (
         "ci_triage must list traces_show to investigate prior CAI runs"
@@ -46,7 +48,7 @@ def test_ci_triage_instructions_content():
     assert "Read the provided job logs" in instructions
     assert "Identify the root cause" in instructions
     assert "grep" in instructions
-    assert "raise_issue" in instructions
+    assert "raise_ticket" in instructions
 
 
 def test_ci_triage_trace_tools_instructions():
@@ -80,14 +82,16 @@ def test_ci_triage_no_execute_tools():
     assert "execute" not in instructions.lower() or "Do not execute" in instructions
 
 
-def test_ci_triage_raise_issue_instructions():
-    """The instructions must explain how to call raise_issue."""
+def test_ci_triage_raise_ticket_instructions():
+    """The instructions must explain how to call raise_ticket."""
     path = resolve_agent_path("ci_triage")
     _, instructions = parse_agent_md(path)
 
-    assert "raise_issue" in instructions
-    assert "cai:raised" in instructions
-    assert "labels" in instructions
+    assert "raise_ticket" in instructions
+    # CI triage files tickets at status=Ready so the solve cron auto-picks
+    # them up; assert the lifecycle hook is documented.
+    assert "Ready" in instructions
+    assert "code-change" in instructions
     assert "The failed job and step" in instructions
     assert "The error summary" in instructions
     assert "The root cause analysis" in instructions

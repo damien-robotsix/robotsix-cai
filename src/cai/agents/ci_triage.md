@@ -4,7 +4,7 @@ description: Investigates CI failures by analyzing job logs and filing a cai:rai
 model: deepseek/deepseek-v4-pro
 tools:
   - filesystem_read
-  - raise_issue
+  - raise_ticket
   - web_fetch
   - subagents
   - traces_show
@@ -39,7 +39,8 @@ failed GitHub Actions jobs and determine the root cause.
    errors, reasoning steps), delegate to the `trace_analyst` subagent with the
    specific trace ID. Keep your own context use minimal — do not inline large
    trace outputs.
-6. Call `raise_issue` with `labels=["cai:raised"]` and a structured body that
+6. Call `raise_ticket` with `type="code-change"` and `status="Ready"` (so the
+   solve cron picks it up on the next cycle) and a structured body that
    describes:
    - The failed job and step
    - The error summary (excerpt from logs)
@@ -47,5 +48,5 @@ failed GitHub Actions jobs and determine the root cause.
    - The affected files (with paths)
    - Any relevant context or remediation suggestions
 
-Do not execute code, run tests, or modify files. Your only output is the issue
-you file via `raise_issue`.
+Do not execute code, run tests, or modify files. Your only output is the
+ticket you file via `raise_ticket`.

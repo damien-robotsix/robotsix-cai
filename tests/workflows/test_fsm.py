@@ -80,6 +80,18 @@ class TestModuleIntegrity:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _stub_get_issue_type():
+    """Default every solve_issue test to the code-change flow (no Type field).
+
+    Prevents a real HTTPS call to GitHub's GraphQL endpoint when fsm reads
+    the project Type. Tests that need the analysis branch override this
+    via their own ``patch("cai.workflows.fsm.get_issue_type", ...)``.
+    """
+    with patch("cai.workflows.fsm.get_issue_type", return_value=None) as p:
+        yield p
+
+
 def _build_solve_issue_mocks():
     """Return a dict of patcher start/stop helpers wired to the fsm module."""
     return {
@@ -469,6 +481,109 @@ class TestSolveIssueFailureLabel:
             # Assert: ensure_labels and issue.edit never called
             mock_ensure.assert_not_called()
             mock_set_label.assert_not_called()
+
+
+class TestSolveIssueAnalysisFlow:
+    """Project Type=analysis routes to the comment flow, skipping post-graph labels."""
+
+    def test_analysis_type_sets_flow_kind(self, tmp_path: Path):
+        """When get_issue_type returns 'analysis', state.flow_kind is set accordingly."""
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"],
+            mocks["set_label"],
+            mocks["run"] as mock_run,
+            patch("cai.workflows.fsm.get_issue_type", return_value="analysis"),
+        ):
+            captured_state = None
+
+            async def set_state(*args, **kwargs):
+                nonlocal captured_state
+                captured_state = kwargs["state"]
+                state = kwargs["state"]
+                state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
+                # CommentNode would have set comment_url before End.
+                state.comment_url = "https://github.com/o/r/issues/100#issuecomment-1"
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            from cai.workflows.fsm import solve_issue
+
+            new_meta, pr_url, comment_url = solve_issue(bot, workspace)
+
+            assert captured_state is not None
+            assert captured_state.flow_kind == "analysis"
+            assert pr_url is None
+            assert comment_url == "https://github.com/o/r/issues/100#issuecomment-1"
+
+    def test_analysis_type_skips_post_graph_label_edit(self, tmp_path: Path):
+        """For analysis flow, fsm does NOT touch labels — CommentNode owns that."""
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"] as mock_ensure,
+            mocks["set_label"] as mock_set_label,
+            mocks["run"] as mock_run,
+            patch("cai.workflows.fsm.get_issue_type", return_value="analysis"),
+        ):
+            async def set_state(*args, **kwargs):
+                state = kwargs["state"]
+                state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
+                state.comment_url = "https://example/c"
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            from cai.workflows.fsm import solve_issue
+
+            solve_issue(bot, workspace)
+
+            # No post-graph ensure_labels / set_label / issue.edit from fsm.
+            mock_ensure.assert_not_called()
+            mock_set_label.assert_not_called()
+            mock_issue = bot.repo.return_value.get_issue.return_value
+            mock_issue.edit.assert_not_called()
+
+    def test_unknown_type_defaults_to_code_change(self, tmp_path: Path):
+        """An unrecognised Type value (e.g. 'experiment') doesn't activate analysis."""
+        mocks = _build_solve_issue_mocks()
+
+        with (
+            mocks["langfuse"],
+            mocks["ensure"],
+            mocks["set_label"],
+            mocks["run"] as mock_run,
+            patch("cai.workflows.fsm.get_issue_type", return_value="experiment"),
+        ):
+            captured_state = None
+
+            async def set_state(*args, **kwargs):
+                nonlocal captured_state
+                captured_state = kwargs["state"]
+                state = kwargs["state"]
+                state.pr_number = 1
+                state.pr_url = "https://github.com/o/r/pull/1"
+                state.new_meta = IssueMeta(repo="o/r", number=99, title="t")
+                state.auto_merge_enabled = False
+
+            mock_run.side_effect = set_state
+
+            bot = _mock_bot()
+            workspace = _workspace_issue_files(tmp_path)
+
+            from cai.workflows.fsm import solve_issue
+
+            solve_issue(bot, workspace)
+
+            assert captured_state.flow_kind == "code-change"
 
 
 # ---------------------------------------------------------------------------

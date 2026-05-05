@@ -50,7 +50,7 @@ def test_main_ensure_labels_called(mock_caibot_class, mock_ensure_labels, mock_d
     assert args[0] == mock_bot
     assert args[1] == "owner/repo"
     labels_passed = args[2]
-    assert len(labels_passed) == 8
+    assert len(labels_passed) == 9
     assert labels_passed[0].name == "cai:raised"
     assert labels_passed[1].name == "cai:audit"
     assert labels_passed[2].name == "cai:pr-ready"
@@ -59,3 +59,4 @@ def test_main_ensure_labels_called(mock_caibot_class, mock_ensure_labels, mock_d
     assert labels_passed[5].name == "cai:sub-issue"
     assert labels_passed[6].name == "cai:trace-investigation"
     assert labels_passed[7].name == "cai:agent-raised"
+    assert labels_passed[8].name == "cai:resolved"

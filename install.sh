@@ -207,7 +207,7 @@ case "$SETUP_BOT" in
     echo "      Workflows:                Read & write  (required to push changes under .github/workflows)"
     echo "    Organization permissions:"
     echo "      Members:                  Read"
-    echo "      Projects:                 Read & write"
+    echo "      Projects:                 Read & write  (required for project-aware solve routing — Type field)"
     echo "    Where can it be installed:  Only on this account"
     echo
     prompt _CONFIRM "Press Enter once the App is created"
@@ -269,6 +269,60 @@ print(f'  OK: authenticated as App {info[\"name\"]!r} (slug={info[\"slug\"]}, id
       echo "  For other repos, clone them and run 'cai-app-init' inside."
     else
       echo "  FAILED. Confirm the App is installed on damien-robotsix/robotsix-cai."
+    fi
+    ;;
+esac
+
+echo
+echo "Configure GitHub Projects integration? (Optional)"
+echo "  Lets cai file work as draft tickets on a Project (v2) instead of"
+echo "  opening repo issues. Lifecycle:"
+echo "    Backlog ─(refine)─▶ Refined ─(user)─▶ Ready ─▶ In Progress"
+echo "                                                 ─▶ In Review ─(merge)─▶ Done"
+echo "  Required Project schema (single-select fields):"
+echo "    Type:         code-change, analysis"
+echo "    Status:       Backlog, Refined, Ready, In Progress, In Review, Done"
+echo "  Optional flag fields (each with a single 'Yes' option):"
+echo "    Approved:     user sets in 'In Review' to authorise auto-merge"
+echo "    Needs Rebase: cai sets when PR has conflicts; rebase cron clears"
+
+if $DC exec -T --user cai cai grep -q '^PROJECT_NUMBER=' /home/cai/.config/cai/app.env 2>/dev/null; then
+  echo "  Existing project config found in app.env."
+  prompt SETUP_PROJECT "Reconfigure? [y/N]" "n"
+else
+  prompt SETUP_PROJECT "Configure now? [y/N]" "n"
+fi
+
+case "$SETUP_PROJECT" in
+  y|Y|yes|YES)
+    prompt PROJECT_OWNER       "Project owner login (e.g. damien-robotsix)"
+    prompt PROJECT_OWNER_TYPE  "Owner type [user/organization]" "user"
+    while :; do
+      prompt PROJECT_NUMBER "Project number (numeric, in the project URL)"
+      [[ "$PROJECT_NUMBER" =~ ^[0-9]+$ ]] && break
+      echo "  Project number must be numeric."
+    done
+    prompt PROJECT_DEFAULT_REPO "Default repo for promoted tickets (owner/repo)"
+
+    $DC exec -T --user cai cai sh -c "
+      cd /home/cai/.config/cai &&
+      umask 077 &&
+      sed -i '/^PROJECT_OWNER=/d;/^PROJECT_NUMBER=/d;/^PROJECT_OWNER_TYPE=/d;/^PROJECT_DEFAULT_REPO=/d' app.env &&
+      printf 'PROJECT_OWNER=%s\nPROJECT_NUMBER=%s\nPROJECT_OWNER_TYPE=%s\nPROJECT_DEFAULT_REPO=%s\n' \
+        '$PROJECT_OWNER' '$PROJECT_NUMBER' '$PROJECT_OWNER_TYPE' '$PROJECT_DEFAULT_REPO' >> app.env
+    "
+    echo "  Validating project access..."
+    if $DC exec --user cai cai python -c "
+from cai import CaiBot
+from cai.github.projects import _resolve_project_meta
+meta = _resolve_project_meta(CaiBot())
+print(f'  OK: project resolved (id={meta.project_id})')
+print(f'        Type options: {sorted(meta.field_options.get(\"Type\", {}))}')
+print(f'        Status options: {sorted(meta.field_options.get(\"Status\", {}))}')
+"; then
+      :
+    else
+      echo "  FAILED: could not resolve the project. Check owner/number/owner_type and that the App has Projects: read & write."
     fi
     ;;
 esac

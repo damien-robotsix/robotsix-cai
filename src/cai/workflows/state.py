@@ -282,6 +282,8 @@ class IssueState:
     prior_corrections: list[ReviewThread] = field(default_factory=list)
     pr_number: int | None = field(default=None)
     session_state: SessionState | None = field(default=None)
+    flow_kind: Literal["code-change", "analysis"] = field(default="code-change")
+    comment_url: str | None = field(default=None)
 
     def reference_files_section(self) -> str:
         """Render ``reference_files`` as a markdown section ready to splice into a prompt.

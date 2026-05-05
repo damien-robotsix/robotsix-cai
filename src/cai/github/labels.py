@@ -46,7 +46,8 @@ CAI_LABEL_SPECS: list[LabelSpec] = [
     LabelSpec(name="cai:human-review", color="1d76db", description="Awaiting human review/merge — CAI is done"),
     LabelSpec(name="cai:sub-issue", color="bfdadc", description="Sub-issue of a parent issue — tracked for parent completion checks"),
     LabelSpec(name="cai:trace-investigation", color="d93f0b", description="Symptom seen in agent traces — confirm by inspecting the listed traces before acting"),
-    LabelSpec(name="cai:agent-raised", color="6f42c1", description="Filed by an agent via raise_issue — review for relevance before acting"),
+    LabelSpec(name="cai:agent-raised", color="6f42c1", description="Filed by an agent via raise_ticket fallback — review for relevance before acting"),
+    LabelSpec(name="cai:resolved", color="0e8a16", description="CAI completed an analysis-only issue with a comment"),
 ]
 
 
